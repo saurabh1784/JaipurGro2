@@ -63,7 +63,12 @@ function getMysqlConnectionUrl() {
 
 function shouldUsePostgres() {
   const databaseUrl = process.env.DATABASE_URL || '';
-  return process.env.DB_CLIENT === 'postgres' || databaseUrl.startsWith('postgres://') || databaseUrl.startsWith('postgresql://');
+  const wantsPostgres = process.env.DB_CLIENT === 'postgres' || process.env.DB_CLIENT === 'postgresql';
+  const hasPostgresUrl = databaseUrl.startsWith('postgres://') || databaseUrl.startsWith('postgresql://');
+  const isRenderRuntime = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL);
+  const hasMysqlConfig = Boolean(getMysqlConnectionUrl() || hasMysqlHostEnv());
+
+  return wantsPostgres || hasPostgresUrl || (isRenderRuntime && !hasMysqlConfig);
 }
 
 function hasMysqlHostEnv() {
@@ -262,7 +267,9 @@ function createPostgresPool() {
   const isRenderRuntime = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL);
 
   if (!connectionString) {
-    throw new Error('Missing PostgreSQL configuration. Set DATABASE_URL or create the Render PostgreSQL database from render.yaml.');
+    throw new Error(
+      'Missing PostgreSQL DATABASE_URL on Render. Set DATABASE_URL to the Internal Database URL from your Render PostgreSQL database, and set DB_CLIENT=postgres.'
+    );
   }
 
   return new PostgresCompatPool({
