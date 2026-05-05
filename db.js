@@ -263,8 +263,11 @@ class PostgresCompatPool {
 }
 
 function createPostgresPool() {
-  const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL;
   const isRenderRuntime = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL);
+  const renderPostgresFallback = isRenderRuntime
+    ? 'postgresql://db_for_jaipur_user:5nk2eySXiJA8gSxd1NsSEm0KknDtaem2@dpg-d7ss7vdckfvc73cnsmk0-a/db_for_jaipur'
+    : '';
+  const connectionString = process.env.DATABASE_URL || process.env.POSTGRES_URL || renderPostgresFallback;
 
   if (!connectionString) {
     throw new Error(
