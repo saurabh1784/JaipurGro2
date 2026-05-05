@@ -1,0 +1,54 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= roleLabel %> Login</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="role-login-page <%= roleSlug === 'Vendor' ? 'vendor-login-page' : 'client-login-page' %>">
+  <main class="role-login-shell">
+    <section class="role-login-card">
+      <a class="role-login-logo" href="/">
+        <span class="grocery-logo-mark">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 8h3l2 11h11l3-8H12"/><circle cx="14" cy="24" r="2"/><circle cx="23" cy="24" r="2"/><path d="M6 13H3M8 17H4M10 21H6"/></svg>
+        </span>
+        <span>GroceriesToGo</span>
+      </a>
+
+      <div class="role-login-heading">
+        <span><%= roleLabel %> Portal</span>
+        <h1><%= roleLabel %> Login</h1>
+        <p><%= roleSlug === 'Vendor' ? 'Manage products, stock, prices, and orders.' : 'View products, orders, wallet, and profile.' %></p>
+      </div>
+
+      <% if (error) { %>
+        <div class="error"><%= error %></div>
+      <% } %>
+
+      <form method="POST" action="<%= loginPath %>">
+        <label for="identifier">Email or Username</label>
+        <input id="identifier" type="text" name="identifier" placeholder="Enter email or phone" required autofocus />
+
+        <label for="password">Password</label>
+        <input id="password" type="password" name="password" placeholder="Enter password" required />
+
+        <button type="submit"><%= roleLabel %> Sign In</button>
+      </form>
+
+      <% if (demoCredentials) { %>
+        <div class="role-demo-credentials">
+          <strong>Demo <%= roleLabel %> Login</strong>
+          <span>Login ID: <code><%= demoCredentials.identifier %></code></span>
+          <span>Password: <code><%= demoCredentials.password %></code></span>
+        </div>
+      <% } %>
+
+      <div class="role-login-links">
+        <a href="/">Back Home</a>
+        <a href="<%= roleSlug === 'Vendor' ? '/login/client' : '/login/vendor' %>"><%= roleSlug === 'Vendor' ? 'Client Login' : 'Vendor Login' %></a>
+      </div>
+    </section>
+  </main>
+</body>
+</html>

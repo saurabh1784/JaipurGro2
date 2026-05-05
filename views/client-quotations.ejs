@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Client Quotations</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Quotations</p>
+        <h1>Vendor Responses</h1>
+      </div>
+    </header>
+
+    <section class="quotation-list">
+      <% if (!quotations.length) { %>
+        <div class="users-table-card quotation-empty">
+          <h2>No responses yet</h2>
+          <p>Vendor quotation responses will appear here.</p>
+        </div>
+      <% } %>
+
+      <% quotations.forEach((quotation) => { %>
+        <article class="users-table-card quotation-card" data-recipient-id="<%= quotation.recipient_id %>">
+          <div class="quotation-card-header">
+            <div>
+              <span class="quotation-id">Quotation #<%= quotation.id %></span>
+              <h2><%= quotation.vendor_name %></h2>
+              <p><%= quotation.vendor_email %></p>
+            </div>
+            <div class="quotation-status">
+              <span><%= quotation.recipient_status %></span>
+              <strong>INR <%= quotation.response_total.toFixed(2) %></strong>
+            </div>
+          </div>
+
+          <div class="quotation-total-grid">
+            <div>
+              <span>Actual Total</span>
+              <strong>INR <%= quotation.actual_total.toFixed(2) %></strong>
+            </div>
+            <div>
+              <span>Vendor Total</span>
+              <strong>INR <%= quotation.response_total.toFixed(2) %></strong>
+            </div>
+            <div>
+              <span>Savings</span>
+              <strong class="<%= quotation.savings >= 0 ? 'saving-positive' : 'saving-negative' %>">INR <%= quotation.savings.toFixed(2) %></strong>
+            </div>
+          </div>
+
+          <table class="wallets-table quotation-items-table">
+            <thead>
+              <tr>
+                <th>Product</th>
+                <th>Qty</th>
+                <th>Price</th>
+                <th>Line Total</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% quotation.items.forEach((item) => { %>
+                <tr>
+                  <td><%= item.product_name %></td>
+                  <td><%= item.quantity %></td>
+                  <td>INR <%= item.unit_price.toFixed(2) %></td>
+                  <td>INR <%= item.line_total.toFixed(2) %></td>
+                </tr>
+              <% }) %>
+            </tbody>
+          </table>
+
+          <% if (quotation.recipient_status === 'submitted') { %>
+            <div class="quotation-actions">
+              <button class="settings-save" type="button" onclick="decideQuotation(<%= quotation.recipient_id %>, 'accept')">Accept</button>
+              <button class="reject-button" type="button" onclick="decideQuotation(<%= quotation.recipient_id %>, 'reject')">Reject</button>
+            </div>
+          <% } %>
+        </article>
+      <% }) %>
+    </section>
+  </main>
+
+  <style>
+    .quotation-list { display: grid; gap: 18px; }
+    .quotation-card, .quotation-empty { padding: 20px; }
+    .quotation-card-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+    .quotation-card-header h2, .quotation-empty h2 { margin: 4px 0; color: #263238; }
+    .quotation-card-header p, .quotation-empty p { margin: 0; color: #64748b; }
+    .quotation-id { color: #1f8f4d; font-weight: 800; font-size: 0.82rem; text-transform: uppercase; }
+    .quotation-status { display: grid; gap: 8px; justify-items: end; }
+    .quotation-status span { padding: 6px 10px; border-radius: 999px; background: #e8f5ee; color: #17643a; font-weight: 800; }
+    .quotation-status strong { color: #263238; }
+    .quotation-items-table { width: 100%; }
+    .quotation-total-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin: 14px 0; }
+    .quotation-total-grid div { padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+    .quotation-total-grid span { display: block; color: #64748b; font-size: 0.8rem; margin-bottom: 4px; }
+    .quotation-total-grid strong { color: #263238; }
+    .saving-positive { color: #059669 !important; }
+    .saving-negative { color: #dc2626 !important; }
+    .quotation-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+    .reject-button { padding: 10px 14px; border: none; border-radius: 6px; background: #fee2e2; color: #991b1b; font-weight: 800; cursor: pointer; }
+    .theme-dark .quotation-card-header h2, .theme-dark .quotation-empty h2, .theme-dark .quotation-status strong { color: #f8fafc; }
+    @media (max-width: 720px) {
+      .quotation-card-header, .quotation-actions { flex-direction: column; align-items: flex-start; }
+      .quotation-total-grid { grid-template-columns: 1fr; }
+      .quotation-status { justify-items: start; }
+    }
+  </style>
+
+  <script>
+    async function decideQuotation(recipientId, decision) {
+      const response = await fetch(`/client/quotations/${recipientId}/${decision}`, { method: 'POST' });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to update quotation');
+        return;
+      }
+      alert(data.message);
+      location.reload();
+    }
+  </script>
+</body>
+</html>

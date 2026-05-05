@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>My Orders</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / My Orders</p>
+        <h1>My Orders</h1>
+      </div>
+    </header>
+
+    <section class="vendor-management-shell">
+      <div class="users-toolbar">
+        <div>
+          <h2>Order History</h2>
+          <p>View all your orders and their current delivery status.</p>
+        </div>
+      </div>
+
+      <div class="users-table-card">
+        <table class="users-table orders-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Date</th>
+              <th>Vendor</th>
+              <th>Total Amount</th>
+              <th>Order Status</th>
+              <th>Delivery Status</th>
+              <th>Delivery Partner</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ordersTableBody">
+            <tr><td colspan="8">Loading orders...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <!-- Order Detail Modal -->
+  <div class="user-modal" id="detailModal" aria-hidden="true">
+    <div class="user-modal-card" style="max-width: 800px;">
+      <div class="user-modal-header">
+        <h2>Order Details</h2>
+        <button type="button" onclick="closeDetailModal()">Close</button>
+      </div>
+      <div id="orderDetailContent">
+        <!-- Populated dynamically -->
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let orders = [];
+
+    async function loadOrders() {
+      try {
+        const res = await fetch('/api/orders/client', {
+          headers: { 'Accept': 'application/json' }
+        });
+        const data = await res.json();
+        if (data.success) {
+          orders = data.orders || [];
+          renderOrders();
+        }
+      } catch (e) { console.error('Failed to load orders', e); }
+    }
+
+    function renderOrders() {
+      const tbody = document.getElementById('ordersTableBody');
+      if (!orders.length) {
+        tbody.innerHTML = '<tr><td colspan="8">No orders found</td></tr>';
+        return;
+      }
+      tbody.innerHTML = orders.map(o => `
+        <tr>
+          <td>${o.id}</td>
+          <td>${new Date(o.created_at).toLocaleDateString()}</td>
+          <td>${o.vendor_business_name || o.vendor_name || 'N/A'}</td>
+          <td>₹${Number(o.total_amount).toFixed(2)}</td>
+          <td><span class="badge ${o.status}">${o.status}</span></td>
+          <td><span class="badge ${o.delivery_status}">${o.delivery_status.replace('_', ' ')}</span></td>
+          <td>${o.delivery_partner_name || 'Not assigned'}</td>
+          <td>
+            <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="viewDetails(${o.id})">View Details</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    async function viewDetails(orderId) {
+      try {
+        const res = await fetch(`/api/orders/client/${orderId}`, {
+          headers: { 'Accept': 'application/json' }
+        });
+        const data = await res.json();
+        if (data.success) {
+          const order = data.order;
+          const items = data.items || [];
+          const content = document.getElementById('orderDetailContent');
+          content.innerHTML = `
+            <div style="margin-bottom: 20px;">
+              <h3>Order #${order.id}</h3>
+              <p><strong>Vendor:</strong> ${order.vendor_business_name || order.vendor_name || 'N/A'}</p>
+              <p><strong>Total:</strong> ₹${Number(order.total_amount).toFixed(2)}</p>
+              <p><strong>Order Status:</strong> ${order.status}</p>
+              <p><strong>Delivery Status:</strong> ${order.delivery_status}</p>
+              <p><strong>Delivery Partner:</strong> ${order.delivery_partner_name || 'Not assigned'}</p>
+              <p><strong>Delivery OTP:</strong> ${order.delivery_otp || '-'}</p>
+              ${order.assigned_at ? `<p><strong>Assigned At:</strong> ${new Date(order.assigned_at).toLocaleString()}</p>` : ''}
+              ${order.ready_at ? `<p><strong>Ready At:</strong> ${new Date(order.ready_at).toLocaleString()}</p>` : ''}
+              ${order.delivered_at ? `<p><strong>Delivered At:</strong> ${new Date(order.delivered_at).toLocaleString()}</p>` : ''}
+            </div>
+            <h4>Order Items</h4>
+            <table class="users-table">
+              <thead><tr><th>#</th><th>Product</th><th>Quantity</th><th>Unit Price</th><th>Total</th></tr></thead>
+              <tbody>
+                ${items.map((item, i) => `
+                  <tr>
+                    <td>${i+1}</td>
+                    <td>${item.product_name}</td>
+                    <td>${item.quantity}</td>
+                    <td>₹${Number(item.unit_price).toFixed(2)}</td>
+                    <td>₹${Number(item.line_total).toFixed(2)}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+          document.getElementById('detailModal').style.display = 'flex';
+          document.getElementById('detailModal').setAttribute('aria-hidden', 'false');
+        }
+      } catch (e) { alert('Failed to load order details'); console.error(e); }
+    }
+
+    function closeDetailModal() {
+      document.getElementById('detailModal').style.display = 'none';
+      document.getElementById('detailModal').setAttribute('aria-hidden', 'true');
+    }
+
+    // Initial load
+    loadOrders();
+  </script>
+</body>
+</html>

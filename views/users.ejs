@@ -1,0 +1,355 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Management</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Users</p>
+        <h1>User Management</h1>
+      </div>
+      <div class="topbar-actions">
+        <label class="system-search" aria-label="Search users">
+          <input id="userSearch" type="search" placeholder="Search name or email" />
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        </label>
+      </div>
+    </header>
+
+    <section class="user-management-shell">
+      <div class="users-toolbar">
+        <div>
+          <h2>All Users</h2>
+          <p>Search, filter, edit, delete, and manage role-based profiles.</p>
+        </div>
+        <label>
+          Role
+          <select id="roleFilter">
+            <option value="">All Roles</option>
+            <% roleOptions.forEach((role) => { %>
+              <option value="<%= role %>"><%= role %></option>
+            <% }) %>
+          </select>
+        </label>
+      </div>
+
+      <div class="users-table-card">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Role</th>
+              <th>Status</th>
+              <th>Created Date</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody">
+            <tr>
+              <td colspan="7">Loading users...</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="users-pagination">
+        <button type="button" id="prevPage">Previous</button>
+        <span id="pageInfo">Page 1</span>
+        <button type="button" id="nextPage">Next</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="user-modal" id="editUserModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2>Edit User</h2>
+        <button type="button" onclick="closeModal('editUserModal')">Close</button>
+      </div>
+      <form id="editUserForm" class="user-modal-grid">
+        <input type="hidden" id="editUserId" />
+        <label>
+          Name
+          <input id="editName" type="text" required />
+        </label>
+        <label>
+          Email
+          <input id="editEmail" type="email" required />
+        </label>
+        <label>
+          Role
+          <select id="editRole" required>
+            <% roleOptions.forEach((role) => { %>
+              <option value="<%= role %>"><%= role %></option>
+            <% }) %>
+          </select>
+        </label>
+        <label>
+          Status
+          <select id="editStatus" required>
+            <option value="active">active</option>
+            <option value="inactive">inactive</option>
+          </select>
+        </label>
+        <button class="settings-save" type="submit">Update User</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="user-modal" id="profileModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2 id="profileTitle">Profile</h2>
+        <button type="button" onclick="closeModal('profileModal')">Close</button>
+      </div>
+      <form id="profileForm" class="user-modal-grid"></form>
+    </div>
+  </div>
+
+  <script>
+    let currentPage = 1;
+    let totalPages = 1;
+    let users = [];
+    let activeProfileUserId = null;
+    let activeProfileRole = null;
+
+    const tableBody = document.getElementById('usersTableBody');
+    const userSearch = document.getElementById('userSearch');
+    const roleFilter = document.getElementById('roleFilter');
+    const pageInfo = document.getElementById('pageInfo');
+    const prevPage = document.getElementById('prevPage');
+    const nextPage = document.getElementById('nextPage');
+
+    function debounce(fn, delay) {
+      let timer;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    function formatDate(value) {
+      if (!value) return 'N/A';
+      return new Date(value).toLocaleDateString();
+    }
+
+    async function loadUsers(page = 1) {
+      const params = new URLSearchParams({
+        format: 'json',
+        page,
+        limit: 10,
+        search: userSearch.value.trim(),
+        role: roleFilter.value,
+      });
+
+      const response = await fetch(`/users?${params.toString()}`);
+      const data = await response.json();
+
+      if (!data.success) {
+        tableBody.innerHTML = `<tr><td colspan="7">${data.message || 'Unable to load users'}</td></tr>`;
+        return;
+      }
+
+      users = data.users;
+      currentPage = data.pagination.page;
+      totalPages = data.pagination.totalPages;
+      renderUsers();
+    }
+
+    function renderUsers() {
+      if (users.length === 0) {
+        tableBody.innerHTML = '<tr><td colspan="7">No users found</td></tr>';
+      } else {
+        tableBody.innerHTML = users.map((user) => `
+          <tr>
+            <td>#${user.id}</td>
+            <td>${escapeHtml(user.name)}</td>
+            <td>${escapeHtml(user.email)}</td>
+            <td><span class="user-role-pill">${escapeHtml(user.role)}</span></td>
+            <td><span class="user-status-pill ${user.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(user.status)}</span></td>
+            <td>${formatDate(user.created_at)}</td>
+            <td>
+              <div class="user-actions">
+                <button type="button" onclick="openEditUser(${user.id})">Edit</button>
+                <button type="button" onclick="openProfile(${user.id})">Profile</button>
+                <button type="button" onclick="deleteUser(${user.id})">Delete</button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+      }
+
+      pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+      prevPage.disabled = currentPage <= 1;
+      nextPage.disabled = currentPage >= totalPages;
+    }
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+      }[char]));
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add('active');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    function openEditUser(id) {
+      const user = users.find((item) => item.id === id);
+      if (!user) return;
+
+      document.getElementById('editUserId').value = user.id;
+      document.getElementById('editName').value = user.name;
+      document.getElementById('editEmail').value = user.email;
+      document.getElementById('editRole').value = user.role;
+      document.getElementById('editStatus').value = user.status;
+      openModal('editUserModal');
+    }
+
+    async function deleteUser(id) {
+      if (!confirm('Delete this user? This will soft delete the account.')) return;
+
+      const response = await fetch(`/users/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to delete user');
+        return;
+      }
+
+      loadUsers(currentPage);
+    }
+
+    function profileFields(role, profile) {
+      if (role === 'Vendor') {
+        return [
+          ['business_name', 'Business Name', profile.business_name || ''],
+          ['address', 'Address', profile.address || ''],
+          ['gst_number', 'GST Number', profile.gst_number || ''],
+          ['services', 'Services', Array.isArray(profile.services) ? profile.services.join(', ') : profile.services || ''],
+        ];
+      }
+
+      if (role === 'Client') {
+        return [
+          ['address', 'Address', profile.address || ''],
+          ['age', 'Age', profile.age || ''],
+          ['gender', 'Gender', profile.gender || ''],
+          ['notes', 'Notes', profile.notes || ''],
+        ];
+      }
+
+      if (role === 'Admin') {
+        return [
+          ['permissions', 'Permissions', Array.isArray(profile.permissions) ? profile.permissions.join(', ') : profile.permissions || ''],
+        ];
+      }
+
+      return [];
+    }
+
+    async function openProfile(id) {
+      const response = await fetch(`/profiles/${id}?format=json`);
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to load profile');
+        return;
+      }
+
+      activeProfileUserId = id;
+      activeProfileRole = data.profileRole;
+      const profile = data.profile || {};
+      document.getElementById('profileTitle').textContent = `${data.user.name} Profile (${data.profileRole})`;
+      const fields = profileFields(data.profileRole, profile);
+      const form = document.getElementById('profileForm');
+
+      if (fields.length === 0) {
+        form.innerHTML = '<p>This role does not have a dedicated profile form yet.</p>';
+      } else {
+        form.innerHTML = fields.map(([name, label, value]) => `
+          <label>
+            ${escapeHtml(label)}
+            <textarea name="${name}">${escapeHtml(value)}</textarea>
+          </label>
+        `).join('') + '<button class="settings-save" type="submit">Update Profile</button>';
+      }
+
+      openModal('profileModal');
+    }
+
+    document.getElementById('editUserForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = document.getElementById('editUserId').value;
+      const payload = {
+        name: document.getElementById('editName').value,
+        email: document.getElementById('editEmail').value,
+        role: document.getElementById('editRole').value,
+        status: document.getElementById('editStatus').value,
+      };
+
+      const response = await fetch(`/users/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+
+      if (!data.success) {
+        alert(data.message || 'Unable to update user');
+        return;
+      }
+
+      closeModal('editUserModal');
+      loadUsers(currentPage);
+    });
+
+    document.getElementById('profileForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formData = new FormData(event.target);
+      const profile = {};
+      for (const [key, value] of formData.entries()) {
+        profile[key] = key === 'services' || key === 'permissions'
+          ? value.split(',').map((item) => item.trim()).filter(Boolean)
+          : value;
+      }
+
+      const response = await fetch(`/profiles/${activeProfileUserId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ profile }),
+      });
+      const data = await response.json();
+
+      if (!data.success) {
+        alert(data.message || 'Unable to update profile');
+        return;
+      }
+
+      closeModal('profileModal');
+    });
+
+    userSearch.addEventListener('input', debounce(() => loadUsers(1), 300));
+    roleFilter.addEventListener('change', () => loadUsers(1));
+    prevPage.addEventListener('click', () => loadUsers(currentPage - 1));
+    nextPage.addEventListener('click', () => loadUsers(currentPage + 1));
+
+    loadUsers();
+  </script>
+</body>
+</html>

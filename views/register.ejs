@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="role-login-page <%= accent === 'vendor' ? 'vendor-login-page' : 'client-login-page' %> register-page">
+  <main class="register-shell">
+    <section class="register-panel">
+      <a class="role-login-logo" href="/">
+        <span class="grocery-logo-mark">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 8h3l2 11h11l3-8H12"/><circle cx="14" cy="24" r="2"/><circle cx="23" cy="24" r="2"/><path d="M6 13H3M8 17H4M10 21H6"/></svg>
+        </span>
+        <span>GroceriesToGo</span>
+      </a>
+
+      <div class="role-login-heading">
+        <span><%= role %> Account</span>
+        <h1><%= title %></h1>
+        <p><%= role === 'Vendor' ? 'Create your store profile and start managing grocery products.' : 'Create your shopping account for products, quotations, orders, and wallet.' %></p>
+      </div>
+
+      <% if (errors && errors.length) { %>
+        <div class="error">
+          <% errors.forEach((error) => { %>
+            <div><%= error %></div>
+          <% }) %>
+        </div>
+      <% } %>
+
+      <form class="register-form" method="POST" action="<%= action %>">
+        <div class="register-grid">
+          <label>
+            Full Name
+            <input type="text" name="name" value="<%= values.name || '' %>" placeholder="Enter full name" required minlength="2" autofocus />
+          </label>
+          <label>
+            Email
+            <input type="email" name="email" value="<%= values.email || '' %>" placeholder="name@example.com" required />
+          </label>
+          <label>
+            Phone
+            <input type="text" name="phone" value="<%= values.phone || '' %>" placeholder="Mobile number" required />
+          </label>
+
+          <% if (role === 'Vendor') { %>
+            <label>
+              Business Name
+              <input type="text" name="business_name" value="<%= values.business_name || '' %>" placeholder="Store or firm name" required minlength="2" />
+            </label>
+            <label>
+              GST Number
+              <input type="text" name="gst_number" value="<%= values.gst_number || '' %>" placeholder="Optional" />
+            </label>
+            <label>
+              Services
+              <input type="text" name="services" value="<%= values.services || '' %>" placeholder="Retail, Delivery, Wholesale" />
+            </label>
+          <% } else { %>
+            <label>
+              Age
+              <input type="number" name="age" value="<%= values.age || '' %>" placeholder="Optional" min="1" max="120" />
+            </label>
+            <label>
+              Gender
+              <select name="gender">
+                <option value="">Prefer not to say</option>
+                <% ['Female', 'Male', 'Other'].forEach((option) => { %>
+                  <option value="<%= option %>" <%= values.gender === option ? 'selected' : '' %>><%= option %></option>
+                <% }) %>
+              </select>
+            </label>
+          <% } %>
+
+          <label>
+            Country
+            <select id="countrySelect" name="country" required></select>
+          </label>
+          <label>
+            State
+            <select id="stateSelect" name="state" required></select>
+          </label>
+          <label>
+            City
+            <select id="citySelect" name="city" required></select>
+          </label>
+          <label>
+            Password
+            <input type="password" name="password" placeholder="At least 6 characters" required minlength="6" />
+          </label>
+          <label>
+            Confirm Password
+            <input type="password" name="confirm_password" placeholder="Repeat password" required minlength="6" />
+          </label>
+        </div>
+
+        <label>
+          Address
+          <textarea name="address" rows="3" placeholder="Street, area, landmark"><%= values.address || '' %></textarea>
+        </label>
+
+        <% if (role === 'Client') { %>
+          <label>
+            Notes
+            <textarea name="notes" rows="2" placeholder="Delivery preference or special note"><%= values.notes || '' %></textarea>
+          </label>
+        <% } %>
+
+        <button type="submit">Create <%= role %> Account</button>
+      </form>
+
+      <div class="role-login-links">
+        <a href="/">Back Home</a>
+        <a href="<%= loginPath %>">Already registered? Sign in</a>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const locationTree = <%- JSON.stringify(locationOptions.tree) %>;
+    const savedLocation = {
+      country: <%- JSON.stringify(values.country || '') %>,
+      state: <%- JSON.stringify(values.state || '') %>,
+      city: <%- JSON.stringify(values.city || '') %>,
+    };
+    const countrySelect = document.getElementById('countrySelect');
+    const stateSelect = document.getElementById('stateSelect');
+    const citySelect = document.getElementById('citySelect');
+
+    function options(values, placeholder) {
+      return [`<option value="">${placeholder}</option>`]
+        .concat(values.map((value) => `<option value="${value}">${value}</option>`))
+        .join('');
+    }
+
+    function updateStates(selectedState = '') {
+      const country = countrySelect.value;
+      const states = country && locationTree[country] ? Object.keys(locationTree[country]) : [];
+      stateSelect.innerHTML = options(states, 'Select State');
+      stateSelect.value = selectedState && states.includes(selectedState) ? selectedState : '';
+      updateCities(savedLocation.city);
+    }
+
+    function updateCities(selectedCity = '') {
+      const country = countrySelect.value;
+      const state = stateSelect.value;
+      const cities = country && state && locationTree[country] && locationTree[country][state] ? locationTree[country][state] : [];
+      citySelect.innerHTML = options(cities, 'Select City');
+      citySelect.value = selectedCity && cities.includes(selectedCity) ? selectedCity : '';
+    }
+
+    countrySelect.innerHTML = options(Object.keys(locationTree), 'Select Country');
+    countrySelect.value = savedLocation.country || 'India';
+    updateStates(savedLocation.state || 'Rajasthan');
+    if (!citySelect.value) {
+      updateCities(savedLocation.city || 'Jaipur');
+    }
+
+    countrySelect.addEventListener('change', () => {
+      savedLocation.city = '';
+      updateStates();
+    });
+    stateSelect.addEventListener('change', () => updateCities());
+  </script>
+</body>
+</html>

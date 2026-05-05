@@ -1,0 +1,790 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= shell.roleTitle %> - Product Catalog</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Products</p>
+        <h1>Product Catalog</h1>
+      </div>
+      <div class="topbar-actions">
+        <button class="icon-button" type="button" aria-label="Cart" onclick="openCart()">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+          <span id="cart-count" class="cart-count-badge">0</span>
+        </button>
+      </div>
+    </header>
+
+    <section class="cart-section" id="cart-section" style="display: none;">
+      <div class="cart-panel">
+        <div class="cart-header">
+          <h2>Your Cart</h2>
+          <button type="button" onclick="closeCart()" class="cart-close">&times;</button>
+        </div>
+        <div id="cart-items" class="cart-items">
+          <p class="cart-empty">Your cart is empty</p>
+        </div>
+        <div class="cart-summary" id="cart-summary" style="display: none;">
+          <div class="cart-total">
+            <span>Total:</span>
+            <strong id="cart-total-amount">₹0.00</strong>
+          </div>
+          <div class="checkout-options">
+            <button class="btn-checkout" onclick="directOrder()">Direct Order</button>
+            <button class="btn-quotation" onclick="sendQuotation()">Send Quotation</button>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="products-section">
+      <div class="products-header">
+        <h2>Available Products</h2>
+        <div class="client-filter-bar">
+          <select id="category-filter" aria-label="Category filter">
+            <option value="">All Categories</option>
+            <% categories.forEach(function(category) { %>
+              <option value="<%= category.id %>"><%= category.name %></option>
+            <% }); %>
+          </select>
+          <select id="subcategory-filter" aria-label="Subcategory filter">
+            <option value="">All Subcategories</option>
+          </select>
+          <select id="brand-filter" aria-label="Brand filter">
+            <option value="">All Brands</option>
+          </select>
+          <div class="search-box-container">
+            <input type="search" id="search-input" placeholder="Search products..." />
+          </div>
+        </div>
+      </div>
+
+      <div class="products-grid" id="products-grid">
+        <% products.forEach(function(product) { %>
+          <div class="product-card" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>" data-product-description="<%= (product.description || '').toLowerCase() %>">
+            <img class="product-thumb-image" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+            <div class="product-info">
+              <h3 class="product-name"><%= product.product_name %></h3>
+              <% if (product.description) { %>
+                <p class="product-description"><%= product.description %></p>
+              <% } %>
+              <div class="product-meta">
+                <span class="product-category"><%= product.category_name %></span>
+                <span class="product-brand"><%= product.brand_name %></span>
+              </div>
+              <div class="product-price">
+                <strong>₹<%= product.visible_price.toFixed(2) %></strong>
+              </div>
+              <div class="product-stock">
+                <span class="stock-badge <%= product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock' %>">
+                  <%= product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock' %>
+                </span>
+              </div>
+            </div>
+            <div class="product-actions">
+              <div class="quantity-selector">
+                <button type="button" class="qty-btn" onclick="decreaseQty(this)" <%= product.quantity <= 0 ? 'disabled' : '' %>>-</button>
+                <input type="number" class="qty-input" value="1" min="1" max="<%= product.quantity %>" <%= product.quantity <= 0 ? 'disabled' : '' %> />
+                <button type="button" class="qty-btn" onclick="increaseQty(this)" <%= product.quantity <= 0 ? 'disabled' : '' %>>+</button>
+              </div>
+              <button
+                type="button"
+                class="btn-add-cart"
+                data-id="<%= product.id %>"
+                data-vendor-product-id="<%= product.id %>"
+                data-name="<%= product.product_name %>"
+                data-price="<%= product.visible_price %>"
+                data-max-qty="<%= product.quantity %>"
+                onclick="addToCartFromButton(this)"
+                <%= product.quantity <= 0 ? 'disabled' : '' %>>
+                Add to Cart
+              </button>
+            </div>
+          </div>
+        <% }); %>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let cart = JSON.parse(localStorage.getItem('clientCart') || '[]');
+    const catalog = {
+      subcategories: <%- JSON.stringify(subcategories || []) %>,
+      brands: <%- JSON.stringify(brands || []) %>,
+    };
+    const productsGrid = document.getElementById('products-grid');
+    const categoryFilter = document.getElementById('category-filter');
+    const subcategoryFilter = document.getElementById('subcategory-filter');
+    const brandFilter = document.getElementById('brand-filter');
+    const searchInput = document.getElementById('search-input');
+
+    function saveCart() {
+      localStorage.setItem('clientCart', JSON.stringify(cart));
+    }
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+      }[char]));
+    }
+
+    function debounce(fn, delay) {
+      let timer;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    function optionList(items, emptyLabel) {
+      return `<option value="">${emptyLabel}</option>` + items
+        .slice()
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+        .map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`)
+        .join('');
+    }
+
+    function subcategoryKey(item) {
+      return item.sub_category_id || item.subcategory_id;
+    }
+
+    function uniqueBrands(items) {
+      const seen = new Set();
+      return items.filter((item) => {
+        const key = String(item.name || '').trim().toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function brandOptionList(items) {
+      return '<option value="">All Brands</option>' + items
+        .slice()
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+        .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`)
+        .join('');
+    }
+
+    function updateSubcategoryFilter() {
+      const categoryId = categoryFilter.value;
+      const items = categoryId
+        ? catalog.subcategories.filter((item) => String(item.category_id) === String(categoryId))
+        : catalog.subcategories;
+      subcategoryFilter.innerHTML = optionList(items, 'All Subcategories');
+    }
+
+    function updateBrandFilter() {
+      const categoryId = categoryFilter.value;
+      const subcategoryId = subcategoryFilter.value;
+      const items = uniqueBrands(catalog.brands
+        .filter((item) => !categoryId || String(item.category_id) === String(categoryId))
+        .filter((item) => !subcategoryId || String(subcategoryKey(item)) === String(subcategoryId)));
+      brandFilter.innerHTML = brandOptionList(items);
+    }
+
+    function productCard(product) {
+      const stockClass = product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock';
+      const stockText = product.quantity > 0 ? `${product.quantity} in stock` : 'Out of stock';
+      const disabled = product.quantity <= 0 ? 'disabled' : '';
+      return `
+        <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}" data-product-description="${escapeHtml(product.description || '').toLowerCase()}">
+          <img class="product-thumb-image" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+          <div class="product-info">
+            <h3 class="product-name">${escapeHtml(product.product_name)}</h3>
+            ${product.description ? `<p class="product-description">${escapeHtml(product.description)}</p>` : ''}
+            <div class="product-meta">
+              <span class="product-category">${escapeHtml(product.category_name)}</span>
+              <span class="product-brand">${escapeHtml(product.brand_name)}</span>
+            </div>
+            <div class="product-price"><strong>INR ${Number(product.visible_price || 0).toFixed(2)}</strong></div>
+            <div class="product-stock"><span class="stock-badge ${stockClass}">${stockText}</span></div>
+          </div>
+          <div class="product-actions">
+            <div class="quantity-selector">
+              <button type="button" class="qty-btn" onclick="decreaseQty(this)" ${disabled}>-</button>
+              <input type="number" class="qty-input" value="1" min="1" max="${product.quantity}" ${disabled} />
+              <button type="button" class="qty-btn" onclick="increaseQty(this)" ${disabled}>+</button>
+            </div>
+            <button type="button" class="btn-add-cart"
+              data-id="${product.id}"
+              data-vendor-product-id="${product.id}"
+              data-name="${escapeHtml(product.product_name)}"
+              data-price="${Number(product.visible_price || 0)}"
+              data-max-qty="${product.quantity}"
+              onclick="addToCartFromButton(this)"
+              ${disabled}>Add to Cart</button>
+          </div>
+        </div>`;
+    }
+
+    async function loadProducts() {
+      const params = new URLSearchParams({
+        category_id: categoryFilter.value,
+        sub_category_id: subcategoryFilter.value,
+        brand_name: brandFilter.value,
+        search: searchInput.value.trim(),
+      });
+      const response = await fetch(`/api/vendor-products/client-visible?${params.toString()}`, { headers: { Accept: 'application/json' } });
+      const data = await response.json();
+      if (!data.success) {
+        productsGrid.innerHTML = `<p class="cart-empty">${escapeHtml(data.message || 'Unable to load products')}</p>`;
+        return;
+      }
+      productsGrid.innerHTML = data.products.length
+        ? data.products.map(productCard).join('')
+        : '<p class="cart-empty">No products found</p>';
+    }
+
+    function updateCartCount() {
+      const count = cart.reduce((sum, item) => sum + item.quantity, 0);
+      document.getElementById('cart-count').textContent = count;
+      document.getElementById('cart-count').style.display = count > 0 ? 'block' : 'none';
+    }
+
+    function addToCartFromButton(button) {
+      const card = button.closest('.product-card');
+      const quantityInput = card.querySelector('.qty-input');
+      const id = Number(button.dataset.id);
+      const vendorProductId = Number(button.dataset.vendorProductId);
+      const name = button.dataset.name;
+      const price = Number(button.dataset.price);
+      const maxQty = Number(button.dataset.maxQty);
+      const requestedQty = Math.min(Math.max(1, Number(quantityInput.value) || 1), maxQty);
+
+      addToCart(id, name, price, maxQty, vendorProductId, requestedQty);
+      quantityInput.value = 1;
+    }
+
+    function addToCart(id, name, price, maxQty, vendorProductId, requestedQty = 1) {
+      const existingItem = cart.find(item => item.id === id);
+      if (existingItem) {
+        existingItem.quantity = Math.min(existingItem.quantity + requestedQty, maxQty);
+      } else {
+        cart.push({ id, vendorProductId, name, price, quantity: requestedQty, maxQty });
+      }
+      updateCartCount();
+      renderCart();
+      saveCart();
+      openCart();
+    }
+
+    function removeFromCart(id) {
+      cart = cart.filter(item => item.id !== id);
+      updateCartCount();
+      renderCart();
+      saveCart();
+    }
+
+    function updateQuantity(id, newQty) {
+      const item = cart.find(item => item.id === id);
+      if (item) {
+        item.quantity = Math.min(Math.max(1, newQty), item.maxQty);
+        updateCartCount();
+        renderCart();
+        saveCart();
+      }
+    }
+
+    function renderCart() {
+      const cartItems = document.getElementById('cart-items');
+      const cartSummary = document.getElementById('cart-summary');
+      const cartTotal = document.getElementById('cart-total-amount');
+
+      if (cart.length === 0) {
+        cartItems.innerHTML = '<p class="cart-empty">Your cart is empty</p>';
+        cartSummary.style.display = 'none';
+      } else {
+        cartItems.innerHTML = cart.map(item => `
+          <div class="cart-item">
+            <div class="cart-item-info">
+              <strong>${escapeHtml(item.name)}</strong>
+              <span>₹${item.price.toFixed(2)} x ${item.quantity}</span>
+            </div>
+            <div class="cart-item-actions">
+              <button type="button" onclick="updateQuantity(${item.id}, ${item.quantity - 1})" ${item.quantity <= 1 ? 'disabled' : ''}>-</button>
+              <span>${item.quantity}</span>
+              <button type="button" onclick="updateQuantity(${item.id}, ${item.quantity + 1})" ${item.quantity >= item.maxQty ? 'disabled' : ''}>+</button>
+              <button type="button" onclick="removeFromCart(${item.id})" class="remove-btn">&times;</button>
+            </div>
+          </div>
+        `).join('');
+
+        const total = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+        cartTotal.textContent = '₹' + total.toFixed(2);
+        cartSummary.style.display = 'block';
+      }
+    }
+
+    function openCart() {
+      document.getElementById('cart-section').style.display = 'block';
+    }
+
+    function closeCart() {
+      document.getElementById('cart-section').style.display = 'none';
+    }
+
+    function clearCartAfterSuccess() {
+      cart = [];
+      updateCartCount();
+      renderCart();
+      saveCart();
+      closeCart();
+    }
+
+    function directOrder() {
+      if (cart.length === 0) return;
+
+      fetch('/client/orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: cart })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          alert('Order placed successfully!');
+          clearCartAfterSuccess();
+        } else {
+          alert(data.message || 'Failed to place order');
+        }
+      })
+      .catch(error => {
+        alert('Error placing order: ' + error.message);
+      });
+    }
+
+    function sendQuotation() {
+      if (cart.length === 0) return;
+
+      fetch('/client/quotations', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ items: cart })
+      })
+      .then(response => response.json())
+      .then(data => {
+        if (data.success) {
+          alert(data.message || 'Quotation sent successfully!');
+          clearCartAfterSuccess();
+        } else {
+          alert(data.message || 'Failed to send quotation');
+        }
+      })
+      .catch(error => {
+        alert('Error sending quotation: ' + error.message);
+      });
+    }
+
+    function decreaseQty(btn) {
+      const input = btn.nextElementSibling;
+      const newVal = Math.max(1, parseInt(input.value) - 1);
+      input.value = newVal;
+    }
+
+    function increaseQty(btn) {
+      const input = btn.previousElementSibling;
+      const maxVal = parseInt(input.max);
+      const newVal = Math.min(maxVal, parseInt(input.value) + 1);
+      input.value = newVal;
+    }
+
+    updateCartCount();
+    renderCart();
+    updateSubcategoryFilter();
+    updateBrandFilter();
+    categoryFilter.addEventListener('change', () => {
+      updateSubcategoryFilter();
+      subcategoryFilter.value = '';
+      updateBrandFilter();
+      loadProducts();
+    });
+    subcategoryFilter.addEventListener('change', () => {
+      updateBrandFilter();
+      loadProducts();
+    });
+    brandFilter.addEventListener('change', loadProducts);
+    searchInput.addEventListener('input', debounce(loadProducts, 300));
+  </script>
+
+  <style>
+    .products-section {
+      padding: 0;
+    }
+
+    .products-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      gap: 16px;
+      flex-wrap: wrap;
+    }
+
+    .products-header h2 {
+      margin: 0;
+      color: #4f5963;
+    }
+
+    .search-box-container {
+      width: 250px;
+    }
+
+    .client-filter-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .client-filter-bar select {
+      min-width: 150px;
+      padding: 8px 10px;
+      border: 1px solid #dfe4e8;
+      border-radius: 4px;
+      background: #fff;
+    }
+
+    .search-box-container input {
+      width: 100%;
+      padding: 8px 12px;
+      border: 1px solid #dfe4e8;
+      border-radius: 4px;
+      font-size: 0.9rem;
+    }
+
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+      gap: 18px;
+    }
+
+    .product-card {
+      display: flex;
+      flex-direction: column;
+      background: #fff;
+      border: 1px solid rgba(204, 210, 215, 0.75);
+      border-radius: 8px;
+      padding: 16px;
+      box-shadow: 0 2px 6px rgba(32, 42, 54, 0.08);
+    }
+
+    .product-thumb-image {
+      width: 100%;
+      height: 150px;
+      object-fit: cover;
+      border-radius: 6px;
+      border: 1px solid #edf0f2;
+      background: #f8fafc;
+      margin-bottom: 12px;
+    }
+
+    .product-info {
+      flex: 1;
+    }
+
+    .product-name {
+      margin: 0 0 6px;
+      color: #3c4858;
+      font-size: 1.1rem;
+    }
+
+    .product-description {
+      margin: 0 0 10px;
+      color: #606a73;
+      font-size: 0.85rem;
+      line-height: 1.4;
+    }
+
+    .product-meta {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 10px;
+    }
+
+    .product-meta span {
+      padding: 2px 8px;
+      background: #f1f5f9;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      color: #475569;
+    }
+
+    .product-price {
+      margin-bottom: 10px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .product-price strong {
+      font-size: 1.2rem;
+      color: #059669;
+    }
+
+    .custom-price-tag {
+      padding: 2px 6px;
+      background: #fef3c7;
+      color: #92400e;
+      border-radius: 4px;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+    }
+
+    .stock-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 600;
+    }
+
+    .in-stock {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .low-stock {
+      background: #fef3c7;
+      color: #92400e;
+    }
+
+    .out-stock {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+
+    .product-actions {
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid #edf0f2;
+    }
+
+    .quantity-selector {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+
+    .qty-btn {
+      width: 32px;
+      height: 32px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      border-radius: 4px;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    .qty-btn:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .qty-input {
+      width: 50px;
+      text-align: center;
+      padding: 6px;
+      border: 1px solid #cbd5e1;
+      border-radius: 4px;
+    }
+
+    .btn-add-cart {
+      width: 100%;
+      padding: 10px;
+      background: #26bcd4;
+      color: #fff;
+      border: none;
+      border-radius: 4px;
+      font-weight: 600;
+      cursor: pointer;
+    }
+
+    .btn-add-cart:hover:not(:disabled) {
+      background: #18a7be;
+    }
+
+    .btn-add-cart:disabled {
+      background: #cbd5e1;
+      cursor: not-allowed;
+    }
+
+    .cart-section {
+      position: fixed;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 380px;
+      background: rgba(0, 0, 0, 0.5);
+      z-index: 1000;
+      overflow: hidden;
+    }
+
+    .cart-panel {
+      position: absolute;
+      top: 0;
+      right: 0;
+      bottom: 0;
+      width: 100%;
+      background: #fff;
+      display: flex;
+      flex-direction: column;
+      padding: 20px;
+    }
+
+    .cart-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+    }
+
+    .cart-header h2 {
+      margin: 0;
+      color: #3c4858;
+    }
+
+    .cart-close {
+      width: 32px;
+      height: 32px;
+      border: none;
+      background: #f1f5f9;
+      border-radius: 4px;
+      font-size: 1.5rem;
+      cursor: pointer;
+    }
+
+    .cart-items {
+      flex: 1;
+      overflow-y: auto;
+    }
+
+    .cart-empty {
+      color: #64748b;
+      text-align: center;
+      padding: 20px;
+    }
+
+    .cart-item {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 12px 0;
+      border-bottom: 1px solid #edf0f2;
+    }
+
+    .cart-item-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .cart-item-actions button {
+      width: 24px;
+      height: 24px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    .cart-item-actions button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .remove-btn {
+      color: #dc2626;
+      font-weight: bold;
+    }
+
+    .cart-summary {
+      margin-top: 20px;
+      padding-top: 16px;
+      border-top: 2px solid #e2e8f0;
+    }
+
+    .cart-total {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 16px;
+      font-size: 1.1rem;
+    }
+
+    .cart-total strong {
+      color: #059669;
+      font-size: 1.3rem;
+    }
+
+    .btn-checkout {
+      width: 100%;
+      padding: 12px;
+      background: #059669;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    .btn-checkout:hover {
+      background: #047857;
+    }
+
+    .checkout-options {
+      display: grid;
+      gap: 10px;
+    }
+
+    .btn-quotation {
+      width: 100%;
+      padding: 12px;
+      background: #2563eb;
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      font-weight: 600;
+      font-size: 1rem;
+      cursor: pointer;
+    }
+
+    .btn-quotation:hover {
+      background: #1d4ed8;
+    }
+
+    .cart-count-badge {
+      position: absolute;
+      top: -5px;
+      right: -5px;
+      background: #ef4444;
+      color: #fff;
+      border-radius: 50%;
+      width: 18px;
+      height: 18px;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      font-size: 0.7rem;
+      font-weight: bold;
+    }
+
+    .icon-button {
+      position: relative;
+    }
+  </style>
+</body>
+</html>

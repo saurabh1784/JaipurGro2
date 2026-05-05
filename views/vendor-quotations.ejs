@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vendor Quotations</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Quotations</p>
+        <h1>Quotation Requests</h1>
+      </div>
+      <div class="topbar-actions">
+        <div class="quotation-view-toggle" aria-label="Quotation view">
+          <button type="button" class="active" data-view-button="card" onclick="setQuotationView('card')">Card</button>
+          <button type="button" data-view-button="list" onclick="setQuotationView('list')">List</button>
+        </div>
+      </div>
+    </header>
+
+    <section class="quotation-list" id="quotationCardView">
+      <% if (!quotations.length) { %>
+        <div class="users-table-card quotation-empty">
+          <h2>No open quotations</h2>
+          <p>New quotation requests that still need your action will appear here.</p>
+        </div>
+      <% } %>
+
+      <% quotations.forEach((quotation) => { %>
+        <article class="users-table-card quotation-card" data-recipient-id="<%= quotation.recipient_id %>">
+          <div class="quotation-card-header">
+            <div>
+              <span class="quotation-id">Quotation #<%= quotation.id %></span>
+              <h2><%= quotation.client_name %></h2>
+              <p><%= quotation.client_email %> - <%= quotation.client_city %></p>
+            </div>
+            <div class="quotation-status">
+              <span><%= quotation.recipient_status %></span>
+              <strong data-grand-total>INR <%= (quotation.response_total || quotation.total_amount).toFixed(2) %></strong>
+              <div class="quotation-button-row">
+                <button type="button" class="settings-save process-btn" onclick="openQuotation(<%= quotation.recipient_id %>)">
+                  <%= quotation.recipient_status === 'submitted' ? 'View' : 'Process' %>
+                </button>
+                <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status)) { %>
+                  <button type="button" class="reject-button" onclick="rejectQuotation(<%= quotation.recipient_id %>)">Reject</button>
+                <% } %>
+              </div>
+            </div>
+          </div>
+
+          <div class="quotation-process" id="quotation-<%= quotation.recipient_id %>" hidden>
+            <div class="discount-toolbar">
+              <label>
+                Discount %
+                <input class="quote-discount" type="number" min="0" max="100" step="0.01" value="<%= quotation.discount_percent.toFixed(2) %>" <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> />
+              </label>
+              <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status)) { %>
+                <button type="button" class="settings-save process-btn" onclick="applyDiscount(<%= quotation.recipient_id %>)">Apply to All</button>
+              <% } %>
+            </div>
+            <table class="wallets-table quotation-items-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>Admin Price</th>
+                  <th>Vendor Price</th>
+                  <th>Status</th>
+                  <th>Catalog</th>
+                  <th>Line Total</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% quotation.items.forEach((item) => { %>
+                  <tr data-item-id="<%= item.id %>">
+                    <td><%= item.product_name %></td>
+                    <td><input class="quote-qty" type="number" min="1" step="1" value="<%= item.quantity %>" readonly /></td>
+                    <td>INR <%= item.admin_price.toFixed(2) %></td>
+                    <td><input class="quote-price" type="number" min="0" step="0.01" value="<%= item.unit_price.toFixed(2) %>" data-base-price="<%= item.admin_price.toFixed(2) %>" <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> /></td>
+                    <td>
+                      <label class="availability-toggle">
+                        <input class="quote-available" type="checkbox" <%= item.status !== 'not_available' ? 'checked' : '' %> <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> />
+                        <span>Available</span>
+                      </label>
+                    </td>
+                    <td>
+                      <label class="availability-toggle">
+                        <input class="quote-add-catalog" type="checkbox" <%= item.in_catalog ? 'disabled' : '' %> <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> />
+                        <span><%= item.in_catalog ? 'In Catalog' : 'Add' %></span>
+                      </label>
+                    </td>
+                    <td class="quote-line-total">INR <%= (item.status === 'not_available' ? 0 : item.unit_price * item.quantity).toFixed(2) %></td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+            <div class="quotation-submit-row">
+              <strong>Grand Total: <span data-detail-total>INR 0.00</span></strong>
+              <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status)) { %>
+                <button class="settings-save" type="button" onclick="submitQuotation(<%= quotation.recipient_id %>)">Submit to Client</button>
+              <% } %>
+            </div>
+          </div>
+        </article>
+      <% }) %>
+    </section>
+
+    <section class="users-table-card quotation-table-card" id="quotationListView" hidden>
+      <table class="wallets-table quotation-list-table">
+        <thead>
+          <tr>
+            <th>Quote</th>
+            <th>Client</th>
+            <th>City</th>
+            <th>Items</th>
+            <th>Status</th>
+            <th>Total</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!quotations.length) { %>
+            <tr><td colspan="7">No open quotations</td></tr>
+          <% } %>
+          <% quotations.forEach((quotation) => { %>
+            <tr>
+              <td>#<%= quotation.id %></td>
+              <td>
+                <strong><%= quotation.client_name %></strong>
+                <span class="quotation-muted"><%= quotation.client_email %></span>
+              </td>
+              <td><%= quotation.client_city %></td>
+              <td><%= quotation.items.length %></td>
+              <td><span class="quotation-pill"><%= quotation.recipient_status %></span></td>
+              <td>INR <%= (quotation.response_total || quotation.total_amount).toFixed(2) %></td>
+              <td>
+                <div class="quotation-row-actions">
+                  <button type="button" class="settings-save process-btn" onclick="setQuotationView('card'); openQuotation(<%= quotation.recipient_id %>)">Process</button>
+                  <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status)) { %>
+                    <button type="button" class="reject-button" onclick="rejectQuotation(<%= quotation.recipient_id %>)">Reject</button>
+                  <% } %>
+                </div>
+              </td>
+            </tr>
+          <% }) %>
+        </tbody>
+      </table>
+    </section>
+  </main>
+
+  <style>
+    .quotation-list { display: grid; gap: 18px; }
+    .quotation-view-toggle { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; background: #fff; }
+    .quotation-view-toggle button { padding: 8px 14px; border: 0; background: transparent; cursor: pointer; font-weight: 800; color: #475569; }
+    .quotation-view-toggle button.active { background: #26bcd4; color: #fff; }
+    .quotation-card, .quotation-empty { padding: 20px; }
+    .quotation-card-header { display: flex; justify-content: space-between; gap: 16px; align-items: flex-start; margin-bottom: 16px; }
+    .quotation-card-header h2, .quotation-empty h2 { margin: 4px 0; color: #263238; }
+    .quotation-card-header p, .quotation-empty p { margin: 0; color: #64748b; }
+    .quotation-id { color: #1f8f4d; font-weight: 800; font-size: 0.82rem; text-transform: uppercase; }
+    .quotation-status { display: grid; gap: 8px; justify-items: end; }
+    .quotation-status span { padding: 6px 10px; border-radius: 999px; background: #e8f5ee; color: #17643a; font-weight: 800; }
+    .quotation-status strong { color: #263238; }
+    .process-btn { width: auto; padding: 8px 14px; }
+    .quotation-button-row { display: flex; gap: 8px; justify-content: flex-end; }
+    .quotation-table-card { padding: 16px; }
+    .quotation-list-table { width: 100%; }
+    .quotation-muted { display: block; color: #64748b; font-size: 0.82rem; margin-top: 3px; }
+    .quotation-pill { display: inline-block; padding: 5px 9px; border-radius: 999px; background: #e8f5ee; color: #17643a; font-weight: 800; }
+    .quotation-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
+    .reject-button { padding: 8px 14px; border: none; border-radius: 6px; background: #fee2e2; color: #991b1b; font-weight: 800; cursor: pointer; }
+    .quotation-process { border-top: 1px solid #e2e8f0; padding-top: 14px; }
+    .quotation-items-table { width: 100%; }
+    .quote-qty, .quote-price { width: 96px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
+    .discount-toolbar { display: flex; gap: 12px; align-items: end; flex-wrap: wrap; margin-bottom: 14px; }
+    .discount-toolbar label { display: flex; flex-direction: column; gap: 4px; color: #475569; font-size: 0.85rem; font-weight: 800; }
+    .quote-discount { width: 130px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
+    .quote-qty[readonly] { background: #f8fafc; color: #475569; }
+    .availability-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #475569; }
+    .quotation-submit-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 16px; }
+    .theme-dark .quotation-card-header h2, .theme-dark .quotation-empty h2, .theme-dark .quotation-status strong { color: #f8fafc; }
+    @media (max-width: 720px) {
+      .quotation-card-header, .quotation-submit-row { flex-direction: column; align-items: flex-start; }
+      .quotation-status { justify-items: start; }
+    }
+  </style>
+
+  <script>
+    function formatMoney(value) {
+      return `INR ${Number(value || 0).toFixed(2)}`;
+    }
+
+    function recalc(card) {
+      let total = 0;
+      card.querySelectorAll('tbody tr[data-item-id]').forEach((row) => {
+        const qty = Math.max(1, Number(row.querySelector('.quote-qty').value || 1));
+        const price = Math.max(0, Number(row.querySelector('.quote-price').value || 0));
+        const available = row.querySelector('.quote-available').checked;
+        const line = available ? qty * price : 0;
+        total += line;
+        row.querySelector('.quote-line-total').textContent = formatMoney(line);
+        row.querySelector('.quote-price').disabled = !available;
+        const addCatalog = row.querySelector('.quote-add-catalog');
+        if (addCatalog && !addCatalog.disabled) addCatalog.disabled = !available;
+      });
+      card.querySelector('[data-grand-total]').textContent = formatMoney(total);
+      card.querySelector('[data-detail-total]').textContent = formatMoney(total);
+    }
+
+    function openQuotation(recipientId) {
+      const panel = document.getElementById(`quotation-${recipientId}`);
+      const card = panel.closest('.quotation-card');
+      panel.hidden = false;
+      card.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      recalc(card);
+    }
+
+    function applyDiscount(recipientId) {
+      const card = document.querySelector(`[data-recipient-id="${recipientId}"]`);
+      const discount = Math.min(Math.max(Number(card.querySelector('.quote-discount').value || 0), 0), 100);
+      card.querySelectorAll('tbody tr[data-item-id]').forEach((row) => {
+        if (!row.querySelector('.quote-available').checked) return;
+        const priceInput = row.querySelector('.quote-price');
+        const base = Number(priceInput.dataset.basePrice || priceInput.value || 0);
+        priceInput.value = (base - (base * discount / 100)).toFixed(2);
+      });
+      recalc(card);
+    }
+
+    function setQuotationView(view) {
+      const isList = view === 'list';
+      document.getElementById('quotationCardView').hidden = isList;
+      document.getElementById('quotationListView').hidden = !isList;
+      document.querySelectorAll('[data-view-button]').forEach((button) => {
+        button.classList.toggle('active', button.dataset.viewButton === view);
+      });
+      localStorage.setItem('vendorQuotationView', view);
+    }
+
+    async function submitQuotation(recipientId) {
+      const card = document.querySelector(`[data-recipient-id="${recipientId}"]`);
+      const items = [...card.querySelectorAll('tbody tr[data-item-id]')].map((row) => ({
+        item_id: row.dataset.itemId,
+        quantity: row.querySelector('.quote-qty').value,
+        unit_price: row.querySelector('.quote-price').value,
+        status: row.querySelector('.quote-available').checked ? 'available' : 'not_available',
+        add_to_catalog: row.querySelector('.quote-add-catalog') ? row.querySelector('.quote-add-catalog').checked : false,
+      }));
+      const response = await fetch(`/vendor/quotations/${recipientId}/submit`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          discount_percent: card.querySelector('.quote-discount').value,
+          items,
+        }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to submit quotation');
+        return;
+      }
+      location.reload();
+    }
+
+    async function rejectQuotation(recipientId) {
+      if (!confirm('Reject this quotation request?')) return;
+      const response = await fetch(`/vendor/quotations/${recipientId}/reject`, { method: 'POST' });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to reject quotation');
+        return;
+      }
+      location.reload();
+    }
+
+    document.querySelectorAll('.quotation-card').forEach((card) => {
+      card.querySelectorAll('.quote-qty, .quote-price, .quote-available, .quote-add-catalog').forEach((input) => {
+        input.addEventListener('input', () => recalc(card));
+        input.addEventListener('change', () => recalc(card));
+      });
+      recalc(card);
+    });
+    setQuotationView(localStorage.getItem('vendorQuotationView') || 'card');
+  </script>
+</body>
+</html>

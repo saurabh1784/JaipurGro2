@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= dashboard.roleTitle %> Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / <%= dashboard.roleTitle %></p>
+        <h1><%= dashboard.roleTitle %> Dashboard</h1>
+      </div>
+      <div class="topbar-actions">
+        <label class="system-search" aria-label="Search dashboard">
+          <input type="search" placeholder="Search" />
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        </label>
+        <button class="icon-button" type="button" aria-label="Apps">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+        </button>
+        <button class="icon-button alert" type="button" aria-label="Notifications">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 20h4"/></svg>
+        </button>
+        <button class="icon-button" type="button" aria-label="Account">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <% if (error) { %>
+      <div class="system-alert"><%= error %></div>
+    <% } %>
+
+    <% if (dashboard.notifications && dashboard.notifications.length) { %>
+      <section class="dashboard-notifications" aria-label="Notifications">
+        <% dashboard.notifications.forEach((notification) => { %>
+          <a href="<%= notification.href %>" class="dashboard-notification">
+            <span><%= notification.message %></span>
+            <strong><%= notification.count %></strong>
+          </a>
+        <% }) %>
+      </section>
+    <% } %>
+
+    <section class="metric-grid" aria-label="Role dashboard metrics">
+      <% dashboard.metrics.forEach((metric) => { %>
+        <article class="metric-card">
+          <div class="metric-icon <%= metric.tone %>">
+            <% if (metric.icon === 'users') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+            <% } else if (metric.icon === 'revenue') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M7 8h10M9 13h6"/></svg>
+            <% } else if (metric.icon === 'alerts') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v5M12 16h.01"/></svg>
+            <% } else if (metric.icon === 'orders') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+            <% } else if (metric.icon === 'products') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h11v13H8z"/><path d="M5 4h11v13"/></svg>
+            <% } else { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18h14M7 15l3-6 4 4 3-8"/></svg>
+            <% } %>
+          </div>
+          <span class="metric-label"><%= metric.label %></span>
+          <strong><%= metric.value %></strong>
+          <p><%= metric.note %></p>
+        </article>
+      <% }) %>
+    </section>
+
+    <section class="chart-grid" aria-label="Role charts">
+      <% dashboard.charts.forEach((chart) => { %>
+        <article class="panel chart-panel <%= chart.tone %>">
+          <div class="chart-card">
+            <% if (chart.type === 'bars') { %>
+              <div class="bar-chart" aria-hidden="true">
+                <% [46, 70, 42, 82, 55, 76, 48, 66, 58, 73, 88, 95].forEach((height) => { %>
+                  <span style="height: <%= height %>%"></span>
+                <% }) %>
+              </div>
+            <% } else if (chart.type === 'line-down') { %>
+              <svg viewBox="0 0 320 120" aria-hidden="true">
+                <path class="grid-line" d="M10 25H310M10 55H310M10 85H310"/>
+                <path class="line-chart" d="M22 90L61 18L100 58L139 68L178 72L217 76L256 79L298 82"/>
+              </svg>
+            <% } else { %>
+              <svg viewBox="0 0 320 120" aria-hidden="true">
+                <path class="grid-line" d="M10 25H310M10 55H310M10 85H310"/>
+                <path class="line-chart" d="M22 80L61 63L100 77L139 58L178 48L217 59L256 39L298 13"/>
+              </svg>
+            <% } %>
+          </div>
+          <h2><%= chart.title %></h2>
+          <p><%= chart.subtitle %></p>
+          <span><%= chart.footer %></span>
+        </article>
+      <% }) %>
+    </section>
+
+    <section class="work-grid">
+      <article class="panel tasks-panel">
+        <div class="panel-header purple-header">
+          <h2>Tasks</h2>
+          <div class="tabs" aria-label="Permission summary">
+            <% dashboard.permissions.slice(0, 3).forEach((permission) => { %>
+              <button type="button"><%= permission %></button>
+            <% }) %>
+          </div>
+        </div>
+        <ul class="task-list">
+          <% dashboard.tasks.forEach((task, index) => { %>
+            <li>
+              <input type="checkbox" <%= index === 0 || index === 3 ? 'checked' : '' %> aria-label="Complete task" />
+              <span><%= task %></span>
+              <a href="#" aria-label="Edit task">Edit</a>
+              <a href="#" aria-label="Remove task">Remove</a>
+            </li>
+          <% }) %>
+        </ul>
+      </article>
+
+      <article class="panel employees-panel">
+        <div class="panel-header orange-header">
+          <h2>Team Stats</h2>
+          <p>Visible for <%= dashboard.roleTitle %> access</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Salary</th>
+              <th>Role</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% dashboard.employees.forEach((employee) => { %>
+              <tr>
+                <td><%= employee.id %></td>
+                <td><%= employee.name %></td>
+                <td><%= employee.salary %></td>
+                <td><%= employee.country %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </article>
+    </section>
+  </main>
+  <style>
+    .dashboard-notifications {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .dashboard-notification {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 16px;
+      border-radius: 8px;
+      background: #fff7ed;
+      color: #9a3412;
+      border: 1px solid #fed7aa;
+      text-decoration: none;
+      font-weight: 800;
+    }
+
+    .dashboard-notification strong {
+      display: grid;
+      place-items: center;
+      min-width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: #ea580c;
+      color: #fff;
+      padding: 0 8px;
+    }
+
+    .theme-dark .dashboard-notification {
+      background: #332114;
+      border-color: #7c2d12;
+      color: #fed7aa;
+    }
+  </style>
+</body>
+</html>
