@@ -16,7 +16,6 @@ function buildConfigFromUrl(connectionUrl) {
   };
 }
 
-<<<<<<< HEAD
 function isRailwayRuntime() {
   return Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
 }
@@ -50,16 +49,6 @@ function getConnectionUrl() {
   }
 
   return process.env.DATABASE_URL || process.env.MYSQL_URL;
-=======
-function getConnectionUrl() {
-  const isRailwayRuntime = Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
-
-  if (!isRailwayRuntime && process.env.MYSQL_PUBLIC_URL) {
-    return process.env.MYSQL_PUBLIC_URL;
-  }
-
-  return process.env.MYSQL_URL || process.env.DATABASE_URL || process.env.MYSQL_PUBLIC_URL;
->>>>>>> 0c9c97fb0fd98e641398df2484bbf004d271c615
 }
 
 const connectionUrl = getConnectionUrl();

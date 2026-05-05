@@ -61,20 +61,16 @@ npm start
 
 If configuring manually in the Render dashboard, set:
 
-- `Root Directory`: `Jaipur`
+- `Root Directory`: leave blank when this repository root is selected
 - `MYSQL_PUBLIC_URL`: Railway MySQL public URL, using `RAILWAY_TCP_PROXY_DOMAIN` and `RAILWAY_TCP_PROXY_PORT`
 - `NODE_ENV`: `production`
 - `SESSION_SECRET`: any long random secret
 
-<<<<<<< HEAD
 Remove these variables from Render if they exist:
 
 - `MYSQL_URL`
 - `MYSQLHOST`
 - `DATABASE_URL`
-=======
-Leave `MYSQL_URL`, `MYSQLHOST`, and `DATABASE_URL` unset on Render unless they point to a publicly reachable MySQL database.
->>>>>>> 0c9c97fb0fd98e641398df2484bbf004d271c615
 
 ## Vercel deployment
 
