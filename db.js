@@ -53,6 +53,17 @@ function getConnectionUrl() {
 
 const connectionUrl = getConnectionUrl();
 const urlConfig = buildConfigFromUrl(connectionUrl);
+const hasHostEnv =
+  process.env.MYSQLHOST ||
+  process.env.DATABASE_HOST ||
+  process.env.DB_HOST;
+const isRenderRuntime = Boolean(process.env.RENDER || process.env.RENDER_SERVICE_ID || process.env.RENDER_EXTERNAL_URL);
+
+if (isRenderRuntime && !connectionUrl && !hasHostEnv) {
+  throw new Error(
+    'Missing MySQL configuration on Render. Set MYSQL_PUBLIC_URL to a publicly reachable MySQL URL, for example Railway TCP Proxy mysql://user:password@host:port/database.'
+  );
+}
 
 const dbConfig = {
   host: urlConfig.host || process.env.MYSQLHOST || process.env.DATABASE_HOST || process.env.DB_HOST || 'localhost',

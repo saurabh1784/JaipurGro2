@@ -72,6 +72,12 @@ Remove these variables from Render if they exist:
 - `MYSQLHOST`
 - `DATABASE_URL`
 
+The app intentionally fails fast on Render if no public MySQL connection is configured. Render cannot connect to Railway's private MySQL host, so `MYSQL_PUBLIC_URL` must look like:
+
+```bash
+mysql://user:password@public-host:public-port/database
+```
+
 ## Vercel deployment
 
 Set the Vercel project root directory to `Jaipur`. The included `vercel.json` rewrites all requests to the Express serverless function at `api/index.js`.
