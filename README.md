@@ -45,7 +45,7 @@ Database deployment files are in `database/railway`:
 
 ## Render deployment
 
-Render is configured to create a PostgreSQL database automatically from `render.yaml`. The app creates the tables on startup and can optionally copy data from a linked MySQL database before starting.
+Render is configured to use an existing PostgreSQL database through `DATABASE_URL`. The app creates the tables on startup and can optionally copy data from a linked MySQL database before starting.
 
 Render build command:
 
@@ -67,7 +67,13 @@ If configuring manually in the Render dashboard, set:
 - `NODE_ENV`: `production`
 - `SESSION_SECRET`: any long random secret
 
-If you deploy from the included `render.yaml`, Render creates `DATABASE_URL` for you from the `jaipur-postgres` database.
+For a Render web service connected to a Render PostgreSQL database, use the internal database URL:
+
+```bash
+postgresql://db_for_jaipur_user:YOUR_PASSWORD@dpg-d7ss7vdckfvc73cnsmk0-a/db_for_jaipur
+```
+
+Use the external database URL only from your local machine or an external database client.
 
 To migrate data from Railway/MySQL into the new Render PostgreSQL database, set either:
 
