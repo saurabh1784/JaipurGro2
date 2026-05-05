@@ -13,3 +13,13 @@ services:
         generateValue: true
       - key: MYSQL_PUBLIC_URL
         sync: false
+      - key: RAILWAY_TCP_PROXY_DOMAIN
+        sync: false
+      - key: RAILWAY_TCP_PROXY_PORT
+        sync: false
+      - key: MYSQLUSER
+        sync: false
+      - key: MYSQLPASSWORD
+        sync: false
+      - key: MYSQLDATABASE
+        sync: false

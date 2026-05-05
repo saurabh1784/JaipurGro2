@@ -66,6 +66,14 @@ If configuring manually in the Render dashboard, set:
 - `NODE_ENV`: `production`
 - `SESSION_SECRET`: any long random secret
 
+Instead of `MYSQL_PUBLIC_URL`, you can set these Railway public TCP proxy values separately:
+
+- `RAILWAY_TCP_PROXY_DOMAIN`
+- `RAILWAY_TCP_PROXY_PORT`
+- `MYSQLUSER`
+- `MYSQLPASSWORD`
+- `MYSQLDATABASE`
+
 Remove these variables from Render if they exist:
 
 - `MYSQL_URL`

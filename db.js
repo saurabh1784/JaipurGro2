@@ -16,6 +16,20 @@ function buildConfigFromUrl(connectionUrl) {
   };
 }
 
+function buildPublicRailwayUrl() {
+  const host = process.env.RAILWAY_TCP_PROXY_DOMAIN;
+  const port = process.env.RAILWAY_TCP_PROXY_PORT;
+  const user = process.env.MYSQLUSER || process.env.DATABASE_USER || process.env.DB_USER || 'root';
+  const password = process.env.MYSQLPASSWORD || process.env.MYSQL_ROOT_PASSWORD || process.env.DATABASE_PASSWORD || process.env.DB_PASSWORD || '';
+  const database = process.env.MYSQLDATABASE || process.env.MYSQL_DATABASE || process.env.DATABASE_NAME || process.env.DB_NAME;
+
+  if (!host || !port || !database) {
+    return null;
+  }
+
+  return `mysql://${encodeURIComponent(user)}:${encodeURIComponent(password)}@${host}:${port}/${encodeURIComponent(database)}`;
+}
+
 function isRailwayRuntime() {
   return Boolean(process.env.RAILWAY_ENVIRONMENT || process.env.RAILWAY_PROJECT_ID);
 }
@@ -44,6 +58,11 @@ function getConnectionUrl() {
     return process.env.MYSQL_PUBLIC_URL;
   }
 
+  const publicRailwayUrl = buildPublicRailwayUrl();
+  if (publicRailwayUrl) {
+    return publicRailwayUrl;
+  }
+
   if (isPrivateRailwayUrl(process.env.MYSQL_URL)) {
     throw new Error('Render cannot connect to Railway private MYSQL_URL. Set MYSQL_PUBLIC_URL from Railway TCP Proxy and remove MYSQL_URL from Render.');
   }
@@ -61,7 +80,7 @@ const isRenderRuntime = Boolean(process.env.RENDER || process.env.RENDER_SERVICE
 
 if (isRenderRuntime && !connectionUrl && !hasHostEnv) {
   throw new Error(
-    'Missing MySQL configuration on Render. Set MYSQL_PUBLIC_URL to a publicly reachable MySQL URL, for example Railway TCP Proxy mysql://user:password@host:port/database.'
+    'Missing MySQL configuration on Render. Set MYSQL_PUBLIC_URL to a public MySQL URL, or set RAILWAY_TCP_PROXY_DOMAIN, RAILWAY_TCP_PROXY_PORT, MYSQLUSER, MYSQLPASSWORD, and MYSQLDATABASE from Railway.'
   );
 }
 
