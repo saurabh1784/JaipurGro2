@@ -159,10 +159,19 @@ function createSessionStore() {
             sid VARCHAR(128) NOT NULL PRIMARY KEY,
             expires BIGINT NOT NULL,
             data LONGTEXT NOT NULL,
-            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-            INDEX idx_sessions_expires (expires)
+            updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
           )
-        `).catch((error) => {
+        `)
+          .then(() => {
+            if (pool.dbType === 'postgres') {
+              return pool.query('CREATE INDEX IF NOT EXISTS idx_sessions_expires ON sessions (expires)');
+            }
+            return pool.query('CREATE INDEX idx_sessions_expires ON sessions (expires)').catch((error) => {
+              if (error && (error.code === 'ER_DUP_KEYNAME' || error.errno === 1061)) return null;
+              throw error;
+            });
+          })
+          .catch((error) => {
           this.ready = null;
           throw error;
         });

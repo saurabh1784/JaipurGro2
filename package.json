@@ -8,8 +8,10 @@
   },
   "scripts": {
     "start": "node app.js",
+    "render:start": "node scripts/migrate-mysql-to-postgres.js --if-configured && node app.js",
     "dev": "nodemon app.js",
-    "db:export": "node scripts/export-db.js"
+    "db:export": "node scripts/export-db.js",
+    "db:migrate:mysql-to-postgres": "node scripts/migrate-mysql-to-postgres.js"
   },
   "keywords": [
     "node",
@@ -27,6 +29,7 @@
     "express-session": "^1.17.4",
     "multer": "^2.1.1",
     "mysql2": "^3.22.3",
+    "pg": "^8.20.0",
     "xlsx": "^0.18.5"
   }
 }

@@ -1,4 +1,20 @@
 async function createIndex(pool, name, table, columns) {
+  if (pool.dbType === 'postgres') {
+    const [rows] = await pool.query(
+      `SELECT COUNT(1) AS total
+         FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = ?
+          AND indexname = ?`,
+      [table, name]
+    );
+
+    if (!Number(rows[0].total)) {
+      await pool.query(`CREATE INDEX ${name} ON ${table} (${columns})`);
+    }
+    return;
+  }
+
   const [rows] = await pool.query(
     `SELECT COUNT(1) AS total
        FROM information_schema.statistics
@@ -14,6 +30,22 @@ async function createIndex(pool, name, table, columns) {
 }
 
 async function createUniqueIndex(pool, name, table, columns) {
+  if (pool.dbType === 'postgres') {
+    const [rows] = await pool.query(
+      `SELECT COUNT(1) AS total
+         FROM pg_indexes
+        WHERE schemaname = 'public'
+          AND tablename = ?
+          AND indexname = ?`,
+      [table, name]
+    );
+
+    if (!Number(rows[0].total)) {
+      await pool.query(`CREATE UNIQUE INDEX ${name} ON ${table} (${columns})`);
+    }
+    return;
+  }
+
   const firstColumn = String(columns).split(',')[0].trim();
   const [rows] = await pool.query(
     `SELECT COUNT(1) AS total
@@ -31,6 +63,22 @@ async function createUniqueIndex(pool, name, table, columns) {
 }
 
 async function ensureColumn(pool, table, column, definition) {
+  if (pool.dbType === 'postgres') {
+    const [rows] = await pool.query(
+      `SELECT COUNT(1) AS total
+         FROM information_schema.columns
+        WHERE table_schema = 'public'
+          AND table_name = ?
+          AND column_name = ?`,
+      [table, column]
+    );
+
+    if (!Number(rows[0].total)) {
+      await pool.query(`ALTER TABLE ${table} ADD COLUMN ${column} ${definition}`);
+    }
+    return;
+  }
+
   const [rows] = await pool.query(
     `SELECT COUNT(1) AS total
        FROM information_schema.columns

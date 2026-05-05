@@ -287,13 +287,17 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
 async function rejectVendorRequest({ recipientId, vendorId }) {
   const [result] = await pool.query(
     `UPDATE quotation_vendor_recipients qvr
-     INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id
-     SET qvr.status = 'rejected',
-         qvr.decided_at = CURRENT_TIMESTAMP
+     SET status = 'rejected',
+         decided_at = CURRENT_TIMESTAMP
      WHERE qvr.id = ?
        AND qvr.vendor_id = ?
-       AND qr.status = 'pending'
-       AND qvr.status IN ('new', 'seen')`,
+       AND qvr.status IN ('new', 'seen')
+       AND EXISTS (
+         SELECT 1
+         FROM quotation_requests qr
+         WHERE qr.id = qvr.quotation_request_id
+           AND qr.status = 'pending'
+       )`,
     [recipientId, vendorId]
   );
 

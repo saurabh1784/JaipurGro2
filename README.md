@@ -1,6 +1,6 @@
 # Jaipur Node Login App
 
-A Node.js + Express grocery app with MySQL-backed login, roles, wallets, catalog, vendors, clients, products, orders, and quotations.
+A Node.js + Express grocery app with MySQL or PostgreSQL-backed login, roles, wallets, catalog, vendors, clients, products, orders, and quotations.
 
 ## Local setup
 
@@ -45,7 +45,7 @@ Database deployment files are in `database/railway`:
 
 ## Render deployment
 
-Use Railway's public MySQL URL when deploying the app on Render. Do not use `MYSQL_URL` or `RAILWAY_PRIVATE_DOMAIN` on Render because Railway private networking only works inside Railway.
+Render is configured to create a PostgreSQL database automatically from `render.yaml`. The app creates the tables on startup and can optionally copy data from a linked MySQL database before starting.
 
 Render build command:
 
@@ -56,17 +56,24 @@ npm ci
 Render start command:
 
 ```bash
-npm start
+npm run render:start
 ```
 
 If configuring manually in the Render dashboard, set:
 
 - `Root Directory`: leave blank when this repository root is selected
-- `MYSQL_PUBLIC_URL`: Railway MySQL public URL, using `RAILWAY_TCP_PROXY_DOMAIN` and `RAILWAY_TCP_PROXY_PORT`
+- `DB_CLIENT`: `postgres`
+- `DATABASE_URL`: Render PostgreSQL internal connection string
 - `NODE_ENV`: `production`
 - `SESSION_SECRET`: any long random secret
 
-Instead of `MYSQL_PUBLIC_URL`, you can set these Railway public TCP proxy values separately:
+If you deploy from the included `render.yaml`, Render creates `DATABASE_URL` for you from the `jaipur-postgres` database.
+
+To migrate data from Railway/MySQL into the new Render PostgreSQL database, set either:
+
+- `MYSQL_PUBLIC_URL`: public MySQL URL
+
+Or set these Railway public TCP proxy values separately:
 
 - `RAILWAY_TCP_PROXY_DOMAIN`
 - `RAILWAY_TCP_PROXY_PORT`
@@ -78,12 +85,13 @@ Remove these variables from Render if they exist:
 
 - `MYSQL_URL`
 - `MYSQLHOST`
-- `DATABASE_URL`
 
-The app intentionally fails fast on Render if no public MySQL connection is configured. Render cannot connect to Railway's private MySQL host, so `MYSQL_PUBLIC_URL` must look like:
+Do not use Railway's private `MYSQL_URL` or `RAILWAY_PRIVATE_DOMAIN` on Render because Railway private networking only works inside Railway.
+
+Manual migration command:
 
 ```bash
-mysql://user:password@public-host:public-port/database
+npm run db:migrate:mysql-to-postgres
 ```
 
 ## Vercel deployment
