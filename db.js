@@ -5,7 +5,7 @@ const dbConfig = {
   port: Number(process.env.DB_PORT || 5434),
   user: process.env.DB_USER || 'postgres',
   password: process.env.DB_PASSWORD || 'admin',
-  database: process.env.DB_NAME || 'jaipur_db_node',
+  database: process.env.DB_NAME || 'db_for_jaipur',
   max: Number(process.env.DB_POOL_MAX || 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
