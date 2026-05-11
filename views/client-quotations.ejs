@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Client Quotations</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  <% const money = (value) => `INR ${Number(value || 0).toFixed(2)}`; %>
+  <% const formatDate = (value) => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Not submitted yet'; %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Quotations</p>
+        <h1>Vendor Responses</h1>
+      </div>
+    </header>
+
+    <section class="quotation-list">
+      <% if (!quotations.length) { %>
+        <div class="users-table-card quotation-empty">
+          <h2>No quotations yet</h2>
+          <p>Your quotation requests and vendor responses will appear here.</p>
+        </div>
+      <% } %>
+
+      <% quotations.forEach((quotation) => { %>
+        <% const storeName = quotation.vendor_store_name || quotation.vendor_name || 'Vendor Store'; %>
+        <% const appTotal = quotation.actual_total || quotation.total_amount || 0; %>
+        <% const vendorTotal = quotation.response_total || 0; %>
+        <details class="users-table-card quotation-card" data-recipient-id="<%= quotation.recipient_id %>">
+          <summary class="quotation-summary">
+            <div class="quotation-summary-main">
+              <span class="quotation-id">Quotation #<%= quotation.id %></span>
+              <h2><%= storeName %></h2>
+              <p><%= quotation.vendor_email %> - <%= quotation.client_city %></p>
+            </div>
+            <div class="quotation-summary-meta">
+              <span class="quotation-pill"><%= quotation.recipient_status %></span>
+              <strong><%= money(appTotal) %></strong>
+              <small>App price total</small>
+            </div>
+            <span class="quotation-chevron" aria-hidden="true">Open</span>
+          </summary>
+
+          <div class="quotation-details">
+            <div class="quotation-info-grid">
+              <div>
+                <span>App Price Total</span>
+                <strong><%= money(appTotal) %></strong>
+              </div>
+              <div>
+                <span>Vendor Total</span>
+                <strong><%= vendorTotal ? money(vendorTotal) : 'Waiting' %></strong>
+              </div>
+              <div>
+                <span>Store Name</span>
+                <strong><%= storeName %></strong>
+              </div>
+              <div>
+                <span>Request Date</span>
+                <strong><%= formatDate(quotation.created_at) %></strong>
+              </div>
+              <div>
+                <span>Vendor Submit Time</span>
+                <strong><%= formatDate(quotation.submitted_at) %></strong>
+              </div>
+              <div>
+                <span>Savings</span>
+                <strong class="<%= quotation.savings >= 0 ? 'saving-positive' : 'saving-negative' %>"><%= vendorTotal ? money(quotation.savings) : 'Waiting' %></strong>
+              </div>
+            </div>
+
+            <table class="wallets-table quotation-items-table">
+              <thead>
+                <tr>
+                  <th>Product</th>
+                  <th>Qty</th>
+                  <th>App Price</th>
+                  <th>App Total</th>
+                  <th>Vendor Price</th>
+                  <th>Vendor Total</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% quotation.items.forEach((item) => { %>
+                  <% const isWaiting = quotation.recipient_status === 'new' || quotation.recipient_status === 'seen'; %>
+                  <tr>
+                    <td><%= item.product_name %></td>
+                    <td><%= item.quantity %></td>
+                    <td><%= money(item.admin_price) %></td>
+                    <td><%= money(item.master_line_total || item.quantity * item.admin_price) %></td>
+                    <td><%= isWaiting ? 'Waiting' : money(item.unit_price) %></td>
+                    <td><%= isWaiting ? 'Waiting' : money(item.line_total) %></td>
+                    <td>
+                      <% if (isWaiting) { %>
+                        <span class="quotation-item-status waiting">Waiting</span>
+                      <% } else { %>
+                        <span class="quotation-item-status <%= item.status === 'not_available' ? 'not-available' : 'available' %>"><%= item.status === 'not_available' ? 'Not available' : 'Available' %></span>
+                      <% } %>
+                    </td>
+                  </tr>
+                <% }) %>
+              </tbody>
+            </table>
+
+            <% if (quotation.recipient_status === 'submitted') { %>
+              <div class="quotation-actions">
+                <button class="settings-save" type="button" onclick="decideQuotation(<%= quotation.recipient_id %>, 'accept')">Accept</button>
+                <button class="reject-button" type="button" onclick="decideQuotation(<%= quotation.recipient_id %>, 'reject')">Reject</button>
+              </div>
+            <% } %>
+          </div>
+        </details>
+      <% }) %>
+    </section>
+  </main>
+
+  <style>
+    .quotation-list { display: grid; gap: 14px; }
+    .quotation-card, .quotation-empty { padding: 0; overflow: hidden; }
+    .quotation-empty { padding: 20px; }
+    .quotation-empty h2 { margin: 4px 0; color: #263238; }
+    .quotation-empty p { margin: 0; color: #64748b; }
+    .quotation-card summary { list-style: none; }
+    .quotation-card summary::-webkit-details-marker { display: none; }
+    .quotation-summary {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 20px;
+      cursor: pointer;
+    }
+    .quotation-summary-main h2 { margin: 4px 0; color: #263238; }
+    .quotation-summary-main p { margin: 0; color: #64748b; }
+    .quotation-id { color: #1f8f4d; font-weight: 800; font-size: 0.82rem; text-transform: uppercase; }
+    .quotation-summary-meta { display: grid; gap: 5px; justify-items: end; }
+    .quotation-summary-meta strong { color: #0f172a; font-size: 1.2rem; }
+    .quotation-summary-meta small { color: #64748b; font-weight: 800; }
+    .quotation-pill { display: inline-block; padding: 6px 10px; border-radius: 999px; background: #e8f5ee; color: #17643a; font-weight: 800; }
+    .quotation-chevron { color: #26bcd4; font-weight: 900; }
+    .quotation-card[open] .quotation-chevron { color: #64748b; }
+    .quotation-card[open] .quotation-chevron::before { content: 'Close'; }
+    .quotation-card[open] .quotation-chevron { font-size: 0; }
+    .quotation-card[open] .quotation-chevron::before { font-size: 0.95rem; }
+    .quotation-details { border-top: 1px solid #e2e8f0; padding: 16px 20px 20px; }
+    .quotation-info-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; margin-bottom: 16px; }
+    .quotation-info-grid div { padding: 12px; border: 1px solid #e2e8f0; border-radius: 8px; background: #f8fafc; }
+    .quotation-info-grid span { display: block; color: #64748b; font-size: 0.8rem; margin-bottom: 4px; font-weight: 800; }
+    .quotation-info-grid strong { color: #263238; }
+    .quotation-items-table { width: 100%; }
+    .quotation-item-status { display: inline-block; padding: 5px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 800; }
+    .quotation-item-status.available { background: #dcfce7; color: #166534; }
+    .quotation-item-status.not-available { background: #fee2e2; color: #991b1b; }
+    .quotation-item-status.waiting { background: #fef3c7; color: #92400e; }
+    .saving-positive { color: #059669 !important; }
+    .saving-negative { color: #dc2626 !important; }
+    .quotation-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+    .reject-button { padding: 10px 14px; border: none; border-radius: 6px; background: #fee2e2; color: #991b1b; font-weight: 800; cursor: pointer; }
+    .theme-dark .quotation-summary-main h2,
+    .theme-dark .quotation-empty h2,
+    .theme-dark .quotation-summary-meta strong,
+    .theme-dark .quotation-info-grid strong { color: #f8fafc; }
+    .theme-dark .quotation-info-grid div { background: #172033; border-color: #334155; }
+    @media (max-width: 860px) {
+      .quotation-summary { grid-template-columns: 1fr; align-items: flex-start; }
+      .quotation-summary-meta { justify-items: start; }
+      .quotation-info-grid { grid-template-columns: 1fr; }
+      .quotation-actions { flex-direction: column; align-items: flex-start; }
+    }
+  </style>
+
+  <script>
+    async function decideQuotation(recipientId, decision) {
+      const response = await fetch(`/client/quotations/${recipientId}/${decision}`, {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to update quotation');
+        return;
+      }
+      alert(data.message);
+      location.reload();
+    }
+  </script>
+</body>
+</html>

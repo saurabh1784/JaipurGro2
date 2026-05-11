@@ -1,0 +1,361 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Wallets</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Wallets</p>
+        <h1>Wallet System</h1>
+      </div>
+      <% if (canManage) { %>
+        <div class="topbar-actions">
+          <label class="system-search" aria-label="Search wallets">
+            <input id="walletSearch" type="search" placeholder="Search name or email" />
+            <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+          </label>
+        </div>
+      <% } %>
+    </header>
+
+    <section class="wallet-shell">
+      <div class="wallet-summary-grid">
+        <div class="wallet-balance-card">
+          <span>Total Balance</span>
+          <strong id="walletTotal">INR 0.00</strong>
+          <p id="walletSummaryNote">Wallet balances are synced with users.</p>
+        </div>
+        <% if (canManage) { %>
+          <label>
+            Role
+            <select id="walletRoleFilter">
+              <option value="">All Roles</option>
+              <% roleOptions.forEach((role) => { %>
+                <option value="<%= role %>"><%= role %></option>
+              <% }) %>
+            </select>
+          </label>
+          <label>
+            Status
+            <select id="walletStatusFilter">
+              <option value="">All Status</option>
+              <option value="active">active</option>
+              <option value="blocked">blocked</option>
+            </select>
+          </label>
+        <% } %>
+      </div>
+
+      <div class="users-table-card">
+        <table class="wallets-table">
+          <thead id="walletTableHead"></thead>
+          <tbody id="walletTableBody">
+            <tr><td>Loading wallets...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="users-pagination">
+        <button type="button" id="prevWalletPage">Previous</button>
+        <span id="walletPageInfo">Page 1</span>
+        <button type="button" id="nextWalletPage">Next</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="user-modal" id="adjustWalletModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2 id="adjustWalletTitle">Adjust Wallet</h2>
+        <button type="button" onclick="closeModal('adjustWalletModal')">Close</button>
+      </div>
+      <form id="adjustWalletForm" class="user-modal-grid">
+        <input type="hidden" id="adjustUserId" />
+        <label>
+          Type
+          <select id="adjustType" required>
+            <option value="credit">credit</option>
+            <option value="debit">debit</option>
+          </select>
+        </label>
+        <label>
+          Amount
+          <input id="adjustAmount" type="number" min="0.01" step="0.01" required />
+        </label>
+        <label>
+          Reference
+          <input id="adjustReference" type="text" placeholder="Order, refund, or manual ref" />
+        </label>
+        <label>
+          Note
+          <textarea id="adjustNote" placeholder="Reason"></textarea>
+        </label>
+        <button class="settings-save" type="submit">Save Transaction</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="user-modal" id="transactionsModal" aria-hidden="true">
+    <div class="user-modal-card wallet-transactions-card">
+      <div class="user-modal-header">
+        <h2 id="transactionsTitle">Transactions</h2>
+        <button type="button" onclick="closeModal('transactionsModal')">Close</button>
+      </div>
+      <div class="wallet-transaction-list" id="transactionList"></div>
+    </div>
+  </div>
+
+  <script>
+    const canManageWallets = <%= canManage ? 'true' : 'false' %>;
+    let walletPage = 1;
+    let walletTotalPages = 1;
+    let wallets = [];
+
+    const walletTableHead = document.getElementById('walletTableHead');
+    const walletTableBody = document.getElementById('walletTableBody');
+    const walletTotal = document.getElementById('walletTotal');
+    const walletSummaryNote = document.getElementById('walletSummaryNote');
+    const walletPageInfo = document.getElementById('walletPageInfo');
+    const prevWalletPage = document.getElementById('prevWalletPage');
+    const nextWalletPage = document.getElementById('nextWalletPage');
+    const walletSearch = document.getElementById('walletSearch');
+    const walletRoleFilter = document.getElementById('walletRoleFilter');
+    const walletStatusFilter = document.getElementById('walletStatusFilter');
+
+    function debounce(fn, delay) {
+      let timer;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    function formatMoney(value, currency = 'INR') {
+      return `${currency} ${Number(value || 0).toFixed(2)}`;
+    }
+
+    function formatDateTime(value) {
+      if (!value) return 'N/A';
+      return new Date(value).toLocaleString();
+    }
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+      }[char]));
+    }
+
+    function openModal(id) {
+      document.getElementById(id).classList.add('active');
+    }
+
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+
+    async function loadWallets(page = 1) {
+      const params = new URLSearchParams({ format: 'json', page, limit: 10 });
+      if (canManageWallets) {
+        params.set('search', walletSearch.value.trim());
+        params.set('role', walletRoleFilter.value);
+        params.set('status', walletStatusFilter.value);
+      }
+
+      const response = await fetch(`/wallets?${params.toString()}`);
+      const data = await response.json();
+      if (!data.success) {
+        walletTableBody.innerHTML = `<tr><td>${escapeHtml(data.message || 'Unable to load wallets')}</td></tr>`;
+        return;
+      }
+
+      if (data.mode === 'self') {
+        renderSelfWallet(data);
+        return;
+      }
+
+      wallets = data.wallets || [];
+      walletPage = data.pagination.page;
+      walletTotalPages = data.pagination.totalPages;
+      renderWalletTable();
+    }
+
+    function renderWalletTable() {
+      walletTableHead.innerHTML = `
+        <tr>
+          <th>ID</th>
+          <th>User</th>
+          <th>Role</th>
+          <th>Balance</th>
+          <th>Status</th>
+          <th>Updated</th>
+          <th>Actions</th>
+        </tr>
+      `;
+
+      if (wallets.length === 0) {
+        walletTableBody.innerHTML = '<tr><td colspan="7">No wallets found</td></tr>';
+      } else {
+        walletTableBody.innerHTML = wallets.map((wallet) => `
+          <tr>
+            <td>#${wallet.id}</td>
+            <td>
+              <strong>${escapeHtml(wallet.user_name)}</strong>
+              <span class="wallet-muted">${escapeHtml(wallet.user_email)}</span>
+            </td>
+            <td><span class="user-role-pill">${escapeHtml(wallet.user_role)}</span></td>
+            <td><strong>${formatMoney(wallet.balance, wallet.currency)}</strong></td>
+            <td><span class="wallet-status ${wallet.status}">${escapeHtml(wallet.status)}</span></td>
+            <td>${formatDateTime(wallet.updated_at)}</td>
+            <td>
+              <div class="user-actions">
+                <button type="button" onclick="openAdjust(${wallet.user_id})">Adjust</button>
+                <button type="button" onclick="openTransactions(${wallet.user_id})">Transactions</button>
+                <button type="button" onclick="toggleStatus(${wallet.user_id}, '${wallet.status === 'active' ? 'blocked' : 'active'}')">${wallet.status === 'active' ? 'Block' : 'Activate'}</button>
+              </div>
+            </td>
+          </tr>
+        `).join('');
+      }
+
+      const totalBalance = wallets.reduce((sum, wallet) => sum + Number(wallet.balance || 0), 0);
+      walletTotal.textContent = formatMoney(totalBalance);
+      walletSummaryNote.textContent = `${wallets.length} wallets on this page`;
+      updatePagination();
+    }
+
+    function renderSelfWallet(data) {
+      const wallet = data.wallet;
+      const transactions = data.transactions || [];
+      walletTableHead.innerHTML = `
+        <tr>
+          <th>Type</th>
+          <th>Amount</th>
+          <th>Balance After</th>
+          <th>Reference</th>
+          <th>Date</th>
+        </tr>
+      `;
+      walletTableBody.innerHTML = transactions.length
+        ? transactions.map((item) => `
+          <tr>
+            <td><span class="wallet-transaction-type ${item.type}">${escapeHtml(item.type)}</span></td>
+            <td>${formatMoney(item.amount, wallet.currency)}</td>
+            <td>${formatMoney(item.balance_after, wallet.currency)}</td>
+            <td>${escapeHtml(item.reference || item.note || 'N/A')}</td>
+            <td>${formatDateTime(item.created_at)}</td>
+          </tr>
+        `).join('')
+        : '<tr><td colspan="5">No transactions yet</td></tr>';
+
+      walletTotal.textContent = formatMoney(wallet.balance, wallet.currency);
+      walletSummaryNote.textContent = `Status: ${wallet.status}`;
+      walletPage = data.pagination.page;
+      walletTotalPages = data.pagination.totalPages;
+      updatePagination();
+    }
+
+    function updatePagination() {
+      walletPageInfo.textContent = `Page ${walletPage} of ${walletTotalPages}`;
+      prevWalletPage.disabled = walletPage <= 1;
+      nextWalletPage.disabled = walletPage >= walletTotalPages;
+    }
+
+    function openAdjust(userId) {
+      const wallet = wallets.find((item) => item.user_id === userId);
+      document.getElementById('adjustUserId').value = userId;
+      document.getElementById('adjustWalletTitle').textContent = wallet ? `Adjust ${wallet.user_name}` : 'Adjust Wallet';
+      document.getElementById('adjustAmount').value = '';
+      document.getElementById('adjustReference').value = '';
+      document.getElementById('adjustNote').value = '';
+      openModal('adjustWalletModal');
+    }
+
+    async function openTransactions(userId) {
+      const response = await fetch(`/wallets/${userId}?limit=50`);
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to load transactions');
+        return;
+      }
+
+      document.getElementById('transactionsTitle').textContent = `${data.user.name} Transactions`;
+      const list = document.getElementById('transactionList');
+      list.innerHTML = (data.transactions || []).length
+        ? data.transactions.map((item) => `
+          <article class="wallet-transaction-row">
+            <div>
+              <strong class="${item.type}">${escapeHtml(item.type)}</strong>
+              <span>${escapeHtml(item.reference || item.note || 'Manual transaction')}</span>
+            </div>
+            <div>
+              <strong>${formatMoney(item.amount, data.wallet.currency)}</strong>
+              <span>${formatDateTime(item.created_at)}</span>
+            </div>
+          </article>
+        `).join('')
+        : '<p class="wallet-empty">No transactions yet</p>';
+      openModal('transactionsModal');
+    }
+
+    async function toggleStatus(userId, status) {
+      const response = await fetch(`/wallets/${userId}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to update wallet status');
+        return;
+      }
+      loadWallets(walletPage);
+    }
+
+    document.getElementById('adjustWalletForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const userId = document.getElementById('adjustUserId').value;
+      const payload = {
+        type: document.getElementById('adjustType').value,
+        amount: document.getElementById('adjustAmount').value,
+        reference: document.getElementById('adjustReference').value,
+        note: document.getElementById('adjustNote').value,
+      };
+
+      const response = await fetch(`/wallets/${userId}/adjust`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to save transaction');
+        return;
+      }
+
+      closeModal('adjustWalletModal');
+      loadWallets(walletPage);
+    });
+
+    if (canManageWallets) {
+      walletSearch.addEventListener('input', debounce(() => loadWallets(1), 300));
+      walletRoleFilter.addEventListener('change', () => loadWallets(1));
+      walletStatusFilter.addEventListener('change', () => loadWallets(1));
+    }
+    prevWalletPage.addEventListener('click', () => loadWallets(walletPage - 1));
+    nextWalletPage.addEventListener('click', () => loadWallets(walletPage + 1));
+
+    loadWallets();
+  </script>
+</body>
+</html>

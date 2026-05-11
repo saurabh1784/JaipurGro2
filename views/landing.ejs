@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Grocery App</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="landing-page">
+  <main class="grocery-landing">
+    <header class="grocery-nav">
+      <a class="grocery-logo" href="/" aria-label="GroceriesToGo home">
+        <span class="grocery-logo-mark">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 8h3l2 11h11l3-8H12"/><circle cx="14" cy="24" r="2"/><circle cx="23" cy="24" r="2"/><path d="M6 13H3M8 17H4M10 21H6"/></svg>
+        </span>
+        <span>GroceriesToGo</span>
+      </a>
+
+      <nav class="grocery-menu" aria-label="Landing navigation">
+        <a class="active" href="/">Home</a>
+        <a href="/login/vendor">Vendor Login</a>
+        <a href="/login/client">Client Login</a>
+      </nav>
+
+      <div class="grocery-nav-actions">
+        <button class="cart-button" type="button" aria-label="Cart">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 6h15l-2 8H8z"/><path d="M6 6 5 3H2"/><circle cx="9" cy="20" r="1.8"/><circle cx="18" cy="20" r="1.8"/></svg>
+          <span>2</span>
+        </button>
+        <a class="landing-signup" href="/admin">Admin</a>
+      </div>
+    </header>
+
+    <section class="grocery-hero">
+      <div class="grocery-copy">
+        <span class="service-pill">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 8h16l-2 10H6z"/><path d="M8 8a4 4 0 0 1 8 0"/><path d="M9 12h6"/></svg>
+          Grocery Deliver Service
+        </span>
+        <h1>Make healthy<br />life with <span>fresh</span><br />grocery</h1>
+        <p>Get the best quality and most delicious grocery food in the world, you can get them all use our website.</p>
+        <a class="shop-now" href="/login/client">Shop Now</a>
+
+        <div class="download-block">
+          <span>For Better Service Download now</span>
+          <div class="store-badges">
+            <a href="#google-play" aria-label="Get it on Google Play">
+              <strong>G</strong>
+              <span>GET IT ON<br /><b>Google Play</b></span>
+            </a>
+            <a href="#app-store" aria-label="Download on App Store">
+              <strong>A</strong>
+              <span>Download on<br /><b>App Store</b></span>
+            </a>
+          </div>
+        </div>
+      </div>
+
+      <div class="grocery-visual" aria-label="Fresh grocery platter">
+        <img src="https://images.unsplash.com/photo-1540420773420-3366772f4999?auto=format&fit=crop&w=1200&q=85" alt="Fresh vegetables on a wooden board" />
+        <div class="quality-chip">
+          <span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 12c4-7 10-7 14-2-1 7-9 10-14 2z"/><path d="M7 13c4 1 7-1 10-4"/></svg>
+          </span>
+          <strong>100% Fresh</strong>
+          <small>Quality maintain</small>
+        </div>
+        <div class="delivery-chip">
+          <span>
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 22s7-5.1 7-12A7 7 0 1 0 5 10c0 6.9 7 12 7 12z"/><circle cx="12" cy="10" r="2.5"/></svg>
+          </span>
+          <div>
+            <strong>Fast Delivery</strong>
+            <small>Free of cost any delivery</small>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+</body>
+</html>
