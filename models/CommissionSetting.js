@@ -50,7 +50,8 @@ async function seedForRoles(connection = pool) {
         `INSERT INTO commission_settings
          (role_slug, role_name, transaction_type, commission_type, commission_value, min_commission, max_commission, is_active)
          VALUES (?, ?, ?, 'percentage', 0.00, 0.00, NULL, 0)
-         ON DUPLICATE KEY UPDATE role_name = VALUES(role_name)`,
+         ON CONFLICT (role_slug, transaction_type) DO UPDATE
+         SET role_name = EXCLUDED.role_name`,
         [role.slug, role.name, transactionType]
       );
     }

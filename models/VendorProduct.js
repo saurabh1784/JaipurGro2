@@ -1,5 +1,4 @@
 const pool = require('../db');
-const Product = require('./Product');
 
 function normalize(row) {
   if (!row) return null;
@@ -25,6 +24,9 @@ function normalize(row) {
     brand_name: row.brand_name,
     vendor_name: row.vendor_name,
     vendor_email: row.vendor_email,
+    is_sponsored: Boolean(row.is_sponsored),
+    sponsored_priority: Number(row.sponsored_priority || 0),
+    ranking_score: row.ranking_score === undefined ? 0 : Number(row.ranking_score || 0),
     image_url: row.image_url || '/default.png',
     client_id: row.client_id,
     custom_price: row.custom_price === undefined || row.custom_price === null ? null : Number(row.custom_price),
@@ -151,66 +153,34 @@ async function create(data) {
   }
 
   let productId = toPositiveInt(data.product_id);
+  if (!productId) {
+    const error = new Error('Please select a product from the master product list');
+    error.status = 422;
+    throw error;
+  }
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    if (!productId) {
-      const productData = {
-        name: data.name && String(data.name).trim(),
-        description: data.description ? String(data.description).trim() : '',
-        price: 0,
-        category_id: toPositiveInt(data.category_id),
-        sub_category_id: toPositiveInt(data.sub_category_id || data.subcategory_id),
-        brand_id: toPositiveInt(data.brand_id),
-      };
-
-      if (!productData.name || productData.name.length < 2 || !productData.category_id || !productData.sub_category_id || !productData.brand_id) {
-        const error = new Error('Name, category, subcategory, and brand are required for a new product');
-        error.status = 422;
-        throw error;
-      }
-
-      if (!(await Product.validateRelation(productData))) {
-        const error = new Error('Selected category, subcategory, and brand do not match');
-        error.status = 422;
-        throw error;
-      }
-
-      const [result] = await connection.query(
-        `INSERT INTO products
-         (name, description, price, category_id, sub_category_id, brand_id, approval_status, created_by_vendor_id)
-         VALUES (?, ?, 0.00, ?, ?, ?, 'pending', ?)`,
-        [
-          productData.name,
-          productData.description || null,
-          productData.category_id,
-          productData.sub_category_id,
-          productData.brand_id,
-          vendorId,
-        ]
-      );
-      productId = result.insertId;
-    } else {
-      const [productRows] = await connection.query(
-        "SELECT id FROM products WHERE id = ? AND is_deleted = 0 LIMIT 1",
-        [productId]
-      );
-      if (!productRows.length) {
-        const error = new Error('Product not found');
-        error.status = 404;
-        throw error;
-      }
+    const [productRows] = await connection.query(
+      "SELECT id FROM products WHERE id = ? AND is_deleted = 0 AND approval_status = 'approved' LIMIT 1",
+      [productId]
+    );
+    if (!productRows.length) {
+      const error = new Error('Product not found in approved master product list');
+      error.status = 404;
+      throw error;
     }
 
     const [result] = await connection.query(
-      `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, image_url, status)
-       VALUES (?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         quantity = VALUES(quantity),
-         price = VALUES(price),
-         image_url = COALESCE(VALUES(image_url), image_url),
-         status = VALUES(status)`,
-      [productId, vendorId, quantity, price, data.image_url || null, data.status === 'inactive' ? 'inactive' : 'active']
+      `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (product_id, vendor_id) DO UPDATE
+       SET quantity = EXCLUDED.quantity,
+           price = EXCLUDED.price,
+           status = EXCLUDED.status
+       RETURNING id`,
+      [productId, vendorId, quantity, price, data.status === 'inactive' ? 'inactive' : 'active']
     );
     await connection.commit();
     return findById(result.insertId || (await findExistingId(productId, vendorId)));
@@ -231,7 +201,7 @@ async function update(id, data) {
   const fields = [];
   const values = [];
 
-  if (Object.prototype.hasOwnProperty.call(data, 'quantity')) {
+  if (Object.prototype.hasOwnProperty.call(data, 'quantity') && data.quantity !== '' && data.quantity !== null && data.quantity !== undefined) {
     const quantity = toNonNegativeNumber(data.quantity);
     if (!Number.isFinite(quantity)) {
       const error = new Error('Quantity must be a non-negative number');
@@ -242,7 +212,7 @@ async function update(id, data) {
     values.push(quantity);
   }
 
-  if (Object.prototype.hasOwnProperty.call(data, 'price')) {
+  if (Object.prototype.hasOwnProperty.call(data, 'price') && data.price !== '' && data.price !== null && data.price !== undefined) {
     const price = toNonNegativeNumber(data.price);
     if (!Number.isFinite(price)) {
       const error = new Error('Price must be a non-negative number');
@@ -298,7 +268,8 @@ async function setClientPrice({ product_id, vendor_id, client_id, custom_price }
   await pool.query(
     `INSERT INTO vendor_client_product_prices (product_id, vendor_id, client_id, custom_price)
      VALUES (?, ?, ?, ?)
-     ON DUPLICATE KEY UPDATE custom_price = VALUES(custom_price)`,
+     ON CONFLICT (product_id, vendor_id, client_id) DO UPDATE
+     SET custom_price = EXCLUDED.custom_price`,
     [productId, vendorId, clientId, price]
   );
 }
@@ -344,6 +315,7 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
     'u.is_deleted = 0',
   ];
   const params = [];
+  const term = search ? `%${String(search).trim()}%` : null;
 
   if (client_id) {
     where.push('cp.city IS NOT NULL');
@@ -371,9 +343,8 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
     params.push(brand_name);
   }
   if (search) {
-    where.push('(p.name LIKE ? OR p.description LIKE ? OR b.name LIKE ?)');
-    const term = `%${String(search).trim()}%`;
-    params.push(term, term, term);
+    where.push('p.name ILIKE ?');
+    params.push(term);
   }
 
   const [rows] = await pool.query(
@@ -392,7 +363,23 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
             NULL AS vendor_email,
             NULL AS client_id,
             NULL AS custom_price,
-            p.price AS visible_price
+            MIN(vp.price) AS visible_price,
+            COALESCE(sp.is_sponsored, 0) AS is_sponsored,
+            COALESCE(sp.priority_order, 0) AS sponsored_priority,
+            (
+              COALESCE(MAX(prs.popularity_score), 0)
+              + COALESCE(MAX(prs.click_score), 0)
+              + COALESCE(MAX(prs.purchase_score), 0)
+              + COALESCE(MAX(prs.search_score), 0)
+              + CASE WHEN COUNT(DISTINCT ura.id) > 0 THEN 12 ELSE 0 END
+              + CASE WHEN COUNT(DISTINCT coi.id) > 0 THEN 20 ELSE 0 END
+              + CASE WHEN CAST(? AS TEXT) IS NOT NULL AND p.name ILIKE ? THEN 120 ELSE 0 END
+              + CASE WHEN CAST(? AS TEXT) IS NOT NULL AND EXISTS (
+                  SELECT 1 FROM product_keywords pk
+                  WHERE pk.product_id = p.id AND pk.keyword ILIKE ?
+                ) THEN 55 ELSE 0 END
+              + CASE WHEN CAST(? AS TEXT) IS NOT NULL AND c.name ILIKE ? THEN 35 ELSE 0 END
+            ) AS ranking_score
      FROM vendor_products vp
      INNER JOIN products p ON p.id = vp.product_id
      INNER JOIN users u ON u.id = vp.vendor_id
@@ -401,12 +388,31 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
      INNER JOIN categories c ON c.id = p.category_id
      INNER JOIN sub_categories s ON s.id = p.sub_category_id
      INNER JOIN brands b ON b.id = p.brand_id
+     LEFT JOIN sponsored_products sp ON sp.product_id = p.id
+     LEFT JOIN product_ranking_scores prs ON prs.product_id = p.id
+     LEFT JOIN user_recent_activity ura ON ura.product_id = p.id AND ura.user_id = ? AND ura.activity_type IN ('view', 'click', 'search')
+     LEFT JOIN client_orders co ON co.user_id = ?
+     LEFT JOIN client_order_items coi ON coi.order_id = co.id AND coi.vendor_product_id = vp.id
      WHERE ${where.join(' AND ')}
      GROUP BY p.id, p.image_url, p.name, p.description, p.price, p.approval_status,
               p.category_id, p.sub_category_id, p.brand_id,
-              c.name, s.name, b.name
-     ORDER BY p.name ASC`,
-    client_id ? [client_id, ...params] : params
+              c.name, s.name, b.name, sp.is_sponsored, sp.priority_order
+     ORDER BY COALESCE(sp.is_sponsored, 0) DESC,
+              COALESCE(sp.priority_order, 0) DESC,
+              ranking_score DESC,
+              CASE WHEN CAST(? AS TEXT) IS NOT NULL AND LOWER(p.name) = LOWER(?) THEN 0 ELSE 1 END,
+              p.name ASC`,
+    [
+      term, term,
+      term, term,
+      term, term,
+      ...(client_id ? [client_id] : []),
+      client_id || null,
+      client_id || null,
+      ...params,
+      term,
+      search ? String(search).trim() : null,
+    ]
   );
   return rows.map(normalize);
 }

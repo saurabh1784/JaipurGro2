@@ -1,5 +1,5 @@
 const VendorProduct = require('../models/VendorProduct');
-const { productImagePath } = require('../middleware/productImageUpload');
+const ProductSearch = require('../models/ProductSearch');
 
 function isAdminLike(user) {
   return Boolean(
@@ -69,7 +69,6 @@ async function create(req, res) {
   try {
     const vendorProduct = await VendorProduct.create({
       ...req.body,
-      image_url: productImagePath(req.file),
       vendor_id: resolveVendorId(req),
     });
     return res.status(201).json({
@@ -96,12 +95,17 @@ async function update(req, res) {
   }
 
   try {
-    const vendorProduct = await VendorProduct.update(existing.id, {
-      price: req.body.price,
-      quantity: req.body.quantity,
-      status: req.body.status,
-      image_url: productImagePath(req.file),
+    const updates = {};
+    ['price', 'quantity', 'status'].forEach((field) => {
+      if (Object.prototype.hasOwnProperty.call(req.body, field)) {
+        if ((field === 'price' || field === 'quantity') && (req.body[field] === '' || req.body[field] === null || req.body[field] === undefined)) {
+          return;
+        }
+        updates[field] = req.body[field];
+      }
     });
+
+    const vendorProduct = await VendorProduct.update(existing.id, updates);
     return res.json({ success: true, message: 'Vendor product updated', vendor_product: vendorProduct });
   } catch (error) {
     return res.status(error.status || 500).json({
@@ -112,13 +116,14 @@ async function update(req, res) {
 }
 
 async function destroy(req, res) {
+  if (!isVendor(req.authUser)) {
+    return res.status(403).json({ success: false, message: 'Only the logged-in vendor can delete vendor products' });
+  }
+
   const existing = await VendorProduct.findById(Number(req.params.id));
   if (!existing) return res.status(404).json({ success: false, message: 'Vendor product not found' });
-  if (isVendor(req.authUser) && Number(existing.vendor_id) !== Number(req.authUser.id)) {
+  if (Number(existing.vendor_id) !== Number(req.authUser.id)) {
     return res.status(403).json({ success: false, message: 'You can delete only your own vendor products' });
-  }
-  if (!isVendor(req.authUser) && !isAdminLike(req.authUser)) {
-    return res.status(403).json({ success: false, message: 'You do not have permission to delete vendor products' });
   }
 
   await VendorProduct.remove(existing.id);
@@ -212,6 +217,12 @@ async function visibleForClient(req, res) {
   }
 
   try {
+    if (req.query.search) {
+      await ProductSearch.trackSearch({
+        userId: clientId,
+        keyword: req.query.search,
+      });
+    }
     const products = await VendorProduct.visibleForClient({
       client_id: clientId,
       vendor_id: req.query.vendor_id,
@@ -228,6 +239,43 @@ async function visibleForClient(req, res) {
   }
 }
 
+async function suggestions(req, res) {
+  const clientId = isClient(req.authUser) ? req.authUser.id : req.query.client_id;
+
+  try {
+    const suggestions = await ProductSearch.suggestions({
+      userId: clientId,
+      term: req.query.q || req.query.search,
+      limit: req.query.limit || 8,
+    });
+    return res.json({ success: true, suggestions });
+  } catch (error) {
+    console.error('Product suggestions error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load suggestions' });
+  }
+}
+
+async function trackActivity(req, res) {
+  const clientId = isClient(req.authUser) ? req.authUser.id : req.body.client_id;
+  const type = req.body.type || req.body.activity_type;
+  const productId = req.body.product_id;
+  const keyword = req.body.keyword || req.body.search;
+
+  try {
+    if (type === 'click') {
+      await ProductSearch.trackClick({ userId: clientId, productId, keyword });
+    } else if (type === 'view') {
+      await ProductSearch.trackView({ userId: clientId, productId, keyword });
+    } else {
+      return res.status(422).json({ success: false, message: 'Activity type must be click or view' });
+    }
+    return res.json({ success: true });
+  } catch (error) {
+    console.error('Product activity tracking error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to track activity' });
+  }
+}
+
 module.exports = {
   index,
   show,
@@ -240,4 +288,6 @@ module.exports = {
   approveProduct,
   rejectProduct,
   visibleForClient,
+  suggestions,
+  trackActivity,
 };

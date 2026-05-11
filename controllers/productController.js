@@ -1,6 +1,7 @@
 const xlsx = require('xlsx');
 const Catalog = require('../models/Catalog');
 const Product = require('../models/Product');
+const ProductSearch = require('../models/ProductSearch');
 const { productImagePath } = require('../middleware/productImageUpload');
 
 function wantsJson(req) {
@@ -242,6 +243,33 @@ async function catalog(req, res) {
   }
 }
 
+async function updateSearchSettings(req, res) {
+  const id = normalizeId(req.params.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid product ID is required' });
+  }
+
+  const existing = await Product.findById(id);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Product not found' });
+  }
+
+  try {
+    await ProductSearch.updateProductKeywords(id, req.body.keywords || req.body.tags || '');
+    await ProductSearch.setSponsored({
+      productId: id,
+      isSponsored: req.body.is_sponsored === true || req.body.is_sponsored === 'true' || req.body.is_sponsored === 1 || req.body.is_sponsored === '1',
+      priorityOrder: req.body.sponsored_priority || req.body.priority_order || 0,
+    });
+    return res.json({ success: true, message: 'Search settings updated', product: await Product.findById(id) });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to update search settings',
+    });
+  }
+}
+
 module.exports = {
   index,
   create,
@@ -249,4 +277,5 @@ module.exports = {
   destroy,
   bulkUpload,
   catalog,
+  updateSearchSettings,
 };

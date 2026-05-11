@@ -1,5 +1,4 @@
 const pool = require('../db');
-const Wallet = require('./Wallet');
 
 function publicClient(row) {
   if (!row) return null;
@@ -122,14 +121,6 @@ async function create(data) {
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [userId, data.address || null, data.country || null, data.state || null, data.city || null, data.age || null, data.gender || null, data.notes || null]
     );
-    const [roles] = await connection.query('SELECT id FROM roles WHERE slug = ? LIMIT 1', ['Client']);
-    if (roles.length > 0) {
-      await connection.query(
-        'INSERT IGNORE INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)',
-        [userId, roles[0].id, data.assigned_by || null]
-      );
-    }
-    await Wallet.ensureForUser(userId, connection);
     await connection.commit();
     return userId;
   } catch (error) {

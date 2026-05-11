@@ -9,6 +9,9 @@ function normalizeProduct(row) {
   return {
     ...row,
     price: Number(row.price),
+    sponsored_priority: Number(row.sponsored_priority || 0),
+    is_sponsored: Boolean(row.is_sponsored),
+    keywords: row.keywords || '',
     image_url: row.image_url || '/default.png',
   };
 }
@@ -87,19 +90,27 @@ async function list(filters = {}) {
    }
 
   const where = conditions.join(' AND ');
-  const [countRows] = await pool.query(`SELECT COUNT(*) AS total FROM products p WHERE ${where}`, params);
+  const fromSql = `
+     FROM products p
+     INNER JOIN categories c ON c.id = p.category_id
+     INNER JOIN sub_categories s ON s.id = p.sub_category_id
+     INNER JOIN brands b ON b.id = p.brand_id`;
+  const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${fromSql} WHERE ${where}`, params);
   const total = countRows[0].total;
   const [rows] = await pool.query(
     `SELECT p.id, p.name, p.description, p.price, p.image_url, p.category_id, p.sub_category_id, p.brand_id,
             p.approval_status, p.created_by_vendor_id, p.approved_by, p.approved_at, p.rejection_reason,
             p.created_at, p.updated_at,
-            c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name, b.logo_path AS brand_logo_path
-     FROM products p
-     INNER JOIN categories c ON c.id = p.category_id
-     INNER JOIN sub_categories s ON s.id = p.sub_category_id
-     INNER JOIN brands b ON b.id = p.brand_id
+            c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name, b.logo_path AS brand_logo_path,
+            COALESCE(sp.is_sponsored, 0) AS is_sponsored,
+            COALESCE(sp.priority_order, 0) AS sponsored_priority,
+            COALESCE(STRING_AGG(DISTINCT pk.keyword, ', '), '') AS keywords
+     ${fromSql}
+     LEFT JOIN sponsored_products sp ON sp.product_id = p.id
+     LEFT JOIN product_keywords pk ON pk.product_id = p.id
      WHERE ${where}
-     ORDER BY p.updated_at DESC, p.id DESC
+     GROUP BY p.id, c.name, s.name, b.name, b.logo_path, sp.is_sponsored, sp.priority_order
+     ORDER BY COALESCE(sp.is_sponsored, 0) DESC, COALESCE(sp.priority_order, 0) DESC, p.updated_at DESC, p.id DESC
      LIMIT ? OFFSET ?`,
     [...params, limit, offset]
   );
@@ -117,12 +128,18 @@ async function list(filters = {}) {
 
 async function findById(id) {
   const [rows] = await pool.query(
-    `SELECT p.*, c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name, b.logo_path AS brand_logo_path
+    `SELECT p.*, c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name, b.logo_path AS brand_logo_path,
+            COALESCE(sp.is_sponsored, 0) AS is_sponsored,
+            COALESCE(sp.priority_order, 0) AS sponsored_priority,
+            COALESCE(STRING_AGG(DISTINCT pk.keyword, ', '), '') AS keywords
      FROM products p
      INNER JOIN categories c ON c.id = p.category_id
      INNER JOIN sub_categories s ON s.id = p.sub_category_id
      INNER JOIN brands b ON b.id = p.brand_id
+     LEFT JOIN sponsored_products sp ON sp.product_id = p.id
+     LEFT JOIN product_keywords pk ON pk.product_id = p.id
      WHERE p.id = ? AND p.is_deleted = 0
+     GROUP BY p.id, c.name, s.name, b.name, b.logo_path, sp.is_sponsored, sp.priority_order
      LIMIT 1`,
     [id]
   );

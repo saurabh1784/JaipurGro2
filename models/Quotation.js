@@ -22,24 +22,30 @@ function normalizeRows(rows) {
         vendor_id: row.vendor_id,
         vendor_name: row.vendor_name,
         vendor_email: row.vendor_email,
+        vendor_store_name: row.vendor_store_name,
+        submitted_at: row.submitted_at,
+        decided_at: row.decided_at,
         created_at: row.created_at,
         items: [],
       });
     }
 
-    requests.get(row.id).items.push({
-      id: row.item_id,
-      vendor_product_id: row.vendor_product_id,
-      product_id: row.product_id,
-      product_name: row.product_name,
-      quantity: Number(row.quantity || 0),
-      expected_price: Number(row.expected_price || 0),
-      admin_price: Number(row.admin_price || row.expected_price || 0),
-      status: row.item_status || 'available',
-      in_catalog: Boolean(row.in_catalog),
-      unit_price: row.unit_price === undefined || row.unit_price === null ? Number(row.default_vendor_price || row.expected_price || 0) : Number(row.unit_price || 0),
-      line_total: Number(row.line_total || 0),
-    });
+    if (row.item_id) {
+      requests.get(row.id).items.push({
+        id: row.item_id,
+        vendor_product_id: row.vendor_product_id,
+        product_id: row.product_id,
+        product_name: row.product_name,
+        quantity: Number(row.quantity || row.requested_quantity || 0),
+        expected_price: Number(row.expected_price || 0),
+        admin_price: Number(row.admin_price || row.expected_price || 0),
+        status: row.item_status || 'available',
+        in_catalog: Boolean(row.in_catalog),
+        unit_price: row.unit_price === undefined || row.unit_price === null ? Number(row.default_vendor_price || row.expected_price || 0) : Number(row.unit_price || 0),
+        line_total: Number(row.line_total || 0),
+        master_line_total: Number(row.master_line_total || 0),
+      });
+    }
   }
 
   return [...requests.values()];
@@ -245,10 +251,10 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
         await connection.query(
           `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
            VALUES (?, ?, ?, ?, 'active')
-           ON DUPLICATE KEY UPDATE
-             price = VALUES(price),
-             quantity = GREATEST(quantity, VALUES(quantity)),
-             status = 'active'`,
+           ON CONFLICT (product_id, vendor_id) DO UPDATE
+           SET price = EXCLUDED.price,
+               quantity = GREATEST(vendor_products.quantity, EXCLUDED.quantity),
+               status = 'active'`,
           [existing.product_id, vendorId, quantity, unitPrice]
         );
       }
@@ -257,12 +263,12 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
         `INSERT INTO quotation_vendor_response_items
          (quotation_vendor_recipient_id, quotation_request_item_id, product_name, quantity, status, unit_price, line_total)
          VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE
-           product_name = VALUES(product_name),
-           quantity = VALUES(quantity),
-           status = VALUES(status),
-           unit_price = VALUES(unit_price),
-           line_total = VALUES(line_total)`,
+         ON CONFLICT (quotation_vendor_recipient_id, quotation_request_item_id) DO UPDATE
+         SET product_name = EXCLUDED.product_name,
+             quantity = EXCLUDED.quantity,
+             status = EXCLUDED.status,
+             unit_price = EXCLUDED.unit_price,
+             line_total = EXCLUDED.line_total`,
         [recipientId, itemId, existing.product_name, quantity, status, unitPrice, lineTotal]
       );
     }
@@ -286,16 +292,15 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
 
 async function rejectVendorRequest({ recipientId, vendorId }) {
   const [result] = await pool.query(
-    `UPDATE quotation_vendor_recipients qvr
+    `UPDATE quotation_vendor_recipients
      SET status = 'rejected',
          decided_at = CURRENT_TIMESTAMP
-     WHERE qvr.id = ?
-       AND qvr.vendor_id = ?
-       AND qvr.status IN ('new', 'seen')
+     WHERE id = ?
+       AND vendor_id = ?
+       AND status IN ('new', 'seen')
        AND EXISTS (
-         SELECT 1
-         FROM quotation_requests qr
-         WHERE qr.id = qvr.quotation_request_id
+         SELECT 1 FROM quotation_requests qr
+         WHERE qr.id = quotation_vendor_recipients.quotation_request_id
            AND qr.status = 'pending'
        )`,
     [recipientId, vendorId]
@@ -319,42 +324,49 @@ async function listForClient(clientId) {
             qvr.total_amount AS response_total,
             qvr.discount_percent,
             totals.actual_total,
-            totals.actual_total - qvr.total_amount AS savings,
+            totals.actual_total - COALESCE(NULLIF(qvr.total_amount, 0), totals.actual_total) AS savings,
             qr.client_id,
             qr.client_city,
             qr.total_amount,
             qr.status,
             qr.created_at,
+            qvr.submitted_at,
+            qvr.decided_at,
             vu.name AS vendor_name,
             vu.email AS vendor_email,
+            vp.business_name AS vendor_store_name,
             qvri.id AS response_item_id,
-            qvri.quotation_request_item_id AS item_id,
+            qri.id AS item_id,
             qri.vendor_product_id,
             qri.product_id,
-            qvri.product_name,
+            COALESCE(qvri.product_name, qri.product_name) AS product_name,
             qvri.quantity,
             qri.expected_price,
             p.price AS admin_price,
             qvri.status AS item_status,
             1 AS in_catalog,
             qvri.unit_price,
-            qvri.line_total
+            qvri.line_total,
+            qri.quantity AS requested_quantity,
+            qri.quantity * p.price AS master_line_total
      FROM quotation_vendor_recipients qvr
      INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id
      INNER JOIN users vu ON vu.id = qvr.vendor_id
+     LEFT JOIN vendor_profiles vp ON vp.user_id = qvr.vendor_id
      INNER JOIN (
-       SELECT qvri.quotation_vendor_recipient_id,
-              SUM(qvri.quantity * p.price) AS actual_total
-       FROM quotation_vendor_response_items qvri
-       INNER JOIN quotation_request_items qri ON qri.id = qvri.quotation_request_item_id
+       SELECT quotation_request_id,
+              SUM(quantity * p.price) AS actual_total
+       FROM quotation_request_items qri
        INNER JOIN products p ON p.id = qri.product_id
-       GROUP BY qvri.quotation_vendor_recipient_id
-     ) totals ON totals.quotation_vendor_recipient_id = qvr.id
-     INNER JOIN quotation_vendor_response_items qvri ON qvri.quotation_vendor_recipient_id = qvr.id
-     INNER JOIN quotation_request_items qri ON qri.id = qvri.quotation_request_item_id
+       GROUP BY quotation_request_id
+     ) totals ON totals.quotation_request_id = qr.id
+     INNER JOIN quotation_request_items qri ON qri.quotation_request_id = qr.id
      INNER JOIN products p ON p.id = qri.product_id
-     WHERE qr.client_id = ? AND qvr.status IN ('submitted', 'accepted', 'rejected')
-     ORDER BY qr.created_at DESC, qvr.submitted_at DESC, qvri.id ASC`,
+     LEFT JOIN quotation_vendor_response_items qvri
+       ON qvri.quotation_vendor_recipient_id = qvr.id
+      AND qvri.quotation_request_item_id = qri.id
+     WHERE qr.client_id = ?
+     ORDER BY qr.created_at DESC, qvr.submitted_at DESC NULLS LAST, qvr.id ASC, qri.id ASC`,
     [clientId]
   );
 
@@ -430,6 +442,11 @@ async function decideClientResponse({ recipientId, clientId, decision }) {
       [clientId, recipient.vendor_id, totalAmount, 'pending', 'pending', client.name, client.phone, clientAddress]
     );
     const orderId = orderResult.insertId;
+    await connection.query(
+      `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [orderId, null, 'pending', clientId, 'Client', 'Quotation accepted']
+    );
 
     for (const item of items) {
       await connection.query(

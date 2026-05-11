@@ -47,8 +47,12 @@
             <select id="statusFilter">
               <option value="">All Statuses</option>
               <option value="pending">Pending</option>
-              <option value="completed">Completed</option>
-              <option value="cancelled">Cancelled</option>
+              <option value="accepted">Accepted</option>
+              <option value="processing">Processing</option>
+              <option value="ready_for_pickup">Ready for Pickup</option>
+              <option value="picked_up">Picked Up</option>
+              <option value="on_the_way">On the Way</option>
+              <option value="delivered">Delivered</option>
             </select>
           </label>
           <label>
@@ -175,7 +179,6 @@
     </div>
   </div>
 
-  <script src="/api/orders/admin/partners/list"></script>
   <script>
     let orders = [];
     let currentPage = 1;
@@ -183,9 +186,10 @@
     let deliveryPartners = [];
 
     // Fetch available delivery partners on load
-    async function loadPartners() {
+    async function loadPartners(city = '') {
       try {
-        const res = await fetch('/api/orders/admin/partners/list', { headers: { 'Accept': 'application/json' } });
+        const params = city ? `?city=${encodeURIComponent(city)}` : '';
+        const res = await fetch(`/api/orders/admin/partners/list${params}`, { headers: { 'Accept': 'application/json' } });
         const data = await res.json();
         if (data.success) {
           deliveryPartners = data.partners;
@@ -197,6 +201,12 @@
             opt.textContent = p.name + ' (' + p.email + ')';
             select.appendChild(opt);
           });
+          if (!deliveryPartners.length) {
+            const opt = document.createElement('option');
+            opt.value = '';
+            opt.textContent = city ? `No partner active in ${city}` : 'No active delivery partners';
+            select.appendChild(opt);
+          }
         }
       } catch (e) { console.error('Failed to load partners', e); }
     }
@@ -253,23 +263,53 @@
           <td>${o.client_address}</td>
           <td>${o.vendor_business_name || o.vendor_name || 'N/A'}</td>
           <td>₹${Number(o.total_amount).toFixed(2)}</td>
-          <td><span class="badge ${o.status}">${o.status}</span></td>
+          <td>${statusBadge(o.status, o.status_label)}</td>
           <td><span class="badge ${o.delivery_status}">${o.delivery_status.replace('_', ' ')}</span></td>
           <td>${o.delivery_partner_name || 'Not assigned'}</td>
           <td>${o.delivery_otp || '-'}</td>
           <td>
-            <button class="settings-save" style="padding: 4px 8px; font-size: 12px;" onclick="openAssignModal(${o.id}, '${o.client_name}')" ${o.delivery_status !== 'pending' ? 'disabled' : ''}>Assign</button>
+            <button class="settings-save" style="padding: 4px 8px; font-size: 12px;" onclick="openAssignModal(${o.id}, '${String(o.client_name || '').replace(/'/g, "\\'")}', '${String(o.client_city || '').replace(/'/g, "\\'")}')" ${o.delivery_status !== 'pending' ? 'disabled' : ''}>Assign</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="markReady(${o.id})" ${o.delivery_status !== 'assigned' ? 'disabled' : ''}>Ready</button>
+            <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="updateOrderStatus(${o.id}, 'delivered')" ${o.status === 'delivered' ? 'disabled' : ''}>Delivered</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="viewDetails(${o.id})">View</button>
           </td>
         </tr>
       `).join('');
     }
 
-    async function openAssignModal(orderId, clientName) {
+    function statusLabel(status) {
+      const labels = {
+        pending: 'Pending',
+        accepted: 'Accepted',
+        processing: 'Processing',
+        ready_for_pickup: 'Ready for Pickup',
+        picked_up: 'Picked Up',
+        on_the_way: 'On the Way',
+        delivered: 'Delivered',
+      };
+      return labels[status] || String(status || '').replaceAll('_', ' ');
+    }
+
+    function statusBadge(status, label) {
+      return `<span class="order-status-badge ${status}">${label || statusLabel(status)}</span>`;
+    }
+
+    function renderTimeline(history = []) {
+      if (!history.length) return '<p>No status history yet.</p>';
+      return `<ol class="order-timeline">${history.map(item => `
+        <li>
+          <strong>${item.new_status_label || statusLabel(item.new_status)}</strong>
+          <span>${new Date(item.created_at).toLocaleString()}</span>
+          <small>${item.changed_by_name || 'System'}</small>
+        </li>
+      `).join('')}</ol>`;
+    }
+
+    async function openAssignModal(orderId, clientName, clientCity) {
       document.getElementById('assignOrderId').value = orderId;
       document.getElementById('assignOrderIdDisplay').value = orderId;
-      document.getElementById('assignClientDisplay').value = clientName;
+      document.getElementById('assignClientDisplay').value = clientCity ? `${clientName} - ${clientCity}` : clientName;
+      await loadPartners(clientCity || '');
       document.getElementById('assignModal').style.display = 'flex';
       document.getElementById('assignModal').setAttribute('aria-hidden', 'false');
     }
@@ -292,6 +332,7 @@
         if (data.success) {
           const order = data.order;
           const items = data.items || [];
+          const history = data.history || [];
           const content = document.getElementById('orderDetailContent');
           content.innerHTML = `
             <div style="margin-bottom: 20px;">
@@ -304,10 +345,14 @@
               <p><strong>Delivery Status:</strong> ${order.delivery_status}</p>
               <p><strong>Delivery Partner:</strong> ${order.delivery_partner_name || 'Not assigned'}</p>
               <p><strong>OTP:</strong> ${order.delivery_otp || '-'}</p>
+              ${order.otp_set_by_name ? `<p><strong>OTP Set By:</strong> ${order.otp_set_by_name} (${order.otp_set_by_role || 'staff'})</p>` : ''}
+              ${order.otp_set_at ? `<p><strong>OTP Set At:</strong> ${new Date(order.otp_set_at).toLocaleString()}</p>` : ''}
               ${order.assigned_at ? `<p><strong>Assigned At:</strong> ${new Date(order.assigned_at).toLocaleString()}</p>` : ''}
               ${order.ready_at ? `<p><strong>Ready At:</strong> ${new Date(order.ready_at).toLocaleString()}</p>` : ''}
               ${order.delivered_at ? `<p><strong>Delivered At:</strong> ${new Date(order.delivered_at).toLocaleString()}</p>` : ''}
             </div>
+            <h4>Status Timeline</h4>
+            ${renderTimeline(history)}
             <h4>Order Items</h4>
             <table class="users-table">
               <thead><tr><th>#</th><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
@@ -345,6 +390,25 @@
           alert('Failed: ' + data.message);
         }
       } catch (e) { alert('Error marking order ready'); }
+    }
+
+    async function updateOrderStatus(orderId, status) {
+      if (!confirm(`Change order #${orderId} to ${statusLabel(status)}?`)) return;
+      try {
+        const res = await fetch(`/api/orders/admin/${orderId}/status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ status })
+        });
+        const data = await res.json();
+        if (data.success) {
+          loadOrders(currentPage);
+        } else {
+          alert('Failed: ' + data.message);
+        }
+      } catch (e) {
+        alert('Error updating status');
+      }
     }
 
     document.getElementById('assignForm').addEventListener('submit', async (e) => {
@@ -405,9 +469,20 @@
     }
 
     // Initial load
-    loadPartners();
     loadOrders(1);
     loadVendors();
   </script>
+  <style>
+    .order-status-badge { display: inline-block; padding: 5px 9px; border-radius: 999px; color: #fff; font-weight: 800; font-size: 0.8rem; text-transform: capitalize; }
+    .order-status-badge.pending { background: #64748b; }
+    .order-status-badge.accepted { background: #2563eb; }
+    .order-status-badge.processing { background: #7c3aed; }
+    .order-status-badge.ready_for_pickup { background: #f59e0b; }
+    .order-status-badge.picked_up, .order-status-badge.on_the_way { background: #0891b2; }
+    .order-status-badge.delivered { background: #16a34a; }
+    .order-timeline { display: grid; gap: 10px; padding-left: 20px; }
+    .order-timeline li strong { display: block; color: #263238; }
+    .order-timeline li span, .order-timeline li small { display: block; color: #64748b; }
+  </style>
 </body>
 </html>

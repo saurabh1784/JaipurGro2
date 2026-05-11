@@ -1,7 +1,6 @@
 const bcrypt = require('bcryptjs');
 const Vendor = require('../models/Vendor');
 const { validateStatus } = require('../middleware/validators');
-const { vendorImagePath } = require('../middleware/vendorImageUpload');
 const { flattenLocationOptions, isValidLocation, locationTree } = require('../utils/locationOptions');
 
 function wantsJson(req) {
@@ -61,25 +60,6 @@ function validateVendor(body, { requirePassword = false } = {}) {
   return { errors, data };
 }
 
-function applyUploadedImages(data, files = {}) {
-  const fieldMap = {
-    aadhaar_front: 'aadhaar_front_path',
-    aadhaar_back: 'aadhaar_back_path',
-    store_image: 'store_image_path',
-    profile_image: 'profile_image_path',
-  };
-
-  for (const [fileField, dataField] of Object.entries(fieldMap)) {
-    const file = Array.isArray(files[fileField]) ? files[fileField][0] : null;
-    const imagePath = vendorImagePath(file);
-    if (imagePath) {
-      data[dataField] = imagePath;
-    }
-  }
-
-  return data;
-}
-
 async function index(req, res) {
   if (!wantsJson(req)) {
     return res.render('vendors', {
@@ -115,7 +95,6 @@ async function show(req, res) {
 
 async function create(req, res) {
   const { errors, data } = validateVendor(req.body, { requirePassword: true });
-  applyUploadedImages(data, req.files);
   if (errors.length) {
     return res.status(422).json({ success: false, message: 'Validation failed', errors });
   }
@@ -158,7 +137,6 @@ async function update(req, res) {
   }
 
   const { errors, data } = validateVendor(req.body);
-  applyUploadedImages(data, req.files);
   if (errors.length) {
     return res.status(422).json({ success: false, message: 'Validation failed', errors });
   }
@@ -197,5 +175,4 @@ module.exports = {
   create,
   update,
   destroy,
-  validateVendor,
 };

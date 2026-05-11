@@ -1,5 +1,4 @@
 const pool = require('../db');
-const Wallet = require('./Wallet');
 
 function normalizeServices(value) {
   if (!value) return [];
@@ -31,10 +30,6 @@ function publicVendor(row) {
     city: row.city || '',
     gst_number: row.gst_number || '',
     services: normalizeServices(row.services),
-    aadhaar_front_path: row.aadhaar_front_path || '',
-    aadhaar_back_path: row.aadhaar_back_path || '',
-    store_image_path: row.store_image_path || '',
-    profile_image_path: row.profile_image_path || '',
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -88,8 +83,7 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
   );
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.gst_number, vp.services,
-            vp.aadhaar_front_path, vp.aadhaar_back_path, vp.store_image_path, vp.profile_image_path
+            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.gst_number, vp.services
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE ${whereSql}
@@ -112,8 +106,7 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
 async function findById(id) {
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.gst_number, vp.services,
-            vp.aadhaar_front_path, vp.aadhaar_back_path, vp.store_image_path, vp.profile_image_path
+            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.gst_number, vp.services
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE u.id = ? AND u.role = 'Vendor' AND u.is_deleted = 0
@@ -142,11 +135,8 @@ async function create(data) {
     );
     const userId = result.insertId;
     await connection.query(
-      `INSERT INTO vendor_profiles (
-         user_id, business_name, address, country, state, city, gst_number, services,
-         aadhaar_front_path, aadhaar_back_path, store_image_path, profile_image_path
-       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, gst_number, services)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         data.business_name || null,
@@ -156,20 +146,8 @@ async function create(data) {
         data.city || null,
         data.gst_number || null,
         JSON.stringify(data.services || []),
-        data.aadhaar_front_path || null,
-        data.aadhaar_back_path || null,
-        data.store_image_path || null,
-        data.profile_image_path || null,
       ]
     );
-    const [roles] = await connection.query('SELECT id FROM roles WHERE slug = ? LIMIT 1', ['Vendor']);
-    if (roles.length > 0) {
-      await connection.query(
-        'INSERT IGNORE INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)',
-        [userId, roles[0].id, data.assigned_by || null]
-      );
-    }
-    await Wallet.ensureForUser(userId, connection);
     await connection.commit();
     return userId;
   } catch (error) {
@@ -193,11 +171,8 @@ async function update(id, data) {
     userValues.push(id);
     await connection.query(`UPDATE users SET ${userFields.join(', ')} WHERE id = ? AND role = 'Vendor' AND is_deleted = 0`, userValues);
     await connection.query(
-      `INSERT INTO vendor_profiles (
-         user_id, business_name, address, country, state, city, gst_number, services,
-         aadhaar_front_path, aadhaar_back_path, store_image_path, profile_image_path
-       )
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, gst_number, services)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
        ON DUPLICATE KEY UPDATE
          business_name = VALUES(business_name),
          address = VALUES(address),
@@ -205,11 +180,7 @@ async function update(id, data) {
          state = VALUES(state),
          city = VALUES(city),
          gst_number = VALUES(gst_number),
-         services = VALUES(services),
-         aadhaar_front_path = COALESCE(VALUES(aadhaar_front_path), aadhaar_front_path),
-         aadhaar_back_path = COALESCE(VALUES(aadhaar_back_path), aadhaar_back_path),
-         store_image_path = COALESCE(VALUES(store_image_path), store_image_path),
-         profile_image_path = COALESCE(VALUES(profile_image_path), profile_image_path)`,
+         services = VALUES(services)`,
       [
         id,
         data.business_name || null,
@@ -219,10 +190,6 @@ async function update(id, data) {
         data.city || null,
         data.gst_number || null,
         JSON.stringify(data.services || []),
-        data.aadhaar_front_path || null,
-        data.aadhaar_back_path || null,
-        data.store_image_path || null,
-        data.profile_image_path || null,
       ]
     );
     await connection.commit();

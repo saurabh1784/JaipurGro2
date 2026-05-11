@@ -23,6 +23,11 @@
       </div>
     </header>
 
+    <% if (error) { %>
+      <div class="quotation-alert quotation-alert-error"><%= error %></div>
+    <% } %>
+    <div class="quotation-alert quotation-alert-error" id="quotationPageAlert" hidden></div>
+
     <section class="quotation-list" id="quotationCardView">
       <% if (!quotations.length) { %>
         <div class="users-table-card quotation-empty">
@@ -174,6 +179,9 @@
     .quotation-pill { display: inline-block; padding: 5px 9px; border-radius: 999px; background: #e8f5ee; color: #17643a; font-weight: 800; }
     .quotation-row-actions { display: flex; gap: 8px; flex-wrap: wrap; }
     .reject-button { padding: 8px 14px; border: none; border-radius: 6px; background: #fee2e2; color: #991b1b; font-weight: 800; cursor: pointer; }
+    .quotation-alert { margin-bottom: 16px; padding: 12px 14px; border-radius: 6px; font-weight: 800; }
+    .quotation-alert-error { background: #fee2e2; color: #991b1b; border: 1px solid #fecaca; }
+    button[disabled] { opacity: 0.65; cursor: wait; }
     .quotation-process { border-top: 1px solid #e2e8f0; padding-top: 14px; }
     .quotation-items-table { width: 100%; }
     .quote-qty, .quote-price { width: 96px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
@@ -191,8 +199,33 @@
   </style>
 
   <script>
+    const initialQuotationIds = new Set(
+      [...document.querySelectorAll('.quotation-card')].map((card) => String(card.dataset.recipientId))
+    );
+
     function formatMoney(value) {
       return `INR ${Number(value || 0).toFixed(2)}`;
+    }
+
+    function showQuotationError(message) {
+      const alertBox = document.getElementById('quotationPageAlert');
+      alertBox.textContent = message || 'Unable to load quotation data.';
+      alertBox.hidden = false;
+    }
+
+    async function readJsonResponse(response) {
+      let data = null;
+      try {
+        data = await response.json();
+      } catch (error) {
+        throw new Error('Server returned an invalid response.');
+      }
+
+      if (!response.ok || !data.success) {
+        throw new Error(data.message || 'Request failed.');
+      }
+
+      return data;
     }
 
     function recalc(card) {
@@ -244,6 +277,7 @@
 
     async function submitQuotation(recipientId) {
       const card = document.querySelector(`[data-recipient-id="${recipientId}"]`);
+      const button = card.querySelector('.quotation-submit-row button');
       const items = [...card.querySelectorAll('tbody tr[data-item-id]')].map((row) => ({
         item_id: row.dataset.itemId,
         quantity: row.querySelector('.quote-qty').value,
@@ -251,31 +285,68 @@
         status: row.querySelector('.quote-available').checked ? 'available' : 'not_available',
         add_to_catalog: row.querySelector('.quote-add-catalog') ? row.querySelector('.quote-add-catalog').checked : false,
       }));
-      const response = await fetch(`/vendor/quotations/${recipientId}/submit`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          discount_percent: card.querySelector('.quote-discount').value,
-          items,
-        }),
-      });
-      const data = await response.json();
-      if (!data.success) {
-        alert(data.message || 'Unable to submit quotation');
-        return;
+      try {
+        if (button) {
+          button.disabled = true;
+          button.textContent = 'Submitting...';
+        }
+        const response = await fetch(`/vendor/quotations/${recipientId}/submit`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            discount_percent: card.querySelector('.quote-discount').value,
+            items,
+          }),
+        });
+        await readJsonResponse(response);
+        location.reload();
+      } catch (error) {
+        showQuotationError(error.message || 'Unable to submit quotation.');
+        if (button) {
+          button.disabled = false;
+          button.textContent = 'Submit to Client';
+        }
       }
-      location.reload();
     }
 
     async function rejectQuotation(recipientId) {
       if (!confirm('Reject this quotation request?')) return;
-      const response = await fetch(`/vendor/quotations/${recipientId}/reject`, { method: 'POST' });
-      const data = await response.json();
-      if (!data.success) {
-        alert(data.message || 'Unable to reject quotation');
-        return;
+      const buttons = [...document.querySelectorAll(`[onclick="rejectQuotation(${recipientId})"]`)];
+      try {
+        buttons.forEach((button) => {
+          button.disabled = true;
+          button.textContent = 'Rejecting...';
+        });
+        const response = await fetch(`/vendor/quotations/${recipientId}/reject`, {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+        });
+        await readJsonResponse(response);
+        location.reload();
+      } catch (error) {
+        showQuotationError(error.message || 'Unable to reject quotation.');
+        buttons.forEach((button) => {
+          button.disabled = false;
+          button.textContent = 'Reject';
+        });
       }
-      location.reload();
+    }
+
+    async function checkForNewQuotations() {
+      try {
+        const response = await fetch('/vendor/quotations?format=json&peek=1', {
+          headers: { Accept: 'application/json' },
+        });
+        const data = await readJsonResponse(response);
+        const hasNewQuotation = data.quotations.some((quotation) => (
+          !initialQuotationIds.has(String(quotation.recipient_id))
+        ));
+        if (hasNewQuotation) {
+          location.reload();
+        }
+      } catch (error) {
+        console.error('Quotation refresh check failed:', error);
+      }
     }
 
     document.querySelectorAll('.quotation-card').forEach((card) => {
@@ -286,6 +357,7 @@
       recalc(card);
     });
     setQuotationView(localStorage.getItem('vendorQuotationView') || 'card');
+    setInterval(checkForNewQuotations, 15000);
   </script>
 </body>
 </html>

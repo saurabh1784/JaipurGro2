@@ -37,6 +37,7 @@
         <button class="settings-tab" type="button" data-tab="locations">Locations</button>
         <button class="settings-tab" type="button" data-tab="catalog">Catalog</button>
         <button class="settings-tab" type="button" data-tab="commissions">Commission</button>
+        <button class="settings-tab" type="button" data-tab="delivery-partners">Delivery Partners</button>
         <button class="settings-tab" type="button" data-tab="security">Security</button>
       </div>
 
@@ -373,6 +374,41 @@
         <p class="commission-message" id="commissionMessage"></p>
       </section>
 
+      <section class="settings-panel" id="delivery-partners" aria-labelledby="delivery-partners-tab">
+        <div class="panel-header blue-header">
+          <h2>Delivery Partner Settings</h2>
+          <p>Assign active delivery staff to service cities used by order delivery.</p>
+        </div>
+
+        <div class="delivery-partner-toolbar">
+          <label>
+            Add City
+            <input id="deliveryCityInput" type="text" placeholder="e.g. Jaipur" list="deliveryCityOptions" />
+            <datalist id="deliveryCityOptions"></datalist>
+          </label>
+          <button class="settings-save" type="button" onclick="openDeliveryPartnerModal()">Add Delivery Partner</button>
+          <button class="settings-save" type="button" onclick="saveDeliveryPartnerSettings()">Save Delivery Partners</button>
+        </div>
+
+        <div class="catalog-table-card">
+          <table class="catalog-table delivery-partner-table">
+            <thead>
+              <tr>
+                <th>Partner</th>
+                <th>Contact</th>
+                <th>Assigned Cities</th>
+                <th>Add Selected City</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody id="deliveryPartnerTableBody">
+              <tr><td colspan="5">Loading delivery partners...</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="commission-message" id="deliveryPartnerMessage"></p>
+      </section>
+
       <form class="settings-panel" id="security" aria-labelledby="security-tab">
         <div class="panel-header purple-header settings-purple-header">
           <h2>Security Settings</h2>
@@ -515,6 +551,46 @@
           Active
         </label>
         <button class="settings-save" type="submit">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="user-modal" id="deliveryPartnerModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2 id="deliveryPartnerModalTitle">Add Delivery Partner</h2>
+        <button type="button" onclick="closeDeliveryPartnerModal()">Close</button>
+      </div>
+      <form class="user-modal-grid" id="deliveryPartnerForm">
+        <input type="hidden" id="deliveryPartnerId" />
+        <label>
+          Name
+          <input id="deliveryPartnerName" type="text" required minlength="2" />
+        </label>
+        <label>
+          Email
+          <input id="deliveryPartnerEmail" type="email" required />
+        </label>
+        <label>
+          Phone
+          <input id="deliveryPartnerPhone" type="tel" />
+        </label>
+        <label>
+          Password
+          <input id="deliveryPartnerPassword" type="password" minlength="6" placeholder="Required for new partner" />
+        </label>
+        <label class="settings-wide">
+          City
+          <input id="deliveryPartnerCity" type="text" list="deliveryCityOptions" placeholder="Type city and click Add City" />
+        </label>
+        <div class="settings-wide">
+          <button class="product-secondary-button" type="button" onclick="addModalDeliveryCity()">Add City</button>
+          <div class="delivery-city-pills" id="deliveryPartnerModalCities"></div>
+        </div>
+        <div class="settings-wide">
+          <button class="settings-save" type="submit">Save Partner</button>
+          <button class="product-secondary-button" type="button" onclick="closeDeliveryPartnerModal()">Cancel</button>
+        </div>
       </form>
     </div>
   </div>
@@ -824,6 +900,9 @@
     }
 
     let commissionSettings = [];
+    let deliveryPartnerSettings = [];
+    let deliveryCities = [];
+    let deliveryPartnerModalCities = [];
 
     function commissionLabel(value) {
       return {
@@ -952,11 +1031,252 @@
       }
     }
 
+    async function loadDeliveryPartnerSettings() {
+      const body = document.getElementById('deliveryPartnerTableBody');
+      body.innerHTML = '<tr><td colspan="5">Loading delivery partners...</td></tr>';
+      try {
+        const response = await fetch('/settings/delivery-partners');
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to load delivery partners');
+        deliveryPartnerSettings = data.partners || [];
+        deliveryCities = data.cities || [];
+        renderDeliveryCityOptions();
+        renderDeliveryPartners();
+      } catch (error) {
+        body.innerHTML = `<tr><td colspan="5">${escapeCatalog(error.message)}</td></tr>`;
+      }
+    }
+
+    function renderDeliveryCityOptions() {
+      const list = document.getElementById('deliveryCityOptions');
+      list.innerHTML = deliveryCities.map((city) => `<option value="${escapeCatalog(city)}"></option>`).join('');
+    }
+
+    function partnerCities(partner) {
+      return (partner.cities || [])
+        .filter((entry) => entry && Number(entry.is_active) !== 0)
+        .map((entry) => String(entry.city || '').trim())
+        .filter(Boolean);
+    }
+
+    function renderDeliveryPartners() {
+      const body = document.getElementById('deliveryPartnerTableBody');
+      if (!deliveryPartnerSettings.length) {
+        body.innerHTML = '<tr><td colspan="5">No delivery partners found.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = deliveryPartnerSettings.map((partner) => {
+        const cities = partnerCities(partner);
+        return `
+          <tr data-partner-id="${partner.id}">
+            <td>
+              <strong>${escapeCatalog(partner.name)}</strong>
+              <span class="commission-subtext">Staff ID ${partner.id}</span>
+            </td>
+            <td>
+              <span>${escapeCatalog(partner.email || '')}</span>
+              <span class="commission-subtext">${escapeCatalog(partner.phone || '')}</span>
+            </td>
+            <td>
+              <div class="delivery-city-pills">
+                ${cities.length ? cities.map((city) => `
+                  <button type="button" class="delivery-city-pill" onclick="removeDeliveryCity(${partner.id}, '${escapeCatalog(city)}')">${escapeCatalog(city)} x</button>
+                `).join('') : '<span class="commission-subtext">No city assigned</span>'}
+              </div>
+            </td>
+            <td>
+              <button class="product-secondary-button" type="button" onclick="addDeliveryCity(${partner.id})">Add City</button>
+            </td>
+            <td>
+              <button class="product-secondary-button" type="button" onclick="openDeliveryPartnerModal(${partner.id})">Edit</button>
+              <button class="reject-button" type="button" onclick="deleteDeliveryPartner(${partner.id})">Delete</button>
+            </td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function addDeliveryCity(partnerId) {
+      const city = document.getElementById('deliveryCityInput').value.trim();
+      if (!city) {
+        alert('Enter or select a city first.');
+        return;
+      }
+      const partner = deliveryPartnerSettings.find((item) => Number(item.id) === Number(partnerId));
+      if (!partner) return;
+      const cities = partnerCities(partner);
+      if (!cities.some((item) => item.toLowerCase() === city.toLowerCase())) {
+        partner.cities = [...(partner.cities || []), { city, is_active: 1 }];
+      }
+      if (!deliveryCities.some((item) => item.toLowerCase() === city.toLowerCase())) {
+        deliveryCities.push(city);
+        deliveryCities.sort();
+        renderDeliveryCityOptions();
+      }
+      renderDeliveryPartners();
+    }
+
+    function removeDeliveryCity(partnerId, city) {
+      const partner = deliveryPartnerSettings.find((item) => Number(item.id) === Number(partnerId));
+      if (!partner) return;
+      partner.cities = (partner.cities || []).filter((entry) => String(entry.city || '').toLowerCase() !== String(city || '').toLowerCase());
+      renderDeliveryPartners();
+    }
+
+    async function saveDeliveryPartnerSettings() {
+      const message = document.getElementById('deliveryPartnerMessage');
+      message.textContent = 'Saving delivery partner settings...';
+      const assignments = deliveryPartnerSettings.map((partner) => ({
+        user_id: partner.id,
+        cities: partnerCities(partner),
+      }));
+      try {
+        const response = await fetch('/settings/delivery-partners', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ assignments }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save delivery partner settings');
+        message.textContent = data.message;
+        loadDeliveryPartnerSettings();
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    function openDeliveryPartnerModal(partnerId = null) {
+      const partner = partnerId ? deliveryPartnerSettings.find((item) => Number(item.id) === Number(partnerId)) : null;
+      document.getElementById('deliveryPartnerModalTitle').textContent = partner ? 'Edit Delivery Partner' : 'Add Delivery Partner';
+      document.getElementById('deliveryPartnerId').value = partner ? partner.id : '';
+      document.getElementById('deliveryPartnerName').value = partner ? partner.name || '' : '';
+      document.getElementById('deliveryPartnerEmail').value = partner ? partner.email || '' : '';
+      document.getElementById('deliveryPartnerPhone').value = partner ? partner.phone || '' : '';
+      document.getElementById('deliveryPartnerPassword').value = '';
+      document.getElementById('deliveryPartnerPassword').required = !partner;
+      document.getElementById('deliveryPartnerCity').value = '';
+      deliveryPartnerModalCities = partner ? partnerCities(partner) : [];
+      renderModalDeliveryCities();
+      document.getElementById('deliveryPartnerModal').style.display = 'flex';
+      document.getElementById('deliveryPartnerModal').setAttribute('aria-hidden', 'false');
+    }
+
+    function closeDeliveryPartnerModal() {
+      document.getElementById('deliveryPartnerModal').style.display = 'none';
+      document.getElementById('deliveryPartnerModal').setAttribute('aria-hidden', 'true');
+      document.getElementById('deliveryPartnerForm').reset();
+      deliveryPartnerModalCities = [];
+    }
+
+    function renderModalDeliveryCities() {
+      const target = document.getElementById('deliveryPartnerModalCities');
+      target.innerHTML = deliveryPartnerModalCities.length
+        ? deliveryPartnerModalCities.map((city) => `
+          <button type="button" class="delivery-city-pill" onclick="removeModalDeliveryCity('${escapeCatalog(city)}')">${escapeCatalog(city)} x</button>
+        `).join('')
+        : '<span class="commission-subtext">No city assigned</span>';
+    }
+
+    function addModalDeliveryCity() {
+      const input = document.getElementById('deliveryPartnerCity');
+      const city = input.value.trim();
+      if (!city) return;
+      if (!deliveryPartnerModalCities.some((item) => item.toLowerCase() === city.toLowerCase())) {
+        deliveryPartnerModalCities.push(city);
+      }
+      if (!deliveryCities.some((item) => item.toLowerCase() === city.toLowerCase())) {
+        deliveryCities.push(city);
+        deliveryCities.sort();
+        renderDeliveryCityOptions();
+      }
+      input.value = '';
+      renderModalDeliveryCities();
+    }
+
+    function removeModalDeliveryCity(city) {
+      deliveryPartnerModalCities = deliveryPartnerModalCities.filter((item) => item.toLowerCase() !== String(city || '').toLowerCase());
+      renderModalDeliveryCities();
+    }
+
+    async function deleteDeliveryPartner(partnerId) {
+      const partner = deliveryPartnerSettings.find((item) => Number(item.id) === Number(partnerId));
+      if (!confirm(`Delete ${partner ? partner.name : 'this delivery partner'}?`)) return;
+      try {
+        const response = await fetch(`/settings/delivery-partners/${partnerId}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to delete delivery partner');
+        document.getElementById('deliveryPartnerMessage').textContent = data.message;
+        loadDeliveryPartnerSettings();
+      } catch (error) {
+        document.getElementById('deliveryPartnerMessage').textContent = error.message;
+      }
+    }
+
+    document.getElementById('deliveryPartnerForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = document.getElementById('deliveryPartnerId').value;
+      const payload = {
+        name: document.getElementById('deliveryPartnerName').value.trim(),
+        email: document.getElementById('deliveryPartnerEmail').value.trim(),
+        phone: document.getElementById('deliveryPartnerPhone').value.trim(),
+        password: document.getElementById('deliveryPartnerPassword').value,
+        cities: deliveryPartnerModalCities,
+      };
+      try {
+        const response = await fetch(`/settings/delivery-partners${id ? `/${id}` : ''}`, {
+          method: id ? 'PUT' : 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save delivery partner');
+        document.getElementById('deliveryPartnerMessage').textContent = data.message;
+        closeDeliveryPartnerModal();
+        loadDeliveryPartnerSettings();
+      } catch (error) {
+        document.getElementById('deliveryPartnerMessage').textContent = error.message;
+      }
+    });
+
     document.getElementById('commissionTransactionFilter').addEventListener('change', renderCommissionSettings);
     document.getElementById('commissionPreviewAmount').addEventListener('input', renderCommissionSettings);
 
     loadCatalog();
     loadCommissionSettings();
+    loadDeliveryPartnerSettings();
   </script>
+  <style>
+    .delivery-partner-toolbar {
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+    .delivery-city-pills {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .delivery-city-pill {
+      border: 0;
+      border-radius: 999px;
+      padding: 6px 10px;
+      background: #e0f2fe;
+      color: #075985;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .reject-button {
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 6px;
+      background: #fee2e2;
+      color: #991b1b;
+      font-weight: 800;
+      cursor: pointer;
+    }
+  </style>
 </body>
 </html>

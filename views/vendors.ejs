@@ -123,26 +123,6 @@
           <input id="gstNumber" type="text" />
         </label>
         <label>
-          Aadhaar Front
-          <input id="aadhaarFront" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-          <span class="vendor-file-preview" id="aadhaarFrontPreview"></span>
-        </label>
-        <label>
-          Aadhaar Back
-          <input id="aadhaarBack" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-          <span class="vendor-file-preview" id="aadhaarBackPreview"></span>
-        </label>
-        <label>
-          Store Image
-          <input id="storeImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-          <span class="vendor-file-preview" id="storeImagePreview"></span>
-        </label>
-        <label>
-          Profile Image
-          <input id="profileImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-          <span class="vendor-file-preview" id="profileImagePreview"></span>
-        </label>
-        <label>
           Country
           <select id="vendorCountry" required></select>
         </label>
@@ -278,20 +258,6 @@
       return [vendor.city, vendor.state].filter(Boolean).join(', ') || '-';
     }
 
-    function imagePreview(path, label) {
-      if (!path) return '';
-      return `<a href="${escapeHtml(path)}" target="_blank" rel="noopener">${escapeHtml(label)}</a>`;
-    }
-
-    function setImagePreview(id, path) {
-      document.getElementById(id).innerHTML = imagePreview(path, 'View current image');
-    }
-
-    function appendIfFile(formData, fieldName, inputId) {
-      const file = document.getElementById(inputId).files[0];
-      if (file) formData.append(fieldName, file);
-    }
-
     async function loadVendors(page = 1) {
       const params = new URLSearchParams({
         format: 'json',
@@ -323,26 +289,11 @@
           <tr>
             <td>#${vendor.id}</td>
             <td>
-              <div class="vendor-identity">
-                <img src="${escapeHtml(vendor.profile_image_path || '/default.png')}" alt="" />
-                <div>
-                  <strong>${escapeHtml(vendor.name)}</strong>
-                  <span class="vendor-subtext">${escapeHtml(vendor.email)}</span>
-                </div>
-              </div>
+              <strong>${escapeHtml(vendor.name)}</strong>
+              <span class="vendor-subtext">${escapeHtml(vendor.email)}</span>
             </td>
-            <td>
-              ${escapeHtml(vendor.business_name)}
-              <span class="vendor-subtext">${imagePreview(vendor.store_image_path, 'Store image') || '-'}</span>
-            </td>
-            <td>
-              ${escapeHtml(vendor.phone)}
-              <span class="vendor-subtext">
-                ${imagePreview(vendor.aadhaar_front_path, 'Aadhaar front') || ''}
-                ${vendor.aadhaar_front_path && vendor.aadhaar_back_path ? ' / ' : ''}
-                ${imagePreview(vendor.aadhaar_back_path, 'back') || ''}
-              </span>
-            </td>
+            <td>${escapeHtml(vendor.business_name)}</td>
+            <td>${escapeHtml(vendor.phone)}</td>
             <td>${escapeHtml(vendorLocation(vendor))}</td>
             <td class="vendor-services-cell">${escapeHtml(servicesText(vendor.services) || '-')}</td>
             <td><span class="user-status-pill ${vendor.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(vendor.status)}</span></td>
@@ -374,10 +325,6 @@
       document.getElementById('vendorForm').reset();
       document.getElementById('vendorId').value = '';
       document.getElementById('vendorPassword').required = true;
-      document.getElementById('aadhaarFrontPreview').innerHTML = '';
-      document.getElementById('aadhaarBackPreview').innerHTML = '';
-      document.getElementById('storeImagePreview').innerHTML = '';
-      document.getElementById('profileImagePreview').innerHTML = '';
       document.getElementById('vendorModalTitle').textContent = 'Add Vendor';
       document.getElementById('vendorSubmit').textContent = 'Save Vendor';
       renderLocationOptions();
@@ -405,10 +352,6 @@
       updateCityOptions(vendor.city || '');
       document.getElementById('vendorServices').value = servicesText(vendor.services);
       document.getElementById('vendorAddress').value = vendor.address || '';
-      setImagePreview('aadhaarFrontPreview', vendor.aadhaar_front_path);
-      setImagePreview('aadhaarBackPreview', vendor.aadhaar_back_path);
-      setImagePreview('storeImagePreview', vendor.store_image_path);
-      setImagePreview('profileImagePreview', vendor.profile_image_path);
       document.getElementById('vendorModalTitle').textContent = 'Edit Vendor';
       document.getElementById('vendorSubmit').textContent = 'Update Vendor';
       openVendorModal();
@@ -453,29 +396,26 @@
     document.getElementById('vendorForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const id = document.getElementById('vendorId').value;
-      const formData = new FormData();
-      formData.append('name', document.getElementById('vendorName').value);
-      formData.append('business_name', document.getElementById('businessName').value);
-      formData.append('email', document.getElementById('vendorEmail').value);
-      formData.append('phone', document.getElementById('vendorPhone').value);
-      if (!id || document.getElementById('vendorPassword').value) {
-        formData.append('password', document.getElementById('vendorPassword').value);
-      }
-      formData.append('status', document.getElementById('vendorStatus').value);
-      formData.append('gst_number', document.getElementById('gstNumber').value);
-      formData.append('country', document.getElementById('vendorCountry').value);
-      formData.append('state', document.getElementById('vendorState').value);
-      formData.append('city', document.getElementById('vendorCity').value);
-      formData.append('services', document.getElementById('vendorServices').value);
-      formData.append('address', document.getElementById('vendorAddress').value);
-      appendIfFile(formData, 'aadhaar_front', 'aadhaarFront');
-      appendIfFile(formData, 'aadhaar_back', 'aadhaarBack');
-      appendIfFile(formData, 'store_image', 'storeImage');
-      appendIfFile(formData, 'profile_image', 'profileImage');
+      const payload = {
+        name: document.getElementById('vendorName').value,
+        business_name: document.getElementById('businessName').value,
+        email: document.getElementById('vendorEmail').value,
+        phone: document.getElementById('vendorPhone').value,
+        password: document.getElementById('vendorPassword').value,
+        status: document.getElementById('vendorStatus').value,
+        gst_number: document.getElementById('gstNumber').value,
+        country: document.getElementById('vendorCountry').value,
+        state: document.getElementById('vendorState').value,
+        city: document.getElementById('vendorCity').value,
+        services: document.getElementById('vendorServices').value,
+        address: document.getElementById('vendorAddress').value,
+      };
+      if (id && !payload.password) delete payload.password;
 
       const response = await fetch(`/vendors${id ? `/${id}` : ''}`, {
         method: id ? 'PUT' : 'POST',
-        body: formData,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
       });
       const data = await response.json();
       if (!data.success) {

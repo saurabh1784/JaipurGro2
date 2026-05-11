@@ -5,7 +5,7 @@ function sanitizeProfileUpdate(role, body) {
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : body;
   const update = {};
   const fieldsByRole = {
-    Vendor: ['business_name', 'address', 'country', 'state', 'city', 'gst_number', 'services', 'aadhaar_front_path', 'aadhaar_back_path', 'store_image_path', 'profile_image_path'],
+    Vendor: ['business_name', 'address', 'country', 'state', 'city', 'gst_number', 'services'],
     Client: ['address', 'country', 'state', 'city', 'age', 'gender', 'notes'],
     Admin: ['permissions'],
   };

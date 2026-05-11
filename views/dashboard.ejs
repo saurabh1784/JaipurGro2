@@ -8,6 +8,8 @@
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
+  <% const vendorQuotationNotice = (dashboard.notifications || []).find((notification) => notification.href === '/vendor/quotations'); %>
+  <% const money = (value) => `INR ${Number(value || 0).toFixed(2)}`; %>
 
   <main class="system-main">
     <header class="topbar">
@@ -44,6 +46,28 @@
             <strong><%= notification.count %></strong>
           </a>
         <% }) %>
+      </section>
+    <% } %>
+
+    <% if (dashboard.vendorStats) { %>
+      <section class="vendor-quotation-summary" aria-label="Vendor quotation summary">
+        <% dashboard.vendorStats.quotations.forEach((stat) => { %>
+          <a class="vendor-quote-stat <%= stat.tone %>" href="/vendor/quotations">
+            <span><%= stat.label %> Quotations</span>
+            <strong><%= stat.count %></strong>
+            <small><%= money(stat.amount) %></small>
+          </a>
+        <% }) %>
+        <article class="vendor-health-card <%= dashboard.vendorStats.accountHealth.tone %>">
+          <div class="vendor-health-header">
+            <span>Account Health</span>
+            <strong><%= dashboard.vendorStats.accountHealth.score %>%</strong>
+          </div>
+          <div class="vendor-health-track" aria-hidden="true">
+            <span style="width: <%= dashboard.vendorStats.accountHealth.score %>%"></span>
+          </div>
+          <p><%= dashboard.vendorStats.accountHealth.activeProducts %> active products / minimum <%= dashboard.vendorStats.accountHealth.minimum %></p>
+        </article>
       </section>
     <% } %>
 
@@ -187,6 +211,128 @@
       border-color: #7c2d12;
       color: #fed7aa;
     }
+
+    .vendor-quotation-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .vendor-quote-stat,
+    .vendor-health-card {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      text-decoration: none;
+      color: #263238;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+    }
+
+    .vendor-quote-stat span,
+    .vendor-health-header span {
+      color: #64748b;
+      font-size: 0.82rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .vendor-quote-stat strong,
+    .vendor-health-header strong {
+      color: #0f172a;
+      font-size: 1.8rem;
+      line-height: 1;
+    }
+
+    .vendor-quote-stat small,
+    .vendor-health-card p {
+      margin: 0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .vendor-quote-stat.pending { border-top: 4px solid #f59e0b; }
+    .vendor-quote-stat.processed { border-top: 4px solid #16a34a; }
+    .vendor-quote-stat.rejected { border-top: 4px solid #dc2626; }
+
+    .vendor-health-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .vendor-health-track {
+      height: 12px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e2e8f0;
+    }
+
+    .vendor-health-track span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      transition: width 0.25s ease;
+    }
+
+    .vendor-health-card.low .vendor-health-track span { background: #dc2626; }
+    .vendor-health-card.fair .vendor-health-track span { background: #f59e0b; }
+    .vendor-health-card.good .vendor-health-track span { background: #16a34a; }
+    .vendor-health-card.low { border-top: 4px solid #dc2626; }
+    .vendor-health-card.fair { border-top: 4px solid #f59e0b; }
+    .vendor-health-card.good { border-top: 4px solid #16a34a; }
+
+    .theme-dark .vendor-quote-stat,
+    .theme-dark .vendor-health-card {
+      background: #172033;
+      border-color: #334155;
+      color: #f8fafc;
+    }
+
+    .theme-dark .vendor-quote-stat strong,
+    .theme-dark .vendor-health-header strong {
+      color: #f8fafc;
+    }
+
+    @media (max-width: 980px) {
+      .vendor-quotation-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 620px) {
+      .vendor-quotation-summary {
+        grid-template-columns: 1fr;
+      }
+    }
   </style>
+  <% if (user.role === 'Vendor') { %>
+    <script>
+      const currentVendorQuotationNotice = <%= vendorQuotationNotice ? Number(vendorQuotationNotice.count || 0) : 0 %>;
+
+      async function refreshVendorQuotationNotice() {
+        try {
+          const response = await fetch('/vendor/quotations?format=json&peek=1', {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success) return;
+
+          const newQuotationCount = data.quotations.filter((quotation) => quotation.recipient_status === 'new').length;
+          if (newQuotationCount > currentVendorQuotationNotice) {
+            location.reload();
+          }
+        } catch (error) {
+          console.error('Vendor quotation dashboard refresh failed:', error);
+        }
+      }
+
+      setInterval(refreshVendorQuotationNotice, 15000);
+    </script>
+  <% } %>
 </body>
 </html>

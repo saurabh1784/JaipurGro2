@@ -21,7 +21,7 @@ function row(row) {
 }
 
 async function listCategories() {
-  const [rows] = await pool.query(
+  const { rows } = await pool.query(
     `SELECT id, name, slug, status, created_at, updated_at
      FROM categories
      WHERE is_deleted = 0
@@ -31,7 +31,7 @@ async function listCategories() {
 }
 
 async function listSubcategories() {
-  const [rows] = await pool.query(
+  const { rows } = await pool.query(
     `SELECT s.id, s.category_id, s.name, s.slug, s.status, s.created_at, s.updated_at, c.name AS category_name
      FROM sub_categories s
      INNER JOIN categories c ON c.id = s.category_id
@@ -42,7 +42,7 @@ async function listSubcategories() {
 }
 
 async function listBrands() {
-  const [rows] = await pool.query(
+  const { rows } = await pool.query(
     `SELECT b.id, b.category_id, b.sub_category_id, b.name, b.slug, b.logo_path, b.status, b.created_at, b.updated_at,
             s.name AS sub_category_name, c.name AS category_name
      FROM brands b

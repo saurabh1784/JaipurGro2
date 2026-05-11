@@ -144,5 +144,4 @@ module.exports = {
   create,
   update,
   destroy,
-  validateClient,
 };

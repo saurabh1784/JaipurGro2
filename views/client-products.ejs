@@ -63,16 +63,24 @@
           </select>
           <div class="search-box-container">
             <input type="search" id="search-input" placeholder="Search products..." />
+            <div class="suggestions-panel" id="suggestions-panel" hidden></div>
           </div>
         </div>
       </div>
 
       <div class="products-grid" id="products-grid">
         <% products.forEach(function(product) { %>
-          <div class="product-card" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>" data-product-description="<%= (product.description || '').toLowerCase() %>">
-            <img class="product-thumb-image" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+          <div class="product-card" data-product-id="<%= product.id %>" data-master-product-id="<%= product.product_id %>" data-product-name="<%= product.product_name.toLowerCase() %>" data-product-description="<%= (product.description || '').toLowerCase() %>">
+            <div class="product-media">
+              <img class="product-thumb-image" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+            </div>
             <div class="product-info">
-              <h3 class="product-name"><%= product.product_name %></h3>
+              <div class="product-title-row">
+                <h3 class="product-name"><%= product.product_name %></h3>
+                <span class="stock-badge <%= product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock' %>">
+                  <%= product.quantity > 0 ? product.quantity + ' left' : 'Out' %>
+                </span>
+              </div>
               <% if (product.description) { %>
                 <p class="product-description"><%= product.description %></p>
               <% } %>
@@ -81,25 +89,22 @@
                 <span class="product-brand"><%= product.brand_name %></span>
               </div>
               <div class="product-price">
-                <strong>₹<%= product.visible_price.toFixed(2) %></strong>
-              </div>
-              <div class="product-stock">
-                <span class="stock-badge <%= product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock' %>">
-                  <%= product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock' %>
-                </span>
+                <span>Unit price</span>
+                <strong>INR <%= product.visible_price.toFixed(2) %></strong>
               </div>
             </div>
             <div class="product-actions">
               <div class="quantity-selector">
-                <button type="button" class="qty-btn" onclick="decreaseQty(this)" <%= product.quantity <= 0 ? 'disabled' : '' %>>-</button>
+                <button type="button" class="qty-btn" onclick="decreaseQty(this)" aria-label="Decrease quantity" <%= product.quantity <= 0 ? 'disabled' : '' %>>-</button>
                 <input type="number" class="qty-input" value="1" min="1" max="<%= product.quantity %>" <%= product.quantity <= 0 ? 'disabled' : '' %> />
-                <button type="button" class="qty-btn" onclick="increaseQty(this)" <%= product.quantity <= 0 ? 'disabled' : '' %>>+</button>
+                <button type="button" class="qty-btn" onclick="increaseQty(this)" aria-label="Increase quantity" <%= product.quantity <= 0 ? 'disabled' : '' %>>+</button>
               </div>
               <button
                 type="button"
                 class="btn-add-cart"
                 data-id="<%= product.id %>"
                 data-vendor-product-id="<%= product.id %>"
+                data-master-product-id="<%= product.product_id %>"
                 data-name="<%= product.product_name %>"
                 data-price="<%= product.visible_price %>"
                 data-max-qty="<%= product.quantity %>"
@@ -125,6 +130,7 @@
     const subcategoryFilter = document.getElementById('subcategory-filter');
     const brandFilter = document.getElementById('brand-filter');
     const searchInput = document.getElementById('search-input');
+    const suggestionsPanel = document.getElementById('suggestions-panel');
 
     function saveCart() {
       localStorage.setItem('clientCart', JSON.stringify(cart));
@@ -200,27 +206,32 @@
       const stockText = product.quantity > 0 ? `${product.quantity} in stock` : 'Out of stock';
       const disabled = product.quantity <= 0 ? 'disabled' : '';
       return `
-        <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}" data-product-description="${escapeHtml(product.description || '').toLowerCase()}">
-          <img class="product-thumb-image" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+        <div class="product-card" data-product-id="${product.id}" data-master-product-id="${product.product_id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}" data-product-description="${escapeHtml(product.description || '').toLowerCase()}">
+          <div class="product-media">
+            <img class="product-thumb-image" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+          </div>
           <div class="product-info">
-            <h3 class="product-name">${escapeHtml(product.product_name)}</h3>
+            <div class="product-title-row">
+              <h3 class="product-name">${escapeHtml(product.product_name)}</h3>
+              <span class="stock-badge ${stockClass}">${stockText}</span>
+            </div>
             ${product.description ? `<p class="product-description">${escapeHtml(product.description)}</p>` : ''}
             <div class="product-meta">
               <span class="product-category">${escapeHtml(product.category_name)}</span>
               <span class="product-brand">${escapeHtml(product.brand_name)}</span>
             </div>
-            <div class="product-price"><strong>INR ${Number(product.visible_price || 0).toFixed(2)}</strong></div>
-            <div class="product-stock"><span class="stock-badge ${stockClass}">${stockText}</span></div>
+            <div class="product-price"><span>Unit price</span><strong>INR ${Number(product.visible_price || 0).toFixed(2)}</strong></div>
           </div>
           <div class="product-actions">
             <div class="quantity-selector">
-              <button type="button" class="qty-btn" onclick="decreaseQty(this)" ${disabled}>-</button>
+              <button type="button" class="qty-btn" onclick="decreaseQty(this)" aria-label="Decrease quantity" ${disabled}>-</button>
               <input type="number" class="qty-input" value="1" min="1" max="${product.quantity}" ${disabled} />
-              <button type="button" class="qty-btn" onclick="increaseQty(this)" ${disabled}>+</button>
+              <button type="button" class="qty-btn" onclick="increaseQty(this)" aria-label="Increase quantity" ${disabled}>+</button>
             </div>
             <button type="button" class="btn-add-cart"
               data-id="${product.id}"
               data-vendor-product-id="${product.id}"
+              data-master-product-id="${product.product_id}"
               data-name="${escapeHtml(product.product_name)}"
               data-price="${Number(product.visible_price || 0)}"
               data-max-qty="${product.quantity}"
@@ -231,12 +242,12 @@
     }
 
     async function loadProducts() {
-      const params = new URLSearchParams({
-        category_id: categoryFilter.value,
-        sub_category_id: subcategoryFilter.value,
-        brand_name: brandFilter.value,
-        search: searchInput.value.trim(),
-      });
+      const params = new URLSearchParams();
+      if (categoryFilter.value) params.set('category_id', categoryFilter.value);
+      if (subcategoryFilter.value) params.set('sub_category_id', subcategoryFilter.value);
+      if (brandFilter.value) params.set('brand_name', brandFilter.value);
+      const searchTerm = searchInput.value.trim();
+      if (searchTerm) params.set('search', searchTerm);
       const response = await fetch(`/api/vendor-products/client-visible?${params.toString()}`, { headers: { Accept: 'application/json' } });
       const data = await response.json();
       if (!data.success) {
@@ -246,6 +257,56 @@
       productsGrid.innerHTML = data.products.length
         ? data.products.map(productCard).join('')
         : '<p class="cart-empty">No products found</p>';
+      trackVisibleProducts(data.products || []);
+    }
+
+    async function loadSuggestions() {
+      const q = searchInput.value.trim();
+      if (!q) {
+        suggestionsPanel.hidden = true;
+        suggestionsPanel.innerHTML = '';
+        return;
+      }
+
+      const response = await fetch(`/api/vendor-products/client-visible/suggestions?q=${encodeURIComponent(q)}`, { headers: { Accept: 'application/json' } });
+      const data = await response.json();
+      const suggestions = data.success ? data.suggestions || [] : [];
+      if (!suggestions.length) {
+        suggestionsPanel.hidden = true;
+        suggestionsPanel.innerHTML = '';
+        return;
+      }
+
+      suggestionsPanel.innerHTML = suggestions.map((item) => `
+        <button type="button" class="suggestion-item" onclick="selectSuggestion('${escapeAttr(item.label)}')">
+          <span>${escapeHtml(item.label)}</span>
+          <small>${escapeHtml(item.type)}</small>
+        </button>
+      `).join('');
+      suggestionsPanel.hidden = false;
+    }
+
+    function escapeAttr(value) {
+      return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, ' ');
+    }
+
+    function selectSuggestion(value) {
+      searchInput.value = value;
+      suggestionsPanel.hidden = true;
+      loadProducts();
+    }
+
+    function trackProductActivity(type, productId) {
+      if (!productId) return;
+      fetch('/api/vendor-products/client-visible/activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type, product_id: productId, keyword: searchInput.value.trim() }),
+      }).catch(() => {});
+    }
+
+    function trackVisibleProducts(items) {
+      items.slice(0, 12).forEach((product) => trackProductActivity('view', product.product_id));
     }
 
     function updateCartCount() {
@@ -259,12 +320,14 @@
       const quantityInput = card.querySelector('.qty-input');
       const id = Number(button.dataset.id);
       const vendorProductId = Number(button.dataset.vendorProductId);
+      const masterProductId = Number(button.dataset.masterProductId);
       const name = button.dataset.name;
       const price = Number(button.dataset.price);
       const maxQty = Number(button.dataset.maxQty);
       const requestedQty = Math.min(Math.max(1, Number(quantityInput.value) || 1), maxQty);
 
       addToCart(id, name, price, maxQty, vendorProductId, requestedQty);
+      trackProductActivity('click', masterProductId);
       quantityInput.value = 1;
     }
 
@@ -311,7 +374,7 @@
           <div class="cart-item">
             <div class="cart-item-info">
               <strong>${escapeHtml(item.name)}</strong>
-              <span>₹${item.price.toFixed(2)} x ${item.quantity}</span>
+              <span>Unit price: ₹${item.price.toFixed(2)}</span>
             </div>
             <div class="cart-item-actions">
               <button type="button" onclick="updateQuantity(${item.id}, ${item.quantity - 1})" ${item.quantity <= 1 ? 'disabled' : ''}>-</button>
@@ -416,7 +479,16 @@
       loadProducts();
     });
     brandFilter.addEventListener('change', loadProducts);
-    searchInput.addEventListener('input', debounce(loadProducts, 300));
+    const debouncedSearch = debounce(() => {
+      loadSuggestions();
+      loadProducts();
+    }, 300);
+    searchInput.addEventListener('input', debouncedSearch);
+    document.addEventListener('click', (event) => {
+      if (!event.target.closest('.search-box-container')) {
+        suggestionsPanel.hidden = true;
+      }
+    });
   </script>
 
   <style>
@@ -440,6 +512,7 @@
 
     .search-box-container {
       width: 250px;
+      position: relative;
     }
 
     .client-filter-bar {
@@ -465,40 +538,103 @@
       font-size: 0.9rem;
     }
 
+    .suggestions-panel {
+      position: absolute;
+      top: calc(100% + 6px);
+      right: 0;
+      left: 0;
+      z-index: 20;
+      overflow: hidden;
+      border: 1px solid #dbe4ea;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 14px 34px rgba(15, 23, 42, 0.16);
+    }
+
+    .suggestion-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      width: 100%;
+      padding: 10px 12px;
+      border: 0;
+      border-bottom: 1px solid #edf2f7;
+      background: #fff;
+      color: #1f2937;
+      cursor: pointer;
+      text-align: left;
+    }
+
+    .suggestion-item:hover {
+      background: #f0f9fb;
+    }
+
+    .suggestion-item small {
+      color: #64748b;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+    }
+
     .products-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
-      gap: 18px;
+      grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+      gap: 16px;
     }
 
     .product-card {
       display: flex;
       flex-direction: column;
       background: #fff;
-      border: 1px solid rgba(204, 210, 215, 0.75);
+      border: 1px solid #e2e8f0;
       border-radius: 8px;
-      padding: 16px;
-      box-shadow: 0 2px 6px rgba(32, 42, 54, 0.08);
+      overflow: hidden;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+      min-height: 100%;
+    }
+
+    .product-card:hover {
+      border-color: #b6dfe7;
+      box-shadow: 0 14px 32px rgba(15, 23, 42, 0.12);
+    }
+
+    .product-media {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 170px;
+      padding: 12px;
+      background: #f8fafc;
+      border-bottom: 1px solid #edf0f2;
     }
 
     .product-thumb-image {
       width: 100%;
-      height: 150px;
-      object-fit: cover;
+      height: 100%;
+      object-fit: contain;
       border-radius: 6px;
-      border: 1px solid #edf0f2;
-      background: #f8fafc;
-      margin-bottom: 12px;
+      background: #fff;
     }
 
     .product-info {
       flex: 1;
+      padding: 14px 14px 0;
+    }
+
+    .product-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 10px;
+      margin-bottom: 8px;
     }
 
     .product-name {
-      margin: 0 0 6px;
-      color: #3c4858;
-      font-size: 1.1rem;
+      margin: 0;
+      color: #1f2937;
+      font-size: 1rem;
+      line-height: 1.25;
+      font-weight: 700;
     }
 
     .product-description {
@@ -506,16 +642,21 @@
       color: #606a73;
       font-size: 0.85rem;
       line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
     }
 
     .product-meta {
       display: flex;
-      gap: 12px;
-      margin-bottom: 10px;
+      gap: 8px;
+      margin-bottom: 12px;
+      flex-wrap: wrap;
     }
 
     .product-meta span {
-      padding: 2px 8px;
+      padding: 4px 8px;
       background: #f1f5f9;
       border-radius: 4px;
       font-size: 0.75rem;
@@ -523,14 +664,22 @@
     }
 
     .product-price {
-      margin-bottom: 10px;
       display: flex;
+      justify-content: space-between;
       align-items: center;
       gap: 8px;
+      padding-top: 8px;
+      border-top: 1px solid #f1f5f9;
+    }
+
+    .product-price span {
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 600;
     }
 
     .product-price strong {
-      font-size: 1.2rem;
+      font-size: 1.25rem;
       color: #059669;
     }
 
@@ -545,10 +694,11 @@
 
     .stock-badge {
       display: inline-block;
-      padding: 4px 10px;
+      padding: 5px 8px;
       border-radius: 4px;
-      font-size: 0.75rem;
+      font-size: 0.72rem;
       font-weight: 600;
+      white-space: nowrap;
     }
 
     .in-stock {
@@ -567,27 +717,43 @@
     }
 
     .product-actions {
-      margin-top: 16px;
-      padding-top: 12px;
+      display: grid;
+      grid-template-columns: 118px 1fr;
+      align-items: center;
+      gap: 10px;
+      margin-top: 14px;
+      padding: 14px;
       border-top: 1px solid #edf0f2;
+      background: #fbfdff;
     }
 
     .quantity-selector {
       display: flex;
       align-items: center;
-      gap: 8px;
-      margin-bottom: 12px;
+      width: 118px;
+      height: 38px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #fff;
     }
 
     .qty-btn {
-      width: 32px;
-      height: 32px;
-      border: 1px solid #cbd5e1;
-      background: #f8fafc;
-      border-radius: 4px;
-      font-size: 1rem;
+      width: 36px;
+      height: 100%;
+      border: 0;
+      background: #e0f7fb;
+      color: #0f7180;
+      font-size: 1.15rem;
+      font-weight: 800;
       cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      line-height: 1;
     }
+
+    .qty-btn:hover:not(:disabled) { background: #bfedf5; }
 
     .qty-btn:disabled {
       opacity: 0.5;
@@ -595,21 +761,33 @@
     }
 
     .qty-input {
-      width: 50px;
+      width: 46px;
+      height: 100%;
       text-align: center;
-      padding: 6px;
-      border: 1px solid #cbd5e1;
-      border-radius: 4px;
+      padding: 0;
+      border: 0;
+      border-left: 1px solid #cbd5e1;
+      border-right: 1px solid #cbd5e1;
+      font-weight: 700;
+      color: #1f2937;
+      appearance: textfield;
+    }
+
+    .qty-input::-webkit-outer-spin-button,
+    .qty-input::-webkit-inner-spin-button {
+      margin: 0;
+      appearance: none;
     }
 
     .btn-add-cart {
       width: 100%;
-      padding: 10px;
+      min-height: 38px;
+      padding: 9px 12px;
       background: #26bcd4;
       color: #fff;
       border: none;
-      border-radius: 4px;
-      font-weight: 600;
+      border-radius: 6px;
+      font-weight: 700;
       cursor: pointer;
     }
 
@@ -784,6 +962,33 @@
 
     .icon-button {
       position: relative;
+    }
+
+    @media (max-width: 560px) {
+      .products-grid {
+        grid-template-columns: 1fr;
+      }
+
+      .product-actions {
+        grid-template-columns: 1fr;
+      }
+
+      .quantity-selector {
+        width: 100%;
+      }
+
+      .qty-input {
+        flex: 1;
+        width: auto;
+      }
+
+      .qty-btn {
+        width: 44px;
+      }
+
+      .cart-section {
+        width: 100%;
+      }
     }
   </style>
 </body>

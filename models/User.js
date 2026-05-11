@@ -17,37 +17,37 @@ function publicUser(row) {
 }
 
 async function findByEmailOrPhone(email, phone) {
-  const [rows] = await pool.query('SELECT * FROM users WHERE (email = ? OR phone = ?) AND is_deleted = 0 LIMIT 1', [email, phone]);
+  const { rows } = await pool.query('SELECT * FROM users WHERE (email = $1 OR phone = $2) AND is_deleted = 0 LIMIT 1', [email, phone]);
   return rows[0] || null;
 }
 
 async function findByEmail(email) {
-  const [rows] = await pool.query('SELECT * FROM users WHERE email = ? AND is_deleted = 0 LIMIT 1', [email]);
+  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND is_deleted = 0 LIMIT 1', [email]);
   return rows[0] || null;
 }
 
 async function findByEmailOrPhoneIdentifier(identifier) {
-  const [rows] = await pool.query(
-    'SELECT * FROM users WHERE (email = ? OR phone = ?) AND is_deleted = 0 LIMIT 1',
+  const { rows } = await pool.query(
+    'SELECT * FROM users WHERE (email = $1 OR phone = $2) AND is_deleted = 0 LIMIT 1',
     [identifier, identifier]
   );
   return rows[0] || null;
 }
 
 async function findById(id) {
-  const [rows] = await pool.query(
-    'SELECT id, name, email, phone, role, status, theme_mode, is_deleted, created_at, updated_at FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1',
+  const { rows } = await pool.query(
+    'SELECT id, name, email, phone, role, status, theme_mode, is_deleted, created_at, updated_at FROM users WHERE id = $1 AND is_deleted = 0 LIMIT 1',
     [id]
   );
   return rows[0] || null;
 }
 
 async function create({ name, email, phone, password, role, status = 'active' }, connection = pool) {
-  const [result] = await connection.query(
-    'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
+  const { rows } = await connection.query(
+    'INSERT INTO users (name, email, phone, password, role, status) VALUES ($1, $2, $3, $4, $5, $6) RETURNING id',
     [name, email, phone, password, role, status]
   );
-  return result.insertId;
+  return rows[0].id;
 }
 
 async function updateBasic(id, data) {
@@ -57,7 +57,7 @@ async function updateBasic(id, data) {
 
   for (const field of allowedFields) {
     if (Object.prototype.hasOwnProperty.call(data, field)) {
-      fields.push(`${field} = ?`);
+      fields.push(`${field} = $${values.length + 1}`);
       values.push(data[field]);
     }
   }
@@ -67,7 +67,7 @@ async function updateBasic(id, data) {
   }
 
   values.push(id);
-  await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = ?`, values);
+  await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $${values.length}`, values);
 }
 
 async function list({ page = 1, limit = 10, search = '', role = '' }) {
@@ -78,23 +78,23 @@ async function list({ page = 1, limit = 10, search = '', role = '' }) {
   const values = [];
 
   if (search) {
-    where.push('(name LIKE ? OR email LIKE ?)');
+    where.push('(name ILIKE $' + (values.length + 1) + ' OR email ILIKE $' + (values.length + 2) + ')');
     values.push(`%${search}%`, `%${search}%`);
   }
 
   if (role) {
-    where.push('role = ?');
+    where.push('role = $' + (values.length + 1));
     values.push(role);
   }
 
   const whereSql = where.join(' AND ');
-  const [countRows] = await pool.query(`SELECT COUNT(*) as total FROM users WHERE ${whereSql}`, values);
-  const [rows] = await pool.query(
+  const { rows: countRows } = await pool.query(`SELECT COUNT(*) as total FROM users WHERE ${whereSql}`, values);
+  const { rows } = await pool.query(
     `SELECT id, name, email, phone, role, status, theme_mode, is_deleted, created_at, updated_at
      FROM users
      WHERE ${whereSql}
      ORDER BY created_at DESC, id DESC
-     LIMIT ? OFFSET ?`,
+     LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
     [...values, pageSize, offset]
   );
 
@@ -103,23 +103,23 @@ async function list({ page = 1, limit = 10, search = '', role = '' }) {
     pagination: {
       page: currentPage,
       limit: pageSize,
-      total: countRows[0].total,
-      totalPages: Math.max(Math.ceil(countRows[0].total / pageSize), 1),
+      total: parseInt(countRows[0].total, 10),
+      totalPages: Math.max(Math.ceil(parseInt(countRows[0].total, 10) / pageSize), 1),
     },
   };
 }
 
 async function softDelete(id) {
-  await pool.query("UPDATE users SET is_deleted = 1, status = 'inactive' WHERE id = ?", [id]);
+  await pool.query("UPDATE users SET is_deleted = 1, status = 'inactive' WHERE id = $1", [id]);
 }
 
 async function updateTheme(id, themeMode) {
-  await pool.query('UPDATE users SET theme_mode = ? WHERE id = ? AND is_deleted = 0', [themeMode, id]);
+  await pool.query('UPDATE users SET theme_mode = $1 WHERE id = $2 AND is_deleted = 0', [themeMode, id]);
 }
 
 async function emailOrPhoneTaken({ id, email, phone }) {
-  const [rows] = await pool.query(
-    'SELECT id, email, phone FROM users WHERE is_deleted = 0 AND id != ? AND (email = ? OR phone = ?) LIMIT 1',
+  const { rows } = await pool.query(
+    'SELECT id, email, phone FROM users WHERE is_deleted = 0 AND id != $1 AND (email = $2 OR phone = $3) LIMIT 1',
     [id, email, phone]
   );
   return rows[0] || null;
