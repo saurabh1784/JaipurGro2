@@ -1,11 +1,11 @@
 const { Client, Pool } = require('pg');
 
 const dbConfig = {
-  host: process.env.DB_HOST || 'localhost',
-  port: Number(process.env.DB_PORT || 5434),
-  user: process.env.DB_USER || 'postgres',
-  password: process.env.DB_PASSWORD || 'admin',
-  database: process.env.DB_NAME || 'jaipur_db_node',
+  host: process.env.DB_HOST || 'dpg-d7ss7vdckfvc73cnsmk0-a',
+  port: Number(process.env.DB_PORT || 5432),
+  user: process.env.DB_USER || 'db_for_jaipur_user',
+  password: process.env.DB_PASSWORD || '5nk2eySXiJA8gSxd1NsSEm0KknDtaem2',
+  database: process.env.DB_NAME || 'db_for_jaipur',
   max: Number(process.env.DB_POOL_MAX || 10),
   idleTimeoutMillis: 30000,
   connectionTimeoutMillis: 5000,
