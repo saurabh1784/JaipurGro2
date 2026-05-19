@@ -1,4 +1,5 @@
 const pool = require('../db');
+const Promotion = require('./Promotion');
 
 function normalizeRows(rows) {
   const requests = new Map();
@@ -373,7 +374,7 @@ async function listForClient(clientId) {
   return normalizeRows(rows);
 }
 
-async function decideClientResponse({ recipientId, clientId, decision }) {
+async function decideClientResponse({ recipientId, clientId, decision, couponCode = '' }) {
   const connection = await pool.getConnection();
 
   try {
@@ -425,7 +426,15 @@ async function decideClientResponse({ recipientId, clientId, decision }) {
       }
     }
 
-    const totalAmount = items.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+    const subtotalAmount = items.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+    const promotion = await Promotion.resolveOrderPromotion({
+      couponCode,
+      orderType: 'quotation',
+      subtotal: subtotalAmount,
+      userId: clientId,
+    }, connection);
+    const discountAmount = Number(promotion.discountAmount || 0);
+    const totalAmount = Math.max(subtotalAmount - discountAmount, 0);
 
     // Get client details for denormalization
     const [clientRows] = await connection.query(
@@ -437,11 +446,36 @@ async function decideClientResponse({ recipientId, clientId, decision }) {
 
     const [orderResult] = await connection.query(
       `INSERT INTO client_orders 
-       (user_id, vendor_id, total_amount, status, delivery_status, client_name, client_phone, client_address) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [clientId, recipient.vendor_id, totalAmount, 'pending', 'pending', client.name, client.phone, clientAddress]
+       (user_id, vendor_id, subtotal_amount, discount_amount, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        clientId,
+        recipient.vendor_id,
+        subtotalAmount,
+        discountAmount,
+        promotion.coupon ? promotion.coupon.id : null,
+        promotion.code || null,
+        promotion.discount ? promotion.discount.id : null,
+        promotion.discount ? promotion.discount.name : null,
+        'quotation',
+        totalAmount,
+        'pending',
+        'pending',
+        client.name,
+        client.phone,
+        clientAddress,
+      ]
     );
     const orderId = orderResult.insertId;
+    await Promotion.recordUsage({
+      orderId,
+      userId: clientId,
+      orderType: 'quotation',
+      subtotal: subtotalAmount,
+      discountAmount,
+      coupon: promotion.coupon,
+      discount: promotion.discount,
+    }, connection);
     await connection.query(
       `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
        VALUES (?, ?, ?, ?, ?, ?)`,

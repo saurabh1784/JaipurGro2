@@ -1,0 +1,352 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / <%= title %></p>
+        <h1><%= title %></h1>
+      </div>
+      <% if (canCreate) { %>
+        <button class="settings-save" type="button" onclick="openForm()">Add <%= mode === 'coupons' ? 'Coupon' : 'Discount' %></button>
+      <% } %>
+    </header>
+
+    <section class="users-table-card">
+      <table class="wallets-table">
+        <thead>
+          <tr>
+            <th>Name</th>
+            <% if (mode === 'coupons') { %><th>Code</th><% } %>
+            <th>Type</th>
+            <th>Value</th>
+            <th>Min Order</th>
+            <th>Apply On</th>
+            <th>Limits</th>
+            <th>Cities</th>
+            <th>Status</th>
+            <th>Display</th>
+            <th>Dates</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="promotionBody"><tr><td colspan="10">Loading...</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div class="user-modal" id="promotionModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2 id="modalTitle">Add</h2>
+        <button type="button" onclick="closeForm()">Close</button>
+      </div>
+      <form class="user-modal-grid" id="promotionForm">
+        <input type="hidden" id="promotionId" />
+        <label>
+          Name
+          <input id="name" type="text" required />
+        </label>
+        <% if (mode === 'coupons') { %>
+          <label>
+            Code
+            <input id="code" type="text" placeholder="Leave blank if auto" />
+          </label>
+          <label class="settings-toggle">
+            <input id="auto_generate" type="checkbox" />
+            Auto Code
+          </label>
+        <% } %>
+        <label>
+          Type
+          <select id="value_type">
+            <option value="fixed">Fixed</option>
+            <option value="percentage">Percentage</option>
+          </select>
+        </label>
+        <label>
+          Value
+          <input id="value" type="number" min="0" step="0.01" required />
+        </label>
+        <label>
+          Min Order Amount
+          <input id="min_order_amount" type="number" min="0" step="0.01" value="0" />
+        </label>
+        <label>
+          Apply On
+          <select id="apply_on">
+            <option value="both">Both</option>
+            <option value="direct">Direct Orders</option>
+            <option value="quotation">Quotation Orders</option>
+          </select>
+        </label>
+        <label>
+          Usage Limit
+          <input id="usage_limit" type="number" min="0" />
+        </label>
+        <label>
+          Per Customer Limit
+          <input id="per_customer_limit" type="number" min="0" />
+        </label>
+        <label>
+          Background Color
+          <input id="background_color" type="color" value="<%= mode === 'coupons' ? '#1d4ed8' : '#0f766e' %>" />
+        </label>
+        <label>
+          Text Color
+          <input id="text_color" type="color" value="#ffffff" />
+        </label>
+        <label class="settings-wide">
+          Image
+          <input id="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+          <span class="wallet-muted" id="currentImageText"></span>
+        </label>
+        <label class="settings-wide">
+          App Discount Scroll Message
+          <input id="scroll_message" type="text" maxlength="255" placeholder="e.g. Use SAVE10 today and get 10% off" />
+        </label>
+        <label>
+          City Target
+          <select id="city_scope" onchange="toggleCityInput()">
+            <option value="all">All Cities</option>
+            <option value="specific">Specific Cities</option>
+          </select>
+        </label>
+        <label class="settings-wide" id="citiesWrap">
+          Offer Cities
+          <div class="offer-city-list" id="cities">
+            <% (cityOptions || []).forEach((city) => { %>
+              <label class="offer-city-option">
+                <input type="checkbox" value="<%= city %>" />
+                <span><%= city %></span>
+              </label>
+            <% }) %>
+          </div>
+          <span class="wallet-muted">Only cities already saved in the system are available here.</span>
+        </label>
+        <label>
+          Start Date
+          <input id="start_at" type="datetime-local" />
+        </label>
+        <label>
+          Expiry Date
+          <input id="expires_at" type="datetime-local" />
+        </label>
+        <label class="settings-toggle">
+          <input id="is_active" type="checkbox" checked />
+          Enabled
+        </label>
+        <label class="settings-wide">
+          Description
+          <textarea id="description"></textarea>
+        </label>
+        <button class="settings-save" type="submit">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const mode = '<%= mode %>';
+    const endpoint = mode === 'coupons' ? '/api/coupons' : '/api/discounts';
+    const canEdit = <%= canEdit ? 'true' : 'false' %>;
+    const canDelete = <%= canDelete ? 'true' : 'false' %>;
+    const cityOptions = <%- JSON.stringify(cityOptions || []) %>;
+    let rows = [];
+    let loadingRows = false;
+
+    function esc(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+    }
+    function money(value) { return 'INR ' + Number(value || 0).toFixed(2); }
+    function date(value) { return value ? new Date(value).toLocaleString() : 'Open'; }
+    function inputDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+      return date.toISOString().slice(0, 16);
+    }
+
+    async function loadRows() {
+      if (loadingRows) return;
+      loadingRows = true;
+      try {
+        const response = await fetch(endpoint, { cache: 'no-store' });
+        const data = await response.json();
+        rows = mode === 'coupons' ? data.coupons || [] : data.discounts || [];
+        renderRows();
+      } finally {
+        loadingRows = false;
+      }
+    }
+
+    function autoSyncRows() {
+      if (document.getElementById('promotionModal').classList.contains('active')) return;
+      loadRows();
+    }
+
+    function renderRows() {
+      const body = document.getElementById('promotionBody');
+      if (!rows.length) {
+        body.innerHTML = `<tr><td colspan="${mode === 'coupons' ? 11 : 10}">No records found</td></tr>`;
+        return;
+      }
+      body.innerHTML = rows.map((row) => `
+        <tr>
+          <td><strong>${esc(row.name)}</strong><span class="wallet-muted">${esc(row.description)}</span></td>
+          ${mode === 'coupons' ? `<td><strong>${esc(row.code)}</strong></td>` : ''}
+          <td>${esc(row.value_type)}</td>
+          <td>${row.value_type === 'percentage' ? Number(row.value).toFixed(2) + '%' : money(row.value)}</td>
+          <td>${money(row.min_order_amount)}</td>
+          <td>${esc(row.apply_on)}</td>
+          <td>${row.usage_limit || 'No'} total / ${row.per_customer_limit || 'No'} per customer</td>
+          <td>${row.city_scope === 'specific' ? esc((row.cities || []).join(', ')) : 'All Cities'}</td>
+          <td><span class="user-status-pill ${row.is_active ? 'active' : 'inactive'}">${row.is_active ? 'enabled' : 'disabled'}</span></td>
+          <td>
+            <div class="promo-preview" style="background:${esc(row.background_color || '#0f766e')};color:${esc(row.text_color || '#ffffff')}">
+              ${row.image_path ? `<img src="${esc(row.image_path)}" alt="">` : ''}
+              <span>${esc(row.scroll_message || 'No scroll message')}</span>
+            </div>
+          </td>
+          <td>${date(row.start_at)}<br>${date(row.expires_at)}</td>
+          <td>
+            <div class="user-actions">
+              ${canEdit ? `<button type="button" onclick="openForm(${row.id})">Edit</button>` : ''}
+              ${canDelete ? `<button type="button" onclick="deleteRow(${row.id})">Delete</button>` : ''}
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openForm(id) {
+      const row = rows.find((item) => Number(item.id) === Number(id)) || {};
+      document.getElementById('promotionId').value = row.id || '';
+      document.getElementById('modalTitle').textContent = `${row.id ? 'Edit' : 'Add'} ${mode === 'coupons' ? 'Coupon' : 'Discount'}`;
+      ['name', 'description', 'value_type', 'value', 'min_order_amount', 'apply_on', 'usage_limit', 'per_customer_limit', 'background_color', 'text_color', 'scroll_message', 'city_scope'].forEach((key) => {
+        const input = document.getElementById(key);
+        if (input) input.value = row[key] ?? (key === 'value_type' ? 'fixed' : key === 'apply_on' ? 'both' : '');
+      });
+      document.getElementById('city_scope').value = row.city_scope || 'all';
+      const selectedCities = new Set((row.cities || []).map((city) => String(city).toLowerCase()));
+      document.querySelectorAll('#cities input[type="checkbox"]').forEach((input) => {
+        input.checked = selectedCities.has(String(input.value).toLowerCase());
+      });
+      toggleCityInput();
+      if (!row.id) {
+        document.getElementById('background_color').value = mode === 'coupons' ? '#1d4ed8' : '#0f766e';
+        document.getElementById('text_color').value = '#ffffff';
+      }
+      document.getElementById('image').value = '';
+      document.getElementById('currentImageText').textContent = row.image_path ? `Current image: ${row.image_path}` : '';
+      if (document.getElementById('code')) document.getElementById('code').value = row.code || '';
+      if (document.getElementById('auto_generate')) document.getElementById('auto_generate').checked = Boolean(row.auto_generate);
+      document.getElementById('start_at').value = inputDate(row.start_at);
+      document.getElementById('expires_at').value = inputDate(row.expires_at);
+      document.getElementById('is_active').checked = row.id ? Boolean(row.is_active) : true;
+      document.getElementById('promotionModal').classList.add('active');
+    }
+
+    function toggleCityInput() {
+      const specific = document.getElementById('city_scope').value === 'specific';
+      document.getElementById('citiesWrap').style.display = specific ? 'block' : 'none';
+      if (specific && cityOptions.length === 0) {
+        alert('No cities are available yet. Add cities in client/vendor profiles or delivery partner settings first.');
+        document.getElementById('city_scope').value = 'all';
+        document.getElementById('citiesWrap').style.display = 'none';
+      }
+    }
+
+    function closeForm() {
+      document.getElementById('promotionModal').classList.remove('active');
+    }
+
+    document.getElementById('promotionForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = document.getElementById('promotionId').value;
+      const payload = new FormData();
+      ['name', 'description', 'value_type', 'value', 'min_order_amount', 'apply_on', 'usage_limit', 'per_customer_limit', 'start_at', 'expires_at', 'background_color', 'text_color', 'scroll_message', 'city_scope'].forEach((key) => {
+        payload.append(key, document.getElementById(key).value);
+      });
+      document.querySelectorAll('#cities input[type="checkbox"]:checked').forEach((input) => {
+        payload.append('cities', input.value);
+      });
+      payload.append('is_active', document.getElementById('is_active').checked ? '1' : '0');
+      const image = document.getElementById('image').files[0];
+      if (image) payload.append('image', image);
+      if (mode === 'coupons') {
+        payload.append('code', document.getElementById('code').value);
+        payload.append('auto_generate', document.getElementById('auto_generate').checked ? '1' : '0');
+      }
+      const response = await fetch(`${endpoint}${id ? `/${id}` : ''}`, {
+        method: id ? 'PUT' : 'POST',
+        body: payload,
+      });
+      const data = await response.json();
+      if (!data.success) return alert(data.message || 'Unable to save');
+      closeForm();
+      loadRows();
+    });
+
+    async function deleteRow(id) {
+      if (!confirm('Delete this record?')) return;
+      const response = await fetch(`${endpoint}/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) return alert(data.message || 'Unable to delete');
+      loadRows();
+    }
+
+    loadRows();
+    setInterval(autoSyncRows, 8000);
+  </script>
+  <style>
+    .promo-preview {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 260px;
+      min-height: 42px;
+      padding: 8px 10px;
+      border-radius: 6px;
+      font-weight: 800;
+      overflow: hidden;
+    }
+    .promo-preview img {
+      width: 34px;
+      height: 34px;
+      object-fit: cover;
+      border-radius: 4px;
+      flex: 0 0 auto;
+    }
+    .promo-preview span {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .offer-city-list {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+      gap: 8px;
+      max-height: 180px;
+      overflow: auto;
+      padding: 8px;
+      border: 1px solid #d7dee8;
+      border-radius: 6px;
+      background: #f8fafc;
+    }
+    .offer-city-option {
+      display: flex;
+      align-items: center;
+      gap: 7px;
+      margin: 0;
+      font-weight: 800;
+    }
+  </style>
+</body>
+</html>

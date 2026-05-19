@@ -2,6 +2,19 @@ const { verify } = require('../utils/jwt');
 const { isTokenRevoked } = require('./tokenBlacklist');
 const User = require('../models/User');
 
+function isSuperAdminUser(user) {
+  const value = String((user && (user.role || user.roleName)) || '').toLowerCase().replace(/[\s_-]+/g, '');
+  return value === 'superadmin';
+}
+
+function hasPermission(user, permission) {
+  return Boolean(
+    user &&
+      (isSuperAdminUser(user) ||
+        (Array.isArray(user.permissions) && (user.permissions.includes('all') || user.permissions.includes(permission))))
+  );
+}
+
 async function webOrJwtAuth(req, res, next) {
   if (req.session && req.session.user) {
     req.authUser = req.session.user;
@@ -37,8 +50,7 @@ function canManageUsers(user) {
   return Boolean(
     user &&
       (user.role === 'Admin' ||
-        user.role === 'superadmin' ||
-        (Array.isArray(user.permissions) && (user.permissions.includes('all') || user.permissions.includes('users.manage'))))
+        hasPermission(user, 'users.manage'))
   );
 }
 
@@ -46,9 +58,7 @@ function canManageProducts(user) {
   return Boolean(
     user &&
       (user.role === 'Admin' ||
-        user.role === 'superadmin' ||
-        (Array.isArray(user.permissions) &&
-          (user.permissions.includes('all') || user.permissions.includes('products.manage'))))
+        hasPermission(user, 'products.manage'))
   );
 }
 
@@ -56,9 +66,7 @@ function canManageVendors(user) {
   return Boolean(
     user &&
       (user.role === 'Admin' ||
-        user.role === 'superadmin' ||
-        (Array.isArray(user.permissions) &&
-          (user.permissions.includes('all') || user.permissions.includes('vendors.manage'))))
+        hasPermission(user, 'vendors.manage'))
   );
 }
 
@@ -66,9 +74,7 @@ function canManageClients(user) {
   return Boolean(
     user &&
       (user.role === 'Admin' ||
-        user.role === 'superadmin' ||
-        (Array.isArray(user.permissions) &&
-          (user.permissions.includes('all') || user.permissions.includes('clients.manage'))))
+        hasPermission(user, 'clients.manage'))
   );
 }
 
@@ -76,9 +82,7 @@ function canManageWallets(user) {
   return Boolean(
     user &&
       (user.role === 'Admin' ||
-        user.role === 'superadmin' ||
-        (Array.isArray(user.permissions) &&
-          (user.permissions.includes('all') || user.permissions.includes('wallets.manage'))))
+        hasPermission(user, 'wallets.manage'))
   );
 }
 

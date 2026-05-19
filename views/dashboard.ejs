@@ -71,6 +71,28 @@
       </section>
     <% } %>
 
+    <% if (dashboard.supportSummary) { %>
+      <section class="support-dashboard-card">
+        <div>
+          <span>Support</span>
+          <h2><%= dashboard.supportSummary.openTicket ? `Ticket #${dashboard.supportSummary.openTicket.id} is Open` : 'No open support ticket' %></h2>
+          <p><%= dashboard.supportSummary.openTicket ? dashboard.supportSummary.openTicket.subject : `${dashboard.supportSummary.total} total ticket${dashboard.supportSummary.total === 1 ? '' : 's'}` %></p>
+        </div>
+        <a class="settings-save" href="<%= dashboard.supportSummary.href %>">Open Support</a>
+      </section>
+      <% if (dashboard.supportTickets && dashboard.supportTickets.length) { %>
+        <section class="support-ticket-strip">
+          <% dashboard.supportTickets.forEach((ticket) => { %>
+            <a href="<%= dashboard.supportSummary.href %>" class="support-ticket-chip">
+              <span class="<%= ticket.status === 'Open' ? 'open' : 'closed' %>"><%= ticket.status %></span>
+              <strong>#<%= ticket.id %> <%= ticket.subject %></strong>
+              <small><%= ticket.message_count %> message<%= ticket.message_count === 1 ? '' : 's' %></small>
+            </a>
+          <% }) %>
+        </section>
+      <% } %>
+    <% } %>
+
     <section class="metric-grid" aria-label="Role dashboard metrics">
       <% dashboard.metrics.forEach((metric) => { %>
         <article class="metric-card">
@@ -217,6 +239,71 @@
       grid-template-columns: repeat(4, minmax(0, 1fr));
       gap: 14px;
       margin-bottom: 18px;
+    }
+
+    .support-dashboard-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+      background: #eef9fb;
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+    }
+
+    .support-dashboard-card span {
+      color: #0891b2;
+      font-weight: 900;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+    }
+
+    .support-dashboard-card h2 {
+      margin: 4px 0;
+      color: #0f172a;
+    }
+
+    .support-dashboard-card p {
+      margin: 0;
+      color: #475569;
+    }
+
+    .support-ticket-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .support-ticket-chip {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .support-ticket-chip span {
+      justify-self: start;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 900;
+    }
+
+    .support-ticket-chip span.open {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .support-ticket-chip span.closed {
+      background: #e2e8f0;
+      color: #334155;
     }
 
     .vendor-quote-stat,

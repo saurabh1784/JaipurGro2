@@ -23,10 +23,17 @@ const Quotation = require('./models/Quotation');
 const Catalog = require('./models/Catalog');
 const CommissionSetting = require('./models/CommissionSetting');
 const ProductSearch = require('./models/ProductSearch');
+const Promotion = require('./models/Promotion');
+const SupportTicket = require('./models/SupportTicket');
 const {
   uploadBrandLogo,
   handleUploadError,
 } = require('./middleware/brandLogoUpload');
+const {
+  uploadPromotionImage,
+  promotionImagePath,
+  handlePromotionImageUploadError,
+} = require('./middleware/promotionImageUpload');
 const {
   webOrJwtAuth,
   requireUserManagement,
@@ -41,6 +48,7 @@ const app = express();
 const port = process.env.PORT || 3000;
 
 const permissionLabels = {
+  all: 'All Access',
   'dashboard.view': 'Dashboard',
   'users.manage': 'Manage Users',
   'roles.manage': 'Manage Roles',
@@ -52,7 +60,38 @@ const permissionLabels = {
   'orders.manage': 'Manage Orders',
   'reports.view': 'Reports',
   'settings.manage': 'Settings',
+  'inventory.manage': 'Manage Inventory',
+  'discounts.view': 'View Discounts',
+  'discounts.create': 'Create Discounts',
+  'discounts.edit': 'Edit Discounts',
+  'discounts.delete': 'Delete Discounts',
+  'coupons.view': 'View Coupons',
+  'coupons.create': 'Create Coupons',
+  'coupons.edit': 'Edit Coupons',
+  'coupons.delete': 'Delete Coupons',
+  'coupons.apply': 'Apply Coupons',
+  'coupon_history.view': 'View Coupon History',
+  'support.manage': 'Manage Support Tickets',
 };
+
+function allPermissionKeys() {
+  return Object.keys(permissionLabels);
+}
+
+function isSuperAdminUser(user) {
+  if (!user) {
+    return false;
+  }
+
+  const normalizeRole = (value) => String(value || '').toLowerCase().replace(/[\s_-]+/g, '');
+  if (normalizeRole(user.role) === 'superadmin' || normalizeRole(user.roleName) === 'superadmin') {
+    return true;
+  }
+
+  return Array.isArray(user.roles) && user.roles.some((role) => (
+    normalizeRole(role.slug) === 'superadmin' || normalizeRole(role.name) === 'superadmin'
+  ));
+}
 
 const roleSeeds = [
   {
@@ -60,28 +99,63 @@ const roleSeeds = [
     slug: 'superadmin',
     description: 'Full system access with every management permission.',
     level: 0,
-    permissions: ['all'],
+    permissions: allPermissionKeys(),
   },
   {
     name: 'Admin',
     slug: 'admin',
     description: 'Administrative access for users, roles, products, orders, and reports.',
     level: 1,
-    permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view'],
+    permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view', 'discounts.view', 'discounts.create', 'discounts.edit', 'discounts.delete', 'coupons.view', 'coupons.create', 'coupons.edit', 'coupons.delete', 'coupons.apply', 'coupon_history.view', 'support.manage'],
   },
   {
     name: 'Manager',
     slug: 'manager',
     description: 'Operational access for products, orders, and reporting.',
     level: 2,
-    permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view'],
+    permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view', 'discounts.view', 'coupons.view', 'coupons.apply', 'coupon_history.view', 'support.manage'],
   },
   {
     name: 'Staff',
     slug: 'staff',
     description: 'Store team access for day-to-day order handling.',
     level: 3,
-    permissions: ['dashboard.view', 'wallets.view', 'orders.manage'],
+    permissions: ['dashboard.view', 'wallets.view', 'orders.manage', 'support.manage'],
+  },
+  {
+    name: 'Staff L1',
+    slug: 'staff-l1',
+    description: 'Entry-level staff access for dashboard, product lookup, and order support.',
+    level: 4,
+    permissions: ['dashboard.view', 'products.manage', 'orders.manage', 'support.manage'],
+  },
+  {
+    name: 'Staff L2',
+    slug: 'staff-l2',
+    description: 'Mid-level staff access for clients, vendors, products, and orders.',
+    level: 5,
+    permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'products.manage', 'orders.manage', 'wallets.view', 'support.manage'],
+  },
+  {
+    name: 'Staff L3',
+    slug: 'staff-l3',
+    description: 'Senior staff access for operations, wallets, reports, and inventory.',
+    level: 6,
+    permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'products.manage', 'inventory.manage', 'orders.manage', 'wallets.view', 'wallets.manage', 'reports.view', 'support.manage'],
+  },
+  {
+    name: 'Support Staff',
+    slug: 'support-staff',
+    description: 'Customer support access for client, vendor, and order assistance.',
+    level: 7,
+    permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'orders.manage', 'reports.view', 'support.manage'],
+  },
+  {
+    name: 'Accountant',
+    slug: 'accountant',
+    description: 'Finance access for wallet, order, and reporting workflows.',
+    level: 8,
+    permissions: ['dashboard.view', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view'],
   },
 ];
 
@@ -180,8 +254,17 @@ function parsePermissions(value) {
   }
 }
 
+function normalizePermissionList(value) {
+  return [...new Set([].concat(value || []).filter((permission) => Object.prototype.hasOwnProperty.call(permissionLabels, permission)))];
+}
+
 function roleCan(user, permission) {
-  return Boolean(user && (user.permissions.includes('all') || user.permissions.includes(permission)));
+  if (isSuperAdminUser(user)) {
+    return true;
+  }
+
+  const permissions = normalizePermissionList(user && user.permissions);
+  return permissions.includes('all') || permissions.includes(permission);
 }
 
 function requireAuth(req, res, next) {
@@ -194,13 +277,18 @@ function requireAuth(req, res, next) {
 
 function requirePermission(permission) {
   return (req, res, next) => {
-    if (roleCan(req.session.user, permission)) {
+    const currentUser = req.authUser || (req.session && req.session.user);
+    if (roleCan(currentUser, permission)) {
       return next();
     }
 
+    if (requestWantsJson(req)) {
+      return res.status(403).json({ success: false, message: 'Permission denied' });
+    }
+
     res.status(403).render('dashboard', {
-      user: req.session.user,
-      dashboard: buildDashboard(req.session.user, req.path),
+      user: currentUser,
+      dashboard: buildDashboard(currentUser, req.path),
       error: 'You do not have permission to open that page.',
     });
   };
@@ -216,6 +304,16 @@ function requireSessionRole(role, loginPath) {
       return res.redirect(loginPath);
     }
 
+    next();
+  };
+}
+
+function requireAuthRole(role) {
+  return (req, res, next) => {
+    const user = req.authUser || (req.session && req.session.user);
+    if (!user || user.role !== role) {
+      return res.status(403).json({ success: false, message: `Only ${role} users can access this resource` });
+    }
     next();
   };
 }
@@ -465,6 +563,19 @@ async function initDatabase() {
   await addColumnIfMissing('wallet_transactions', 'commission_setting_id', 'INT UNSIGNED DEFAULT NULL AFTER amount');
   await addColumnIfMissing('wallet_transactions', 'commission_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER commission_setting_id');
   await addColumnIfMissing('wallet_transactions', 'net_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER commission_amount');
+  await addColumnIfMissing('wallet_transactions', 'transaction_by_name', 'VARCHAR(100) DEFAULT NULL AFTER created_by');
+  await addColumnIfMissing('wallet_transactions', 'transaction_by_email', 'VARCHAR(150) DEFAULT NULL AFTER transaction_by_name');
+  await addColumnIfMissing('wallet_transactions', 'transaction_by_role', 'VARCHAR(50) DEFAULT NULL AFTER transaction_by_email');
+  await addColumnIfMissing('wallet_transactions', 'transaction_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER transaction_by_role');
+  await pool.query(`
+    UPDATE wallet_transactions wt
+    SET transaction_by_name = COALESCE(wt.transaction_by_name, u.name),
+        transaction_by_email = COALESCE(wt.transaction_by_email, u.email),
+        transaction_by_role = COALESCE(wt.transaction_by_role, u.role),
+        transaction_at = COALESCE(wt.transaction_at, wt.created_at)
+    FROM users u
+    WHERE wt.created_by = u.id
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS roles (
@@ -539,6 +650,27 @@ async function initDatabase() {
   await addColumnIfMissing('client_profiles', 'country', 'VARCHAR(80) DEFAULT NULL AFTER address');
   await addColumnIfMissing('client_profiles', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
   await addColumnIfMissing('client_profiles', 'city', 'VARCHAR(80) DEFAULT NULL AFTER state');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS client_delivery_addresses (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT UNSIGNED NOT NULL,
+      label VARCHAR(80) NOT NULL DEFAULT 'Home',
+      recipient_name VARCHAR(120) DEFAULT NULL,
+      phone VARCHAR(30) DEFAULT NULL,
+      address TEXT NOT NULL,
+      city VARCHAR(80) DEFAULT NULL,
+      state VARCHAR(80) DEFAULT NULL,
+      country VARCHAR(80) DEFAULT NULL,
+      pincode VARCHAR(20) DEFAULT NULL,
+      is_default TINYINT(1) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_client_delivery_addresses_user (user_id),
+      CONSTRAINT fk_client_delivery_addresses_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_profiles (
@@ -849,6 +981,140 @@ async function initDatabase() {
   await addColumnIfMissing('client_orders', 'ready_at', 'TIMESTAMP NULL DEFAULT NULL AFTER assigned_at');
   await addColumnIfMissing('client_orders', 'delivered_at', 'TIMESTAMP NULL DEFAULT NULL AFTER ready_at');
   await addColumnIfMissing('client_orders', 'status_updated_at', 'TIMESTAMP NULL DEFAULT NULL AFTER updated_at');
+  await addColumnIfMissing('client_orders', 'subtotal_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER vendor_id');
+  await addColumnIfMissing('client_orders', 'discount_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER subtotal_amount');
+  await addColumnIfMissing('client_orders', 'coupon_id', 'INT UNSIGNED DEFAULT NULL AFTER discount_amount');
+  await addColumnIfMissing('client_orders', 'coupon_code', 'VARCHAR(80) DEFAULT NULL AFTER coupon_id');
+  await addColumnIfMissing('client_orders', 'discount_id', 'INT UNSIGNED DEFAULT NULL AFTER coupon_code');
+  await addColumnIfMissing('client_orders', 'discount_label', 'VARCHAR(150) DEFAULT NULL AFTER discount_id');
+  await addColumnIfMissing('client_orders', 'order_type', "VARCHAR(20) NOT NULL DEFAULT 'direct' AFTER discount_label");
+  await pool.query('UPDATE client_orders SET subtotal_amount = total_amount WHERE subtotal_amount = 0 AND total_amount > 0');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS discounts (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      name VARCHAR(150) NOT NULL,
+      description TEXT DEFAULT NULL,
+      value_type VARCHAR(20) NOT NULL DEFAULT 'fixed',
+      value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      min_order_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      start_at TIMESTAMP NULL DEFAULT NULL,
+      expires_at TIMESTAMP NULL DEFAULT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      apply_on VARCHAR(20) NOT NULL DEFAULT 'both',
+      usage_limit INT UNSIGNED DEFAULT NULL,
+      per_customer_limit INT UNSIGNED DEFAULT NULL,
+      image_path VARCHAR(255) DEFAULT NULL,
+      background_color VARCHAR(20) DEFAULT '#0f766e',
+      text_color VARCHAR(20) DEFAULT '#ffffff',
+      scroll_message VARCHAR(255) DEFAULT NULL,
+      city_scope VARCHAR(20) NOT NULL DEFAULT 'all',
+      cities JSON DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_discounts_active_scope (is_active, apply_on)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('discounts', 'image_path', 'VARCHAR(255) DEFAULT NULL AFTER per_customer_limit');
+  await addColumnIfMissing('discounts', 'background_color', "VARCHAR(20) DEFAULT '#0f766e' AFTER image_path");
+  await addColumnIfMissing('discounts', 'text_color', "VARCHAR(20) DEFAULT '#ffffff' AFTER background_color");
+  await addColumnIfMissing('discounts', 'scroll_message', 'VARCHAR(255) DEFAULT NULL AFTER text_color');
+  await addColumnIfMissing('discounts', 'city_scope', "VARCHAR(20) NOT NULL DEFAULT 'all' AFTER scroll_message");
+  await addColumnIfMissing('discounts', 'cities', 'JSON DEFAULT NULL AFTER city_scope');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coupons (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      name VARCHAR(150) NOT NULL,
+      code VARCHAR(80) NOT NULL UNIQUE,
+      description TEXT DEFAULT NULL,
+      value_type VARCHAR(20) NOT NULL DEFAULT 'fixed',
+      value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      min_order_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      start_at TIMESTAMP NULL DEFAULT NULL,
+      expires_at TIMESTAMP NULL DEFAULT NULL,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      apply_on VARCHAR(20) NOT NULL DEFAULT 'both',
+      usage_limit INT UNSIGNED DEFAULT NULL,
+      per_customer_limit INT UNSIGNED DEFAULT NULL,
+      auto_generate TINYINT(1) NOT NULL DEFAULT 0,
+      image_path VARCHAR(255) DEFAULT NULL,
+      background_color VARCHAR(20) DEFAULT '#1d4ed8',
+      text_color VARCHAR(20) DEFAULT '#ffffff',
+      scroll_message VARCHAR(255) DEFAULT NULL,
+      city_scope VARCHAR(20) NOT NULL DEFAULT 'all',
+      cities JSON DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_coupons_active_scope (is_active, apply_on)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('coupons', 'image_path', 'VARCHAR(255) DEFAULT NULL AFTER auto_generate');
+  await addColumnIfMissing('coupons', 'background_color', "VARCHAR(20) DEFAULT '#1d4ed8' AFTER image_path");
+  await addColumnIfMissing('coupons', 'text_color', "VARCHAR(20) DEFAULT '#ffffff' AFTER background_color");
+  await addColumnIfMissing('coupons', 'scroll_message', 'VARCHAR(255) DEFAULT NULL AFTER text_color');
+  await addColumnIfMissing('coupons', 'city_scope', "VARCHAR(20) NOT NULL DEFAULT 'all' AFTER scroll_message");
+  await addColumnIfMissing('coupons', 'cities', 'JSON DEFAULT NULL AFTER city_scope');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS coupon_history (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      coupon_id INT UNSIGNED DEFAULT NULL,
+      discount_id INT UNSIGNED DEFAULT NULL,
+      order_id INT UNSIGNED DEFAULT NULL,
+      user_id INT UNSIGNED NOT NULL,
+      order_type VARCHAR(20) NOT NULL,
+      code VARCHAR(80) DEFAULT NULL,
+      subtotal_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      discount_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      final_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_coupon_history_coupon (coupon_id),
+      KEY idx_coupon_history_discount (discount_id),
+      KEY idx_coupon_history_order (order_id),
+      KEY idx_coupon_history_user (user_id),
+      CONSTRAINT fk_coupon_history_coupon FOREIGN KEY (coupon_id) REFERENCES coupons(id) ON DELETE SET NULL,
+      CONSTRAINT fk_coupon_history_discount FOREIGN KEY (discount_id) REFERENCES discounts(id) ON DELETE SET NULL,
+      CONSTRAINT fk_coupon_history_order FOREIGN KEY (order_id) REFERENCES client_orders(id) ON DELETE SET NULL,
+      CONSTRAINT fk_coupon_history_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_tickets (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      requester_id INT UNSIGNED NOT NULL,
+      requester_role VARCHAR(20) NOT NULL,
+      subject VARCHAR(200) NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'Open',
+      closed_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_support_requester_status (requester_id, requester_role, status),
+      KEY idx_support_status (status),
+      CONSTRAINT fk_support_ticket_requester FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS support_ticket_messages (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      ticket_id INT UNSIGNED NOT NULL,
+      sender_id INT UNSIGNED DEFAULT NULL,
+      sender_role VARCHAR(50) NOT NULL,
+      sender_name VARCHAR(100) NOT NULL,
+      message TEXT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_support_messages_ticket (ticket_id, created_at),
+      CONSTRAINT fk_support_message_ticket FOREIGN KEY (ticket_id) REFERENCES support_tickets(id) ON DELETE CASCADE,
+      CONSTRAINT fk_support_message_sender FOREIGN KEY (sender_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
 
    // Add foreign key constraints if tables exist (safe optional)
    try {
@@ -1046,9 +1312,12 @@ async function initDatabase() {
       userId = result.insertId;
       console.log(`Seeded ${seedUser.role} account: ${seedUser.email} / ${seedUser.password}`);
     } else {
-      await pool.query('UPDATE users SET role = ?, phone = COALESCE(phone, ?) WHERE id = ?', [
+      const hashedPassword = await bcrypt.hash(seedUser.password, 10);
+      await pool.query('UPDATE users SET role = ?, phone = COALESCE(phone, ?), password = ?, status = ? WHERE id = ?', [
         seedUser.role,
         seedUser.phone || null,
+        hashedPassword,
+        'active',
         userId,
       ]);
     }
@@ -1114,6 +1383,12 @@ async function getUserWithRoles(email) {
 
   const permissions = [...new Set(normalizedRoles.flatMap((role) => role.permissions))];
   const primaryRole = normalizedRoles[0];
+  const userWithRoles = {
+    role: primaryRole.slug,
+    roleName: primaryRole.name,
+    roles: normalizedRoles,
+  };
+  const effectivePermissions = isSuperAdminUser(userWithRoles) ? allPermissionKeys() : permissions;
 
   return {
     id: user.id,
@@ -1124,12 +1399,16 @@ async function getUserWithRoles(email) {
     role: primaryRole.slug,
     roleName: primaryRole.name,
     roles: normalizedRoles,
-    permissions,
+    permissions: effectivePermissions,
   };
 }
 
 function navItem(label, href, permission, icon, active) {
   return { label, href, permission, icon, active };
+}
+
+function navGroup(label, href, permission, icon, active, children = []) {
+  return { label, href, permission, icon, active, children };
 }
 
 function buildShell(user, activePath = '/dashboard') {
@@ -1143,6 +1422,7 @@ function buildShell(user, activePath = '/dashboard') {
         navItem('Quotations', '/vendor/quotations', 'vendor.orders', 'orders', activePath.startsWith('/vendor/quotations')),
         navItem('Orders', '/orders/vendor', 'vendor.orders', 'orders', activePath.startsWith('/orders/vendor')),
         navItem('Wallet', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
+        navItem('Vendor Support', '/support/vendor', null, 'support', activePath.startsWith('/support/vendor')),
         navItem('Profile', '/profiles/' + user.id, 'vendor.profile', 'users', activePath.startsWith('/profiles')),
       ],
     };
@@ -1158,6 +1438,7 @@ function buildShell(user, activePath = '/dashboard') {
         navItem('Quotations', '/client/quotations', 'client.orders', 'orders', activePath.startsWith('/client/quotations')),
         navItem('Orders', '/orders/client', 'client.orders', 'orders', activePath.startsWith('/orders/client')),
         navItem('Wallet', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
+        navItem('Client Support', '/support/client', null, 'support', activePath.startsWith('/support/client')),
         navItem('Profile', '/profiles/' + user.id, 'client.profile', 'users', activePath.startsWith('/profiles')),
       ],
     };
@@ -1173,9 +1454,22 @@ function buildShell(user, activePath = '/dashboard') {
     navItem('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products')),
     navItem('Wallets', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
     navItem('Orders', '/orders/admin/dashboard', 'orders.manage', 'orders', activePath.startsWith('/orders/admin')),
+    navGroup('Support', '/support', 'support.manage', 'support', activePath.startsWith('/support'), [
+      navItem('Client Support', '/support/clients', 'support.manage', 'support', activePath.startsWith('/support/clients')),
+      navItem('Vendor Support', '/support/vendors', 'support.manage', 'support', activePath.startsWith('/support/vendors')),
+    ]),
+    navGroup('Discounts', '/discounts', null, 'discounts', activePath.startsWith('/discounts') || activePath.startsWith('/coupons'), [
+      navItem('Discounts', '/discounts', 'discounts.view', 'discounts', activePath.startsWith('/discounts')),
+      navItem('Coupons', '/coupons', 'coupons.view', 'coupons', activePath === '/coupons'),
+      navItem('Coupon History', '/coupons/history', 'coupon_history.view', 'reports', activePath.startsWith('/coupons/history')),
+    ]),
     navItem('Reports', '#', 'reports.view', 'reports', false),
     navItem('Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings')),
-  ].filter((item) => can(item.permission));
+  ]
+    .map((item) => item.children
+      ? { ...item, children: item.children.filter((child) => !child.permission || can(child.permission)) }
+      : item)
+    .filter((item) => (item.children && item.children.length) || !item.permission || can(item.permission));
 
   return {
     roleTitle: user.roleName || user.role,
@@ -1355,6 +1649,25 @@ async function buildDashboardData(user, activePath = '/dashboard') {
     }
   }
 
+  if (['Client', 'Vendor'].includes(user.role)) {
+    const requesterRole = SupportTicket.roleScope(user.role);
+    const tickets = requesterRole ? await SupportTicket.list({ requesterId: user.id, requesterRole }) : [];
+    const openTicket = tickets.find((ticket) => ticket.status === 'Open');
+    dashboard.supportTickets = tickets.slice(0, 3);
+    dashboard.supportSummary = {
+      openTicket,
+      total: tickets.length,
+      href: user.role === 'Client' ? '/support/client' : '/support/vendor',
+    };
+    if (openTicket) {
+      dashboard.notifications.push({
+        message: `Support ticket #${openTicket.id} is open.`,
+        href: dashboard.supportSummary.href,
+        count: openTicket.message_count,
+      });
+    }
+  }
+
   return dashboard;
 }
 
@@ -1492,6 +1805,9 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
       });
     }
 
+    const fallbackPermissions = expectedRole === 'Client'
+      ? ['dashboard.view', 'wallets.view', 'coupons.apply']
+      : ['dashboard.view', 'wallets.view'];
     const user = {
       id: rawUser.id,
       name: rawUser.name,
@@ -1499,8 +1815,8 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
       themeMode: rawUser.theme_mode || 'light',
       role: rawUser.role,
       roleName: rawUser.role,
-      roles: [{ id: null, name: rawUser.role, slug: rawUser.role, level: 99, permissions: ['dashboard.view', 'wallets.view'] }],
-      permissions: ['dashboard.view', 'wallets.view'],
+      roles: [{ id: null, name: rawUser.role, slug: rawUser.role, level: 99, permissions: fallbackPermissions }],
+      permissions: fallbackPermissions,
     };
     req.session.user = user;
     return res.redirect(dashboardPath);
@@ -1645,20 +1961,107 @@ app.get('/client/quotations', requireSessionRole('Client', '/login/client'), asy
   }
 });
 
+app.get('/api/client/quotations', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  try {
+    const quotations = await Quotation.listForClient(req.authUser.id);
+    return res.json({ success: true, quotations });
+  } catch (error) {
+    console.error('Client quotations API error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load quotations' });
+  }
+});
+
+app.get('/api/vendor/quotations', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
+  try {
+    const vendorId = req.authUser.id;
+    const quotations = await Quotation.listForVendor(vendorId);
+    if (req.query.peek !== '1') {
+      await Quotation.markSeenForVendor(vendorId);
+    }
+    return res.json({ success: true, quotations });
+  } catch (error) {
+    console.error('Vendor quotations API error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load quotations' });
+  }
+});
+
+app.post('/api/vendor/quotations/:recipientId/submit', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
+  try {
+    const response = await Quotation.submitVendorResponse({
+      recipientId: Number(req.params.recipientId),
+      vendorId: req.authUser.id,
+      items: req.body.items || [],
+      discountPercent: req.body.discount_percent,
+    });
+    return res.json({ success: true, message: 'Quotation submitted to client', response });
+  } catch (error) {
+    console.error('Vendor quotation API submit error:', error);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to submit quotation',
+    });
+  }
+});
+
+app.post('/api/vendor/quotations/:recipientId/reject', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
+  try {
+    const result = await Quotation.rejectVendorRequest({
+      recipientId: Number(req.params.recipientId),
+      vendorId: req.authUser.id,
+    });
+    return res.json({ success: true, message: 'Quotation rejected', result });
+  } catch (error) {
+    console.error('Vendor quotation API reject error:', error);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to reject quotation',
+    });
+  }
+});
+
 app.post('/client/quotations/:recipientId/:decision', requireSessionRole('Client', '/login/client'), async (req, res) => {
   try {
     const decision = req.params.decision === 'accept' ? 'accepted' : req.params.decision === 'reject' ? 'rejected' : null;
     if (!decision) {
       return res.status(422).json({ success: false, message: 'Decision must be accept or reject' });
     }
+    if (String(req.body.coupon_code || '').trim() && !roleCan(req.session.user, 'coupons.apply')) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to apply coupons' });
+    }
     const result = await Quotation.decideClientResponse({
       recipientId: Number(req.params.recipientId),
       clientId: req.session.user.id,
       decision,
+      couponCode: req.body.coupon_code,
     });
     return res.json({ success: true, message: decision === 'accepted' ? 'Quotation accepted and order created' : 'Quotation rejected', result });
   } catch (error) {
     console.error('Client quotation decision error:', error);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to update quotation',
+    });
+  }
+});
+
+app.post('/api/client/quotations/:recipientId/:decision', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  try {
+    const decision = req.params.decision === 'accept' ? 'accepted' : req.params.decision === 'reject' ? 'rejected' : null;
+    if (!decision) {
+      return res.status(422).json({ success: false, message: 'Decision must be accept or reject' });
+    }
+    if (String(req.body.coupon_code || '').trim() && !roleCan(req.authUser, 'coupons.apply')) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to apply coupons' });
+    }
+    const result = await Quotation.decideClientResponse({
+      recipientId: Number(req.params.recipientId),
+      clientId: req.authUser.id,
+      decision,
+      couponCode: req.body.coupon_code,
+    });
+    return res.json({ success: true, message: decision === 'accepted' ? 'Quotation accepted and order created' : 'Quotation rejected', result });
+  } catch (error) {
+    console.error('Client quotation API decision error:', error);
     return res.status(error.status || 500).json({
       success: false,
       message: error.status ? error.message : 'Unable to update quotation',
@@ -1775,7 +2178,7 @@ app.use('/api/orders/admin', webOrJwtAuth, orderRoutes.adminRouter);
 app.use('/api/orders/vendor', webOrJwtAuth, orderRoutes.vendorRouter);
 app.use('/api/orders/client', webOrJwtAuth, orderRoutes.clientRouter);
 
-app.post('/client/quotations', webOrJwtAuth, requireSessionRole('Client', '/login/client'), async (req, res) => {
+app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
     const { items } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -1806,7 +2209,176 @@ app.post('/client/quotations', webOrJwtAuth, requireSessionRole('Client', '/logi
   }
 });
 
-app.post('/client/orders', webOrJwtAuth, requireSessionRole('Client', '/login/client'), async (req, res) => {
+function normalizeDeliveryAddress(row) {
+  return {
+    id: row.id,
+    label: row.label || 'Home',
+    recipient_name: row.recipient_name || '',
+    phone: row.phone || '',
+    address: row.address || '',
+    city: row.city || '',
+    state: row.state || '',
+    country: row.country || '',
+    pincode: row.pincode || '',
+    is_default: Boolean(row.is_default),
+    created_at: row.created_at,
+    updated_at: row.updated_at,
+  };
+}
+
+function deliveryAddressPayload(body) {
+  return {
+    label: String(body.label || 'Home').trim().slice(0, 80) || 'Home',
+    recipient_name: String(body.recipient_name || body.recipientName || '').trim().slice(0, 120) || null,
+    phone: String(body.phone || '').trim().slice(0, 30) || null,
+    address: String(body.address || '').trim(),
+    city: String(body.city || '').trim().slice(0, 80) || null,
+    state: String(body.state || '').trim().slice(0, 80) || null,
+    country: String(body.country || 'India').trim().slice(0, 80) || 'India',
+    pincode: String(body.pincode || body.pinCode || '').trim().slice(0, 20) || null,
+    is_default: Boolean(body.is_default || body.isDefault),
+  };
+}
+
+app.get('/api/client/delivery-addresses', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  const [rows] = await pool.query(
+    'SELECT * FROM client_delivery_addresses WHERE user_id = ? ORDER BY is_default DESC, created_at DESC, id DESC',
+    [req.authUser.id]
+  );
+  res.json({ success: true, addresses: rows.map(normalizeDeliveryAddress), max: 5 });
+});
+
+app.post('/api/client/delivery-addresses', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  const data = deliveryAddressPayload(req.body);
+  if (!data.address) {
+    return res.status(422).json({ success: false, message: 'Delivery address is required' });
+  }
+
+  const clientId = req.authUser.id;
+  const [[countRow]] = await pool.query('SELECT COUNT(*) AS total FROM client_delivery_addresses WHERE user_id = ?', [clientId]);
+  const total = Number(countRow.total || 0);
+  if (total >= 5) {
+    return res.status(422).json({ success: false, message: 'You can save up to 5 delivery addresses' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const shouldDefault = data.is_default || total === 0;
+    if (shouldDefault) {
+      await connection.query('UPDATE client_delivery_addresses SET is_default = 0 WHERE user_id = ?', [clientId]);
+    }
+    const [result] = await connection.query(
+      `INSERT INTO client_delivery_addresses
+       (user_id, label, recipient_name, phone, address, city, state, country, pincode, is_default)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        clientId,
+        data.label,
+        data.recipient_name,
+        data.phone,
+        data.address,
+        data.city,
+        data.state,
+        data.country,
+        data.pincode,
+        shouldDefault ? 1 : 0,
+      ]
+    );
+    const [rows] = await connection.query('SELECT * FROM client_delivery_addresses WHERE id = ? AND user_id = ?', [result.insertId, clientId]);
+    await connection.commit();
+    return res.status(201).json({ success: true, address: normalizeDeliveryAddress(rows[0]) });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
+
+app.put('/api/client/delivery-addresses/:id', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  const data = deliveryAddressPayload(req.body);
+  if (!data.address) {
+    return res.status(422).json({ success: false, message: 'Delivery address is required' });
+  }
+
+  const clientId = req.authUser.id;
+  const addressId = Number(req.params.id);
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [existing] = await connection.query('SELECT id FROM client_delivery_addresses WHERE id = ? AND user_id = ?', [addressId, clientId]);
+    if (!existing.length) {
+      await connection.rollback();
+      return res.status(404).json({ success: false, message: 'Delivery address not found' });
+    }
+    if (data.is_default) {
+      await connection.query('UPDATE client_delivery_addresses SET is_default = 0 WHERE user_id = ?', [clientId]);
+    }
+    await connection.query(
+      `UPDATE client_delivery_addresses
+       SET label = ?, recipient_name = ?, phone = ?, address = ?, city = ?, state = ?, country = ?, pincode = ?,
+           is_default = CASE WHEN ? = 1 THEN 1 ELSE is_default END,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ? AND user_id = ?`,
+      [
+        data.label,
+        data.recipient_name,
+        data.phone,
+        data.address,
+        data.city,
+        data.state,
+        data.country,
+        data.pincode,
+        data.is_default ? 1 : 0,
+        addressId,
+        clientId,
+      ]
+    );
+    const [rows] = await connection.query('SELECT * FROM client_delivery_addresses WHERE id = ? AND user_id = ?', [addressId, clientId]);
+    await connection.commit();
+    return res.json({ success: true, address: normalizeDeliveryAddress(rows[0]) });
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+});
+
+app.delete('/api/client/delivery-addresses/:id', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  const clientId = req.authUser.id;
+  const addressId = Number(req.params.id);
+  const [[address]] = await pool.query('SELECT id, is_default FROM client_delivery_addresses WHERE id = ? AND user_id = ?', [addressId, clientId]);
+  if (!address) {
+    return res.status(404).json({ success: false, message: 'Delivery address not found' });
+  }
+  await pool.query('DELETE FROM client_delivery_addresses WHERE id = ? AND user_id = ?', [addressId, clientId]);
+  if (address.is_default) {
+    const [[nextAddress]] = await pool.query(
+      'SELECT id FROM client_delivery_addresses WHERE user_id = ? ORDER BY created_at DESC, id DESC LIMIT 1',
+      [clientId]
+    );
+    if (nextAddress) {
+      await pool.query('UPDATE client_delivery_addresses SET is_default = 1 WHERE id = ? AND user_id = ?', [nextAddress.id, clientId]);
+    }
+  }
+  res.json({ success: true, message: 'Delivery address deleted' });
+});
+
+app.post('/api/client/delivery-addresses/:id/default', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  const clientId = req.authUser.id;
+  const addressId = Number(req.params.id);
+  const [[address]] = await pool.query('SELECT id FROM client_delivery_addresses WHERE id = ? AND user_id = ?', [addressId, clientId]);
+  if (!address) {
+    return res.status(404).json({ success: false, message: 'Delivery address not found' });
+  }
+  await pool.query('UPDATE client_delivery_addresses SET is_default = 0 WHERE user_id = ?', [clientId]);
+  await pool.query('UPDATE client_delivery_addresses SET is_default = 1 WHERE id = ? AND user_id = ?', [addressId, clientId]);
+  res.json({ success: true, message: 'Default delivery address updated' });
+});
+
+app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
     const { items } = req.body;
     if (!items || !Array.isArray(items) || items.length === 0) {
@@ -1814,8 +2386,19 @@ app.post('/client/orders', webOrJwtAuth, requireSessionRole('Client', '/login/cl
     }
 
     const clientId = req.authUser.id;
+    if (String(req.body.coupon_code || '').trim() && !roleCan(req.authUser, 'coupons.apply')) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to apply coupons' });
+    }
 
-    const totalAmount = items.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
+    const subtotalAmount = items.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
+    const promotion = await Promotion.resolveOrderPromotion({
+      couponCode: req.body.coupon_code,
+      orderType: 'direct',
+      subtotal: subtotalAmount,
+      userId: clientId,
+    });
+    const discountAmount = Number(promotion.discountAmount || 0);
+    const totalAmount = Math.max(subtotalAmount - discountAmount, 0);
     const clientWallet = await Wallet.findByUserId(clientId);
 
     if (clientWallet.balance < totalAmount) {
@@ -1832,7 +2415,34 @@ app.post('/client/orders', webOrJwtAuth, requireSessionRole('Client', '/login/cl
         [clientId]
       );
       const client = clientRows[0][0] || {};
-      const clientAddress = [client.address, client.city, client.state, client.country].filter(Boolean).join(', ');
+      const requestedAddressId = Number(req.body.delivery_address_id || req.body.deliveryAddressId || 0);
+      const [addressRows] = requestedAddressId
+        ? await connection.query(
+            'SELECT * FROM client_delivery_addresses WHERE id = ? AND user_id = ? LIMIT 1',
+            [requestedAddressId, clientId]
+          )
+        : await connection.query(
+            'SELECT * FROM client_delivery_addresses WHERE user_id = ? ORDER BY is_default DESC, created_at DESC, id DESC',
+            [clientId]
+          );
+
+      if (!addressRows.length) {
+        throw new Error(requestedAddressId ? 'Selected delivery address was not found' : 'Please add a delivery address before placing an order');
+      }
+      if (!requestedAddressId && addressRows.length > 1) {
+        throw new Error('Please select a delivery address before placing an order');
+      }
+
+      const selectedAddress = addressRows[0];
+      const clientAddress = [
+        selectedAddress.address,
+        selectedAddress.city,
+        selectedAddress.state,
+        selectedAddress.country,
+        selectedAddress.pincode,
+      ].filter(Boolean).join(', ');
+      const clientName = selectedAddress.recipient_name || client.name || null;
+      const clientPhone = selectedAddress.phone || client.phone || null;
 
       const vendorOrders = new Map();
 
@@ -1872,24 +2482,43 @@ app.post('/client/orders', webOrJwtAuth, requireSessionRole('Client', '/login/cl
       const orderIds = [];
 
       for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
+        const vendorSubtotal = vendorOrder.total;
+        const vendorDiscount = subtotalAmount > 0 ? Number(((vendorSubtotal / subtotalAmount) * discountAmount).toFixed(2)) : 0;
+        const vendorTotal = Math.max(vendorSubtotal - vendorDiscount, 0);
         const [orderResult] = await connection.query(
           `INSERT INTO client_orders
-           (user_id, vendor_id, total_amount, status, delivery_status, client_name, client_phone, client_address, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           (user_id, vendor_id, subtotal_amount, discount_amount, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
             vendorId,
-            vendorOrder.total,
+            vendorSubtotal,
+            vendorDiscount,
+            promotion.coupon ? promotion.coupon.id : null,
+            promotion.code || null,
+            promotion.discount ? promotion.discount.id : null,
+            promotion.discount ? promotion.discount.name : null,
+            'direct',
+            vendorTotal,
             'pending',
             'pending',
-            client.name || null,
-            client.phone || null,
+            clientName,
+            clientPhone,
             clientAddress || null,
           ]
         );
 
         const orderId = orderResult.insertId;
         orderIds.push(orderId);
+        await Promotion.recordUsage({
+          orderId,
+          userId: clientId,
+          orderType: 'direct',
+          subtotal: vendorSubtotal,
+          discountAmount: vendorDiscount,
+          coupon: promotion.coupon,
+          discount: promotion.discount,
+        }, connection);
         await connection.query(
           `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
            VALUES (?, ?, ?, ?, ?, ?)`,
@@ -1968,9 +2597,288 @@ app.get('/roles', requireAuth, requirePermission('roles.manage'), async (req, re
   }
 });
 
+function normalizeCityName(value) {
+  return String(value || '').trim();
+}
+
+function cityKey(value) {
+  return normalizeCityName(value).toLowerCase();
+}
+
+async function promotionCityOptions() {
+  const [cityRows] = await pool.query(
+    `SELECT DISTINCT city FROM delivery_partner_settings WHERE city IS NOT NULL AND TRIM(city) <> ''
+     UNION
+     SELECT DISTINCT city FROM client_profiles WHERE city IS NOT NULL AND TRIM(city) <> ''
+     UNION
+     SELECT DISTINCT city FROM vendor_profiles WHERE city IS NOT NULL AND TRIM(city) <> ''
+     ORDER BY city`
+  );
+  return cityRows.map((row) => normalizeCityName(row.city)).filter(Boolean);
+}
+
+async function promotionPayload(body) {
+  const allowedCities = await promotionCityOptions();
+  const allowedCityMap = new Map(allowedCities.map((city) => [cityKey(city), city]));
+  const cities = []
+    .concat(body.cities || [])
+    .flatMap((value) => String(value || '').split(','))
+    .map(normalizeCityName)
+    .filter(Boolean);
+  const invalidCities = cities.filter((city) => !allowedCityMap.has(cityKey(city)));
+  if (invalidCities.length) {
+    const error = new Error(`Unknown offer city: ${invalidCities.join(', ')}`);
+    error.status = 422;
+    throw error;
+  }
+  const selectedCities = [...new Set(cities.map((city) => allowedCityMap.get(cityKey(city))))];
+
+  return {
+    name: String(body.name || '').trim(),
+    code: String(body.code || '').trim(),
+    description: String(body.description || '').trim(),
+    value_type: String(body.value_type || 'fixed').toLowerCase(),
+    value: Number(body.value || 0),
+    min_order_amount: Number(body.min_order_amount || 0),
+    start_at: body.start_at || null,
+    expires_at: body.expires_at || null,
+    is_active: body.is_active === true || body.is_active === 'true' || body.is_active === '1' || body.is_active === 'on',
+    apply_on: String(body.apply_on || 'both').toLowerCase(),
+    usage_limit: body.usage_limit ? Number(body.usage_limit) : null,
+    per_customer_limit: body.per_customer_limit ? Number(body.per_customer_limit) : null,
+    auto_generate: body.auto_generate === true || body.auto_generate === 'true' || body.auto_generate === '1' || body.auto_generate === 'on',
+    background_color: String(body.background_color || '').trim() || undefined,
+    text_color: String(body.text_color || '').trim() || undefined,
+    scroll_message: String(body.scroll_message || '').trim(),
+    city_scope: String(body.city_scope || 'all').toLowerCase() === 'specific' && selectedCities.length ? 'specific' : 'all',
+    cities: selectedCities,
+  };
+}
+
+app.get('/discounts', requireAuth, requirePermission('discounts.view'), async (req, res) => {
+  res.render('promotions', {
+    user: req.session.user,
+    mode: 'discounts',
+    title: 'Discounts',
+    canCreate: roleCan(req.session.user, 'discounts.create'),
+    canEdit: roleCan(req.session.user, 'discounts.edit'),
+    canDelete: roleCan(req.session.user, 'discounts.delete'),
+    cityOptions: await promotionCityOptions(),
+  });
+});
+
+app.get('/coupons', requireAuth, requirePermission('coupons.view'), async (req, res) => {
+  res.render('promotions', {
+    user: req.session.user,
+    mode: 'coupons',
+    title: 'Coupons',
+    canCreate: roleCan(req.session.user, 'coupons.create'),
+    canEdit: roleCan(req.session.user, 'coupons.edit'),
+    canDelete: roleCan(req.session.user, 'coupons.delete'),
+    cityOptions: await promotionCityOptions(),
+  });
+});
+
+app.get('/coupons/history', requireAuth, requirePermission('coupon_history.view'), (req, res) => {
+  res.render('coupon-history', { user: req.session.user });
+});
+
+function canManageSupport(user) {
+  return roleCan(user, 'support.manage');
+}
+
+function supportScopeForPath(pathname) {
+  if (pathname.includes('/clients')) return 'Client';
+  if (pathname.includes('/vendors')) return 'Vendor';
+  return '';
+}
+
+app.get('/support', requireAuth, requirePermission('support.manage'), (req, res) => {
+  res.render('support', {
+    user: req.session.user,
+    mode: 'staff',
+    title: 'Support',
+    roleType: '',
+  });
+});
+
+app.get('/support/clients', requireAuth, requirePermission('support.manage'), (req, res) => {
+  res.render('support', {
+    user: req.session.user,
+    mode: 'staff',
+    title: 'Client Support',
+    roleType: 'Client',
+  });
+});
+
+app.get('/support/vendors', requireAuth, requirePermission('support.manage'), (req, res) => {
+  res.render('support', {
+    user: req.session.user,
+    mode: 'staff',
+    title: 'Vendor Support',
+    roleType: 'Vendor',
+  });
+});
+
+app.get('/support/client', requireSessionRole('Client', '/login/client'), (req, res) => {
+  res.render('support', {
+    user: req.session.user,
+    shell: buildShell(req.session.user, req.path),
+    mode: 'self',
+    title: 'Client Support',
+    roleType: 'Client',
+  });
+});
+
+app.get('/support/vendor', requireSessionRole('Vendor', '/login/vendor'), (req, res) => {
+  res.render('support', {
+    user: req.session.user,
+    shell: buildShell(req.session.user, req.path),
+    mode: 'self',
+    title: 'Vendor Support',
+    roleType: 'Vendor',
+  });
+});
+
+app.get('/api/support/tickets', webOrJwtAuth, async (req, res) => {
+  try {
+    const currentUser = req.authUser;
+    if (canManageSupport(currentUser)) {
+      const tickets = await SupportTicket.list({
+        roleType: req.query.role_type || supportScopeForPath(req.get('referer') || ''),
+        status: req.query.status,
+      });
+      return res.json({ success: true, tickets, mode: 'staff' });
+    }
+
+    const requesterRole = SupportTicket.roleScope(currentUser.role);
+    if (!requesterRole) {
+      return res.status(403).json({ success: false, message: 'Support access denied' });
+    }
+    const tickets = await SupportTicket.list({ requesterId: currentUser.id, requesterRole });
+    return res.json({ success: true, tickets, mode: 'self' });
+  } catch (error) {
+    console.error('Support list error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load support tickets' });
+  }
+});
+
+app.post('/api/support/tickets', webOrJwtAuth, async (req, res) => {
+  try {
+    const id = await SupportTicket.create({
+      user: req.authUser,
+      subject: req.body.subject,
+      message: req.body.message,
+    });
+    res.status(201).json({ success: true, id, message: 'Support ticket created' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to create support ticket' });
+  }
+});
+
+app.get('/api/support/tickets/:id', webOrJwtAuth, async (req, res) => {
+  const ticket = await SupportTicket.findById(req.params.id);
+  if (!ticket) {
+    return res.status(404).json({ success: false, message: 'Ticket not found' });
+  }
+  if (!canManageSupport(req.authUser) && Number(ticket.requester_id) !== Number(req.authUser.id)) {
+    return res.status(403).json({ success: false, message: 'Support ticket access denied' });
+  }
+  const messages = await SupportTicket.messages(req.params.id);
+  return res.json({ success: true, ticket, messages, canManage: canManageSupport(req.authUser) });
+});
+
+app.post('/api/support/tickets/:id/replies', webOrJwtAuth, async (req, res) => {
+  const ticket = await SupportTicket.findById(req.params.id);
+  if (!ticket) {
+    return res.status(404).json({ success: false, message: 'Ticket not found' });
+  }
+  if (!canManageSupport(req.authUser) && Number(ticket.requester_id) !== Number(req.authUser.id)) {
+    return res.status(403).json({ success: false, message: 'Support ticket access denied' });
+  }
+  try {
+    await SupportTicket.addMessage({ ticketId: req.params.id, user: req.authUser, message: req.body.message });
+    return res.json({ success: true, message: 'Reply saved' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save reply' });
+  }
+});
+
+app.put('/api/support/tickets/:id/status', webOrJwtAuth, requirePermission('support.manage'), async (req, res) => {
+  try {
+    await SupportTicket.updateStatus(req.params.id, req.body.status);
+    res.json({ success: true, message: 'Ticket status updated' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update ticket status' });
+  }
+});
+
+app.get('/api/discounts', webOrJwtAuth, requirePermission('discounts.view'), async (req, res) => {
+  res.json({ success: true, discounts: await Promotion.listDiscounts() });
+});
+
+app.get('/api/promotions/active-display', webOrJwtAuth, async (req, res) => {
+  res.json({ success: true, promotions: await Promotion.activeDisplayPromotions(req.authUser && req.authUser.id) });
+});
+
+app.post('/api/discounts', webOrJwtAuth, requirePermission('discounts.create'), uploadPromotionImage.single('image'), handlePromotionImageUploadError, async (req, res) => {
+  try {
+    const id = await Promotion.createDiscount({ ...(await promotionPayload(req.body)), image_path: promotionImagePath(req.file) });
+    res.status(201).json({ success: true, id, message: 'Discount created' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to create discount' });
+  }
+});
+
+app.put('/api/discounts/:id', webOrJwtAuth, requirePermission('discounts.edit'), uploadPromotionImage.single('image'), handlePromotionImageUploadError, async (req, res) => {
+  try {
+    await Promotion.updateDiscount(req.params.id, { ...(await promotionPayload(req.body)), image_path: promotionImagePath(req.file) });
+    res.json({ success: true, message: 'Discount updated' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update discount' });
+  }
+});
+
+app.delete('/api/discounts/:id', webOrJwtAuth, requirePermission('discounts.delete'), async (req, res) => {
+  await Promotion.deleteDiscount(req.params.id);
+  res.json({ success: true, message: 'Discount deleted' });
+});
+
+app.get('/api/coupons', webOrJwtAuth, requirePermission('coupons.view'), async (req, res) => {
+  res.json({ success: true, coupons: await Promotion.listCoupons() });
+});
+
+app.post('/api/coupons', webOrJwtAuth, requirePermission('coupons.create'), uploadPromotionImage.single('image'), handlePromotionImageUploadError, async (req, res) => {
+  try {
+    const id = await Promotion.createCoupon({ ...(await promotionPayload(req.body)), image_path: promotionImagePath(req.file) });
+    res.status(201).json({ success: true, id, message: 'Coupon created' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to create coupon' });
+  }
+});
+
+app.put('/api/coupons/:id', webOrJwtAuth, requirePermission('coupons.edit'), uploadPromotionImage.single('image'), handlePromotionImageUploadError, async (req, res) => {
+  try {
+    await Promotion.updateCoupon(req.params.id, { ...(await promotionPayload(req.body)), image_path: promotionImagePath(req.file) });
+    res.json({ success: true, message: 'Coupon updated' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update coupon' });
+  }
+});
+
+app.delete('/api/coupons/:id', webOrJwtAuth, requirePermission('coupons.delete'), async (req, res) => {
+  await Promotion.deleteCoupon(req.params.id);
+  res.json({ success: true, message: 'Coupon deleted' });
+});
+
+app.get('/api/coupons/history', webOrJwtAuth, requirePermission('coupon_history.view'), async (req, res) => {
+  res.json({ success: true, history: await Promotion.listHistory() });
+});
+
 app.get('/settings', requireAuth, requirePermission('settings.manage'), (req, res) => {
   res.render('settings', {
     user: req.session.user,
+    permissionLabels,
     settings: {
       general: {
         appName: 'Grocery App',
@@ -2005,6 +2913,58 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), (req, re
       },
     },
   });
+});
+
+app.get('/settings/roles', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const [roles] = await pool.query(`
+      SELECT r.id, r.name, r.slug, r.description, r.level, r.permissions,
+             p.name AS parent_name,
+             (SELECT COUNT(*) FROM user_roles ur WHERE ur.role_id = r.id) AS user_count
+      FROM roles r
+      LEFT JOIN roles p ON r.parent_id = p.id
+      ORDER BY r.level ASC, r.name ASC
+    `);
+
+    res.json({
+      success: true,
+      roles: roles.map((role) => ({ ...role, permissions: parsePermissions(role.permissions) })),
+      permissionLabels,
+    });
+  } catch (error) {
+    console.error('Role settings load error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load role settings' });
+  }
+});
+
+app.put('/settings/roles/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  let permissions = normalizePermissionList(req.body.permissions);
+
+  try {
+    const [roles] = await pool.query('SELECT id, slug FROM roles WHERE id = ?', [req.params.id]);
+    if (!roles.length) {
+      return res.status(404).json({ success: false, message: 'Role not found' });
+    }
+
+    if (roles[0].slug === 'superadmin') {
+      permissions = allPermissionKeys();
+    }
+
+    await pool.query('UPDATE roles SET permissions = ? WHERE id = ?', [JSON.stringify(permissions), req.params.id]);
+
+    if ((req.session.user.roles || []).some((role) => String(role.id) === String(req.params.id))) {
+      const refreshedUser = await getUserWithRoles(req.session.user.email);
+      if (refreshedUser) {
+        delete refreshedUser.password;
+        req.session.user = refreshedUser;
+      }
+    }
+
+    res.json({ success: true, message: 'Role permissions saved', permissions });
+  } catch (error) {
+    console.error('Role settings save error:', error);
+    res.status(500).json({ success: false, message: 'Unable to save role permissions' });
+  }
 });
 
 app.get('/settings/delivery-partners', requireAuth, requirePermission('settings.manage'), async (req, res) => {
@@ -2344,7 +3304,8 @@ app.get('/roles/edit/:id', requireAuth, requirePermission('roles.manage'), async
 
 app.post('/roles/update/:id', requireAuth, requirePermission('roles.manage'), async (req, res) => {
   const { name, slug, description, parent_id, level } = req.body;
-  const permissions = JSON.stringify([].concat(req.body.permissions || []));
+  const requestedPermissions = [].concat(req.body.permissions || []);
+  const permissions = JSON.stringify(slug === 'superadmin' ? allPermissionKeys() : requestedPermissions);
 
   try {
     if (!/^[a-z0-9_-]+$/.test(slug)) {
@@ -2464,11 +3425,21 @@ app.use((req, res) => {
 
 initDatabase()
   .then(() => {
-    app.listen(port, () => {
+    const server = app.listen(port, () => {
       console.log(`Server is running at http://localhost:${port}`);
+    });
+
+    server.on('error', (error) => {
+      if (error.code === 'EADDRINUSE') {
+        console.error(`Port ${port} is already in use. Stop the existing server or start this app with a different PORT.`);
+        process.exit(1);
+      }
+
+      console.error('Server failed to start:', error);
+      process.exit(1);
     });
   })
   .catch((error) => {
-    console.error('Failed to initialize database:', error);
+    console.error(`Failed to initialize database: ${error.message}`);
     process.exit(1);
   });

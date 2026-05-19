@@ -286,6 +286,10 @@
               <input type="checkbox" id="perm_inventory" name="permissions" value="inventory.manage" <%= selectedPermissions.includes('inventory.manage') ? 'checked' : '' %> />
               <label for="perm_inventory">Manage Inventory</label>
             </div>
+            <div class="checkbox-item">
+              <input type="checkbox" id="perm_support" name="permissions" value="support.manage" <%= selectedPermissions.includes('support.manage') ? 'checked' : '' %> />
+              <label for="perm_support">Manage Support Tickets</label>
+            </div>
           </div>
         </div>
 

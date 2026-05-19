@@ -23,6 +23,10 @@
       </div>
     </header>
 
+    <section class="promo-scroll-shell" id="promoScrollShell" hidden>
+      <div class="promo-scroll-track" id="promoScrollTrack"></div>
+    </section>
+
     <section class="cart-section" id="cart-section" style="display: none;">
       <div class="cart-panel">
         <div class="cart-header">
@@ -33,6 +37,10 @@
           <p class="cart-empty">Your cart is empty</p>
         </div>
         <div class="cart-summary" id="cart-summary" style="display: none;">
+          <label class="cart-coupon-field">
+            Coupon Code
+            <input id="cart-coupon-code" type="text" placeholder="Optional coupon" />
+          </label>
           <div class="cart-total">
             <span>Total:</span>
             <strong id="cart-total-amount">₹0.00</strong>
@@ -286,6 +294,32 @@
       suggestionsPanel.hidden = false;
     }
 
+    async function loadPromotionScroll() {
+      try {
+        const response = await fetch('/api/promotions/active-display', { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        const promotions = data.success ? data.promotions || [] : [];
+        const shell = document.getElementById('promoScrollShell');
+        const track = document.getElementById('promoScrollTrack');
+        if (!promotions.length) {
+          shell.hidden = true;
+          return;
+        }
+
+        const items = promotions.map((promo) => `
+          <span class="promo-scroll-item" style="background:${escapeHtml(promo.background_color || '#0f766e')};color:${escapeHtml(promo.text_color || '#ffffff')}">
+            ${promo.image_path ? `<img src="${escapeHtml(promo.image_path)}" alt="">` : ''}
+            <strong>${escapeHtml(promo.scroll_message)}</strong>
+            ${promo.code ? `<em>Code: ${escapeHtml(promo.code)}</em>` : ''}
+          </span>
+        `).join('');
+        track.innerHTML = items + items;
+        shell.hidden = false;
+      } catch (error) {
+        document.getElementById('promoScrollShell').hidden = true;
+      }
+    }
+
     function escapeAttr(value) {
       return String(value || '').replace(/\\/g, '\\\\').replace(/'/g, "\\'").replace(/\r?\n/g, ' ');
     }
@@ -413,7 +447,7 @@
       fetch('/client/orders', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: cart })
+        body: JSON.stringify({ items: cart, coupon_code: document.getElementById('cart-coupon-code').value.trim() })
       })
       .then(response => response.json())
       .then(data => {
@@ -435,7 +469,7 @@
       fetch('/client/quotations', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ items: cart })
+        body: JSON.stringify({ items: cart, coupon_code: document.getElementById('cart-coupon-code').value.trim() })
       })
       .then(response => response.json())
       .then(data => {
@@ -466,6 +500,7 @@
 
     updateCartCount();
     renderCart();
+    loadPromotionScroll();
     updateSubcategoryFilter();
     updateBrandFilter();
     categoryFilter.addEventListener('change', () => {
@@ -494,6 +529,54 @@
   <style>
     .products-section {
       padding: 0;
+    }
+
+    .promo-scroll-shell {
+      overflow: hidden;
+      margin-bottom: 18px;
+      border-radius: 8px;
+      border: 1px solid #dbeafe;
+      background: #f8fafc;
+    }
+
+    .promo-scroll-track {
+      display: inline-flex;
+      gap: 12px;
+      min-width: max-content;
+      padding: 10px;
+      animation: promo-scroll 28s linear infinite;
+    }
+
+    .promo-scroll-shell:hover .promo-scroll-track {
+      animation-play-state: paused;
+    }
+
+    .promo-scroll-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 44px;
+      padding: 8px 14px;
+      border-radius: 7px;
+      font-weight: 900;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+    }
+
+    .promo-scroll-item img {
+      width: 34px;
+      height: 34px;
+      border-radius: 5px;
+      object-fit: cover;
+    }
+
+    .promo-scroll-item em {
+      font-style: normal;
+      opacity: 0.9;
+    }
+
+    @keyframes promo-scroll {
+      from { transform: translateX(0); }
+      to { transform: translateX(-50%); }
     }
 
     .products-header {
@@ -893,6 +976,20 @@
       margin-top: 20px;
       padding-top: 16px;
       border-top: 2px solid #e2e8f0;
+    }
+
+    .cart-coupon-field {
+      display: grid;
+      gap: 6px;
+      margin-bottom: 12px;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .cart-coupon-field input {
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
     }
 
     .cart-total {

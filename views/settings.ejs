@@ -38,6 +38,7 @@
         <button class="settings-tab" type="button" data-tab="catalog">Catalog</button>
         <button class="settings-tab" type="button" data-tab="commissions">Commission</button>
         <button class="settings-tab" type="button" data-tab="delivery-partners">Delivery Partners</button>
+        <button class="settings-tab" type="button" data-tab="role-permissions">Role Permissions</button>
         <button class="settings-tab" type="button" data-tab="security">Security</button>
       </div>
 
@@ -409,6 +410,32 @@
         <p class="commission-message" id="deliveryPartnerMessage"></p>
       </section>
 
+      <section class="settings-panel" id="role-permissions" aria-labelledby="role-permissions-tab">
+        <div class="panel-header purple-header settings-purple-header">
+          <h2>Role Permission Settings</h2>
+          <p>Control dashboard access for Staff L1, Staff L2, Staff L3, Support Staff, Accountant, and other roles.</p>
+        </div>
+
+        <div class="role-settings-layout">
+          <div class="catalog-table-card role-list-card">
+            <div class="role-settings-toolbar">
+              <label>
+                Select Role
+                <select id="roleSettingsSelect"></select>
+              </label>
+              <button class="settings-save" type="button" onclick="saveRolePermissions()">Save Permissions</button>
+            </div>
+            <div id="roleSettingsSummary" class="role-settings-summary">Loading roles...</div>
+          </div>
+
+          <div class="catalog-table-card role-permission-card">
+            <h3>Permissions</h3>
+            <div class="role-permission-grid" id="rolePermissionGrid"></div>
+            <p class="commission-message" id="roleSettingsMessage"></p>
+          </div>
+        </div>
+      </section>
+
       <form class="settings-panel" id="security" aria-labelledby="security-tab">
         <div class="panel-header purple-header settings-purple-header">
           <h2>Security Settings</h2>
@@ -597,6 +624,8 @@
 
   <script>
     let catalogData = { categories: [], subcategories: [], brands: [], tree: [] };
+    let roleSettings = [];
+    const rolePermissionLabels = <%- JSON.stringify(permissionLabels || {}) %>;
 
     function catalogEndpoint(type) {
       return {
@@ -903,6 +932,81 @@
     let deliveryPartnerSettings = [];
     let deliveryCities = [];
     let deliveryPartnerModalCities = [];
+
+    async function loadRoleSettings() {
+      const select = document.getElementById('roleSettingsSelect');
+      const message = document.getElementById('roleSettingsMessage');
+      select.innerHTML = '<option>Loading roles...</option>';
+      document.getElementById('rolePermissionGrid').innerHTML = '';
+      document.getElementById('roleSettingsSummary').textContent = 'Loading roles...';
+      message.textContent = '';
+
+      try {
+        const response = await fetch('/settings/roles');
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to load roles');
+        roleSettings = data.roles || [];
+        select.innerHTML = roleSettings.map((role) => `<option value="${role.id}">${escapeCatalog(role.name)}</option>`).join('');
+        renderRoleSettings();
+      } catch (error) {
+        select.innerHTML = '<option>Unable to load roles</option>';
+        document.getElementById('roleSettingsSummary').textContent = error.message;
+      }
+    }
+
+    function selectedRoleSetting() {
+      const selectedId = document.getElementById('roleSettingsSelect').value;
+      return roleSettings.find((role) => String(role.id) === String(selectedId));
+    }
+
+    function renderRoleSettings() {
+      const role = selectedRoleSetting();
+      const grid = document.getElementById('rolePermissionGrid');
+      if (!role) {
+        document.getElementById('roleSettingsSummary').textContent = 'No roles found';
+        grid.innerHTML = '';
+        return;
+      }
+
+      const permissions = Array.isArray(role.permissions) ? role.permissions : [];
+      const userCount = Number(role.user_count || 0);
+      document.getElementById('roleSettingsSummary').innerHTML = `
+        <strong>${escapeCatalog(role.name)}</strong>
+        <span>${escapeCatalog(role.description || 'No description')}</span>
+        <small>Level ${role.level} &middot; ${userCount} assigned user${userCount === 1 ? '' : 's'}</small>
+      `;
+
+      grid.innerHTML = Object.entries(rolePermissionLabels).map(([value, label]) => `
+        <label class="role-permission-option">
+          <input type="checkbox" value="${escapeCatalog(value)}" ${permissions.includes(value) ? 'checked' : ''} />
+          <span>${escapeCatalog(label)}</span>
+        </label>
+      `).join('');
+    }
+
+    async function saveRolePermissions() {
+      const role = selectedRoleSetting();
+      if (!role) return;
+
+      const message = document.getElementById('roleSettingsMessage');
+      const permissions = Array.from(document.querySelectorAll('#rolePermissionGrid input:checked')).map((input) => input.value);
+      message.textContent = 'Saving role permissions...';
+
+      try {
+        const response = await fetch(`/settings/roles/${role.id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ permissions }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save role permissions');
+        role.permissions = data.permissions || permissions;
+        renderRoleSettings();
+        message.textContent = 'Role permissions saved.';
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
 
     function commissionLabel(value) {
       return {
@@ -1241,12 +1345,55 @@
 
     document.getElementById('commissionTransactionFilter').addEventListener('change', renderCommissionSettings);
     document.getElementById('commissionPreviewAmount').addEventListener('input', renderCommissionSettings);
+    document.getElementById('roleSettingsSelect').addEventListener('change', renderRoleSettings);
 
     loadCatalog();
+    loadRoleSettings();
     loadCommissionSettings();
     loadDeliveryPartnerSettings();
   </script>
   <style>
+    .role-settings-layout {
+      display: grid;
+      grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
+      gap: 16px;
+    }
+    .role-settings-toolbar {
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      flex-wrap: wrap;
+      margin-bottom: 14px;
+    }
+    .role-settings-summary {
+      display: grid;
+      gap: 6px;
+      color: #475569;
+    }
+    .role-settings-summary strong {
+      color: #0f172a;
+      font-size: 18px;
+    }
+    .role-settings-summary small {
+      color: #64748b;
+      font-weight: 700;
+    }
+    .role-permission-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 10px;
+    }
+    .role-permission-option {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+      font-weight: 700;
+      color: #334155;
+    }
     .delivery-partner-toolbar {
       display: flex;
       align-items: end;
@@ -1276,6 +1423,11 @@
       color: #991b1b;
       font-weight: 800;
       cursor: pointer;
+    }
+    @media (max-width: 900px) {
+      .role-settings-layout {
+        grid-template-columns: 1fr;
+      }
     }
   </style>
 </body>

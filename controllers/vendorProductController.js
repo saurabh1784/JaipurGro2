@@ -1,12 +1,16 @@
 const VendorProduct = require('../models/VendorProduct');
 const ProductSearch = require('../models/ProductSearch');
 
+function isSuperAdmin(user) {
+  return String((user && (user.role || user.roleName)) || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin';
+}
+
 function isAdminLike(user) {
   return Boolean(
     user &&
       (user.role === 'Admin' ||
         user.role === 'admin' ||
-        user.role === 'superadmin' ||
+        isSuperAdmin(user) ||
         (Array.isArray(user.permissions) && (user.permissions.includes('all') || user.permissions.includes('products.manage'))))
   );
 }

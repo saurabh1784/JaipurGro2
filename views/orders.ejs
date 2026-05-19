@@ -340,6 +340,8 @@
               <p><strong>Client:</strong> ${order.client_name} (${order.client_phone})</p>
               <p><strong>Address:</strong> ${order.client_address}</p>
               <p><strong>Vendor:</strong> ${order.vendor_business_name || order.vendor_name || 'N/A'}</p>
+              <p><strong>Subtotal:</strong> ₹${Number(order.subtotal_amount || order.total_amount).toFixed(2)}</p>
+              <p><strong>Discount:</strong> ₹${Number(order.discount_amount || 0).toFixed(2)} ${order.coupon_code ? `(${order.coupon_code})` : order.discount_label ? `(${order.discount_label})` : ''}</p>
               <p><strong>Total:</strong> ₹${Number(order.total_amount).toFixed(2)}</p>
               <p><strong>Order Status:</strong> ${order.status}</p>
               <p><strong>Delivery Status:</strong> ${order.delivery_status}</p>

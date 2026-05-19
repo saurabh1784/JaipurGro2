@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Coupon History</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Coupon History</p>
+        <h1>Coupon History</h1>
+      </div>
+    </header>
+
+    <section class="users-table-card">
+      <table class="wallets-table">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Customer</th>
+            <th>Order</th>
+            <th>Type</th>
+            <th>Coupon/Discount</th>
+            <th>Subtotal</th>
+            <th>Discount</th>
+            <th>Final</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody"><tr><td colspan="8">Loading...</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+  <script>
+    function esc(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+    }
+    function money(value) { return 'INR ' + Number(value || 0).toFixed(2); }
+    function date(value) { return value ? new Date(value).toLocaleString() : ''; }
+
+    async function loadHistory() {
+      const response = await fetch('/api/coupons/history');
+      const data = await response.json();
+      const rows = data.history || [];
+      document.getElementById('historyBody').innerHTML = rows.length
+        ? rows.map((row) => `
+          <tr>
+            <td>${date(row.created_at)}</td>
+            <td><strong>${esc(row.user_name)}</strong><span class="wallet-muted">${esc(row.user_email)}</span></td>
+            <td>#${row.order_id || '-'}</td>
+            <td>${esc(row.order_type)}</td>
+            <td>${esc(row.code || row.discount_name || row.coupon_name || 'Automatic discount')}</td>
+            <td>${money(row.subtotal_amount)}</td>
+            <td>${money(row.discount_amount)}</td>
+            <td><strong>${money(row.final_amount)}</strong></td>
+          </tr>
+        `).join('')
+        : '<tr><td colspan="8">No coupon history yet</td></tr>';
+    }
+
+    loadHistory();
+  </script>
+</body>
+</html>

@@ -110,6 +110,7 @@
 
             <% if (quotation.recipient_status === 'submitted') { %>
               <div class="quotation-actions">
+                <input class="quotation-coupon-input" id="quotationCoupon<%= quotation.recipient_id %>" type="text" placeholder="Coupon code" />
                 <button class="settings-save" type="button" onclick="decideQuotation(<%= quotation.recipient_id %>, 'accept')">Accept</button>
                 <button class="reject-button" type="button" onclick="decideQuotation(<%= quotation.recipient_id %>, 'reject')">Reject</button>
               </div>
@@ -160,7 +161,8 @@
     .quotation-item-status.waiting { background: #fef3c7; color: #92400e; }
     .saving-positive { color: #059669 !important; }
     .saving-negative { color: #dc2626 !important; }
-    .quotation-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; }
+    .quotation-actions { display: flex; justify-content: flex-end; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+    .quotation-coupon-input { min-width: 170px; padding: 10px 12px; border: 1px solid #cbd5e1; border-radius: 6px; }
     .reject-button { padding: 10px 14px; border: none; border-radius: 6px; background: #fee2e2; color: #991b1b; font-weight: 800; cursor: pointer; }
     .theme-dark .quotation-summary-main h2,
     .theme-dark .quotation-empty h2,
@@ -177,9 +179,11 @@
 
   <script>
     async function decideQuotation(recipientId, decision) {
+      const couponInput = document.getElementById(`quotationCoupon${recipientId}`);
       const response = await fetch(`/client/quotations/${recipientId}/${decision}`, {
         method: 'POST',
-        headers: { Accept: 'application/json' },
+        headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+        body: JSON.stringify({ coupon_code: couponInput ? couponInput.value.trim() : '' }),
       });
       const data = await response.json();
       if (!data.success) {

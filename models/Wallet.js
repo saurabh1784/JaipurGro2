@@ -33,7 +33,11 @@ function normalizeTransaction(row) {
     reference: row.reference,
     note: row.note,
     created_by: row.created_by,
-    created_by_name: row.created_by_name,
+    created_by_name: row.transaction_by_name || row.created_by_name,
+    transaction_by_name: row.transaction_by_name || row.created_by_name,
+    transaction_by_email: row.transaction_by_email,
+    transaction_by_role: row.transaction_by_role,
+    transaction_at: row.transaction_at || row.created_at,
     created_at: row.created_at,
   };
 }
@@ -42,7 +46,7 @@ async function ensureForUser(userId, connection = pool) {
   await connection.query(
     `INSERT INTO wallets (user_id, balance, currency, status)
      VALUES (?, 0.00, 'INR', 'active')
-     ON DUPLICATE KEY UPDATE user_id = VALUES(user_id)`,
+     ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id`,
     [userId]
   );
 
@@ -133,11 +137,11 @@ async function transactionsByUserId(userId, { page = 1, limit = 20 } = {}) {
 
   const [countRows] = await pool.query('SELECT COUNT(*) AS total FROM wallet_transactions WHERE wallet_id = ?', [wallet.id]);
   const [rows] = await pool.query(
-    `SELECT wt.*, u.name AS created_by_name
+    `SELECT wt.*, COALESCE(wt.transaction_by_name, u.name) AS created_by_name
      FROM wallet_transactions wt
      LEFT JOIN users u ON u.id = wt.created_by
      WHERE wt.wallet_id = ?
-     ORDER BY wt.created_at DESC, wt.id DESC
+     ORDER BY COALESCE(wt.transaction_at, wt.created_at) DESC, wt.id DESC
      LIMIT ? OFFSET ?`,
     [wallet.id, pageSize, offset]
   );
@@ -183,6 +187,10 @@ async function adjustBalance({ userId, type, amount, note, reference, createdBy 
     const transactionType = type === 'credit' ? 'wallet_credit' : 'wallet_debit';
     const [userRows] = await connection.query('SELECT role FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1', [userId]);
     const roleSlug = userRows[0] && userRows[0].role;
+    const [actorRows] = createdBy
+      ? await connection.query('SELECT name, email, role FROM users WHERE id = ? LIMIT 1', [createdBy])
+      : [[]];
+    const actor = actorRows[0] || {};
     const commissionSetting = await CommissionSetting.findForRoleAndTransaction(roleSlug, transactionType, connection);
     const commissionAmount = CommissionSetting.calculateAmount(commissionSetting, numericAmount);
     const netAmount = type === 'credit'
@@ -199,8 +207,8 @@ async function adjustBalance({ userId, type, amount, note, reference, createdBy 
     await connection.query('UPDATE wallets SET balance = ? WHERE id = ?', [balanceAfter, wallet.id]);
     await connection.query(
       `INSERT INTO wallet_transactions
-       (wallet_id, user_id, type, amount, commission_setting_id, commission_amount, net_amount, balance_before, balance_after, reference, note, created_by)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (wallet_id, user_id, type, amount, commission_setting_id, commission_amount, net_amount, balance_before, balance_after, reference, note, created_by, transaction_by_name, transaction_by_email, transaction_by_role, transaction_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)`,
       [
         wallet.id,
         userId,
@@ -214,6 +222,9 @@ async function adjustBalance({ userId, type, amount, note, reference, createdBy 
         reference || null,
         note || null,
         createdBy || null,
+        actor.name || null,
+        actor.email || null,
+        actor.role || null,
       ]
     );
 
