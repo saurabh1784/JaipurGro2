@@ -4,5 +4,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 db-backups/
+db-snapshots/*
+!db-snapshots/.gitkeep
+!db-snapshots/README.md
+!db-snapshots/deploy-snapshot.json
 *.dump
 *.sql.backup

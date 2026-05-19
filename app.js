@@ -3,6 +3,7 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const pgPool = require('./db');
+const { restoreSnapshotOnStartup } = require('./databaseSnapshot');
 const { runMigrations } = require('./migrationRunner');
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
@@ -234,8 +235,10 @@ app.get('/api/system/status', async (req, res) => {
   try {
     const [migrationTableRows] = await pool.query("SELECT to_regclass('public.schema_migrations') AS table_name");
     const [syncTableRows] = await pool.query("SELECT to_regclass('public.schema_sync_runs') AS table_name");
+    const [restoreTableRows] = await pool.query("SELECT to_regclass('public.snapshot_restore_runs') AS table_name");
     const hasMigrationTable = Boolean(migrationTableRows[0] && migrationTableRows[0].table_name);
     const hasSyncTable = Boolean(syncTableRows[0] && syncTableRows[0].table_name);
+    const hasRestoreTable = Boolean(restoreTableRows[0] && restoreTableRows[0].table_name);
     const [rows] = hasMigrationTable
       ? await pool.query(
           `SELECT id, name, run_at
@@ -252,14 +255,24 @@ app.get('/api/system/status', async (req, res) => {
            LIMIT 5`
         )
       : [[]];
+    const [restoreRows] = hasRestoreTable
+      ? await pool.query(
+          `SELECT snapshot_hash, snapshot_file, revision, restored_at
+           FROM snapshot_restore_runs
+           ORDER BY restored_at DESC
+           LIMIT 5`
+        )
+      : [[]];
     res.json({
       success: true,
       service: 'JaipurGro2',
       revision: appRevision,
       migration_table_ready: hasMigrationTable,
       schema_sync_table_ready: hasSyncTable,
+      snapshot_restore_table_ready: hasRestoreTable,
       migrations: rows,
       schema_sync_runs: syncRows,
+      snapshot_restore_runs: restoreRows,
       checked_at: new Date().toISOString(),
     });
   } catch (error) {
@@ -1394,6 +1407,7 @@ async function initDatabase() {
     [appRevision]
   );
   await runMigrations(pgPool);
+  await restoreSnapshotOnStartup(pgPool, { revision: appRevision });
 }
 
 async function getUserWithRoles(email) {

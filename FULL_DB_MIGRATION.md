@@ -61,9 +61,38 @@ https://jaipurgro2.onrender.com/api/system/status
 
 Then check the app data.
 
+## Automatic restore on Render deploy
+
+Render cannot read your localhost database directly. To make deploy update the
+Render database with your local data:
+
+1. Export a snapshot from local:
+
+```powershell
+npm run db:snapshot:export -- --file db-snapshots/deploy-snapshot.json
+```
+
+2. Commit and push `db-snapshots/deploy-snapshot.json`.
+
+3. In Render environment variables, set:
+
+```text
+AUTO_RESTORE_DB_SNAPSHOT=true
+DB_SNAPSHOT_FILE=db-snapshots/deploy-snapshot.json
+```
+
+The snapshot is restored once per unique file content. If you need to force the
+same snapshot again, set:
+
+```text
+AUTO_RESTORE_DB_SNAPSHOT_ALWAYS=true
+```
+
 ## Safety notes
 
 - Never commit `.env` or database URLs.
 - `db-backups/` is ignored by Git.
+- `db-snapshots/deploy-snapshot.json` may contain sensitive data. Commit it only
+  to a private repository you trust.
 - The script refuses to run if source and target URLs are the same.
 - A target backup is created in `db-backups/` before replacement.

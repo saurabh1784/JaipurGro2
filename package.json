@@ -8,7 +8,9 @@
     "dev": "nodemon app.js",
     "migrate": "node scripts/run-migrations.js",
     "db:dump:local": "node scripts/full-db-migration.js dump",
-    "db:replace:target": "node scripts/full-db-migration.js replace"
+    "db:replace:target": "node scripts/full-db-migration.js replace",
+    "db:snapshot:export": "node scripts/db-snapshot.js export",
+    "db:snapshot:restore": "node scripts/db-snapshot.js restore"
   },
   "keywords": [
     "node",
