@@ -6,7 +6,9 @@
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
-    "migrate": "node scripts/run-migrations.js"
+    "migrate": "node scripts/run-migrations.js",
+    "db:dump:local": "node scripts/full-db-migration.js dump",
+    "db:replace:target": "node scripts/full-db-migration.js replace"
   },
   "keywords": [
     "node",
