@@ -3,6 +3,7 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const path = require('path');
 const pgPool = require('./db');
+const { runMigrations } = require('./migrationRunner');
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -479,6 +480,7 @@ async function seedDemoProducts() {
 async function initDatabase() {
   await pgPool.ensureDatabase();
   await pool.query('SELECT 1');
+  await runMigrations(pgPool);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
