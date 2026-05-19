@@ -33,6 +33,47 @@ function envValue(name, fallback) {
 
 loadLocalEnv();
 
+const renderFallbackConfig = {
+  DB_HOST: 'dpg-d86149ndl75s739b5rog-a',
+  DB_PORT: '5432',
+  DB_USER: 'db_for_jaipur_acg2_user',
+  DB_PASSWORD: '5bWLfAtlfzSVwBVm1zgfWbeLhDe6UNVg',
+  DB_NAME: 'db_for_jaipur_acg2',
+};
+
+let fallbackConfigApplied = false;
+
+function hasAnyDatabaseConfig() {
+  return Boolean(
+    process.env.DATABASE_URL
+      || process.env.RENDER_DATABASE_URL
+      || process.env.TARGET_DATABASE_URL
+      || process.env.DATABASE_URL_EXTERNAL
+      || process.env.DB_HOST
+      || process.env.DB_NAME
+      || process.env.DB_USER
+      || process.env.DB_PASSWORD
+  );
+}
+
+function applyRenderFallbackConfig() {
+  if (hasAnyDatabaseConfig()) {
+    return;
+  }
+
+  const isRenderOrProduction = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
+  if (!isRenderOrProduction) {
+    return;
+  }
+
+  for (const [name, value] of Object.entries(renderFallbackConfig)) {
+    process.env[name] = value;
+  }
+  fallbackConfigApplied = true;
+}
+
+applyRenderFallbackConfig();
+
 if (!process.env.DATABASE_URL) {
   process.env.DATABASE_URL = process.env.RENDER_DATABASE_URL
     || process.env.TARGET_DATABASE_URL
@@ -111,16 +152,13 @@ const dbConfig = createDbConfig();
 const pgPool = new Pool(dbConfig);
 
 function hasExplicitDatabaseConfig() {
-  return Boolean(
-    process.env.DATABASE_URL
-      || process.env.DB_HOST
-      || process.env.DB_NAME
-      || process.env.DB_USER
-      || process.env.DB_PASSWORD
-  );
+  return hasAnyDatabaseConfig() || fallbackConfigApplied;
 }
 
 function connectionSource() {
+  if (fallbackConfigApplied) {
+    return 'built-in Render fallback';
+  }
   if (process.env.DATABASE_URL) {
     if (process.env.RENDER_DATABASE_URL && process.env.DATABASE_URL === process.env.RENDER_DATABASE_URL) {
       return 'RENDER_DATABASE_URL';
