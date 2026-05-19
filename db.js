@@ -48,6 +48,17 @@ function shouldUseSsl(host) {
   return Boolean(process.env.DATABASE_URL && !isLocalHost(host));
 }
 
+function envFlag(name) {
+  const value = String(process.env[name] || '').toLowerCase();
+  if (['true', '1', 'yes', 'on'].includes(value)) {
+    return true;
+  }
+  if (['false', '0', 'no', 'off'].includes(value)) {
+    return false;
+  }
+  return null;
+}
+
 function createConnectionStringForDatabase(database) {
   if (!process.env.DATABASE_URL) {
     return null;
@@ -103,7 +114,27 @@ function quoteIdentifier(value) {
   return `"${String(value).replace(/"/g, '""')}"`;
 }
 
+function getConfiguredHost() {
+  if (dbConfig.connectionString) {
+    return new URL(dbConfig.connectionString).hostname;
+  }
+  return dbConfig.host;
+}
+
+function shouldEnsureDatabase() {
+  const explicit = envFlag('DB_ENSURE_DATABASE');
+  if (explicit !== null) {
+    return explicit;
+  }
+
+  return isLocalHost(getConfiguredHost());
+}
+
 async function ensureDatabase() {
+  if (!shouldEnsureDatabase()) {
+    return false;
+  }
+
   const adminDatabase = process.env.DB_ADMIN_DATABASE || 'postgres';
   const adminClient = new Client(createDbConfig(adminDatabase));
 
@@ -118,6 +149,8 @@ async function ensureDatabase() {
   } finally {
     await adminClient.end();
   }
+
+  return true;
 }
 
 function convertPlaceholders(sql) {
