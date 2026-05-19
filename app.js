@@ -516,8 +516,11 @@ async function seedDemoProducts() {
 }
 
 async function initDatabase() {
+  console.log('Database init: ensure database');
   await pgPool.ensureDatabase();
+  console.log('Database init: connectivity check');
   await pool.query('SELECT 1');
+  console.log('Database init: syncing schema');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -1393,6 +1396,7 @@ async function initDatabase() {
     }
   }
 
+  console.log('Database init: seeding defaults');
   await seedDemoProducts();
   await Wallet.ensureForAllUsers(pool);
   await pool.query(`
@@ -1406,7 +1410,9 @@ async function initDatabase() {
     'INSERT INTO schema_sync_runs (revision) VALUES (?)',
     [appRevision]
   );
+  console.log('Database init: running migrations');
   await runMigrations(pgPool);
+  console.log('Database init: checking snapshot restore');
   await restoreSnapshotOnStartup(pgPool, { revision: appRevision });
 }
 
@@ -3475,6 +3481,8 @@ app.use((req, res) => {
   res.status(404).send('Page not found');
 });
 
+console.log(`Database config: ${JSON.stringify(pgPool.describeConfig())}`);
+
 initDatabase()
   .then(() => {
     if (process.argv.includes('--sync-schema-only')) {
@@ -3497,6 +3505,9 @@ initDatabase()
     });
   })
   .catch((error) => {
-    console.error(`Failed to initialize database: ${error.message}`);
+    console.error(`Failed to initialize database: ${pgPool.formatError(error)}`);
+    if (error && error.stack) {
+      console.error(error.stack);
+    }
     process.exit(1);
   });

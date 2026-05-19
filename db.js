@@ -33,6 +33,13 @@ function envValue(name, fallback) {
 
 loadLocalEnv();
 
+if (!process.env.DATABASE_URL) {
+  process.env.DATABASE_URL = process.env.RENDER_DATABASE_URL
+    || process.env.TARGET_DATABASE_URL
+    || process.env.DATABASE_URL_EXTERNAL
+    || '';
+}
+
 function isLocalHost(host) {
   return ['localhost', '127.0.0.1', '::1'].includes(String(host || '').toLowerCase());
 }
@@ -45,7 +52,7 @@ function shouldUseSsl(host) {
   if (['false', '0', 'no', 'disable'].includes(sslValue)) {
     return false;
   }
-  return Boolean(process.env.DATABASE_URL && !isLocalHost(host));
+  return !isLocalHost(host);
 }
 
 function envFlag(name) {
@@ -79,6 +86,8 @@ function createDbConfig(databaseOverride) {
       max: Number(envValue('DB_POOL_MAX', 10)),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
+      query_timeout: Number(envValue('DB_QUERY_TIMEOUT_MS', 30000)),
+      statement_timeout: Number(envValue('DB_STATEMENT_TIMEOUT_MS', 30000)),
       ssl: shouldUseSsl(url.hostname) ? { rejectUnauthorized: false } : false,
     };
   }
@@ -92,6 +101,8 @@ function createDbConfig(databaseOverride) {
     max: Number(envValue('DB_POOL_MAX', 10)),
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
+    query_timeout: Number(envValue('DB_QUERY_TIMEOUT_MS', 30000)),
+    statement_timeout: Number(envValue('DB_STATEMENT_TIMEOUT_MS', 30000)),
     ssl: shouldUseSsl(envValue('DB_HOST', 'localhost')) ? { rejectUnauthorized: false } : false,
   };
 }
@@ -99,13 +110,89 @@ function createDbConfig(databaseOverride) {
 const dbConfig = createDbConfig();
 const pgPool = new Pool(dbConfig);
 
-function enhanceConnectionError(error) {
-  if (/password authentication failed/i.test(error.message)) {
-    const user = dbConfig.user || (dbConfig.connectionString ? new URL(dbConfig.connectionString).username : 'configured user');
-    error.message = `${error.message}. Update DB_PASSWORD in JaipurGro2\\.env to match the PostgreSQL password for user "${user}", or set a valid DATABASE_URL.`;
+function hasExplicitDatabaseConfig() {
+  return Boolean(
+    process.env.DATABASE_URL
+      || process.env.DB_HOST
+      || process.env.DB_NAME
+      || process.env.DB_USER
+      || process.env.DB_PASSWORD
+  );
+}
+
+function connectionSource() {
+  if (process.env.DATABASE_URL) {
+    if (process.env.RENDER_DATABASE_URL && process.env.DATABASE_URL === process.env.RENDER_DATABASE_URL) {
+      return 'RENDER_DATABASE_URL';
+    }
+    if (process.env.TARGET_DATABASE_URL && process.env.DATABASE_URL === process.env.TARGET_DATABASE_URL) {
+      return 'TARGET_DATABASE_URL';
+    }
+    return process.env.DATABASE_URL_EXTERNAL && process.env.DATABASE_URL === process.env.DATABASE_URL_EXTERNAL
+      ? 'DATABASE_URL_EXTERNAL'
+      : 'DATABASE_URL';
   }
-  if (/client password must be a string|sasl/i.test(error.message) && !dbConfig.password && !dbConfig.connectionString) {
-    error.message = 'PostgreSQL DB_PASSWORD is missing. Create JaipurGro2\\.env and set DB_PASSWORD to your PostgreSQL password, or set DATABASE_URL.';
+  return 'DB_HOST/DB_PORT/DB_USER/DB_NAME';
+}
+
+function describeConfig() {
+  const url = dbConfig.connectionString ? new URL(dbConfig.connectionString) : null;
+  return {
+    source: connectionSource(),
+    host: url ? url.hostname : dbConfig.host,
+    port: url ? (url.port || 5432) : dbConfig.port,
+    database: dbConfig.database,
+    user: url ? decodeURIComponent(url.username || '') : dbConfig.user,
+    ssl: Boolean(dbConfig.ssl),
+    ensureDatabase: shouldEnsureDatabase(),
+  };
+}
+
+function formatError(error) {
+  if (!error) {
+    return 'Unknown error';
+  }
+
+  if (typeof error === 'string') {
+    return error || 'Unknown error';
+  }
+
+  const parts = [];
+  const primary = error.message || error.name || String(error);
+  if (primary && primary !== '[object Object]') {
+    parts.push(primary);
+  }
+
+  for (const key of ['code', 'errno', 'syscall', 'host', 'address', 'port', 'database', 'detail', 'hint']) {
+    if (error[key]) {
+      parts.push(`${key}=${error[key]}`);
+    }
+  }
+
+  if (Array.isArray(error.errors) && error.errors.length > 0) {
+    const nested = error.errors
+      .map((nestedError) => formatError(nestedError))
+      .filter(Boolean)
+      .join(' | ');
+    if (nested) {
+      parts.push(`nested=[${nested}]`);
+    }
+  }
+
+  return parts.length ? parts.join('; ') : JSON.stringify(error);
+}
+
+function enhanceConnectionError(error) {
+  const message = formatError(error);
+  if (/password authentication failed/i.test(message)) {
+    const user = dbConfig.user || (dbConfig.connectionString ? new URL(dbConfig.connectionString).username : 'configured user');
+    error.message = `${message}. Update DB_PASSWORD in Render environment variables to match the PostgreSQL password for user "${user}", or set a valid DATABASE_URL.`;
+  }
+  if (/client password must be a string|sasl/i.test(message) && !dbConfig.password && !dbConfig.connectionString) {
+    error.message = 'PostgreSQL DB_PASSWORD is missing. Set DB_PASSWORD in Render environment variables, or set DATABASE_URL.';
+  }
+  if (!error.message) {
+    error.message = message;
   }
   return error;
 }
@@ -131,6 +218,10 @@ function shouldEnsureDatabase() {
 }
 
 async function ensureDatabase() {
+  if (process.env.NODE_ENV === 'production' && !hasExplicitDatabaseConfig()) {
+    throw new Error('PostgreSQL configuration is missing. Set DATABASE_URL in Render environment variables, or set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, and DB_NAME.');
+  }
+
   if (!shouldEnsureDatabase()) {
     return false;
   }
@@ -253,6 +344,8 @@ module.exports = {
   query,
   getConnection,
   ensureDatabase,
+  describeConfig,
+  formatError,
   end: () => pgPool.end(),
   connect: () => pgPool.connect(),
   config: dbConfig,
