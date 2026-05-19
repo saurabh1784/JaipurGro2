@@ -334,6 +334,10 @@ function requireAuth(req, res, next) {
     return next();
   }
 
+  if (requestWantsJson(req)) {
+    return res.status(401).json({ success: false, message: 'Login required. Please sign in again.' });
+  }
+
   res.redirect('/');
 }
 
@@ -382,7 +386,8 @@ function requireAuthRole(role) {
 
 function requestWantsJson(req) {
   const accept = req.get('accept') || '';
-  return req.query.format === 'json' || accept.includes('application/json');
+  const requestedWith = req.get('x-requested-with') || '';
+  return req.query.format === 'json' || accept.includes('application/json') || requestedWith.toLowerCase() === 'xmlhttprequest';
 }
 
 async function columnExists(tableName, columnName) {

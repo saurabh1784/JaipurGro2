@@ -1,4 +1,5 @@
 const VendorProduct = require('../models/VendorProduct');
+const Product = require('../models/Product');
 const ProductSearch = require('../models/ProductSearch');
 
 function isSuperAdmin(user) {
@@ -63,6 +64,20 @@ async function show(req, res) {
     return res.status(403).json({ success: false, message: 'You can access only your own vendor products' });
   }
   return res.json({ success: true, vendor_product: row });
+}
+
+async function approvedProducts(req, res) {
+  if (!isVendor(req.authUser) && !isAdminLike(req.authUser)) {
+    return res.status(403).json({ success: false, message: 'Only vendors or authorized users can view approved products' });
+  }
+
+  try {
+    const products = await Product.listApproved(Number(req.query.limit) || 200);
+    return res.json({ success: true, products });
+  } catch (error) {
+    console.error('Approved product list error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch approved products' });
+  }
 }
 
 async function create(req, res) {
@@ -282,6 +297,7 @@ async function trackActivity(req, res) {
 
 module.exports = {
   index,
+  approvedProducts,
   show,
   create,
   update,

@@ -266,9 +266,23 @@
       return `<span class="brand-display">${logo}<span>${label}</span></span>`;
     }
 
+    async function readJsonResponse(response) {
+      const text = await response.text();
+      try {
+        return text ? JSON.parse(text) : {};
+      } catch (error) {
+        return {
+          success: false,
+          message: response.redirected || response.status === 401
+            ? 'Login required. Please sign in again.'
+            : `Server returned a non-JSON response (${response.status}).`,
+        };
+      }
+    }
+
     async function loadCatalog() {
       const response = await fetch('/products/catalog', { headers: { Accept: 'application/json' } });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (!data.success) throw new Error(data.message || 'Unable to load catalog');
       catalog = {
         categories: data.categories || [],
@@ -334,7 +348,7 @@
         brand_name: brandFilter.value,
       });
       const response = await fetch(`/products?${params.toString()}`, { headers: { Accept: 'application/json' } });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (!data.success) {
         tableBody.innerHTML = `<tr><td colspan="9">${escapeHtml(data.message || 'Unable to load products')}</td></tr>`;
         return;
@@ -416,10 +430,10 @@
       const price = document.getElementById(`price-${id}`).value;
       const response = await fetch(`/products/${id}`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ price }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (!data.success) {
         alert(data.message || 'Unable to save price');
         return;
@@ -430,14 +444,14 @@
     async function saveSearchSettings(id) {
       const response = await fetch(`/products/${id}/search-settings`, {
         method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({
           is_sponsored: document.getElementById(`sponsored-${id}`).checked,
           sponsored_priority: document.getElementById(`priority-${id}`).value,
           keywords: document.getElementById(`keywords-${id}`).value,
         }),
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (!data.success) {
         alert(data.message || 'Unable to save search settings');
         return;
@@ -485,8 +499,8 @@
 
     async function deleteProduct() {
       if (!pendingDeleteId) return;
-      const response = await fetch(`/products/${pendingDeleteId}`, { method: 'DELETE' });
-      const data = await response.json();
+      const response = await fetch(`/products/${pendingDeleteId}`, { method: 'DELETE', headers: { Accept: 'application/json' } });
+      const data = await readJsonResponse(response);
       pendingDeleteId = null;
       document.getElementById('deleteModal').classList.remove('active');
       if (!data.success) {
@@ -510,9 +524,10 @@
       if (image) payload.append('image', await fitImageForProductCard(image));
       const response = await fetch(`/products${id ? `/${id}` : ''}`, {
         method: id ? 'PUT' : 'POST',
+        headers: { Accept: 'application/json' },
         body: payload,
       });
-      const data = await response.json();
+      const data = await readJsonResponse(response);
       if (!data.success) {
         alert(data.message || (data.errors || []).join(', ') || 'Unable to save product');
         return;
@@ -526,8 +541,8 @@
       const result = document.getElementById('bulkResult');
       const formData = new FormData(bulkUploadForm);
       result.textContent = 'Uploading...';
-      const response = await fetch('/products/bulk-upload', { method: 'POST', body: formData });
-      const data = await response.json();
+      const response = await fetch('/products/bulk-upload', { method: 'POST', headers: { Accept: 'application/json' }, body: formData });
+      const data = await readJsonResponse(response);
       result.textContent = data.message || 'Upload complete';
       if (data.failed && data.failed.length) {
         result.textContent += ` | Failed rows: ${data.failed.map((item) => item.rowNumber).join(', ')}`;

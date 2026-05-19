@@ -5,6 +5,7 @@ const router = express.Router();
 
 router.get('/', vendorProductController.index);
 router.post('/', vendorProductController.create);
+router.get('/approved-products', vendorProductController.approvedProducts);
 router.get('/client-visible', vendorProductController.visibleForClient);
 router.get('/client-visible/suggestions', vendorProductController.suggestions);
 router.post('/client-visible/activity', vendorProductController.trackActivity);
