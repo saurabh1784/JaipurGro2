@@ -3477,6 +3477,11 @@ app.use((req, res) => {
 
 initDatabase()
   .then(() => {
+    if (process.argv.includes('--sync-schema-only')) {
+      console.log('Database schema sync completed.');
+      return pgPool.end();
+    }
+
     const server = app.listen(port, () => {
       console.log(`Server is running at http://localhost:${port}`);
     });

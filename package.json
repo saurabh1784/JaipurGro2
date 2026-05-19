@@ -7,6 +7,7 @@
     "start": "node app.js",
     "dev": "nodemon app.js",
     "migrate": "node scripts/run-migrations.js",
+    "schema:sync": "node app.js --sync-schema-only",
     "db:dump:local": "node scripts/full-db-migration.js dump",
     "db:replace:target": "node scripts/full-db-migration.js replace",
     "db:snapshot:export": "node scripts/db-snapshot.js export",
