@@ -146,7 +146,13 @@ async function createForCityVendors({ clientId, items }) {
     }
 
     await connection.commit();
-    return { id: quotationId, vendorCount: vendorRows.length, city: clientCity, totalAmount };
+    return {
+      id: quotationId,
+      vendorCount: vendorRows.length,
+      vendorIds: vendorRows.map((vendor) => Number(vendor.id)),
+      city: clientCity,
+      totalAmount,
+    };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -507,7 +513,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     );
 
     await connection.commit();
-    return { status: 'accepted', orderId, totalAmount };
+    return { status: 'accepted', orderId, vendorId: recipient.vendor_id, totalAmount };
   } catch (error) {
     await connection.rollback();
     throw error;

@@ -5,6 +5,7 @@ const path = require('path');
 const pgPool = require('./db');
 const { restoreSnapshotOnStartup } = require('./databaseSnapshot');
 const { runMigrations } = require('./migrationRunner');
+const vendorNotifications = require('./vendorNotifications');
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -2043,6 +2044,21 @@ app.get('/api/vendor/quotations', webOrJwtAuth, requireAuthRole('Vendor'), async
   }
 });
 
+app.get('/api/vendor/notifications/stream', webOrJwtAuth, requireAuthRole('Vendor'), (req, res) => {
+  res.writeHead(200, {
+    'Content-Type': 'text/event-stream',
+    'Cache-Control': 'no-cache, no-transform',
+    Connection: 'keep-alive',
+    'X-Accel-Buffering': 'no',
+  });
+  if (typeof res.flushHeaders === 'function') {
+    res.flushHeaders();
+  }
+
+  const unsubscribe = vendorNotifications.subscribe(req.authUser.id, res);
+  req.on('close', unsubscribe);
+});
+
 app.post('/api/vendor/quotations/:recipientId/submit', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
   try {
     const response = await Quotation.submitVendorResponse({
@@ -2092,6 +2108,17 @@ app.post('/client/quotations/:recipientId/:decision', requireSessionRole('Client
       decision,
       couponCode: req.body.coupon_code,
     });
+    if (decision === 'accepted' && result.vendorId) {
+      vendorNotifications.notifyVendor(result.vendorId, {
+        type: 'order',
+        id: result.orderId,
+        title: 'New order received',
+        message: 'New order received',
+        orderId: result.orderId,
+        orderType: 'quotation',
+        totalAmount: result.totalAmount,
+      });
+    }
     return res.json({ success: true, message: decision === 'accepted' ? 'Quotation accepted and order created' : 'Quotation rejected', result });
   } catch (error) {
     console.error('Client quotation decision error:', error);
@@ -2117,6 +2144,17 @@ app.post('/api/client/quotations/:recipientId/:decision', webOrJwtAuth, requireA
       decision,
       couponCode: req.body.coupon_code,
     });
+    if (decision === 'accepted' && result.vendorId) {
+      vendorNotifications.notifyVendor(result.vendorId, {
+        type: 'order',
+        id: result.orderId,
+        title: 'New order received',
+        message: 'New order received',
+        orderId: result.orderId,
+        orderType: 'quotation',
+        totalAmount: result.totalAmount,
+      });
+    }
     return res.json({ success: true, message: decision === 'accepted' ? 'Quotation accepted and order created' : 'Quotation rejected', result });
   } catch (error) {
     console.error('Client quotation API decision error:', error);
@@ -2246,6 +2284,15 @@ app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, require
     const quotation = await Quotation.createForCityVendors({
       clientId: req.authUser.id,
       items,
+    });
+    vendorNotifications.notifyVendors(quotation.vendorIds || [], {
+      type: 'quotation',
+      id: quotation.id,
+      title: 'New quotation received',
+      message: 'New quotation received',
+      quotationId: quotation.id,
+      city: quotation.city,
+      totalAmount: quotation.totalAmount,
     });
     console.log(`[quotation] client ${req.authUser.id} created quotation ${quotation.id} for ${quotation.vendorCount} vendor(s) in ${quotation.city}`);
 
@@ -2538,6 +2585,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
       }
 
       const orderIds = [];
+      const vendorOrderNotifications = [];
 
       for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
         const vendorSubtotal = vendorOrder.total;
@@ -2568,6 +2616,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
 
         const orderId = orderResult.insertId;
         orderIds.push(orderId);
+        vendorOrderNotifications.push({ vendorId, orderId, totalAmount: vendorTotal });
         await Promotion.recordUsage({
           orderId,
           userId: clientId,
@@ -2608,6 +2657,17 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
       });
 
       await connection.commit();
+      for (const notification of vendorOrderNotifications) {
+        vendorNotifications.notifyVendor(notification.vendorId, {
+          type: 'order',
+          id: notification.orderId,
+          title: 'New order received',
+          message: 'New order received',
+          orderId: notification.orderId,
+          orderType: 'direct',
+          totalAmount: notification.totalAmount,
+        });
+      }
       for (const purchased of purchasedProducts) {
         await ProductSearch.trackPurchase({
           userId: clientId,
