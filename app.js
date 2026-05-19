@@ -232,22 +232,32 @@ app.get('/default.png', (req, res) => {
 
 app.get('/api/system/status', async (req, res) => {
   try {
-    const [rows] = await pool.query(
-      `SELECT id, name, run_at
-       FROM schema_migrations
-       ORDER BY id DESC
-       LIMIT 10`
-    );
-    const [syncRows] = await pool.query(
-      `SELECT revision, synced_at
-       FROM schema_sync_runs
-       ORDER BY synced_at DESC
-       LIMIT 5`
-    );
+    const [migrationTableRows] = await pool.query("SELECT to_regclass('public.schema_migrations') AS table_name");
+    const [syncTableRows] = await pool.query("SELECT to_regclass('public.schema_sync_runs') AS table_name");
+    const hasMigrationTable = Boolean(migrationTableRows[0] && migrationTableRows[0].table_name);
+    const hasSyncTable = Boolean(syncTableRows[0] && syncTableRows[0].table_name);
+    const [rows] = hasMigrationTable
+      ? await pool.query(
+          `SELECT id, name, run_at
+           FROM schema_migrations
+           ORDER BY id DESC
+           LIMIT 10`
+        )
+      : [[]];
+    const [syncRows] = hasSyncTable
+      ? await pool.query(
+          `SELECT revision, synced_at
+           FROM schema_sync_runs
+           ORDER BY synced_at DESC
+           LIMIT 5`
+        )
+      : [[]];
     res.json({
       success: true,
       service: 'JaipurGro2',
       revision: appRevision,
+      migration_table_ready: hasMigrationTable,
+      schema_sync_table_ready: hasSyncTable,
       migrations: rows,
       schema_sync_runs: syncRows,
       checked_at: new Date().toISOString(),
