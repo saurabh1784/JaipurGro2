@@ -47,6 +47,10 @@ const {
 
 const app = express();
 const port = process.env.PORT || 3000;
+const appRevision = process.env.RENDER_GIT_COMMIT
+  || process.env.COMMIT_SHA
+  || process.env.SOURCE_VERSION
+  || 'local';
 
 const permissionLabels = {
   all: 'All Access',
@@ -225,6 +229,39 @@ app.get('/default.png', (req, res) => {
     </svg>
   `);
 });
+
+app.get('/api/system/status', async (req, res) => {
+  try {
+    const [rows] = await pool.query(
+      `SELECT id, name, run_at
+       FROM schema_migrations
+       ORDER BY id DESC
+       LIMIT 10`
+    );
+    const [syncRows] = await pool.query(
+      `SELECT revision, synced_at
+       FROM schema_sync_runs
+       ORDER BY synced_at DESC
+       LIMIT 5`
+    );
+    res.json({
+      success: true,
+      service: 'JaipurGro2',
+      revision: appRevision,
+      migrations: rows,
+      schema_sync_runs: syncRows,
+      checked_at: new Date().toISOString(),
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      service: 'JaipurGro2',
+      revision: appRevision,
+      message: error.message,
+    });
+  }
+});
+
 app.use(
   session({
     secret: 'jaipur_role_based_login_secret',
@@ -434,28 +471,6 @@ async function seedDemoProducts() {
     const [existingRows] = await pool.query('SELECT id FROM products WHERE name = ? AND is_deleted = 0 LIMIT 1', [product.name]);
 
     if (existingRows.length) {
-      await pool.query(
-        `UPDATE products
-         SET description = ?,
-             price = ?,
-             category_id = ?,
-             sub_category_id = ?,
-             brand_id = ?,
-             approval_status = 'approved',
-             approved_by = COALESCE(approved_by, ?),
-             approved_at = COALESCE(approved_at, CURRENT_TIMESTAMP),
-             rejection_reason = NULL
-         WHERE id = ?`,
-        [
-          product.description,
-          product.price,
-          relation.category_id,
-          relation.sub_category_id,
-          relation.brand_id,
-          adminId,
-          existingRows[0].id,
-        ]
-      );
       continue;
     }
 
@@ -480,7 +495,6 @@ async function seedDemoProducts() {
 async function initDatabase() {
   await pgPool.ensureDatabase();
   await pool.query('SELECT 1');
-  await runMigrations(pgPool);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -762,7 +776,7 @@ async function initDatabase() {
   await addColumnIfMissing('brands', 'created_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER is_deleted');
   await addColumnIfMissing('brands', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   if (await columnExists('brands', 'subcategory_id')) {
-    await pool.query('ALTER TABLE brands MODIFY subcategory_id INT UNSIGNED NULL');
+    await pool.query('ALTER TABLE brands ALTER COLUMN subcategory_id DROP NOT NULL');
   }
 
   await pool.query(`
@@ -1358,6 +1372,18 @@ async function initDatabase() {
 
   await seedDemoProducts();
   await Wallet.ensureForAllUsers(pool);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS schema_sync_runs (
+      id SERIAL PRIMARY KEY,
+      revision VARCHAR(190) NOT NULL,
+      synced_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )
+  `);
+  await pool.query(
+    'INSERT INTO schema_sync_runs (revision) VALUES (?)',
+    [appRevision]
+  );
+  await runMigrations(pgPool);
 }
 
 async function getUserWithRoles(email) {
