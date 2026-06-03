@@ -10,6 +10,11 @@ function normalizePromotion(row) {
     id: row.id,
     promo_type: row.promo_type || (row.code ? 'coupon' : 'discount'),
     name: row.name,
+    vendor_id: row.vendor_id === null || row.vendor_id === undefined ? null : Number(row.vendor_id),
+    vendor_name: row.vendor_name || '',
+    vendor_store_name: row.vendor_store_name || row.vendor_business_name || '',
+    vendor_logo_path: row.vendor_logo_path || '',
+    vendor_storefront_image_path: row.vendor_storefront_image_path || '',
     code: row.code,
     description: row.description || '',
     value_type: row.value_type,
@@ -98,6 +103,17 @@ function calculateDiscount(promotion, amount) {
   return Math.min(base, Number(promotion.value || 0));
 }
 
+function storeOfferMessage(promotion) {
+  const storeName = promotion.vendor_store_name || promotion.vendor_name || '';
+  if (!storeName) return promotion.scroll_message || '';
+  const variants = [
+    `${storeName}'s new offer`,
+    `New offer from ${storeName}`,
+    `Fresh savings at ${storeName}`,
+  ];
+  return variants[Number(promotion.id || 0) % variants.length];
+}
+
 function validateShape(data, { requireCode = false } = {}) {
   const valueType = String(data.value_type || 'fixed').toLowerCase();
   const applyOn = String(data.apply_on || 'both').toLowerCase();
@@ -119,7 +135,24 @@ function validateShape(data, { requireCode = false } = {}) {
 }
 
 async function listDiscounts() {
-  const [rows] = await pool.query('SELECT * FROM discounts ORDER BY created_at DESC, id DESC');
+  const [rows] = await pool.query(
+    `SELECT d.*, u.name AS vendor_name
+     FROM discounts d
+     LEFT JOIN users u ON u.id = d.vendor_id
+     ORDER BY d.created_at DESC, d.id DESC`
+  );
+  return rows.map(normalizePromotion);
+}
+
+async function listVendorDiscounts(vendorId) {
+  const [rows] = await pool.query(
+    `SELECT d.*, u.name AS vendor_name
+     FROM discounts d
+     LEFT JOIN users u ON u.id = d.vendor_id
+     WHERE d.vendor_id = ?
+     ORDER BY d.created_at DESC, d.id DESC`,
+    [vendorId]
+  );
   return rows.map(normalizePromotion);
 }
 
@@ -133,10 +166,11 @@ async function createDiscount(data) {
   const cityTarget = normalizeCityScope(data);
   const [result] = await pool.query(
     `INSERT INTO discounts
-     (name, description, value_type, value, min_order_amount, start_at, expires_at, is_active, apply_on, usage_limit, per_customer_limit, image_path, background_color, text_color, scroll_message, city_scope, cities)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (name, vendor_id, description, value_type, value, min_order_amount, start_at, expires_at, is_active, apply_on, usage_limit, per_customer_limit, image_path, background_color, text_color, scroll_message, city_scope, cities)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.name,
+      data.vendor_id || null,
       data.description || null,
       data.value_type,
       Number(data.value || 0),
@@ -270,21 +304,23 @@ async function deleteCoupon(id) {
   await pool.query('DELETE FROM coupons WHERE id = ?', [id]);
 }
 
-async function findActiveDiscount(orderType, subtotal, userId, connection = pool) {
+async function findActiveDiscount(orderType, subtotal, userId, connection = pool, vendorId = null) {
   const clientCity = await cityForClient(userId, connection);
+  const vendorClause = vendorId ? '(d.vendor_id IS NULL OR d.vendor_id = ?)' : 'd.vendor_id IS NULL';
   const [rows] = await connection.query(
     `SELECT d.*,
             (SELECT COUNT(*) FROM coupon_history ch WHERE ch.discount_id = d.id) AS usage_count,
             (SELECT COUNT(*) FROM coupon_history ch WHERE ch.discount_id = d.id AND ch.user_id = ?) AS customer_usage_count
      FROM discounts d
      WHERE d.is_active = 1
+       AND ${vendorClause}
        AND d.min_order_amount <= ?
        AND d.apply_on IN (?, 'both')
        AND (d.start_at IS NULL OR d.start_at <= CURRENT_TIMESTAMP)
        AND (d.expires_at IS NULL OR d.expires_at >= CURRENT_TIMESTAMP)
      ORDER BY CASE d.value_type WHEN 'percentage' THEN (? * d.value / 100) ELSE d.value END DESC, d.id DESC
      LIMIT 25`,
-    [userId, subtotal, orderType, subtotal]
+    vendorId ? [userId, vendorId, subtotal, orderType, subtotal] : [userId, subtotal, orderType, subtotal]
   );
 
   for (const row of rows) {
@@ -363,7 +399,7 @@ async function validateCoupon({ code, orderType, subtotal, userId }, connection 
   return coupon;
 }
 
-async function resolveOrderPromotion({ couponCode, orderType, subtotal, userId }, connection = pool) {
+async function resolveOrderPromotion({ couponCode, orderType, subtotal, userId, vendorId = null }, connection = pool) {
   if (couponCode) {
     const coupon = await validateCoupon({ code: couponCode, orderType, subtotal, userId }, connection);
     return {
@@ -375,7 +411,7 @@ async function resolveOrderPromotion({ couponCode, orderType, subtotal, userId }
     };
   }
 
-  const discount = await findActiveDiscount(orderType, subtotal, userId, connection);
+  const discount = await findActiveDiscount(orderType, subtotal, userId, connection, vendorId);
   if (!discount) {
     return { source: null, coupon: null, discount: null, discountAmount: 0, code: null };
   }
@@ -430,8 +466,16 @@ async function activeDisplayPromotions(userId) {
   const clientCity = userId ? await cityForClient(userId) : '';
   const [discountRows] = await pool.query(
     `SELECT id, 'discount' AS promo_type, name, NULL AS code, value_type, value, min_order_amount,
-            image_path, background_color, text_color, scroll_message, apply_on, expires_at, start_at, city_scope, cities
-     FROM discounts
+            image_path, background_color, text_color, scroll_message, apply_on, expires_at, start_at, city_scope, cities,
+            vendor_id, vendor_name, vendor_store_name, vendor_logo_path, vendor_storefront_image_path
+     FROM (
+       SELECT d.*, u.name AS vendor_name, vp.business_name AS vendor_store_name,
+              vp.logo_path AS vendor_logo_path,
+              vp.storefront_image_path AS vendor_storefront_image_path
+       FROM discounts d
+       LEFT JOIN users u ON u.id = d.vendor_id
+       LEFT JOIN vendor_profiles vp ON vp.user_id = d.vendor_id
+     ) discounts
      WHERE is_active = 1
        AND (start_at IS NULL OR start_at <= CURRENT_TIMESTAMP)
        AND (expires_at IS NULL OR expires_at >= CURRENT_TIMESTAMP)
@@ -458,6 +502,8 @@ async function activeDisplayPromotions(userId) {
       ...promotion,
       value: Number(promotion.value || 0),
       min_order_amount: Number(promotion.min_order_amount || 0),
+      scroll_message: storeOfferMessage(promotion),
+      image_path: promotion.image_path || promotion.vendor_storefront_image_path || promotion.vendor_logo_path,
       background_color: promotion.background_color || '#0f766e',
       text_color: promotion.text_color || '#ffffff',
     }));
@@ -465,6 +511,7 @@ async function activeDisplayPromotions(userId) {
 
 module.exports = {
   listDiscounts,
+  listVendorDiscounts,
   listCoupons,
   listHistory,
   createDiscount,

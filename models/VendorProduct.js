@@ -44,6 +44,14 @@ function toNonNegativeNumber(value) {
   return Number.isFinite(parsed) && parsed >= 0 ? parsed : NaN;
 }
 
+function normalizeStatus(value) {
+  if (value === undefined || value === null || value === '') return 'active';
+  if (['active', 'inactive', 'unavailable'].includes(value)) return value;
+  const error = new Error('Status must be active, inactive, or unavailable');
+  error.status = 422;
+  throw error;
+}
+
 async function vendorExists(vendorId) {
   const [rows] = await pool.query("SELECT id FROM users WHERE id = ? AND role = 'Vendor' AND is_deleted = 0 LIMIT 1", [vendorId]);
   return rows.length > 0;
@@ -139,7 +147,8 @@ async function create(data) {
     throw error;
   }
 
-  const quantity = toNonNegativeNumber(data.quantity || 0);
+  const status = normalizeStatus(data.status);
+  const quantity = status === 'unavailable' ? 0 : toNonNegativeNumber(data.quantity || 0);
   const price = toNonNegativeNumber(data.price || 0);
   if (!Number.isFinite(quantity)) {
     const error = new Error('Quantity must be a non-negative number');
@@ -180,7 +189,7 @@ async function create(data) {
            price = EXCLUDED.price,
            status = EXCLUDED.status
        RETURNING id`,
-      [productId, vendorId, quantity, price, data.status === 'inactive' ? 'inactive' : 'active']
+      [productId, vendorId, quantity, price, status]
     );
     await connection.commit();
     return findById(result.insertId || (await findExistingId(productId, vendorId)));
@@ -201,7 +210,10 @@ async function update(id, data) {
   const fields = [];
   const values = [];
 
-  if (Object.prototype.hasOwnProperty.call(data, 'quantity') && data.quantity !== '' && data.quantity !== null && data.quantity !== undefined) {
+  const hasStatus = Object.prototype.hasOwnProperty.call(data, 'status');
+  const nextStatus = hasStatus ? normalizeStatus(data.status) : null;
+
+  if (Object.prototype.hasOwnProperty.call(data, 'quantity') && data.quantity !== '' && data.quantity !== null && data.quantity !== undefined && nextStatus !== 'unavailable') {
     const quantity = toNonNegativeNumber(data.quantity);
     if (!Number.isFinite(quantity)) {
       const error = new Error('Quantity must be a non-negative number');
@@ -223,14 +235,13 @@ async function update(id, data) {
     values.push(price);
   }
 
-  if (Object.prototype.hasOwnProperty.call(data, 'status')) {
-    if (!['active', 'inactive'].includes(data.status)) {
-      const error = new Error('Status must be active or inactive');
-      error.status = 422;
-      throw error;
-    }
+  if (hasStatus) {
     fields.push('status = ?');
-    values.push(data.status);
+    values.push(nextStatus);
+    if (nextStatus === 'unavailable') {
+      fields.push('quantity = ?');
+      values.push(0);
+    }
   }
 
   if (data.image_url) {
@@ -279,6 +290,44 @@ async function deleteClientPrice({ product_id, vendor_id, client_id }) {
     'DELETE FROM vendor_client_product_prices WHERE product_id = ? AND vendor_id = ? AND client_id = ?',
     [product_id, vendor_id, client_id]
   );
+}
+
+async function ensureAllProductsForAllVendors(connection = pool) {
+  const [result] = await connection.query(
+    `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
+     SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
+     FROM products p
+     INNER JOIN users u ON u.role = 'Vendor' AND u.is_deleted = 0
+     WHERE p.is_deleted = 0
+     ON CONFLICT (product_id, vendor_id) DO NOTHING`
+  );
+  return Number(result.affectedRows || result.rowCount || 0);
+}
+
+async function ensureProductForAllVendors(productId, connection = pool) {
+  const [result] = await connection.query(
+    `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
+     SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
+     FROM products p
+     INNER JOIN users u ON u.role = 'Vendor' AND u.is_deleted = 0
+     WHERE p.id = ? AND p.is_deleted = 0
+     ON CONFLICT (product_id, vendor_id) DO NOTHING`,
+    [productId]
+  );
+  return Number(result.affectedRows || result.rowCount || 0);
+}
+
+async function ensureVendorHasAllProducts(vendorId, connection = pool) {
+  const [result] = await connection.query(
+    `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
+     SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
+     FROM users u
+     INNER JOIN products p ON p.is_deleted = 0
+     WHERE u.id = ? AND u.role = 'Vendor' AND u.is_deleted = 0
+     ON CONFLICT (product_id, vendor_id) DO NOTHING`,
+    [vendorId]
+  );
+  return Number(result.affectedRows || result.rowCount || 0);
 }
 
 async function approveProduct({ product_id, approved_by, default_price }) {
@@ -425,6 +474,9 @@ module.exports = {
   remove,
   setClientPrice,
   deleteClientPrice,
+  ensureAllProductsForAllVendors,
+  ensureProductForAllVendors,
+  ensureVendorHasAllProducts,
   approveProduct,
   rejectProduct,
   visibleForClient,

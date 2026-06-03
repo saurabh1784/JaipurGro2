@@ -281,12 +281,13 @@
                   <th>ID</th>
                   <th>Name</th>
                   <th>Slug</th>
+                  <th>Tax</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="categoryTableBody">
-                <tr><td colspan="5">Loading...</td></tr>
+                <tr><td colspan="6">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -569,6 +570,14 @@
           Slug
           <input id="catalogSlugInput" type="text" placeholder="auto-generated when empty" />
         </label>
+        <label class="catalog-tax-field" id="catalogTaxNameField">
+          Tax Name
+          <input id="catalogTaxNameInput" type="text" placeholder="Example: GST" />
+        </label>
+        <label class="catalog-tax-field" id="catalogTaxPercentageField">
+          Tax %
+          <input id="catalogTaxPercentageInput" type="number" min="0" max="100" step="0.01" />
+        </label>
         <label class="catalog-logo-field" id="catalogLogoField">
           Logo
           <input id="catalogLogoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
@@ -641,7 +650,7 @@
       const subcategoryBody = document.getElementById('subcategoryTableBody');
       const brandBody = document.getElementById('brandTableBody');
       tree.textContent = 'Loading catalog...';
-      categoryBody.innerHTML = '<tr><td colspan="5">Loading...</td></tr>';
+      categoryBody.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
       subcategoryBody.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
       brandBody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
 
@@ -800,6 +809,7 @@
             <td>${row.id}</td>
             <td>${escapeCatalog(row.name)}</td>
             <td>${escapeCatalog(row.slug)}</td>
+            <td>${escapeCatalog(row.tax_name || '-')}<br><small>${row.tax_percentage === null || row.tax_percentage === undefined ? '-' : Number(row.tax_percentage || 0).toFixed(2) + '%'}</small></td>
             <td><span class="user-status-pill ${row.is_active ? 'active' : 'inactive'}">${row.is_active ? 'active' : 'inactive'}</span></td>
             <td>
               <div class="user-actions">
@@ -809,7 +819,7 @@
             </td>
           </tr>
         `).join('')
-        : '<tr><td colspan="5">No categories found</td></tr>';
+        : '<tr><td colspan="6">No categories found</td></tr>';
 
       document.getElementById('subcategoryTableBody').innerHTML = subcategories.length
         ? subcategories.map((row) => `
@@ -856,10 +866,14 @@
       document.getElementById('catalogModalTitle').textContent = `${item ? 'Edit' : 'Add'} ${type}`;
       document.getElementById('catalogNameInput').value = item ? item.name : '';
       document.getElementById('catalogSlugInput').value = item ? item.slug : '';
+      document.getElementById('catalogTaxNameInput').value = item && item.tax_name ? item.tax_name : '';
+      document.getElementById('catalogTaxPercentageInput').value = item && item.tax_percentage !== null && item.tax_percentage !== undefined ? Number(item.tax_percentage).toFixed(2) : '';
       document.getElementById('catalogActiveInput').checked = item ? item.is_active : true;
       document.getElementById('catalogCategoryField').style.display = type === 'subcategory' || type === 'brand' ? 'block' : 'none';
       document.getElementById('catalogSubcategoryField').style.display = type === 'brand' ? 'block' : 'none';
       document.getElementById('catalogLogoField').style.display = type === 'brand' ? 'block' : 'none';
+      document.getElementById('catalogTaxNameField').style.display = type === 'category' ? 'block' : 'none';
+      document.getElementById('catalogTaxPercentageField').style.display = type === 'category' ? 'block' : 'none';
       document.getElementById('catalogLogoInput').value = '';
       document.getElementById('catalogCategoryInput').value = item && item.category_id ? item.category_id : '';
       updateCatalogSubcategoryInput(item && (item.sub_category_id || item.subcategory_id) ? (item.sub_category_id || item.subcategory_id) : '');
@@ -883,6 +897,10 @@
       };
 
       if (type === 'subcategory') payload.category_id = document.getElementById('catalogCategoryInput').value;
+      if (type === 'category') {
+        payload.tax_name = document.getElementById('catalogTaxNameInput').value;
+        payload.tax_percentage = document.getElementById('catalogTaxPercentageInput').value;
+      }
       if (type === 'brand') {
         payload.category_id = document.getElementById('catalogCategoryInput').value;
         payload.sub_category_id = document.getElementById('catalogSubcategoryInput').value;

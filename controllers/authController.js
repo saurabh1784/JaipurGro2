@@ -3,6 +3,7 @@ const pool = require('../db');
 const User = require('../models/User');
 const Profile = require('../models/Profile');
 const Wallet = require('../models/Wallet');
+const VendorProduct = require('../models/VendorProduct');
 const { sign } = require('../utils/jwt');
 const { revokeToken } = require('../middleware/tokenBlacklist');
 const { validateSignup, validateLogin } = require('../middleware/validators');
@@ -40,6 +41,9 @@ async function signup(req, res) {
     const userId = await User.create({ name, email, phone, password: hashedPassword, role }, connection);
     await Profile.createEmptyForRole(userId, role, connection);
     await Wallet.ensureForUser(userId, connection);
+    if (role === 'Vendor') {
+      await VendorProduct.ensureVendorHasAllProducts(userId, connection);
+    }
     await connection.commit();
 
     const user = await User.findById(userId);

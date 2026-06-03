@@ -3,10 +3,12 @@ const Promotion = require('./Promotion');
 
 function normalizeRows(rows) {
   const requests = new Map();
+  const itemKeysByRequest = new Map();
 
   for (const row of rows) {
-    if (!requests.has(row.id)) {
-      requests.set(row.id, {
+    const requestKey = `${row.id}:${row.recipient_id || row.vendor_id || 'request'}`;
+    if (!requests.has(requestKey)) {
+      requests.set(requestKey, {
         id: row.id,
         client_id: row.client_id,
         client_name: row.client_name,
@@ -17,6 +19,7 @@ function normalizeRows(rows) {
         recipient_status: row.recipient_status,
         recipient_id: row.recipient_id,
         response_total: Number(row.response_total || 0),
+        min_bid_price: row.min_bid_price === undefined || row.min_bid_price === null ? null : Number(row.min_bid_price || 0),
         discount_percent: Number(row.discount_percent || 0),
         actual_total: Number(row.actual_total || 0),
         savings: Number(row.savings || 0),
@@ -29,27 +32,58 @@ function normalizeRows(rows) {
         created_at: row.created_at,
         items: [],
       });
+      itemKeysByRequest.set(requestKey, new Set());
     }
 
     if (row.item_id) {
-      requests.get(row.id).items.push({
+      const itemKeys = itemKeysByRequest.get(requestKey);
+      const itemKey = String(row.product_id || row.item_id);
+      if (itemKeys.has(itemKey)) continue;
+      itemKeys.add(itemKey);
+
+      const catalogUnavailable = row.vendor_product_status === 'unavailable' || (row.stock !== undefined && row.stock !== null && Number(row.stock || 0) <= 0);
+      const itemStatus = catalogUnavailable ? 'not_available' : (row.item_status || 'available');
+      const unitPrice = row.unit_price === undefined || row.unit_price === null ? Number(row.default_vendor_price || row.expected_price || 0) : Number(row.unit_price || 0);
+      const quantity = Number(row.quantity || row.requested_quantity || 0);
+      requests.get(requestKey).items.push({
         id: row.item_id,
         vendor_product_id: row.vendor_product_id,
         product_id: row.product_id,
         product_name: row.product_name,
-        quantity: Number(row.quantity || row.requested_quantity || 0),
+        quantity,
         expected_price: Number(row.expected_price || 0),
         admin_price: Number(row.admin_price || row.expected_price || 0),
-        status: row.item_status || 'available',
+        status: itemStatus,
         in_catalog: Boolean(row.in_catalog),
-        unit_price: row.unit_price === undefined || row.unit_price === null ? Number(row.default_vendor_price || row.expected_price || 0) : Number(row.unit_price || 0),
-        line_total: Number(row.line_total || 0),
+        stock: row.stock === undefined || row.stock === null ? null : Number(row.stock || 0),
+        vendor_product_status: row.vendor_product_status,
+        unit_price: unitPrice,
+        line_total: itemStatus === 'not_available' ? 0 : Number(row.line_total || unitPrice * quantity || 0),
         master_line_total: Number(row.master_line_total || 0),
       });
     }
   }
 
-  return [...requests.values()];
+  return [...requests.values()].map((request) => {
+    if (['submitted', 'accepted'].includes(request.recipient_status)) {
+      request.response_total = request.items.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+      request.savings = Number(request.actual_total || 0) - request.response_total;
+    }
+    return request;
+  });
+}
+
+function cheapestClientResponses(quotations) {
+  const byRequest = new Map();
+  for (const quotation of quotations) {
+    const existing = byRequest.get(quotation.id);
+    const currentTotal = Number(quotation.response_total || 0);
+    const existingTotal = existing ? Number(existing.response_total || 0) : Number.POSITIVE_INFINITY;
+    if (!existing || currentTotal < existingTotal) {
+      byRequest.set(quotation.id, quotation);
+    }
+  }
+  return [...byRequest.values()];
 }
 
 async function createForCityVendors({ clientId, items }) {
@@ -69,7 +103,7 @@ async function createForCityVendors({ clientId, items }) {
       throw error;
     }
 
-    const vendorProductIds = items.map((item) => Number(item.vendorProductId || item.id)).filter(Boolean);
+    const vendorProductIds = items.map((item) => Number(item.vendorProductId || item.vendor_product_id || item.id)).filter(Boolean);
     if (vendorProductIds.length === 0) {
       const error = new Error('No valid products were selected');
       error.status = 422;
@@ -86,8 +120,9 @@ async function createForCityVendors({ clientId, items }) {
     );
     const productMap = new Map(productRows.map((row) => [Number(row.vendor_product_id), row]));
 
-    const normalizedItems = items.map((item) => {
-      const vendorProductId = Number(item.vendorProductId || item.id);
+    const normalizedItemsByProduct = new Map();
+    for (const item of items) {
+      const vendorProductId = Number(item.vendorProductId || item.vendor_product_id || item.id);
       const product = productMap.get(vendorProductId);
       if (!product) {
         const error = new Error(`Product not found: ${vendorProductId}`);
@@ -95,14 +130,26 @@ async function createForCityVendors({ clientId, items }) {
         throw error;
       }
 
-      return {
+      const normalized = {
         vendorProductId,
         productId: product.product_id,
         productName: product.product_name,
         quantity: Math.max(1, Number(item.quantity || 1)),
         expectedPrice: Number(item.price || 0),
       };
-    });
+
+      const existing = normalizedItemsByProduct.get(Number(normalized.productId));
+      if (!existing) {
+        normalizedItemsByProduct.set(Number(normalized.productId), normalized);
+      } else {
+        existing.quantity = Math.max(existing.quantity, normalized.quantity);
+        if (normalized.expectedPrice > 0 && (existing.expectedPrice <= 0 || normalized.expectedPrice < existing.expectedPrice)) {
+          existing.vendorProductId = normalized.vendorProductId;
+          existing.expectedPrice = normalized.expectedPrice;
+        }
+      }
+    }
+    const normalizedItems = [...normalizedItemsByProduct.values()];
 
     const totalAmount = normalizedItems.reduce((sum, item) => sum + item.expectedPrice * item.quantity, 0);
 
@@ -172,7 +219,8 @@ async function listForVendor(vendorId) {
             qr.status,
             qr.created_at,
             qvr.status AS recipient_status,
-            qvr.total_amount AS response_total,
+            CASE WHEN qvr.status IN ('submitted', 'accepted') THEN qvr.total_amount ELSE 0 END AS response_total,
+            bid_totals.min_bid_price,
             qvr.discount_percent,
             u.name AS client_name,
             u.email AS client_email,
@@ -187,13 +235,22 @@ async function listForVendor(vendorId) {
             CASE WHEN vp.id IS NULL THEN 0 ELSE 1 END AS in_catalog,
             COALESCE(qvri.unit_price, NULLIF(vp.price, 0), p.price, qri.expected_price) AS unit_price,
             qvri.line_total,
-            vp.price AS default_vendor_price
+            vp.price AS default_vendor_price,
+            vp.quantity AS stock,
+            vp.status AS vendor_product_status
      FROM quotation_vendor_recipients qvr
      INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id
      INNER JOIN users u ON u.id = qr.client_id
      LEFT JOIN quotation_request_items qri ON qri.quotation_request_id = qr.id
      LEFT JOIN products p ON p.id = qri.product_id
      LEFT JOIN vendor_products vp ON vp.vendor_id = qvr.vendor_id AND vp.product_id = qri.product_id
+     LEFT JOIN (
+       SELECT quotation_request_id, MIN(total_amount) AS min_bid_price
+       FROM quotation_vendor_recipients
+       WHERE status IN ('submitted', 'accepted')
+         AND total_amount > 0
+       GROUP BY quotation_request_id
+     ) bid_totals ON bid_totals.quotation_request_id = qr.id
      LEFT JOIN quotation_vendor_response_items qvri
        ON qvri.quotation_vendor_recipient_id = qvr.id
       AND qvri.quotation_request_item_id = qri.id
@@ -235,11 +292,13 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
 
     const placeholders = requestItemIds.map(() => '?').join(',');
     const [requestItems] = await connection.query(
-      `SELECT qri.id, qri.product_id, qri.product_name, qri.quantity, p.price AS admin_price
+      `SELECT qri.id, qri.product_id, qri.product_name, qri.quantity, p.price AS admin_price,
+              vp.quantity AS stock, vp.status AS vendor_product_status
        FROM quotation_request_items qri
        INNER JOIN products p ON p.id = qri.product_id
+       LEFT JOIN vendor_products vp ON vp.vendor_id = ? AND vp.product_id = qri.product_id
        WHERE qri.quotation_request_id = ? AND qri.id IN (${placeholders})`,
-      [recipientRows[0].quotation_request_id, ...requestItemIds]
+      [vendorId, recipientRows[0].quotation_request_id, ...requestItemIds]
     );
     const itemMap = new Map(requestItems.map((item) => [Number(item.id), item]));
     let total = 0;
@@ -249,7 +308,8 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
       const existing = itemMap.get(itemId);
       if (!existing) continue;
       const quantity = Math.max(1, Number(submitted.quantity || existing.quantity || 1));
-      const status = submitted.status === 'not_available' || submitted.status === 'NA' ? 'not_available' : 'available';
+      const catalogUnavailable = existing.vendor_product_status === 'unavailable' || (existing.stock !== null && existing.stock !== undefined && Number(existing.stock || 0) <= 0);
+      const status = catalogUnavailable || submitted.status === 'not_available' || submitted.status === 'NA' ? 'not_available' : 'available';
       const unitPrice = Math.max(0, Number(submitted.unit_price || submitted.price || existing.admin_price || 0));
       const lineTotal = status === 'available' ? quantity * unitPrice : 0;
       total += lineTotal;
@@ -341,7 +401,7 @@ async function listForClient(clientId) {
             qvr.decided_at,
             vu.name AS vendor_name,
             vu.email AS vendor_email,
-            vp.business_name AS vendor_store_name,
+            vprof.business_name AS vendor_store_name,
             qvri.id AS response_item_id,
             qri.id AS item_id,
             qri.vendor_product_id,
@@ -355,11 +415,13 @@ async function listForClient(clientId) {
             qvri.unit_price,
             qvri.line_total,
             qri.quantity AS requested_quantity,
-            qri.quantity * p.price AS master_line_total
+            qri.quantity * p.price AS master_line_total,
+            vprod.quantity AS stock,
+            vprod.status AS vendor_product_status
      FROM quotation_vendor_recipients qvr
      INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id
      INNER JOIN users vu ON vu.id = qvr.vendor_id
-     LEFT JOIN vendor_profiles vp ON vp.user_id = qvr.vendor_id
+     LEFT JOIN vendor_profiles vprof ON vprof.user_id = qvr.vendor_id
      INNER JOIN (
        SELECT quotation_request_id,
               SUM(quantity * p.price) AS actual_total
@@ -369,15 +431,17 @@ async function listForClient(clientId) {
      ) totals ON totals.quotation_request_id = qr.id
      INNER JOIN quotation_request_items qri ON qri.quotation_request_id = qr.id
      INNER JOIN products p ON p.id = qri.product_id
+     LEFT JOIN vendor_products vprod ON vprod.vendor_id = qvr.vendor_id AND vprod.product_id = qri.product_id
      LEFT JOIN quotation_vendor_response_items qvri
        ON qvri.quotation_vendor_recipient_id = qvr.id
       AND qvri.quotation_request_item_id = qri.id
      WHERE qr.client_id = ?
+       AND qvr.status = 'submitted'
      ORDER BY qr.created_at DESC, qvr.submitted_at DESC NULLS LAST, qvr.id ASC, qri.id ASC`,
     [clientId]
   );
 
-  return normalizeRows(rows);
+  return cheapestClientResponses(normalizeRows(rows));
 }
 
 async function decideClientResponse({ recipientId, clientId, decision, couponCode = '' }) {
@@ -410,10 +474,14 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
 
     const recipient = recipientRows[0];
     const [items] = await connection.query(
-      `SELECT qvri.*, qri.product_id, vp.id AS vendor_product_id, vp.quantity AS stock
+      `SELECT qvri.*, qri.product_id, vp.id AS vendor_product_id, vp.quantity AS stock, vp.status AS vendor_product_status,
+              CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
+              COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
        FROM quotation_vendor_response_items qvri
        INNER JOIN quotation_request_items qri ON qri.id = qvri.quotation_request_item_id
        INNER JOIN vendor_products vp ON vp.vendor_id = ? AND vp.product_id = qri.product_id
+       INNER JOIN products p ON p.id = qri.product_id
+       INNER JOIN categories c ON c.id = p.category_id
        WHERE qvri.quotation_vendor_recipient_id = ?
        FOR UPDATE`,
       [recipient.vendor_id, recipientId]
@@ -425,6 +493,9 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     }
 
     for (const item of items) {
+      if (item.status === 'not_available' || item.vendor_product_status === 'unavailable') {
+        continue;
+      }
       if (Number(item.stock || 0) < Number(item.quantity || 0)) {
         const error = new Error(`Insufficient stock for ${item.product_name}`);
         error.status = 422;
@@ -432,7 +503,21 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       }
     }
 
-    const subtotalAmount = items.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+    const purchasableItems = items.filter((item) => item.status !== 'not_available' && item.vendor_product_status !== 'unavailable');
+    if (!purchasableItems.length) {
+      const error = new Error('Quotation has no available items to order');
+      error.status = 422;
+      throw error;
+    }
+    const subtotalAmount = purchasableItems.reduce((sum, item) => sum + Number(item.line_total || 0), 0);
+    const [quoteTotalRows] = await connection.query(
+      `SELECT SUM(qri.quantity * p.price) AS actual_total
+       FROM quotation_request_items qri
+       INNER JOIN products p ON p.id = qri.product_id
+       WHERE qri.quotation_request_id = ?`,
+      [recipient.quotation_request_id]
+    );
+    const quotationAppTotal = Number(quoteTotalRows[0]?.actual_total || subtotalAmount || 0);
     const promotion = await Promotion.resolveOrderPromotion({
       couponCode,
       orderType: 'quotation',
@@ -441,6 +526,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     }, connection);
     const discountAmount = Number(promotion.discountAmount || 0);
     const totalAmount = Math.max(subtotalAmount - discountAmount, 0);
+    const savingsAmount = Math.max(quotationAppTotal - subtotalAmount, 0) + discountAmount;
 
     // Get client details for denormalization
     const [clientRows] = await connection.query(
@@ -452,13 +538,14 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
 
     const [orderResult] = await connection.query(
       `INSERT INTO client_orders 
-       (user_id, vendor_id, subtotal_amount, discount_amount, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         recipient.vendor_id,
         subtotalAmount,
         discountAmount,
+        savingsAmount,
         promotion.coupon ? promotion.coupon.id : null,
         promotion.code || null,
         promotion.discount ? promotion.discount.id : null,
@@ -488,10 +575,25 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       [orderId, null, 'pending', clientId, 'Client', 'Quotation accepted']
     );
 
-    for (const item of items) {
+    for (const item of purchasableItems) {
+      const lineTotal = Number(item.line_total || (Number(item.unit_price || 0) * Number(item.quantity || 0)));
+      const taxPercentage = Math.max(0, Number(item.tax_percentage || 0));
+      const taxAmount = taxPercentage > 0 ? lineTotal * taxPercentage / (100 + taxPercentage) : 0;
+      const taxableAmount = lineTotal - taxAmount;
       await connection.query(
-        'INSERT INTO client_order_items (order_id, vendor_product_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
-        [orderId, item.vendor_product_id, item.quantity, item.unit_price]
+        `INSERT INTO client_order_items
+         (order_id, vendor_product_id, quantity, unit_price, tax_name, tax_percentage, tax_amount, taxable_amount)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          item.vendor_product_id,
+          item.quantity,
+          item.unit_price,
+          item.tax_name || null,
+          taxPercentage,
+          taxAmount,
+          taxableAmount,
+        ]
       );
       await connection.query(
         'UPDATE vendor_products SET quantity = quantity - ? WHERE id = ?',

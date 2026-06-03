@@ -47,6 +47,14 @@
             <input id="productPrice" type="number" min="0" step="0.01" required />
           </label>
           <label>
+            Tax Name
+            <input id="productTaxName" type="text" placeholder="Uses category tax if blank" />
+          </label>
+          <label>
+            Tax %
+            <input id="productTaxPercentage" type="number" min="0" max="100" step="0.01" placeholder="Category default" />
+          </label>
+          <label>
             Product Image
             <input id="productImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
             <span class="image-helper">Images are fitted to the product card without cutting edges.</span>
@@ -69,7 +77,7 @@
         <form id="bulkUploadForm" class="bulk-upload-panel">
           <div>
             <h2>Bulk Upload</h2>
-            <p>Upload CSV, XLS, or XLSX with name, description, price, category, subcategory, brand.</p>
+            <p>Upload CSV, XLS, or XLSX with name, description, price, tax_name, tax_percentage, category, subcategory, brand.</p>
           </div>
           <label>
             File
@@ -110,13 +118,14 @@
               <th>Category</th>
               <th>Subcategory</th>
               <th>Brand</th>
+              <th>Tax</th>
               <th>Search Boost</th>
               <th>Price</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="productsTableBody">
-            <tr><td colspan="10">Loading products...</td></tr>
+            <tr><td colspan="11">Loading products...</td></tr>
           </tbody>
         </table>
       </div>
@@ -350,7 +359,7 @@
       const response = await fetch(`/products?${params.toString()}`, { headers: { Accept: 'application/json' } });
       const data = await readJsonResponse(response);
       if (!data.success) {
-        tableBody.innerHTML = `<tr><td colspan="9">${escapeHtml(data.message || 'Unable to load products')}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="11">${escapeHtml(data.message || 'Unable to load products')}</td></tr>`;
         return;
       }
       products = data.products || [];
@@ -361,7 +370,7 @@
 
     function renderProducts() {
       if (!products.length) {
-        tableBody.innerHTML = '<tr><td colspan="10">No products found</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="11">No products found</td></tr>';
       } else {
         tableBody.innerHTML = products.map((product) => `
           <tr>
@@ -372,6 +381,10 @@
             <td>${escapeHtml(product.category_name)}</td>
             <td>${escapeHtml(product.sub_category_name)}</td>
             <td>${brandLogoMarkup({ name: product.brand_name, logo_path: product.brand_logo_path })}</td>
+            <td>
+              <strong>${escapeHtml(product.applied_tax_name || product.tax_name || product.category_tax_name || 'No tax')}</strong><br>
+              <small>${Number(product.applied_tax_percentage || 0).toFixed(2)}%${product.tax_percentage === null || product.tax_percentage === undefined ? ' category' : ' product'}</small>
+            </td>
             <td>
               <div class="search-boost-cell">
                 <label class="sponsored-toggle">
@@ -417,6 +430,8 @@
       document.getElementById('productName').value = product.name;
       document.getElementById('productDescription').value = product.description || '';
       document.getElementById('productPrice').value = Number(product.price).toFixed(2);
+      document.getElementById('productTaxName').value = product.tax_name || '';
+      document.getElementById('productTaxPercentage').value = product.tax_percentage === null || product.tax_percentage === undefined ? '' : Number(product.tax_percentage).toFixed(2);
       document.getElementById('productImage').value = '';
       document.getElementById('productCategory').value = product.category_id;
       updateProductSubcategories(product.sub_category_id);
@@ -517,6 +532,8 @@
       payload.append('name', document.getElementById('productName').value);
       payload.append('description', document.getElementById('productDescription').value);
       payload.append('price', document.getElementById('productPrice').value);
+      payload.append('tax_name', document.getElementById('productTaxName').value);
+      payload.append('tax_percentage', document.getElementById('productTaxPercentage').value);
       payload.append('category_id', document.getElementById('productCategory').value);
       payload.append('sub_category_id', document.getElementById('productSubcategory').value);
       payload.append('brand_id', document.getElementById('productBrand').value);
@@ -586,7 +603,7 @@
       document.getElementById('deleteModal').classList.remove('active');
     });
     document.getElementById('downloadTemplate').addEventListener('click', () => {
-      const csv = 'name,description,price,category,subcategory,brand\nSample Rice,Long grain rice,120,Grains & Staples,Rice,Fortune\n';
+      const csv = 'name,description,price,tax_name,tax_percentage,category,subcategory,brand\nSample Rice,Long grain rice,120,GST,5,Grains & Staples,Rice,Fortune\n';
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       link.download = 'product-upload-template.csv';
@@ -597,7 +614,7 @@
     loadCatalog()
       .then(() => loadProducts())
       .catch((error) => {
-        tableBody.innerHTML = `<tr><td colspan="9">${escapeHtml(error.message)}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="11">${escapeHtml(error.message)}</td></tr>`;
       });
   </script>
 </body>

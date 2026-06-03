@@ -25,7 +25,7 @@ const VENDOR_TRANSITIONS = {
   pending: ['accepted'],
   accepted: ['processing'],
   processing: ['ready_for_pickup'],
-  ready_for_pickup: ['picked_up', 'on_the_way'],
+  ready_for_pickup: ['picked_up'],
   picked_up: ['on_the_way'],
 };
 
@@ -58,13 +58,28 @@ function normalizeOrder(row, includeItems = false) {
     client_phone: row.client_phone || '',
     client_address: row.client_address || '',
     client_city: row.client_city || '',
+    vendor_name: row.vendor_name || '',
+    vendor_email: row.vendor_email || '',
+    vendor_phone: row.vendor_phone || '',
+    vendor_business_name: row.vendor_business_name || '',
+    vendor_gst_number: row.vendor_gst_number || '',
+    vendor_address: row.vendor_address || '',
+    vendor_country: row.vendor_country || '',
+    vendor_state: row.vendor_state || '',
+    vendor_city: row.vendor_city || '',
+    vendor_services: row.vendor_services || '',
     subtotal_amount: Number(row.subtotal_amount || row.total_amount || 0),
     discount_amount: Number(row.discount_amount || 0),
+    savings_amount: Number(row.savings_amount || row.discount_amount || 0),
+    delivery_charge: Number(row.delivery_charge || 0),
     coupon_id: row.coupon_id || null,
     coupon_code: row.coupon_code || '',
     discount_id: row.discount_id || null,
     discount_label: row.discount_label || '',
     order_type: row.order_type || 'direct',
+    invoice_number: row.invoice_number || '',
+    invoice_pdf_path: row.invoice_pdf_path || '',
+    invoice_generated_at: row.invoice_generated_at,
     total_amount: Number(row.total_amount || 0),
     status: normalizeStatus(row.status),
     status_label: statusLabel(row.status),
@@ -93,6 +108,10 @@ function normalizeOrder(row, includeItems = false) {
       quantity: Number(item.quantity || 0),
       unit_price: Number(item.unit_price || 0),
       line_total: Number(item.line_total || 0),
+      tax_name: item.tax_name || '',
+      tax_percentage: Number(item.tax_percentage || 0),
+      tax_amount: Number(item.tax_amount || 0),
+      taxable_amount: Number(item.taxable_amount || 0),
       vendor_name: item.vendor_name || '',
       vendor_business_name: item.vendor_business_name || '',
     }));
@@ -146,7 +165,15 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
     `SELECT o.*,
             COALESCE(o.vendor_id, item_vendor.vendor_id) AS vendor_id,
             v.name AS vendor_name,
+            v.email AS vendor_email,
+            v.phone AS vendor_phone,
             vp.business_name AS vendor_business_name,
+            vp.gst_number AS vendor_gst_number,
+            vp.address AS vendor_address,
+            vp.country AS vendor_country,
+            vp.state AS vendor_state,
+            vp.city AS vendor_city,
+            vp.services AS vendor_services,
             cp.city AS client_city,
             dp.name AS delivery_partner_name
             , otp_user.name AS otp_set_by_name,
@@ -201,7 +228,15 @@ async function listByVendor(vendorId, { status = '', search = '' } = {}) {
     `SELECT o.*,
             COALESCE(o.vendor_id, item_vendor.vendor_id) AS vendor_id,
             v.name AS vendor_name,
+            v.email AS vendor_email,
+            v.phone AS vendor_phone,
             vp.business_name AS vendor_business_name,
+            vp.gst_number AS vendor_gst_number,
+            vp.address AS vendor_address,
+            vp.country AS vendor_country,
+            vp.state AS vendor_state,
+            vp.city AS vendor_city,
+            vp.services AS vendor_services,
             cp.city AS client_city,
             dp.name AS delivery_partner_name
             , otp_user.name AS otp_set_by_name,
@@ -231,7 +266,15 @@ async function listByClient(clientId) {
     `SELECT o.*,
             COALESCE(o.vendor_id, item_vendor.vendor_id) AS vendor_id,
             v.name AS vendor_name,
+            v.email AS vendor_email,
+            v.phone AS vendor_phone,
             vp.business_name AS vendor_business_name,
+            vp.gst_number AS vendor_gst_number,
+            vp.address AS vendor_address,
+            vp.country AS vendor_country,
+            vp.state AS vendor_state,
+            vp.city AS vendor_city,
+            vp.services AS vendor_services,
             cp.city AS client_city,
             dp.name AS delivery_partner_name
             , otp_user.name AS otp_set_by_name,
@@ -261,7 +304,15 @@ async function findById(orderId) {
     `SELECT o.*,
             COALESCE(o.vendor_id, item_vendor.vendor_id) AS vendor_id,
             v.name AS vendor_name,
+            v.email AS vendor_email,
+            v.phone AS vendor_phone,
             vp.business_name AS vendor_business_name,
+            vp.gst_number AS vendor_gst_number,
+            vp.address AS vendor_address,
+            vp.country AS vendor_country,
+            vp.state AS vendor_state,
+            vp.city AS vendor_city,
+            vp.services AS vendor_services,
             cp.city AS client_city,
             dp.name AS delivery_partner_name
             , otp_user.name AS otp_set_by_name,
@@ -312,6 +363,10 @@ async function getOrderItems(orderId) {
     quantity: Number(row.quantity || 0),
     unit_price: Number(row.unit_price || 0),
     line_total: Number(row.unit_price * row.quantity || 0).toFixed(2),
+    tax_name: row.tax_name || '',
+    tax_percentage: Number(row.tax_percentage || 0),
+    tax_amount: Number(row.tax_amount || 0),
+    taxable_amount: Number(row.taxable_amount || 0),
     vendor_name: row.vendor_name,
     vendor_business_name: row.vendor_business_name,
   }));
@@ -349,6 +404,21 @@ function getAllowedNextStatuses(currentStatus, actorRole) {
   if (role === 'vendor') return VENDOR_TRANSITIONS[status] || [];
   if (role === 'admin' || role === 'superadmin' || role === 'staff') return ADMIN_TRANSITIONS[status] || [];
   return [];
+}
+
+function getAllowedNextStatusesForOrder(order, actorRole) {
+  const role = String(actorRole || '').toLowerCase();
+  let statuses = getAllowedNextStatuses(order.status, role);
+  if (role === 'vendor') {
+    const hasDeliveryPartner = Boolean(order.delivery_partner_id);
+    statuses = statuses.filter((status) => {
+      if ([ORDER_STATUS.PICKED_UP, ORDER_STATUS.ON_THE_WAY].includes(status)) {
+        return hasDeliveryPartner;
+      }
+      return status !== ORDER_STATUS.DELIVERED;
+    });
+  }
+  return statuses;
 }
 
 function syncedDeliveryStatus(status, currentDeliveryStatus) {
@@ -398,7 +468,7 @@ async function updateStatus({ orderId, actorUser, newStatus, note = '' }) {
 
     const order = orderRows[0];
     const currentStatus = normalizeStatus(order.status);
-    const allowedNext = getAllowedNextStatuses(currentStatus, actorRole);
+    const allowedNext = getAllowedNextStatusesForOrder(order, actorRole);
     if (!allowedNext.includes(targetStatus)) {
       const error = new Error(`Cannot change order from ${statusLabel(currentStatus)} to ${statusLabel(targetStatus)}`);
       error.status = 422;
@@ -441,7 +511,7 @@ async function updateStatus({ orderId, actorUser, newStatus, note = '' }) {
   }
 }
 
-async function assignDeliveryPartner(orderId, partnerId, otp, actorUser = null) {
+async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0, actorUser = null) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -456,24 +526,44 @@ async function assignDeliveryPartner(orderId, partnerId, otp, actorUser = null) 
     }
 
     const order = orderRows[0];
-    if (order.status !== 'pending' && order.delivery_status !== 'pending') {
-      throw new Error('Only orders in pending status can be assigned a delivery partner');
+    const assignableDeliveryStatuses = ['pending', 'assigned', 'ready_to_deliver'];
+    const deliveryStatus = String(order.delivery_status || 'pending').toLowerCase();
+    const orderStatus = String(order.status || '').toLowerCase();
+    if (!assignableDeliveryStatuses.includes(deliveryStatus) || ['delivered', 'completed'].includes(orderStatus)) {
+      throw new Error('Delivery partner can be assigned before the order is out for delivery or delivered');
     }
 
-    // Verify partner exists, is Staff role, and is enabled for the order city.
+    // Verify partner exists, is Staff role, and is enabled for the order city when configured.
     const [partnerRows] = await connection.query(
       `SELECT u.id, u.name, u.role
        FROM users u
        INNER JOIN client_orders o ON o.id = ?
+       LEFT JOIN (
+         SELECT coi.order_id, MIN(vpi.vendor_id) AS vendor_id
+         FROM client_order_items coi
+         INNER JOIN vendor_products vpi ON vpi.id = coi.vendor_product_id
+         GROUP BY coi.order_id
+       ) item_vendor ON item_vendor.order_id = o.id
        LEFT JOIN client_profiles cp ON cp.user_id = o.user_id
-       INNER JOIN delivery_partner_settings dps
+       LEFT JOIN vendor_profiles vp ON vp.user_id = COALESCE(o.vendor_id, item_vendor.vendor_id)
+       LEFT JOIN delivery_partner_settings dps
          ON dps.user_id = u.id
         AND dps.is_active = 1
-        AND LOWER(TRIM(dps.city)) = LOWER(TRIM(COALESCE(cp.city, '')))
+        AND LOWER(TRIM(dps.city)) = LOWER(COALESCE(NULLIF(TRIM(cp.city), ''), NULLIF(TRIM(vp.city), '')))
        WHERE u.id = ?
-         AND u.status = 'active'
+         AND LOWER(u.status) = 'active'
          AND u.is_deleted = 0
          AND LOWER(u.role) = 'staff'
+         AND (
+           COALESCE(NULLIF(TRIM(cp.city), ''), NULLIF(TRIM(vp.city), '')) IS NULL
+           OR dps.id IS NOT NULL
+           OR NOT EXISTS (
+             SELECT 1
+             FROM delivery_partner_settings dps_any
+             WHERE dps_any.user_id = u.id
+               AND dps_any.is_active = 1
+           )
+         )
        LIMIT 1`,
       [orderId, partnerId]
     );
@@ -486,13 +576,14 @@ async function assignDeliveryPartner(orderId, partnerId, otp, actorUser = null) 
       `UPDATE client_orders
        SET delivery_partner_id = ?,
            delivery_otp = ?,
+           delivery_charge = ?,
            otp_set_by = ?,
            otp_set_at = CURRENT_TIMESTAMP,
-           delivery_status = 'assigned',
+           delivery_status = CASE WHEN delivery_status = 'ready_to_deliver' THEN delivery_status ELSE 'assigned' END,
            assigned_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [partnerId, otp, actorUser ? actorUser.id : null, orderId]
+      [partnerId, otp, deliveryCharge, actorUser ? actorUser.id : null, orderId]
     );
 
     await connection.query(
@@ -504,7 +595,7 @@ async function assignDeliveryPartner(orderId, partnerId, otp, actorUser = null) 
         'assigned',
         actorUser ? actorUser.id : null,
         actorUser ? actorUser.role : null,
-        `OTP set and delivery partner #${partnerId} assigned`,
+        `OTP set, delivery charge ${deliveryCharge}, and delivery partner #${partnerId} assigned`,
       ]
     );
 
@@ -520,7 +611,7 @@ async function assignDeliveryPartner(orderId, partnerId, otp, actorUser = null) 
     );
 
     await connection.commit();
-    return { orderId, partnerId, otp, otpSetBy: actorUser ? actorUser.id : null };
+    return { orderId, partnerId, otp, deliveryCharge, otpSetBy: actorUser ? actorUser.id : null };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -629,6 +720,7 @@ module.exports = {
   countByVendor,
   getStatusHistory,
   getAllowedNextStatuses,
+  getAllowedNextStatusesForOrder,
   updateStatus,
   statusLabel,
   normalizeOrder,

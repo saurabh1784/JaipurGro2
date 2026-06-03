@@ -2,6 +2,7 @@ const xlsx = require('xlsx');
 const Catalog = require('../models/Catalog');
 const Product = require('../models/Product');
 const ProductSearch = require('../models/ProductSearch');
+const VendorProduct = require('../models/VendorProduct');
 const { productImagePath } = require('../middleware/productImageUpload');
 
 function wantsJson(req) {
@@ -25,12 +26,17 @@ function validateProductPayload(body) {
   const category_id = normalizeId(body.category_id);
   const sub_category_id = normalizeId(body.sub_category_id || body.subcategory_id);
   const brand_id = normalizeId(body.brand_id);
+  const taxName = body.tax_name === undefined ? '' : String(body.tax_name || '').trim();
+  const taxPercentage = body.tax_percentage === undefined || body.tax_percentage === '' ? null : toNumber(body.tax_percentage);
 
   if (!name || name.length < 2) errors.push('Name must be at least 2 characters');
   if (!Number.isFinite(price) || price < 0) errors.push('Price must be a valid non-negative number');
   if (!category_id) errors.push('Category is required');
   if (!sub_category_id) errors.push('Subcategory is required');
   if (!brand_id) errors.push('Brand is required');
+  if (taxPercentage !== null && (!Number.isFinite(taxPercentage) || taxPercentage < 0 || taxPercentage > 100)) {
+    errors.push('Tax percentage must be between 0 and 100');
+  }
 
   return {
     errors,
@@ -38,6 +44,8 @@ function validateProductPayload(body) {
       name,
       description: body.description ? String(body.description).trim() : '',
       price,
+      tax_name: taxName,
+      tax_percentage: taxPercentage,
       category_id,
       sub_category_id,
       brand_id,
@@ -82,6 +90,7 @@ async function create(req, res) {
   try {
     data.image_url = productImagePath(req.file);
     const id = await Product.create(data);
+    await VendorProduct.ensureProductForAllVendors(id);
     const product = await Product.findById(id);
     return res.status(201).json({ success: true, message: 'Product created', product });
   } catch (error) {
@@ -167,6 +176,8 @@ async function normalizeBulkRow(row, rowNumber) {
     name: String(getCell(row, ['name', 'product name'])).trim(),
     description: String(getCell(row, ['description', 'desc'])).trim(),
     price: getCell(row, ['price']),
+    tax_name: String(getCell(row, ['tax_name', 'tax name', 'gst name'])).trim(),
+    tax_percentage: getCell(row, ['tax_percentage', 'tax percentage', 'gst percentage', 'gst %']),
     category_id: categoryId,
     sub_category_id: subcategoryId,
     brand_id: brandId,
@@ -219,6 +230,9 @@ async function bulkUpload(req, res) {
     } catch (error) {
       failed.push({ rowNumber: normalized.rowNumber, errors: ['Unable to save product'] });
     }
+  }
+  if (created.length) {
+    await VendorProduct.ensureAllProductsForAllVendors();
   }
 
   return res.status(failed.length && !created.length ? 422 : 201).json({

@@ -16,13 +16,15 @@ function activeToStatus(isActive) {
 function row(row) {
   return {
     ...row,
+    tax_name: row.tax_name || '',
+    tax_percentage: row.tax_percentage === null || row.tax_percentage === undefined ? null : Number(row.tax_percentage || 0),
     is_active: row.status === 'active',
   };
 }
 
 async function listCategories() {
   const { rows } = await pool.query(
-    `SELECT id, name, slug, status, created_at, updated_at
+    `SELECT id, name, slug, tax_name, tax_percentage, status, created_at, updated_at
      FROM categories
      WHERE is_deleted = 0
      ORDER BY name ASC`
@@ -62,6 +64,7 @@ async function getTree() {
   const [rows] = await pool.query(
     `SELECT c.id AS category_id, c.name AS category_name, c.slug AS category_slug, c.status AS category_status,
             s.id AS sub_category_id, s.name AS sub_category_name, s.slug AS sub_category_slug, s.status AS sub_category_status,
+            c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
             b.id AS brand_id, b.name AS brand_name, b.slug AS brand_slug, b.logo_path AS brand_logo_path, b.status AS brand_status
      FROM categories c
      LEFT JOIN sub_categories s ON s.category_id = c.id AND s.is_deleted = 0
@@ -77,6 +80,8 @@ async function getTree() {
         id: item.category_id,
         name: item.category_name,
         slug: item.category_slug,
+        tax_name: item.category_tax_name || '',
+        tax_percentage: item.category_tax_percentage === null || item.category_tax_percentage === undefined ? null : Number(item.category_tax_percentage || 0),
         status: item.category_status,
         is_active: item.category_status === 'active',
         subcategories: [],
@@ -117,20 +122,22 @@ async function getTree() {
   });
 }
 
-async function createCategory({ name, slug, is_active }) {
+async function createCategory({ name, slug, is_active, tax_name, tax_percentage }) {
   const status = activeToStatus(is_active);
   const [result] = await pool.query(
-    'INSERT INTO categories (name, slug, status, is_active) VALUES (?, ?, ?, ?)',
-    [name, slugify(slug || name), status, status === 'active' ? 1 : 0]
+    'INSERT INTO categories (name, slug, tax_name, tax_percentage, status, is_active) VALUES (?, ?, ?, ?, ?, ?)',
+    [name, slugify(slug || name), tax_name || null, tax_percentage ?? null, status, status === 'active' ? 1 : 0]
   );
   return result.insertId;
 }
 
-async function updateCategory(id, { name, slug, is_active }) {
+async function updateCategory(id, { name, slug, is_active, tax_name, tax_percentage }) {
   const status = activeToStatus(is_active);
-  await pool.query('UPDATE categories SET name = ?, slug = ?, status = ?, is_active = ? WHERE id = ? AND is_deleted = 0', [
+  await pool.query('UPDATE categories SET name = ?, slug = ?, tax_name = ?, tax_percentage = ?, status = ?, is_active = ? WHERE id = ? AND is_deleted = 0', [
     name,
     slugify(slug || name),
+    tax_name || null,
+    tax_percentage ?? null,
     status,
     status === 'active' ? 1 : 0,
     id,

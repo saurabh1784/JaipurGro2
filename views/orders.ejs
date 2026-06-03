@@ -133,21 +133,14 @@
 
   <!-- Assign Delivery Partner Modal -->
   <div class="user-modal" id="assignModal" aria-hidden="true">
-    <div class="user-modal-card">
+    <div class="user-modal-card assign-delivery-card">
       <div class="user-modal-header">
         <h2>Assign Delivery Partner</h2>
         <button type="button" onclick="closeAssignModal()">Close</button>
       </div>
       <form id="assignForm" class="user-modal-grid">
         <input type="hidden" id="assignOrderId" />
-        <label>
-          Order ID
-          <input type="text" id="assignOrderIdDisplay" disabled />
-        </label>
-        <label>
-          Client
-          <input type="text" id="assignClientDisplay" disabled />
-        </label>
+        <div class="settings-wide assign-order-summary" id="assignOrderSummary"></div>
         <label>
           Delivery Partner
           <select id="partnerSelect" required>
@@ -157,6 +150,10 @@
         <label>
           OTP
           <input id="otpInput" type="text" placeholder="Enter 4-6 digit OTP" maxlength="6" required pattern="[0-9]{4,6}" />
+        </label>
+        <label>
+          Delivery Charge
+          <input id="deliveryChargeInput" type="number" min="0" step="0.01" placeholder="0.00" />
         </label>
         <div class="settings-wide">
           <button class="settings-save" type="submit" id="assignSubmit">Assign Partner</button>
@@ -168,7 +165,7 @@
 
   <!-- Order Detail Modal -->
   <div class="user-modal" id="detailModal" aria-hidden="true">
-    <div class="user-modal-card" style="max-width: 800px;">
+    <div class="user-modal-card order-detail-modal-card">
       <div class="user-modal-header">
         <h2>Order Details</h2>
         <button type="button" onclick="closeDetailModal()">Close</button>
@@ -179,26 +176,66 @@
     </div>
   </div>
 
+  <!-- Invoice Preview Modal -->
+  <div class="user-modal" id="invoiceModal" aria-hidden="true">
+    <div class="user-modal-card invoice-modal-card">
+      <div class="user-modal-header">
+        <h2 id="invoiceModalTitle">Invoice</h2>
+        <button type="button" onclick="closeInvoice()">Close</button>
+      </div>
+      <div class="invoice-toolbar">
+        <button class="settings-save" type="button" onclick="printInvoice()">Print</button>
+        <a class="product-secondary-button" id="invoiceDownloadLink" href="#" download>Download</a>
+      </div>
+      <iframe id="invoiceFrame" class="invoice-frame" title="Invoice preview"></iframe>
+    </div>
+  </div>
+
   <script>
     let orders = [];
     let currentPage = 1;
     let totalPages = 1;
     let deliveryPartners = [];
 
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function money(value) {
+      return `₹${Number(value || 0).toFixed(2)}`;
+    }
+
+    function generateDeliveryOtp() {
+      return String(Math.floor(100000 + Math.random() * 900000));
+    }
+
     // Fetch available delivery partners on load
-    async function loadPartners(city = '') {
+    async function loadPartners(city = '', allowFallback = true) {
+      const select = document.getElementById('partnerSelect');
+      const submit = document.getElementById('assignSubmit');
+      select.innerHTML = '<option value="">Loading partners...</option>';
+      select.disabled = true;
+      submit.disabled = true;
       try {
         const params = city ? `?city=${encodeURIComponent(city)}` : '';
         const res = await fetch(`/api/orders/admin/partners/list${params}`, { headers: { 'Accept': 'application/json' } });
         const data = await res.json();
         if (data.success) {
           deliveryPartners = data.partners;
-          const select = document.getElementById('partnerSelect');
+          if (city && allowFallback && !deliveryPartners.length) {
+            await loadPartners('', false);
+            return;
+          }
           select.innerHTML = '<option value="">Select Partner</option>';
           deliveryPartners.forEach(p => {
             const opt = document.createElement('option');
             opt.value = p.id;
-            opt.textContent = p.name + ' (' + p.email + ')';
+            opt.textContent = `${p.name}${p.phone ? ` - ${p.phone}` : ''}${p.city ? ` (${p.city})` : ''}`;
             select.appendChild(opt);
           });
           if (!deliveryPartners.length) {
@@ -207,8 +244,15 @@
             opt.textContent = city ? `No partner active in ${city}` : 'No active delivery partners';
             select.appendChild(opt);
           }
+          select.disabled = !deliveryPartners.length;
+          submit.disabled = !deliveryPartners.length;
+        } else {
+          select.innerHTML = `<option value="">${escapeHtml(data.message || 'Unable to load partners')}</option>`;
         }
-      } catch (e) { console.error('Failed to load partners', e); }
+      } catch (e) {
+        console.error('Failed to load partners', e);
+        select.innerHTML = '<option value="">Unable to load partners</option>';
+      }
     }
 
     async function loadOrders(page = 1) {
@@ -255,26 +299,32 @@
         tbody.innerHTML = '<tr><td colspan="11">No orders found</td></tr>';
         return;
       }
-      tbody.innerHTML = orders.map(o => `
+      tbody.innerHTML = orders.map(o => {
+        const canAssign = !['out_for_delivery', 'delivered'].includes(String(o.delivery_status || '').toLowerCase())
+          && !['delivered', 'completed'].includes(String(o.status || '').toLowerCase());
+        const assignLabel = o.delivery_partner_id ? 'Reassign' : 'Assign';
+        return `
         <tr>
           <td>${o.id}</td>
           <td>${new Date(o.created_at).toLocaleDateString()}</td>
-          <td>${o.client_name}<br><small>${o.client_phone}</small></td>
-          <td>${o.client_address}</td>
-          <td>${o.vendor_business_name || o.vendor_name || 'N/A'}</td>
-          <td>₹${Number(o.total_amount).toFixed(2)}</td>
+          <td>${escapeHtml(o.client_name)}<br><small>${escapeHtml(o.client_phone)}</small></td>
+          <td>${escapeHtml(o.client_address)}</td>
+          <td>${escapeHtml(o.vendor_business_name || o.vendor_name || 'N/A')}</td>
+          <td>${money(o.total_amount)}</td>
           <td>${statusBadge(o.status, o.status_label)}</td>
-          <td><span class="badge ${o.delivery_status}">${o.delivery_status.replace('_', ' ')}</span></td>
-          <td>${o.delivery_partner_name || 'Not assigned'}</td>
-          <td>${o.delivery_otp || '-'}</td>
+          <td><span class="badge ${escapeHtml(o.delivery_status)}">${escapeHtml(statusLabel(o.delivery_status))}</span></td>
+          <td>${escapeHtml(o.delivery_partner_name || 'Not assigned')}</td>
+          <td>${escapeHtml(o.delivery_otp || '-')}</td>
           <td>
-            <button class="settings-save" style="padding: 4px 8px; font-size: 12px;" onclick="openAssignModal(${o.id}, '${String(o.client_name || '').replace(/'/g, "\\'")}', '${String(o.client_city || '').replace(/'/g, "\\'")}')" ${o.delivery_status !== 'pending' ? 'disabled' : ''}>Assign</button>
+            <button class="settings-save" style="padding: 4px 8px; font-size: 12px;" onclick="openAssignModal(${Number(o.id)})" ${canAssign ? '' : 'disabled'}>${assignLabel}</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="markReady(${o.id})" ${o.delivery_status !== 'assigned' ? 'disabled' : ''}>Ready</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="updateOrderStatus(${o.id}, 'delivered')" ${o.status === 'delivered' ? 'disabled' : ''}>Delivered</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="viewDetails(${o.id})">View</button>
+            <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="openInvoice(${o.id})">Invoice</button>
           </td>
         </tr>
-      `).join('');
+      `;
+      }).join('');
     }
 
     function statusLabel(status) {
@@ -291,38 +341,147 @@
     }
 
     function statusBadge(status, label) {
-      return `<span class="order-status-badge ${status}">${label || statusLabel(status)}</span>`;
+      return `<span class="order-status-badge ${escapeHtml(status)}">${escapeHtml(label || statusLabel(status))}</span>`;
+    }
+
+    function orderStoreName(order) {
+      return order.vendor_business_name || order.vendor_name || 'Store not available';
+    }
+
+    function orderStoreAddress(order) {
+      return [
+        order.vendor_address,
+        order.vendor_city,
+        order.vendor_state,
+        order.vendor_country,
+      ].filter(Boolean).join(', ') || 'Store address not available';
+    }
+
+    function renderAssignOrderSummary(order, items = []) {
+      const storeAddress = orderStoreAddress(order);
+      document.getElementById('assignOrderSummary').innerHTML = `
+        <div class="assign-summary-hero">
+          <div>
+            <span>Order</span>
+            <strong>#${escapeHtml(order.id)}</strong>
+          </div>
+          <div>
+            <span>Total</span>
+            <strong>${money(order.total_amount)}</strong>
+          </div>
+          <div>
+            <span>Status</span>
+            ${statusBadge(order.status, order.status_label)}
+          </div>
+        </div>
+        <div class="assign-info-grid">
+          <section>
+            <h3>Store Details</h3>
+            <p class="assign-info-title">${escapeHtml(orderStoreName(order))}</p>
+            <p>${escapeHtml(storeAddress)}</p>
+            <p>${escapeHtml(order.vendor_phone || 'No store phone')}</p>
+          </section>
+          <section>
+            <h3>Client Details</h3>
+            <p class="assign-info-title">${escapeHtml(order.client_name || 'Client')}</p>
+            <p>${escapeHtml(order.client_address || 'No client address')}</p>
+            <p>${escapeHtml(order.client_phone || 'No client phone')}</p>
+          </section>
+        </div>
+        <div class="assign-order-details">
+          <h3>Order Details</h3>
+          <div class="assign-detail-row"><span>Order type</span><strong>${escapeHtml(order.order_type || 'direct')}</strong></div>
+          <div class="assign-detail-row"><span>Subtotal</span><strong>${money(order.subtotal_amount || order.total_amount)}</strong></div>
+          <div class="assign-detail-row"><span>Discount</span><strong>${money(order.discount_amount || 0)}</strong></div>
+          <div class="assign-detail-row"><span>Delivery charge</span><strong>${money(order.delivery_charge || 0)}</strong></div>
+          <div class="assign-detail-row"><span>Delivery status</span><strong>${escapeHtml(statusLabel(order.delivery_status))}</strong></div>
+        </div>
+        <div class="assign-order-details">
+          <h3>Items</h3>
+          ${items.length ? items.map((item) => `
+            <div class="assign-detail-row">
+              <span>${escapeHtml(item.product_name || 'Product')}</span>
+              <strong>${Number(item.quantity || 0)} x ${money(item.unit_price)}</strong>
+            </div>
+          `).join('') : '<p class="order-empty-note">Item details are not available for this order.</p>'}
+        </div>
+      `;
     }
 
     function renderTimeline(history = []) {
-      if (!history.length) return '<p>No status history yet.</p>';
-      return `<ol class="order-timeline">${history.map(item => `
-        <li>
-          <strong>${item.new_status_label || statusLabel(item.new_status)}</strong>
-          <span>${new Date(item.created_at).toLocaleString()}</span>
-          <small>${item.changed_by_name || 'System'}</small>
-        </li>
-      `).join('')}</ol>`;
+      if (!history.length) return '<p class="order-empty-note">No status history yet.</p>';
+      return `<div class="order-timeline">${history.map(item => `
+        <article class="order-timeline-item">
+          <span class="order-timeline-dot"></span>
+          <div>
+            <strong>${item.new_status_label || statusLabel(item.new_status)}</strong>
+            <span>${new Date(item.created_at).toLocaleString()}</span>
+            <small>${item.changed_by_name || 'System'}${item.note ? ` - ${item.note}` : ''}</small>
+          </div>
+        </article>
+      `).join('')}</div>`;
     }
 
-    async function openAssignModal(orderId, clientName, clientCity) {
+    async function openAssignModal(orderId) {
+      const order = orders.find(item => Number(item.id) === Number(orderId));
+      if (!order) {
+        alert('Order details are not loaded yet. Please refresh and try again.');
+        return;
+      }
       document.getElementById('assignOrderId').value = orderId;
-      document.getElementById('assignOrderIdDisplay').value = orderId;
-      document.getElementById('assignClientDisplay').value = clientCity ? `${clientName} - ${clientCity}` : clientName;
-      await loadPartners(clientCity || '');
+      document.getElementById('otpInput').value = generateDeliveryOtp();
+      document.getElementById('deliveryChargeInput').value = Number(order.delivery_charge || 0).toFixed(2);
+      renderAssignOrderSummary(order);
       document.getElementById('assignModal').style.display = 'flex';
       document.getElementById('assignModal').setAttribute('aria-hidden', 'false');
+      try {
+        const response = await fetch(`/api/orders/admin/${orderId}`, { headers: { 'Accept': 'application/json' } });
+        const data = await response.json();
+        if (data.success && data.order) {
+          Object.assign(order, data.order);
+          document.getElementById('deliveryChargeInput').value = Number(data.order.delivery_charge || 0).toFixed(2);
+          renderAssignOrderSummary(data.order, data.items || []);
+        }
+      } catch (error) {
+        console.error('Unable to load full order details for assignment', error);
+      }
+      await loadPartners(order.client_city || order.vendor_city || '');
     }
 
     function closeAssignModal() {
       document.getElementById('assignModal').style.display = 'none';
       document.getElementById('assignModal').setAttribute('aria-hidden', 'true');
       document.getElementById('assignForm').reset();
+      document.getElementById('assignOrderSummary').innerHTML = '';
+      document.getElementById('partnerSelect').disabled = false;
+      document.getElementById('assignSubmit').disabled = false;
     }
 
     async function closeDetailModal() {
       document.getElementById('detailModal').style.display = 'none';
       document.getElementById('detailModal').setAttribute('aria-hidden', 'true');
+    }
+
+    function openInvoice(orderId) {
+      const viewUrl = `/orders/admin/${orderId}/invoice?disposition=inline`;
+      const downloadUrl = `/orders/admin/${orderId}/invoice?download=1`;
+      document.getElementById('invoiceModalTitle').textContent = `Invoice #${orderId}`;
+      document.getElementById('invoiceFrame').src = viewUrl;
+      document.getElementById('invoiceDownloadLink').href = downloadUrl;
+      document.getElementById('invoiceModal').style.display = 'flex';
+      document.getElementById('invoiceModal').setAttribute('aria-hidden', 'false');
+    }
+
+    function closeInvoice() {
+      document.getElementById('invoiceModal').style.display = 'none';
+      document.getElementById('invoiceModal').setAttribute('aria-hidden', 'true');
+      document.getElementById('invoiceFrame').src = 'about:blank';
+    }
+
+    function printInvoice() {
+      const frame = document.getElementById('invoiceFrame');
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
     }
 
     async function viewDetails(orderId) {
@@ -335,28 +494,71 @@
           const history = data.history || [];
           const content = document.getElementById('orderDetailContent');
           content.innerHTML = `
-            <div style="margin-bottom: 20px;">
-              <h3>Order #${order.id}</h3>
-              <p><strong>Client:</strong> ${order.client_name} (${order.client_phone})</p>
-              <p><strong>Address:</strong> ${order.client_address}</p>
-              <p><strong>Vendor:</strong> ${order.vendor_business_name || order.vendor_name || 'N/A'}</p>
-              <p><strong>Subtotal:</strong> ₹${Number(order.subtotal_amount || order.total_amount).toFixed(2)}</p>
-              <p><strong>Discount:</strong> ₹${Number(order.discount_amount || 0).toFixed(2)} ${order.coupon_code ? `(${order.coupon_code})` : order.discount_label ? `(${order.discount_label})` : ''}</p>
-              <p><strong>Total:</strong> ₹${Number(order.total_amount).toFixed(2)}</p>
-              <p><strong>Order Status:</strong> ${order.status}</p>
-              <p><strong>Delivery Status:</strong> ${order.delivery_status}</p>
-              <p><strong>Delivery Partner:</strong> ${order.delivery_partner_name || 'Not assigned'}</p>
-              <p><strong>OTP:</strong> ${order.delivery_otp || '-'}</p>
-              ${order.otp_set_by_name ? `<p><strong>OTP Set By:</strong> ${order.otp_set_by_name} (${order.otp_set_by_role || 'staff'})</p>` : ''}
-              ${order.otp_set_at ? `<p><strong>OTP Set At:</strong> ${new Date(order.otp_set_at).toLocaleString()}</p>` : ''}
-              ${order.assigned_at ? `<p><strong>Assigned At:</strong> ${new Date(order.assigned_at).toLocaleString()}</p>` : ''}
-              ${order.ready_at ? `<p><strong>Ready At:</strong> ${new Date(order.ready_at).toLocaleString()}</p>` : ''}
-              ${order.delivered_at ? `<p><strong>Delivered At:</strong> ${new Date(order.delivered_at).toLocaleString()}</p>` : ''}
+            <div class="order-detail-panel">
+              <div class="order-detail-hero">
+                <div>
+                  <span class="order-detail-kicker">Order overview</span>
+                  <h3>Order #${order.id}</h3>
+                  <p>${new Date(order.created_at).toLocaleString()}</p>
+                </div>
+                <div class="order-detail-actions">
+                  <button class="settings-save" type="button" onclick="openInvoice(${order.id})">Open Invoice</button>
+                </div>
+              </div>
+
+              <div class="order-detail-summary">
+                <div class="order-money-card">
+                  <span>Total Amount</span>
+                  <strong>₹${Number(order.total_amount).toFixed(2)}</strong>
+                  <small>Subtotal ₹${Number(order.subtotal_amount || order.total_amount).toFixed(2)}</small>
+                </div>
+                <div class="order-money-card">
+                  <span>Discount</span>
+                  <strong>₹${Number(order.discount_amount || 0).toFixed(2)}</strong>
+                  <small>${order.coupon_code ? `Coupon ${order.coupon_code}` : order.discount_label || 'No discount applied'}</small>
+                </div>
+                <div class="order-money-card">
+                  <span>Delivery Charge</span>
+                  <strong>₹${Number(order.delivery_charge || 0).toFixed(2)}</strong>
+                  <small>Added by admin or staff</small>
+                </div>
+                <div class="order-status-card">
+                  <span>Order Status</span>
+                  ${statusBadge(order.status, order.status_label)}
+                  <small>${order.delivery_status ? `Delivery: ${statusLabel(order.delivery_status)}` : ''}</small>
+                </div>
+              </div>
+
+              <div class="order-info-grid">
+                <section>
+                  <h4>Client</h4>
+                  <p class="order-info-title">${order.client_name || 'Client'}</p>
+                  <p>${order.client_phone || 'No phone'}</p>
+                  <p>${order.client_address || 'No address available'}</p>
+                </section>
+                <section>
+                  <h4>Vendor</h4>
+                  <p class="order-info-title">${order.vendor_business_name || order.vendor_name || 'N/A'}</p>
+                  <p>${order.vendor_phone || ''}</p>
+                  <p>${order.vendor_address || ''}</p>
+                </section>
+                <section>
+                  <h4>Delivery</h4>
+                  <p><strong>Partner:</strong> ${order.delivery_partner_name || 'Not assigned'}</p>
+                  <p><strong>OTP:</strong> ${order.delivery_otp || '-'}</p>
+                  ${order.ready_at ? `<p><strong>Ready:</strong> ${new Date(order.ready_at).toLocaleString()}</p>` : ''}
+                  ${order.delivered_at ? `<p><strong>Delivered:</strong> ${new Date(order.delivered_at).toLocaleString()}</p>` : ''}
+                </section>
+              </div>
             </div>
-            <h4>Status Timeline</h4>
+            <div class="order-detail-section-title">
+              <h4>Status Timeline</h4>
+            </div>
             ${renderTimeline(history)}
-            <h4>Order Items</h4>
-            <table class="users-table">
+            <div class="order-detail-section-title">
+              <h4>Order Items</h4>
+            </div>
+            <table class="users-table order-items-table">
               <thead><tr><th>#</th><th>Product</th><th>Qty</th><th>Price</th><th>Total</th></tr></thead>
               <tbody>
                 ${items.map((item, i) => `
@@ -417,7 +619,23 @@
       e.preventDefault();
       const orderId = document.getElementById('assignOrderId').value;
       const partnerId = document.getElementById('partnerSelect').value;
-      const otp = document.getElementById('otpInput').value;
+      const otpInput = document.getElementById('otpInput');
+      const deliveryChargeInput = document.getElementById('deliveryChargeInput');
+      const submit = document.getElementById('assignSubmit');
+      const otp = otpInput.value.trim() || generateDeliveryOtp();
+      const deliveryCharge = Number(deliveryChargeInput.value || 0);
+      otpInput.value = otp;
+      if (!partnerId) {
+        alert('Please select a delivery partner');
+        return;
+      }
+      if (!Number.isFinite(deliveryCharge) || deliveryCharge < 0) {
+        alert('Please enter a valid delivery charge');
+        deliveryChargeInput.focus();
+        return;
+      }
+      submit.disabled = true;
+      submit.textContent = 'Assigning...';
       try {
         const res = await fetch(`/api/orders/admin/${orderId}/assign-delivery`, {
           method: 'POST',
@@ -425,17 +643,22 @@
             'Content-Type': 'application/json',
             'Accept': 'application/json'
           },
-          body: JSON.stringify({ partner_id: partnerId, otp })
+          body: JSON.stringify({ partner_id: partnerId, otp, delivery_charge: deliveryCharge })
         });
         const data = await res.json();
         if (data.success) {
-          alert('Delivery partner assigned successfully');
+          alert(`Delivery partner assigned successfully. OTP: ${data.otp || otp}`);
           closeAssignModal();
           loadOrders(currentPage);
         } else {
           alert('Failed: ' + data.message);
         }
-      } catch (e) { alert('Error assigning partner'); }
+      } catch (e) {
+        alert('Error assigning partner');
+      } finally {
+        submit.disabled = false;
+        submit.textContent = 'Assign Partner';
+      }
     });
 
     document.getElementById('orderSearch')?.addEventListener('input', () => loadOrders(1));
@@ -482,9 +705,158 @@
     .order-status-badge.ready_for_pickup { background: #f59e0b; }
     .order-status-badge.picked_up, .order-status-badge.on_the_way { background: #0891b2; }
     .order-status-badge.delivered { background: #16a34a; }
-    .order-timeline { display: grid; gap: 10px; padding-left: 20px; }
-    .order-timeline li strong { display: block; color: #263238; }
-    .order-timeline li span, .order-timeline li small { display: block; color: #64748b; }
+    .order-detail-modal-card { width: min(94vw, 1040px); max-width: 1040px; padding: 0; overflow: hidden; }
+    .order-detail-modal-card .user-modal-header { padding: 18px 22px; background: #fff; }
+    #orderDetailContent { max-height: calc(90vh - 68px); overflow-y: auto; padding: 22px; background: #f6f8fb; }
+    .order-detail-panel { display: grid; gap: 18px; }
+    .order-detail-hero {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 18px;
+      padding: 20px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
+    }
+    .order-detail-kicker { color: #0891b2; font-size: 0.75rem; font-weight: 900; letter-spacing: 0; text-transform: uppercase; }
+    .order-detail-hero h3 { margin: 5px 0 4px; color: #172033; font-size: 1.75rem; line-height: 1.1; }
+    .order-detail-hero p { margin: 0; color: #64748b; font-weight: 700; }
+    .order-detail-actions .settings-save { margin: 0; white-space: nowrap; }
+    .order-detail-summary { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 14px; }
+    .order-money-card, .order-status-card {
+      min-height: 112px;
+      padding: 16px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
+    }
+    .order-money-card span, .order-status-card span { display: block; color: #64748b; font-size: 0.78rem; font-weight: 900; text-transform: uppercase; }
+    .order-money-card strong { display: block; margin-top: 8px; color: #0f766e; font-size: 1.55rem; line-height: 1.1; }
+    .order-money-card small, .order-status-card small { display: block; margin-top: 8px; color: #64748b; font-weight: 700; }
+    .order-status-card .order-status-badge { margin-top: 10px; }
+    .order-info-grid { display: grid; grid-template-columns: 1.2fr 1.1fr 1fr; gap: 14px; }
+    .order-info-grid section {
+      padding: 16px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .order-info-grid h4, .order-detail-section-title h4 { margin: 0 0 10px; color: #172033; font-size: 1rem; }
+    .order-info-grid p { margin: 6px 0 0; color: #475569; line-height: 1.45; }
+    .order-info-title { color: #172033 !important; font-weight: 900; }
+    .order-detail-section-title { margin: 22px 0 10px; display: flex; align-items: center; justify-content: space-between; }
+    .order-timeline { display: grid; gap: 10px; }
+    .order-timeline-item {
+      display: grid;
+      grid-template-columns: 18px 1fr;
+      gap: 10px;
+      padding: 13px 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .order-timeline-dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: #26bcd4; box-shadow: 0 0 0 4px #dff8fb; }
+    .order-timeline-item strong { display: block; color: #172033; }
+    .order-timeline-item span, .order-timeline-item small { display: block; margin-top: 3px; color: #64748b; }
+    .order-empty-note { padding: 14px; border-radius: 8px; background: #fff; color: #64748b; font-weight: 700; }
+    .order-items-table { min-width: 0 !important; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #fff; }
+    .order-items-table th { background: #f8fafc; color: #334155; }
+    .assign-delivery-card { width: min(94vw, 760px); max-width: 760px; }
+    .assign-delivery-card .user-modal-grid { gap: 16px; }
+    .assign-order-summary {
+      display: grid;
+      gap: 14px;
+      padding: 16px;
+      border: 1px solid #dbeafe;
+      border-radius: 8px;
+      background: #f8fbff;
+    }
+    .assign-summary-hero {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .assign-summary-hero > div {
+      padding: 13px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .assign-summary-hero span,
+    .assign-detail-row span {
+      display: block;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .assign-summary-hero strong {
+      display: block;
+      margin-top: 5px;
+      color: #172033;
+      font-size: 1.12rem;
+    }
+    .assign-info-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 12px;
+    }
+    .assign-info-grid section,
+    .assign-order-details {
+      padding: 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .assign-info-grid h3,
+    .assign-order-details h3 {
+      margin: 0 0 10px;
+      color: #0f766e;
+      font-size: 0.86rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .assign-info-grid p {
+      margin: 5px 0 0;
+      color: #475569;
+      font-weight: 700;
+      line-height: 1.35;
+    }
+    .assign-info-title {
+      color: #172033 !important;
+      font-size: 1rem;
+      font-weight: 900 !important;
+    }
+    .assign-order-details {
+      display: grid;
+      gap: 8px;
+    }
+    .assign-detail-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding-top: 8px;
+      border-top: 1px solid #edf2f7;
+    }
+    .assign-detail-row:first-of-type {
+      padding-top: 0;
+      border-top: 0;
+    }
+    .assign-detail-row strong {
+      color: #172033;
+      text-align: right;
+    }
+    @media (max-width: 820px) {
+      .order-detail-hero, .order-detail-summary, .order-info-grid { grid-template-columns: 1fr; }
+      .order-detail-hero { display: grid; }
+      .order-detail-actions .settings-save { width: 100%; }
+      .assign-summary-hero, .assign-info-grid { grid-template-columns: 1fr; }
+    }
+    .invoice-modal-card { width: min(96vw, 980px); max-width: 980px; height: 90vh; display: flex; flex-direction: column; }
+    .invoice-toolbar { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
+    .invoice-frame { flex: 1; width: 100%; min-height: 520px; border: 1px solid #d8dee6; border-radius: 6px; background: #fff; }
   </style>
 </body>
 </html>

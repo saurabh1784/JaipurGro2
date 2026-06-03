@@ -207,6 +207,7 @@ async function approveProduct(req, res) {
       approved_by: req.authUser.id,
       default_price: req.body.default_price || req.body.price,
     });
+    await VendorProduct.ensureProductForAllVendors(req.params.productId);
     return res.json({ success: true, message: 'Product approved' });
   } catch (error) {
     return res.status(error.status || 500).json({

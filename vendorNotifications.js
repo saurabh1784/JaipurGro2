@@ -9,8 +9,20 @@ function clientSet(vendorId) {
 }
 
 function writeSse(res, event, payload) {
-  res.write(`event: ${event}\n`);
-  res.write(`data: ${JSON.stringify(payload)}\n\n`);
+  if (res.destroyed || res.writableEnded) {
+    return false;
+  }
+
+  try {
+    res.write(`event: ${event}\n`);
+    res.write(`data: ${JSON.stringify(payload)}\n\n`);
+    if (typeof res.flush === 'function') {
+      res.flush();
+    }
+    return true;
+  } catch (error) {
+    return false;
+  }
 }
 
 function subscribe(vendorId, res) {
@@ -18,19 +30,21 @@ function subscribe(vendorId, res) {
   set.add(res);
   writeSse(res, 'connected', { vendorId: Number(vendorId), at: new Date().toISOString() });
 
-  const heartbeat = setInterval(() => {
-    if (!res.destroyed) {
-      writeSse(res, 'heartbeat', { at: new Date().toISOString() });
-    }
-  }, 25000);
-
-  return () => {
+  const cleanup = () => {
     clearInterval(heartbeat);
     set.delete(res);
     if (set.size === 0) {
       clients.delete(String(vendorId));
     }
   };
+
+  const heartbeat = setInterval(() => {
+    if (!writeSse(res, 'heartbeat', { at: new Date().toISOString() })) {
+      cleanup();
+    }
+  }, 25000);
+
+  return cleanup;
 }
 
 function notifyVendor(vendorId, payload) {
@@ -46,11 +60,9 @@ function notifyVendor(vendorId, payload) {
   };
 
   for (const res of [...set]) {
-    if (res.destroyed) {
+    if (!writeSse(res, 'vendor-notification', event)) {
       set.delete(res);
-      continue;
     }
-    writeSse(res, 'vendor-notification', event);
   }
 }
 

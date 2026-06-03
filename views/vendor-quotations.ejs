@@ -37,7 +37,7 @@
       <% } %>
 
       <% quotations.forEach((quotation) => { %>
-        <article class="users-table-card quotation-card" data-recipient-id="<%= quotation.recipient_id %>">
+        <article class="users-table-card quotation-card" data-recipient-id="<%= quotation.recipient_id %>" data-locked="<%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? '1' : '0' %>">
           <div class="quotation-card-header">
             <div>
               <span class="quotation-id">Quotation #<%= quotation.id %></span>
@@ -82,24 +82,22 @@
               </thead>
               <tbody>
                 <% quotation.items.forEach((item) => { %>
-                  <tr data-item-id="<%= item.id %>">
+                  <% const itemAvailable = item.status !== 'not_available'; %>
+                  <tr data-item-id="<%= item.id %>" data-available="<%= itemAvailable ? '1' : '0' %>" data-in-catalog="<%= item.in_catalog ? '1' : '0' %>">
                     <td><%= item.product_name %></td>
                     <td><input class="quote-qty" type="number" min="1" step="1" value="<%= item.quantity %>" readonly /></td>
                     <td>INR <%= item.admin_price.toFixed(2) %></td>
-                    <td><input class="quote-price" type="number" min="0" step="0.01" value="<%= item.unit_price.toFixed(2) %>" data-base-price="<%= item.admin_price.toFixed(2) %>" <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> /></td>
+                    <td><input class="quote-price" type="number" min="0" step="0.01" value="<%= item.unit_price.toFixed(2) %>" data-base-price="<%= item.admin_price.toFixed(2) %>" <%= !itemAvailable || ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> /></td>
                     <td>
-                      <label class="availability-toggle">
-                        <input class="quote-available" type="checkbox" <%= item.status !== 'not_available' ? 'checked' : '' %> <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> />
-                        <span>Available</span>
-                      </label>
+                      <span class="quote-status-pill <%= itemAvailable ? 'available' : 'not-available' %>"><%= itemAvailable ? 'Available' : 'Unavailable' %></span>
                     </td>
                     <td>
                       <label class="availability-toggle">
-                        <input class="quote-add-catalog" type="checkbox" <%= item.in_catalog ? 'disabled' : '' %> <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> />
+                        <input class="quote-add-catalog" type="checkbox" <%= item.in_catalog || !itemAvailable ? 'disabled' : '' %> <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> />
                         <span><%= item.in_catalog ? 'In Catalog' : 'Add' %></span>
                       </label>
                     </td>
-                    <td class="quote-line-total">INR <%= (item.status === 'not_available' ? 0 : item.unit_price * item.quantity).toFixed(2) %></td>
+                    <td class="quote-line-total">INR <%= (!itemAvailable ? 0 : item.unit_price * item.quantity).toFixed(2) %></td>
                   </tr>
                 <% }) %>
               </tbody>
@@ -190,6 +188,9 @@
     .quote-discount { width: 130px; padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
     .quote-qty[readonly] { background: #f8fafc; color: #475569; }
     .availability-toggle { display: inline-flex; align-items: center; gap: 6px; font-size: 0.85rem; color: #475569; }
+    .quote-status-pill { display: inline-block; padding: 5px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 800; }
+    .quote-status-pill.available { background: #dcfce7; color: #166534; }
+    .quote-status-pill.not-available { background: #fee2e2; color: #991b1b; }
     .quotation-submit-row { display: flex; justify-content: space-between; align-items: center; gap: 16px; margin-top: 16px; }
     .theme-dark .quotation-card-header h2, .theme-dark .quotation-empty h2, .theme-dark .quotation-status strong { color: #f8fafc; }
     @media (max-width: 720px) {
@@ -230,16 +231,17 @@
 
     function recalc(card) {
       let total = 0;
+      const locked = card.dataset.locked === '1';
       card.querySelectorAll('tbody tr[data-item-id]').forEach((row) => {
         const qty = Math.max(1, Number(row.querySelector('.quote-qty').value || 1));
         const price = Math.max(0, Number(row.querySelector('.quote-price').value || 0));
-        const available = row.querySelector('.quote-available').checked;
+        const available = row.dataset.available === '1';
         const line = available ? qty * price : 0;
         total += line;
         row.querySelector('.quote-line-total').textContent = formatMoney(line);
-        row.querySelector('.quote-price').disabled = !available;
+        row.querySelector('.quote-price').disabled = locked || !available;
         const addCatalog = row.querySelector('.quote-add-catalog');
-        if (addCatalog && !addCatalog.disabled) addCatalog.disabled = !available;
+        if (addCatalog) addCatalog.disabled = locked || row.dataset.inCatalog === '1' || !available;
       });
       card.querySelector('[data-grand-total]').textContent = formatMoney(total);
       card.querySelector('[data-detail-total]').textContent = formatMoney(total);
@@ -257,7 +259,7 @@
       const card = document.querySelector(`[data-recipient-id="${recipientId}"]`);
       const discount = Math.min(Math.max(Number(card.querySelector('.quote-discount').value || 0), 0), 100);
       card.querySelectorAll('tbody tr[data-item-id]').forEach((row) => {
-        if (!row.querySelector('.quote-available').checked) return;
+        if (row.dataset.available !== '1') return;
         const priceInput = row.querySelector('.quote-price');
         const base = Number(priceInput.dataset.basePrice || priceInput.value || 0);
         priceInput.value = (base - (base * discount / 100)).toFixed(2);
@@ -282,7 +284,7 @@
         item_id: row.dataset.itemId,
         quantity: row.querySelector('.quote-qty').value,
         unit_price: row.querySelector('.quote-price').value,
-        status: row.querySelector('.quote-available').checked ? 'available' : 'not_available',
+        status: row.dataset.available === '1' ? 'available' : 'not_available',
         add_to_catalog: row.querySelector('.quote-add-catalog') ? row.querySelector('.quote-add-catalog').checked : false,
       }));
       try {
@@ -350,7 +352,7 @@
     }
 
     document.querySelectorAll('.quotation-card').forEach((card) => {
-      card.querySelectorAll('.quote-qty, .quote-price, .quote-available, .quote-add-catalog').forEach((input) => {
+      card.querySelectorAll('.quote-qty, .quote-price, .quote-add-catalog').forEach((input) => {
         input.addEventListener('input', () => recalc(card));
         input.addEventListener('change', () => recalc(card));
       });

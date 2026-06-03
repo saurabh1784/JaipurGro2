@@ -384,6 +384,19 @@ function requireAuthRole(role) {
   };
 }
 
+function requireAdminMaintenance(req, res, next) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  if (isSuperAdminUser(currentUser) || ['admin', 'superadmin'].includes(String(currentUser && currentUser.role || '').toLowerCase())) {
+    return next();
+  }
+
+  if (requestWantsJson(req)) {
+    return res.status(403).json({ success: false, message: 'Only admin users can run maintenance actions' });
+  }
+
+  return res.redirect('/dashboard?error=Only%20admin%20users%20can%20run%20maintenance%20actions');
+}
+
 function requestWantsJson(req) {
   const accept = req.get('accept') || '';
   const requestedWith = req.get('x-requested-with') || '';
@@ -662,6 +675,8 @@ async function initDatabase() {
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       user_id INT UNSIGNED NOT NULL UNIQUE,
       business_name VARCHAR(150) DEFAULT NULL,
+      logo_path VARCHAR(255) DEFAULT NULL,
+      storefront_image_path VARCHAR(255) DEFAULT NULL,
       address TEXT DEFAULT NULL,
       country VARCHAR(80) DEFAULT NULL,
       state VARCHAR(80) DEFAULT NULL,
@@ -677,6 +692,8 @@ async function initDatabase() {
   await addColumnIfMissing('vendor_profiles', 'country', 'VARCHAR(80) DEFAULT NULL AFTER address');
   await addColumnIfMissing('vendor_profiles', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
   await addColumnIfMissing('vendor_profiles', 'city', 'VARCHAR(80) DEFAULT NULL AFTER state');
+  await addColumnIfMissing('vendor_profiles', 'logo_path', 'VARCHAR(255) DEFAULT NULL AFTER business_name');
+  await addColumnIfMissing('vendor_profiles', 'storefront_image_path', 'VARCHAR(255) DEFAULT NULL AFTER logo_path');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_profiles (
@@ -748,6 +765,14 @@ async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('categories', 'slug', 'VARCHAR(180) NOT NULL DEFAULT "" AFTER name');
+  await addColumnIfMissing('categories', 'tax_name', 'VARCHAR(80) DEFAULT NULL AFTER slug');
+  await addColumnIfMissing('categories', 'tax_percentage', 'DECIMAL(7,2) DEFAULT NULL AFTER tax_name');
+  await pool.query(
+    `UPDATE categories
+     SET tax_name = CASE WHEN tax_name IS NULL OR TRIM(tax_name) = '' THEN 'GST' ELSE tax_name END,
+         tax_percentage = COALESCE(tax_percentage, 5.00)
+     WHERE is_deleted = 0`
+  );
   await addColumnIfMissing('categories', 'status', "VARCHAR(20) NOT NULL DEFAULT 'active' AFTER slug");
   await addColumnIfMissing('categories', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER status');
   await addColumnIfMissing('categories', 'is_deleted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
@@ -836,6 +861,8 @@ async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('products', 'image_url', 'VARCHAR(255) DEFAULT NULL AFTER price');
+  await addColumnIfMissing('products', 'tax_name', 'VARCHAR(80) DEFAULT NULL AFTER image_url');
+  await addColumnIfMissing('products', 'tax_percentage', 'DECIMAL(7,2) DEFAULT NULL AFTER tax_name');
   await addColumnIfMissing('products', 'approval_status', "VARCHAR(20) NOT NULL DEFAULT 'approved' AFTER is_deleted");
   await addColumnIfMissing('products', 'created_by_vendor_id', 'INT UNSIGNED DEFAULT NULL AFTER approval_status');
   await addColumnIfMissing('products', 'approved_by', 'INT UNSIGNED DEFAULT NULL AFTER created_by_vendor_id');
@@ -938,6 +965,7 @@ async function initDatabase() {
   `);
   await addColumnIfMissing('vendor_products', 'price', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER quantity');
   await addColumnIfMissing('vendor_products', 'image_url', 'VARCHAR(255) DEFAULT NULL AFTER quantity');
+  await pool.query("UPDATE vendor_products SET quantity = 0 WHERE status = 'unavailable' AND quantity <> 0");
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS vendor_client_product_prices (
@@ -1031,17 +1059,23 @@ async function initDatabase() {
   await addColumnIfMissing('client_orders', 'status_updated_at', 'TIMESTAMP NULL DEFAULT NULL AFTER updated_at');
   await addColumnIfMissing('client_orders', 'subtotal_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER vendor_id');
   await addColumnIfMissing('client_orders', 'discount_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER subtotal_amount');
-  await addColumnIfMissing('client_orders', 'coupon_id', 'INT UNSIGNED DEFAULT NULL AFTER discount_amount');
+  await addColumnIfMissing('client_orders', 'savings_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER discount_amount');
+  await addColumnIfMissing('client_orders', 'delivery_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER savings_amount');
+  await addColumnIfMissing('client_orders', 'coupon_id', 'INT UNSIGNED DEFAULT NULL AFTER delivery_charge');
   await addColumnIfMissing('client_orders', 'coupon_code', 'VARCHAR(80) DEFAULT NULL AFTER coupon_id');
   await addColumnIfMissing('client_orders', 'discount_id', 'INT UNSIGNED DEFAULT NULL AFTER coupon_code');
   await addColumnIfMissing('client_orders', 'discount_label', 'VARCHAR(150) DEFAULT NULL AFTER discount_id');
   await addColumnIfMissing('client_orders', 'order_type', "VARCHAR(20) NOT NULL DEFAULT 'direct' AFTER discount_label");
+  await addColumnIfMissing('client_orders', 'invoice_number', 'VARCHAR(80) DEFAULT NULL AFTER order_type');
+  await addColumnIfMissing('client_orders', 'invoice_pdf_path', 'VARCHAR(255) DEFAULT NULL AFTER invoice_number');
+  await addColumnIfMissing('client_orders', 'invoice_generated_at', 'TIMESTAMP NULL DEFAULT NULL AFTER invoice_pdf_path');
   await pool.query('UPDATE client_orders SET subtotal_amount = total_amount WHERE subtotal_amount = 0 AND total_amount > 0');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS discounts (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       name VARCHAR(150) NOT NULL,
+      vendor_id INT UNSIGNED DEFAULT NULL,
       description TEXT DEFAULT NULL,
       value_type VARCHAR(20) NOT NULL DEFAULT 'fixed',
       value DECIMAL(12,2) NOT NULL DEFAULT 0.00,
@@ -1061,9 +1095,11 @@ async function initDatabase() {
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
-      KEY idx_discounts_active_scope (is_active, apply_on)
+      KEY idx_discounts_active_scope (is_active, apply_on),
+      KEY idx_discounts_vendor (vendor_id)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await addColumnIfMissing('discounts', 'vendor_id', 'INT UNSIGNED DEFAULT NULL AFTER name');
   await addColumnIfMissing('discounts', 'image_path', 'VARCHAR(255) DEFAULT NULL AFTER per_customer_limit');
   await addColumnIfMissing('discounts', 'background_color', "VARCHAR(20) DEFAULT '#0f766e' AFTER image_path");
   await addColumnIfMissing('discounts', 'text_color', "VARCHAR(20) DEFAULT '#ffffff' AFTER background_color");
@@ -1179,6 +1215,10 @@ async function initDatabase() {
       vendor_product_id INT UNSIGNED NOT NULL,
       quantity DECIMAL(12,2) NOT NULL,
       unit_price DECIMAL(12,2) NOT NULL,
+      tax_name VARCHAR(80) DEFAULT NULL,
+      tax_percentage DECIMAL(7,2) NOT NULL DEFAULT 0.00,
+      tax_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      taxable_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_client_order_items_order (order_id),
@@ -1187,6 +1227,10 @@ async function initDatabase() {
       CONSTRAINT fk_client_order_items_vendor_product FOREIGN KEY (vendor_product_id) REFERENCES vendor_products(id) ON DELETE RESTRICT
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await addColumnIfMissing('client_order_items', 'tax_name', 'VARCHAR(80) DEFAULT NULL AFTER unit_price');
+  await addColumnIfMissing('client_order_items', 'tax_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER tax_name');
+  await addColumnIfMissing('client_order_items', 'tax_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER tax_percentage');
+  await addColumnIfMissing('client_order_items', 'taxable_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER tax_amount');
   await pool.query(
     `UPDATE client_orders co
      SET vendor_id = item_vendor.vendor_id
@@ -1404,6 +1448,7 @@ async function initDatabase() {
 
   console.log('Database init: seeding defaults');
   await seedDemoProducts();
+  await VendorProduct.ensureAllProductsForAllVendors();
   await Wallet.ensureForAllUsers(pool);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_sync_runs (
@@ -1616,6 +1661,23 @@ function buildDashboard(user, activePath = '/dashboard') {
 async function buildDashboardData(user, activePath = '/dashboard') {
   const dashboard = buildDashboard(user, activePath);
 
+  if (['admin', 'superadmin'].includes(String(user.role || '').toLowerCase()) || isSuperAdminUser(user)) {
+    const [maintenanceRows] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM quotation_requests) AS quotation_count,
+         (SELECT COUNT(*) FROM quotation_vendor_recipients) AS quotation_vendor_count,
+         (SELECT COUNT(*) FROM client_orders) AS order_count,
+         (SELECT COUNT(*) FROM vendor_products vp INNER JOIN products p ON p.id = vp.product_id WHERE COALESCE(vp.price, 0) <> COALESCE(p.price, 0)) AS vendor_price_diff_count`
+    );
+    const maintenance = maintenanceRows[0] || {};
+    dashboard.maintenance = {
+      quotationCount: Number(maintenance.quotation_count || 0),
+      quotationVendorCount: Number(maintenance.quotation_vendor_count || 0),
+      orderCount: Number(maintenance.order_count || 0),
+      vendorPriceDiffCount: Number(maintenance.vendor_price_diff_count || 0),
+    };
+  }
+
   if (user.role === 'Vendor') {
     const quotationCount = await Quotation.pendingCountForVendor(user.id);
     const [quotationRows] = await pool.query(
@@ -1733,6 +1795,65 @@ async function buildDashboardData(user, activePath = '/dashboard') {
   }
 
   return dashboard;
+}
+
+async function clearQuotationAndOrderData() {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    const [countRows] = await connection.query(
+      `SELECT
+         (SELECT COUNT(*) FROM quotation_requests) AS quotation_requests,
+         (SELECT COUNT(*) FROM quotation_request_items) AS quotation_request_items,
+         (SELECT COUNT(*) FROM quotation_vendor_recipients) AS quotation_vendor_recipients,
+         (SELECT COUNT(*) FROM quotation_vendor_response_items) AS quotation_vendor_response_items,
+         (SELECT COUNT(*) FROM client_orders) AS client_orders,
+         (SELECT COUNT(*) FROM client_order_items) AS client_order_items,
+         (SELECT COUNT(*) FROM order_status_history) AS order_status_history`
+    );
+
+    await connection.query('DELETE FROM order_status_history');
+    await connection.query('DELETE FROM client_order_items');
+    await connection.query('DELETE FROM client_orders');
+    await connection.query('DELETE FROM quotation_vendor_response_items');
+    await connection.query('DELETE FROM quotation_vendor_recipients');
+    await connection.query('DELETE FROM quotation_request_items');
+    await connection.query('DELETE FROM quotation_requests');
+
+    await connection.commit();
+
+    const counts = countRows[0] || {};
+    return {
+      quotationRequests: Number(counts.quotation_requests || 0),
+      quotationRequestItems: Number(counts.quotation_request_items || 0),
+      quotationVendorRecipients: Number(counts.quotation_vendor_recipients || 0),
+      quotationVendorResponseItems: Number(counts.quotation_vendor_response_items || 0),
+      clientOrders: Number(counts.client_orders || 0),
+      clientOrderItems: Number(counts.client_order_items || 0),
+      orderStatusHistory: Number(counts.order_status_history || 0),
+    };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function syncVendorPricesToMasterProducts() {
+  const [result] = await pool.query(
+    `UPDATE vendor_products vp
+     SET price = p.price,
+         updated_at = CURRENT_TIMESTAMP
+     FROM products p
+     WHERE p.id = vp.product_id
+       AND p.is_deleted = 0
+       AND COALESCE(vp.price, 0) <> COALESCE(p.price, 0)`
+  );
+
+  return Number(result.affectedRows || result.rowCount || 0);
 }
 
 app.get('/', (req, res) => {
@@ -1913,8 +2034,34 @@ app.get('/dashboard', requireAuth, async (req, res) => {
   res.render('dashboard', {
     user: req.session.user,
     dashboard: await buildDashboardData(req.session.user, req.path),
-    error: null,
+    error: req.query.error || null,
+    message: req.query.message || null,
   });
+});
+
+app.post('/admin/maintenance/clear-quotations-orders', requireAuth, requireAdminMaintenance, async (req, res) => {
+  try {
+    const counts = await clearQuotationAndOrderData();
+    const removed = counts.quotationRequests + counts.clientOrders;
+    const detail = `Cleared ${counts.quotationRequests} quotation request(s), ${counts.quotationVendorRecipients} vendor quote row(s), and ${counts.clientOrders} order(s).`;
+    return res.redirect(`/dashboard?message=${encodeURIComponent(removed > 0 ? detail : 'No quotation or order data was found to clear.')}`);
+  } catch (error) {
+    console.error('Admin maintenance clear quotation/order data failed:', error);
+    return res.redirect(`/dashboard?error=${encodeURIComponent('Unable to clear quotation and order data. Check server logs.')}`);
+  }
+});
+
+app.post('/admin/maintenance/sync-vendor-prices', requireAuth, requireAdminMaintenance, async (req, res) => {
+  try {
+    const updated = await syncVendorPricesToMasterProducts();
+    const detail = updated > 0
+      ? `Updated ${updated} vendor product price(s) to match master product prices. Vendors can edit their own prices again after this reset.`
+      : 'All vendor product prices already match master product prices.';
+    return res.redirect(`/dashboard?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Admin maintenance sync vendor prices failed:', error);
+    return res.redirect(`/dashboard?error=${encodeURIComponent('Unable to sync vendor product prices. Check server logs.')}`);
+  }
 });
 
 app.get('/vendor/dashboard', requireSessionRole('Vendor', '/login/vendor'), async (req, res) => {
@@ -1922,6 +2069,7 @@ app.get('/vendor/dashboard', requireSessionRole('Vendor', '/login/vendor'), asyn
     user: req.session.user,
     dashboard: await buildDashboardData(req.session.user, req.path),
     error: null,
+    message: null,
   });
 });
 
@@ -1930,6 +2078,7 @@ app.get('/client/dashboard', requireSessionRole('Client', '/login/client'), asyn
     user: req.session.user,
     dashboard: await buildDashboardData(req.session.user, req.path),
     error: null,
+    message: null,
   });
 });
 
@@ -2490,9 +2639,32 @@ app.post('/api/client/delivery-addresses/:id/default', webOrJwtAuth, requireAuth
 
 app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
-    const { items } = req.body;
-    if (!items || !Array.isArray(items) || items.length === 0) {
+    const rawItems = req.body.items;
+    if (!rawItems || !Array.isArray(rawItems) || rawItems.length === 0) {
       return res.status(400).json({ success: false, message: 'No items in order' });
+    }
+    const itemsByProduct = new Map();
+    for (const item of rawItems) {
+      const productKey = Number(item.productId || item.product_id || item.id || item.vendorProductId);
+      const quantity = Math.max(1, Number(item.quantity || 1));
+      const price = Math.max(0, Number(item.price || 0));
+      if (!productKey || quantity <= 0) continue;
+
+      const normalized = { ...item, quantity, price };
+      const existing = itemsByProduct.get(productKey);
+      if (!existing) {
+        itemsByProduct.set(productKey, normalized);
+      } else {
+        existing.quantity = Math.max(existing.quantity, quantity);
+        if (price > 0 && (Number(existing.price || 0) <= 0 || price < Number(existing.price || 0))) {
+          existing.price = price;
+          existing.vendorProductId = item.vendorProductId || existing.vendorProductId;
+        }
+      }
+    }
+    const items = [...itemsByProduct.values()];
+    if (items.length === 0) {
+      return res.status(400).json({ success: false, message: 'No valid items in order' });
     }
 
     const clientId = req.authUser.id;
@@ -2500,20 +2672,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
       return res.status(403).json({ success: false, message: 'You do not have permission to apply coupons' });
     }
 
-    const subtotalAmount = items.reduce((sum, item) => sum + (Number(item.price || 0) * Number(item.quantity || 0)), 0);
-    const promotion = await Promotion.resolveOrderPromotion({
-      couponCode: req.body.coupon_code,
-      orderType: 'direct',
-      subtotal: subtotalAmount,
-      userId: clientId,
-    });
-    const discountAmount = Number(promotion.discountAmount || 0);
-    const totalAmount = Math.max(subtotalAmount - discountAmount, 0);
-    const clientWallet = await Wallet.findByUserId(clientId);
-
-    if (clientWallet.balance < totalAmount) {
-      return res.status(400).json({ success: false, message: 'Insufficient wallet balance' });
-    }
+    let totalAmount = 0;
 
     const connection = await pool.getConnection();
     const purchasedProducts = [];
@@ -2559,7 +2718,14 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
       for (const item of items) {
         const vpId = item.vendorProductId || item.id;
         const [vpRows] = await connection.query(
-          'SELECT product_id, vendor_id, quantity, price FROM vendor_products WHERE id = ? FOR UPDATE',
+          `SELECT vp.product_id, vp.vendor_id, vp.quantity, vp.price,
+                  CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
+                  COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
+           FROM vendor_products vp
+           INNER JOIN products p ON p.id = vp.product_id
+           INNER JOIN categories c ON c.id = p.category_id
+           WHERE vp.id = ?
+           FOR UPDATE`,
           [vpId]
         );
 
@@ -2574,6 +2740,10 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
 
         const quantity = Math.max(1, Number(item.quantity || 1));
         const unitPrice = Math.max(0, Number(item.price || vp.price || 0));
+        const taxPercentage = Math.max(0, Number(vp.tax_percentage || 0));
+        const lineTotal = unitPrice * quantity;
+        const taxAmount = taxPercentage > 0 ? lineTotal * taxPercentage / (100 + taxPercentage) : 0;
+        const taxableAmount = lineTotal - taxAmount;
         const vendorId = Number(vp.vendor_id);
 
         if (!vendorOrders.has(vendorId)) {
@@ -2586,24 +2756,67 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           productId: vp.product_id,
           quantity,
           unitPrice,
+          taxName: vp.tax_name || '',
+          taxPercentage,
+          taxAmount,
+          taxableAmount,
         });
       }
 
       const orderIds = [];
       const vendorOrderNotifications = [];
+      const subtotalAmount = [...vendorOrders.values()].reduce((sum, vendorOrder) => sum + Number(vendorOrder.total || 0), 0);
+      const couponCode = String(req.body.coupon_code || '').trim();
+      const globalPromotion = couponCode
+        ? await Promotion.resolveOrderPromotion({
+            couponCode,
+            orderType: 'direct',
+            subtotal: subtotalAmount,
+            userId: clientId,
+          }, connection)
+        : null;
+      const vendorPromotions = new Map();
+
+      totalAmount = 0;
+      for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
+        const vendorSubtotal = vendorOrder.total;
+        const promotion = globalPromotion || await Promotion.resolveOrderPromotion({
+          orderType: 'direct',
+          subtotal: vendorSubtotal,
+          userId: clientId,
+          vendorId,
+        }, connection);
+        const discountAmount = globalPromotion
+          ? (subtotalAmount > 0 ? Number(((vendorSubtotal / subtotalAmount) * Number(globalPromotion.discountAmount || 0)).toFixed(2)) : 0)
+          : Number(promotion.discountAmount || 0);
+        const vendorDiscount = Math.min(vendorSubtotal, discountAmount);
+        const vendorTotal = Math.max(vendorSubtotal - vendorDiscount, 0);
+        vendorPromotions.set(vendorId, { promotion, vendorDiscount, vendorTotal });
+        totalAmount += vendorTotal;
+      }
+
+      const clientWallet = await Wallet.findByUserId(clientId);
+      if (clientWallet.balance < totalAmount) {
+        const error = new Error('Insufficient wallet balance');
+        error.status = 400;
+        throw error;
+      }
 
       for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
         const vendorSubtotal = vendorOrder.total;
-        const vendorDiscount = subtotalAmount > 0 ? Number(((vendorSubtotal / subtotalAmount) * discountAmount).toFixed(2)) : 0;
-        const vendorTotal = Math.max(vendorSubtotal - vendorDiscount, 0);
+        const vendorPromotion = vendorPromotions.get(vendorId);
+        const promotion = vendorPromotion.promotion;
+        const vendorDiscount = vendorPromotion.vendorDiscount;
+        const vendorTotal = vendorPromotion.vendorTotal;
         const [orderResult] = await connection.query(
           `INSERT INTO client_orders
-           (user_id, vendor_id, subtotal_amount, discount_amount, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           (user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
             vendorId,
             vendorSubtotal,
+            vendorDiscount,
             vendorDiscount,
             promotion.coupon ? promotion.coupon.id : null,
             promotion.code || null,
@@ -2639,8 +2852,19 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
 
         for (const orderItem of vendorOrder.items) {
           await connection.query(
-            'INSERT INTO client_order_items (order_id, vendor_product_id, quantity, unit_price) VALUES (?, ?, ?, ?)',
-            [orderId, orderItem.vendorProductId, orderItem.quantity, orderItem.unitPrice]
+            `INSERT INTO client_order_items
+             (order_id, vendor_product_id, quantity, unit_price, tax_name, tax_percentage, tax_amount, taxable_amount)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+            [
+              orderId,
+              orderItem.vendorProductId,
+              orderItem.quantity,
+              orderItem.unitPrice,
+              orderItem.taxName || null,
+              orderItem.taxPercentage,
+              orderItem.taxAmount,
+              orderItem.taxableAmount,
+            ]
           );
 
           await connection.query(
@@ -2942,6 +3166,27 @@ app.get('/api/discounts', webOrJwtAuth, requirePermission('discounts.view'), asy
 
 app.get('/api/promotions/active-display', webOrJwtAuth, async (req, res) => {
   res.json({ success: true, promotions: await Promotion.activeDisplayPromotions(req.authUser && req.authUser.id) });
+});
+
+app.get('/api/vendor/offers', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
+  res.json({ success: true, offers: await Promotion.listVendorDiscounts(req.authUser.id) });
+});
+
+app.post('/api/vendor/offers', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
+  try {
+    const payload = await promotionPayload(req.body);
+    const id = await Promotion.createDiscount({
+      ...payload,
+      vendor_id: req.authUser.id,
+      apply_on: 'direct',
+      scroll_message: payload.scroll_message || payload.name,
+      background_color: payload.background_color || '#0f766e',
+      text_color: payload.text_color || '#ffffff',
+    });
+    res.status(201).json({ success: true, id, message: 'Offer created' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to create offer' });
+  }
 });
 
 app.post('/api/discounts', webOrJwtAuth, requirePermission('discounts.create'), uploadPromotionImage.single('image'), handlePromotionImageUploadError, async (req, res) => {

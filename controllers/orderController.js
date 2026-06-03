@@ -1,9 +1,28 @@
 const Order = require('../models/Order');
 const User = require('../models/User');
 const pool = require('../db');
+const { ensureInvoice } = require('../services/invoiceService');
 
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
+}
+
+function invoiceLinks(req, order) {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  const basePath = `${origin}${req.baseUrl}/${order.id}/invoice`;
+  const accessToken = req.token ? `&access_token=${encodeURIComponent(req.token)}` : '';
+  return {
+    invoice_url: `${basePath}?disposition=inline${accessToken}`,
+    invoice_download_url: `${basePath}?download=1${accessToken}`,
+  };
+}
+
+async function attachInvoice(req, order, items) {
+  await ensureInvoice(order, items);
+  return {
+    ...order,
+    ...invoiceLinks(req, order),
+  };
 }
 
 // Admin/Staff - List all orders with filters
@@ -42,7 +61,8 @@ async function show(req, res) {
 
     const items = await Order.getOrderItems(req.params.id);
     const history = await Order.getStatusHistory(req.params.id);
-    return res.json({ success: true, order, items, history });
+    const orderWithInvoice = await attachInvoice(req, order, items);
+    return res.json({ success: true, order: orderWithInvoice, items, history });
   } catch (error) {
     console.error('Order show error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch order' });
@@ -51,14 +71,24 @@ async function show(req, res) {
 
 // Admin/Staff - Assign delivery partner with OTP
 async function assignDelivery(req, res) {
-  const { partner_id, otp } = req.body;
+  const { partner_id } = req.body;
+  const otp = String(req.body.otp || Math.floor(100000 + Math.random() * 900000)).trim();
+  const deliveryCharge = Number(req.body.delivery_charge || 0);
 
-  if (!partner_id || !otp) {
-    return res.status(422).json({ success: false, message: 'Partner ID and OTP are required' });
+  if (!partner_id) {
+    return res.status(422).json({ success: false, message: 'Delivery partner is required' });
+  }
+
+  if (!/^\d{4,6}$/.test(otp)) {
+    return res.status(422).json({ success: false, message: 'OTP must be 4 to 6 digits' });
+  }
+
+  if (!Number.isFinite(deliveryCharge) || deliveryCharge < 0) {
+    return res.status(422).json({ success: false, message: 'Delivery charge must be zero or more' });
   }
 
   try {
-    const result = await Order.assignDeliveryPartner(req.params.id, partner_id, otp, req.authUser || req.session.user);
+    const result = await Order.assignDeliveryPartner(req.params.id, partner_id, otp, deliveryCharge, req.authUser || req.session.user);
     return res.json({ success: true, message: 'Delivery partner assigned', ...result });
   } catch (error) {
     console.error('Assign delivery error:', error);
@@ -105,7 +135,8 @@ async function vendorOrders(req, res) {
     for (const order of orders) {
       const items = await Order.getOrderItems(order.id);
       const history = await Order.getStatusHistory(order.id);
-      ordersWithItems.push({ ...order, items, history, next_statuses: Order.getAllowedNextStatuses(order.status, 'Vendor') });
+      const orderWithInvoice = await attachInvoice(req, order, items);
+      ordersWithItems.push({ ...orderWithInvoice, items, history, next_statuses: Order.getAllowedNextStatusesForOrder(order, 'Vendor') });
     }
     return res.json({ success: true, orders: ordersWithItems });
   } catch (error) {
@@ -134,7 +165,8 @@ async function vendorOrderDetail(req, res) {
 
     const items = await Order.getOrderItems(order.id);
     const history = await Order.getStatusHistory(order.id);
-    return res.json({ success: true, order, items, history, next_statuses: Order.getAllowedNextStatuses(order.status, 'Vendor') });
+    const orderWithInvoice = await attachInvoice(req, order, items);
+    return res.json({ success: true, order: orderWithInvoice, items, history, next_statuses: Order.getAllowedNextStatusesForOrder(order, 'Vendor') });
   } catch (error) {
     console.error('Vendor order detail error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch order' });
@@ -161,7 +193,8 @@ async function clientOrders(req, res) {
     for (const order of orders) {
       const items = await Order.getOrderItems(order.id);
       const history = await Order.getStatusHistory(order.id);
-      ordersWithItems.push({ ...order, items, history });
+      const orderWithInvoice = await attachInvoice(req, order, items);
+      ordersWithItems.push({ ...orderWithInvoice, items, history });
     }
     return res.json({ success: true, orders: ordersWithItems });
   } catch (error) {
@@ -190,7 +223,8 @@ async function clientOrderDetail(req, res) {
 
     const items = await Order.getOrderItems(order.id);
     const history = await Order.getStatusHistory(order.id);
-    return res.json({ success: true, order, items, history });
+    const orderWithInvoice = await attachInvoice(req, order, items);
+    return res.json({ success: true, order: orderWithInvoice, items, history });
   } catch (error) {
     console.error('Client order detail error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch order' });
@@ -227,30 +261,74 @@ async function updateAdminStatus(req, res) {
   }
 }
 
+async function streamInvoice(req, res, role) {
+  try {
+    const currentUser = req.authUser || req.session.user;
+    const order = await Order.findById(req.params.id);
+    if (!order) {
+      return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (role === 'Vendor' && (!currentUser || currentUser.role !== 'Vendor' || Number(order.vendor_id) !== Number(currentUser.id))) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    if (role === 'Client' && (!currentUser || currentUser.role !== 'Client' || Number(order.user_id) !== Number(currentUser.id))) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+
+    const items = await Order.getOrderItems(order.id);
+    const invoice = await ensureInvoice(order, items);
+    const inline = req.query.download !== '1' && req.query.disposition !== 'attachment';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${invoice.fileName}"`);
+    return res.sendFile(invoice.absolutePath);
+  } catch (error) {
+    console.error('Invoice stream error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to generate invoice' });
+  }
+}
+
+function adminInvoice(req, res) {
+  return streamInvoice(req, res, 'Admin');
+}
+
+function vendorInvoice(req, res) {
+  return streamInvoice(req, res, 'Vendor');
+}
+
+function clientInvoice(req, res) {
+  return streamInvoice(req, res, 'Client');
+}
+
 // Admin/Staff - Get available delivery partners (staff users)
 async function getDeliveryPartners(req, res) {
   try {
     const city = String(req.query.city || '').trim();
-    const params = [];
-    const cityJoin = city
-      ? `INNER JOIN delivery_partner_settings dps
-           ON dps.user_id = u.id
-          AND dps.is_active = 1
-          AND LOWER(TRIM(dps.city)) = LOWER(TRIM(?))`
-      : `LEFT JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1`;
-    if (city) params.push(city);
+    const params = city ? [city, city] : [];
+    const cityFilter = city
+      ? `AND (
+           LOWER(TRIM(dps.city)) = LOWER(TRIM(?))
+           OR NOT EXISTS (
+             SELECT 1
+             FROM delivery_partner_settings dps_any
+             WHERE dps_any.user_id = u.id
+               AND dps_any.is_active = 1
+           )
+         )`
+      : '';
 
     const [rows] = await pool.query(
       `SELECT u.id, u.name, u.email, u.phone,
-              ${city ? '? AS city' : "COALESCE(MIN(dps.city), '') AS city"}
+              ${city ? "COALESCE(MIN(CASE WHEN LOWER(TRIM(dps.city)) = LOWER(TRIM(?)) THEN dps.city END), MIN(dps.city), '') AS city" : "COALESCE(MIN(dps.city), '') AS city"}
        FROM users u
-       ${cityJoin}
+       LEFT JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
        WHERE LOWER(u.role) = 'staff'
-         AND u.status = 'active'
+         AND LOWER(u.status) = 'active'
          AND u.is_deleted = 0
+         ${cityFilter}
        GROUP BY u.id, u.name, u.email, u.phone
        ORDER BY u.name`,
-      city ? [...params, city] : params
+      params
     );
     return res.json({ success: true, partners: rows });
   } catch (error) {
@@ -286,6 +364,9 @@ module.exports = {
   readyToDeliver,
   updateVendorStatus,
   updateAdminStatus,
+  adminInvoice,
+  vendorInvoice,
+  clientInvoice,
   vendorOrders,
   vendorOrderDetail,
   clientOrders,

@@ -75,6 +75,21 @@
     </div>
   </div>
 
+  <!-- Invoice Preview Modal -->
+  <div class="user-modal" id="invoiceModal" aria-hidden="true">
+    <div class="user-modal-card invoice-modal-card">
+      <div class="user-modal-header">
+        <h2 id="invoiceModalTitle">Invoice</h2>
+        <button type="button" onclick="closeInvoice()">Close</button>
+      </div>
+      <div class="invoice-toolbar">
+        <button class="settings-save" type="button" onclick="printInvoice()">Print</button>
+        <a class="product-secondary-button" id="invoiceDownloadLink" href="#" download>Download</a>
+      </div>
+      <iframe id="invoiceFrame" class="invoice-frame" title="Invoice preview"></iframe>
+    </div>
+  </div>
+
   <script>
     let orders = [];
 
@@ -110,6 +125,7 @@
           <td>${o.delivery_partner_name || 'Not assigned'}</td>
           <td>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="viewDetails(${o.id})">View Details</button>
+            <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="openInvoice(${o.id})">Invoice</button>
           </td>
         </tr>
       `).join('');
@@ -157,6 +173,9 @@
           content.innerHTML = `
             <div style="margin-bottom: 20px;">
               <h3>Order #${order.id}</h3>
+              <p>
+                <button class="product-secondary-button" type="button" onclick="openInvoice(${order.id})">Open Invoice</button>
+              </p>
               <p><strong>Vendor:</strong> ${order.vendor_business_name || order.vendor_name || 'N/A'}</p>
               <p><strong>Subtotal:</strong> ₹${Number(order.subtotal_amount || order.total_amount).toFixed(2)}</p>
               <p><strong>Discount:</strong> ₹${Number(order.discount_amount || 0).toFixed(2)} ${order.coupon_code ? `(${order.coupon_code})` : order.discount_label ? `(${order.discount_label})` : ''}</p>
@@ -170,7 +189,6 @@
               ${order.assigned_at ? `<p><strong>Assigned At:</strong> ${new Date(order.assigned_at).toLocaleString()}</p>` : ''}
               ${order.ready_at ? `<p><strong>Ready At:</strong> ${new Date(order.ready_at).toLocaleString()}</p>` : ''}
               ${order.delivered_at ? `<p><strong>Delivered At:</strong> ${new Date(order.delivered_at).toLocaleString()}</p>` : ''}
-            </div>
             <h4>Status Timeline</h4>
             ${renderTimeline(history)}
             <h4>Order Items</h4>
@@ -200,6 +218,28 @@
       document.getElementById('detailModal').setAttribute('aria-hidden', 'true');
     }
 
+    function openInvoice(orderId) {
+      const viewUrl = `/orders/client/${orderId}/invoice?disposition=inline`;
+      const downloadUrl = `/orders/client/${orderId}/invoice?download=1`;
+      document.getElementById('invoiceModalTitle').textContent = `Invoice #${orderId}`;
+      document.getElementById('invoiceFrame').src = viewUrl;
+      document.getElementById('invoiceDownloadLink').href = downloadUrl;
+      document.getElementById('invoiceModal').style.display = 'flex';
+      document.getElementById('invoiceModal').setAttribute('aria-hidden', 'false');
+    }
+
+    function closeInvoice() {
+      document.getElementById('invoiceModal').style.display = 'none';
+      document.getElementById('invoiceModal').setAttribute('aria-hidden', 'true');
+      document.getElementById('invoiceFrame').src = 'about:blank';
+    }
+
+    function printInvoice() {
+      const frame = document.getElementById('invoiceFrame');
+      frame.contentWindow?.focus();
+      frame.contentWindow?.print();
+    }
+
     document.getElementById('statusFilter')?.addEventListener('change', renderOrders);
 
     // Initial load
@@ -217,6 +257,9 @@
     .order-timeline { display: grid; gap: 10px; padding-left: 20px; }
     .order-timeline li strong { display: block; color: #263238; }
     .order-timeline li span, .order-timeline li small { display: block; color: #64748b; }
+    .invoice-modal-card { width: min(96vw, 980px); max-width: 980px; height: 90vh; display: flex; flex-direction: column; }
+    .invoice-toolbar { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
+    .invoice-frame { flex: 1; width: 100%; min-height: 520px; border: 1px solid #d8dee6; border-radius: 6px; background: #fff; }
   </style>
 </body>
 </html>

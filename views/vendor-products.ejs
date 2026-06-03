@@ -94,7 +94,7 @@
                     </span>
                   </div>
                   <div class="product-status">
-                    <span class="status-badge <%= product.status === 'active' ? 'status-active' : 'status-inactive' %>">
+                    <span class="status-badge <%= product.status === 'active' ? 'status-active' : product.status === 'unavailable' ? 'status-unavailable' : 'status-inactive' %>">
                       <%= product.status %>
                     </span>
                     <button
@@ -102,6 +102,12 @@
                       class="status-toggle-btn <%= product.status === 'active' ? 'status-toggle-active' : 'status-toggle-inactive' %>"
                       onclick="toggleVendorProductStatus(<%= product.id %>)">
                       Set <%= product.status === 'active' ? 'Inactive' : 'Active' %>
+                    </button>
+                    <button
+                      type="button"
+                      class="status-toggle-btn <%= product.status === 'unavailable' ? 'status-toggle-inactive' : 'status-toggle-unavailable' %>"
+                      onclick="setVendorProductAvailability(<%= product.id %>)">
+                      <%= product.status === 'unavailable' ? 'Make Available' : 'Unavailable' %>
                     </button>
                   </div>
                 </div>
@@ -137,7 +143,7 @@
                   </span>
                 </div>
                 <div class="product-row-status">
-                  <span class="status-badge <%= product.status === 'active' ? 'status-active' : 'status-inactive' %>">
+                  <span class="status-badge <%= product.status === 'active' ? 'status-active' : product.status === 'unavailable' ? 'status-unavailable' : 'status-inactive' %>">
                     <%= product.status %>
                   </span>
                   <button
@@ -145,6 +151,12 @@
                     class="status-toggle-btn <%= product.status === 'active' ? 'status-toggle-active' : 'status-toggle-inactive' %>"
                     onclick="toggleVendorProductStatus(<%= product.id %>)">
                     Set <%= product.status === 'active' ? 'Inactive' : 'Active' %>
+                  </button>
+                  <button
+                    type="button"
+                    class="status-toggle-btn <%= product.status === 'unavailable' ? 'status-toggle-inactive' : 'status-toggle-unavailable' %>"
+                    onclick="setVendorProductAvailability(<%= product.id %>)">
+                    <%= product.status === 'unavailable' ? 'Make Available' : 'Unavailable' %>
                   </button>
                 </div>
                 <div class="product-row-actions">
@@ -189,6 +201,7 @@
           <select id="status" required>
             <option value="active">Active</option>
             <option value="inactive">Inactive</option>
+            <option value="unavailable">Unavailable</option>
           </select>
         </label>
         <button class="settings-save" type="submit">Save</button>
@@ -278,13 +291,40 @@
     .in-stock { background: #dcfce7; color: #166534; }
     .low-stock { background: #fef3c7; color: #92400e; }
     .out-stock { background: #fee2e2; color: #991b1b; }
+    .vendor-quantity-editor { display: grid; gap: 8px; align-items: start; }
+    .vendor-quantity-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .vendor-quantity-controls input {
+      width: 96px;
+      min-height: 32px;
+      padding: 6px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.86rem;
+      font-weight: 700;
+      color: #263238;
+    }
+    .quantity-save-btn {
+      min-height: 32px;
+      padding: 6px 10px;
+      border: none;
+      border-radius: 6px;
+      background: #2563eb;
+      color: #fff;
+      font-size: 0.78rem;
+      font-weight: 800;
+      cursor: pointer;
+    }
+    .quantity-save-btn:disabled { opacity: 0.65; cursor: not-allowed; }
     .status-active { background: #dcfce7; color: #166534; }
     .status-inactive { background: #fee2e2; color: #991b1b; }
+    .status-unavailable { background: #fef3c7; color: #92400e; }
     .status-toggle-btn { display: inline-flex; align-items: center; justify-content: center; margin-top: 8px; padding: 5px 9px; border: none; border-radius: 4px; color: #fff; font-size: 0.74rem; font-weight: 700; cursor: pointer; }
     .status-toggle-active { background: #64748b; }
     .status-toggle-active:hover { background: #475569; }
     .status-toggle-inactive { background: #16a34a; }
     .status-toggle-inactive:hover { background: #15803d; }
+    .status-toggle-unavailable { background: #d97706; }
+    .status-toggle-unavailable:hover { background: #b45309; }
     .product-actions { margin-top: 16px; padding-top: 12px; border-top: 1px solid #edf0f2; }
     .btn-edit, .btn-delete { width: 100%; padding: 8px; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
     .btn-edit { background: #26bcd4; }
@@ -507,20 +547,39 @@
       return Number(product.price || 0);
     }
 
-    function stockMarkup(product) {
+    function stockBadgeMarkup(product) {
       const stockClass = product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock';
       const stockText = product.quantity > 0 ? `${product.quantity} in stock` : 'Out of stock';
       return `<span class="stock-badge ${stockClass}">${stockText}</span>`;
     }
 
-    function statusMarkup(product) {
+    function quantityEditorMarkup(product) {
       return `
-        <span class="status-badge ${product.status === 'active' ? 'status-active' : 'status-inactive'}">${escapeHtml(product.status)}</span>
+        <div class="vendor-quantity-editor">
+          ${stockBadgeMarkup(product)}
+          <div class="vendor-quantity-controls">
+            <input type="number" min="0" step="0.01" value="${Number(product.quantity || 0)}" aria-label="Product quantity" />
+            <button type="button" class="quantity-save-btn" onclick="saveProductQuantity(${product.id}, this)">Save</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function statusMarkup(product) {
+      const statusClass = product.status === 'active' ? 'status-active' : product.status === 'unavailable' ? 'status-unavailable' : 'status-inactive';
+      return `
+        <span class="status-badge ${statusClass}">${escapeHtml(product.status)}</span>
         <button
           type="button"
           class="status-toggle-btn ${product.status === 'active' ? 'status-toggle-active' : 'status-toggle-inactive'}"
           onclick="toggleVendorProductStatus(${product.id})">
           Set ${product.status === 'active' ? 'Inactive' : 'Active'}
+        </button>
+        <button
+          type="button"
+          class="status-toggle-btn ${product.status === 'unavailable' ? 'status-toggle-inactive' : 'status-toggle-unavailable'}"
+          onclick="setVendorProductAvailability(${product.id})">
+          ${product.status === 'unavailable' ? 'Make Available' : 'Unavailable'}
         </button>
       `;
     }
@@ -544,7 +603,7 @@
               <span class="product-brand">${escapeHtml(product.brand_name)}</span>
             </div>
             <div class="product-price"><strong>${money(unitPrice(product))}</strong></div>
-            <div class="product-stock">${stockMarkup(product)}</div>
+            <div class="product-stock">${quantityEditorMarkup(product)}</div>
             <div class="product-status">${statusMarkup(product)}</div>
           </div>
           <div class="product-actions">
@@ -566,7 +625,7 @@
             </div>
           </div>
           <div class="product-row-price">${money(unitPrice(product))}</div>
-          <div class="product-row-stock">${stockMarkup(product)}</div>
+          <div class="product-row-stock">${quantityEditorMarkup(product)}</div>
           <div class="product-row-status">${statusMarkup(product)}</div>
           <div class="product-row-actions">
             <button type="button" class="btn-edit" onclick="openEditModal(${product.id})">Edit</button>
@@ -633,6 +692,13 @@
       if (!product) return;
 
       const nextStatus = product.status === 'active' ? 'inactive' : 'active';
+      updateVendorProductStatus(id, nextStatus);
+    }
+
+    async function updateVendorProductStatus(id, nextStatus) {
+      const product = vendorProducts.find((item) => Number(item.id) === Number(id));
+      if (!product) return;
+
       const response = await fetch(`/vendor-products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -645,7 +711,57 @@
       }
 
       product.status = data.vendor_product && data.vendor_product.status ? data.vendor_product.status : nextStatus;
+      product.quantity = data.vendor_product && data.vendor_product.quantity !== undefined ? data.vendor_product.quantity : product.quantity;
       renderProducts();
+    }
+
+    async function saveProductQuantity(id, button) {
+      const product = vendorProducts.find((item) => Number(item.id) === Number(id));
+      if (!product) return;
+
+      const editor = button.closest('.vendor-quantity-editor');
+      const input = editor && editor.querySelector('input[type="number"]');
+      const quantity = Number(input ? input.value : NaN);
+      if (!Number.isFinite(quantity) || quantity < 0) {
+        alert('Please enter a valid quantity');
+        input?.focus();
+        return;
+      }
+
+      button.disabled = true;
+      const previousText = button.textContent;
+      button.textContent = 'Saving...';
+      try {
+        const response = await fetch(`/vendor-products/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantity }),
+        });
+        const data = await response.json();
+        if (!data.success) {
+          alert(data.message || 'Unable to update quantity');
+          return;
+        }
+
+        product.quantity = data.vendor_product && data.vendor_product.quantity !== undefined
+          ? data.vendor_product.quantity
+          : quantity;
+        if (data.vendor_product && data.vendor_product.status) {
+          product.status = data.vendor_product.status;
+        }
+        renderProducts();
+      } catch (error) {
+        alert('Unable to update quantity');
+      } finally {
+        button.disabled = false;
+        button.textContent = previousText;
+      }
+    }
+
+    function setVendorProductAvailability(id) {
+      const product = vendorProducts.find((item) => Number(item.id) === Number(id));
+      if (!product) return;
+      updateVendorProductStatus(id, product.status === 'unavailable' ? 'active' : 'unavailable');
     }
 
     function openEditModal(id) {
@@ -692,9 +808,9 @@
       const payload = {
         product_id: document.getElementById('productId').value,
         price: document.getElementById('price').value,
-        quantity: document.getElementById('quantity').value,
         status: document.getElementById('status').value,
       };
+      payload.quantity = payload.status === 'unavailable' ? 0 : document.getElementById('quantity').value;
       const method = id ? 'PUT' : 'POST';
       const url = id ? `/vendor-products/${id}` : '/vendor-products';
       const response = await fetch(url, {
@@ -714,6 +830,9 @@
     window.openEditModal = openEditModal;
     window.deleteVendorProduct = deleteVendorProduct;
     window.toggleVendorProductStatus = toggleVendorProductStatus;
+    window.setVendorProductAvailability = setVendorProductAvailability;
+    window.saveProductQuantity = saveProductQuantity;
+    renderProducts();
     updateSubcategoryFilter();
     updateBrandFilter();
     categoryFilter.addEventListener('change', () => {
@@ -728,6 +847,11 @@
     });
     brandFilter.addEventListener('change', loadProducts);
     searchInput.addEventListener('input', debounce(loadProducts, 300));
+    document.getElementById('status').addEventListener('change', (event) => {
+      if (event.target.value === 'unavailable') {
+        document.getElementById('quantity').value = 0;
+      }
+    });
   </script>
 </body>
 </html>

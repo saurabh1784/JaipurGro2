@@ -11,6 +11,16 @@ function validateName(body, errors) {
   }
 }
 
+function parseTaxPayload(body, errors) {
+  const taxName = String(body.tax_name || '').trim();
+  const hasTaxPercentage = body.tax_percentage !== undefined && body.tax_percentage !== '';
+  const taxPercentage = hasTaxPercentage ? Number(body.tax_percentage) : null;
+  if (hasTaxPercentage && (!Number.isFinite(taxPercentage) || taxPercentage < 0 || taxPercentage > 100)) {
+    errors.push('Tax percentage must be between 0 and 100');
+  }
+  return { tax_name: taxName, tax_percentage: taxPercentage };
+}
+
 function duplicateResponse(res, error) {
   if (error.code === 'ER_DUP_ENTRY') {
     return res.status(409).json({ success: false, message: 'Name already exists for this parent' });
@@ -42,6 +52,7 @@ async function listCategories(req, res) {
 async function createCategory(req, res) {
   const errors = [];
   validateName(req.body, errors);
+  const tax = parseTaxPayload(req.body, errors);
   if (errors.length) return res.status(422).json({ success: false, errors });
 
   try {
@@ -49,6 +60,7 @@ async function createCategory(req, res) {
       name: String(req.body.name).trim(),
       slug: req.body.slug,
       is_active: req.body.is_active === undefined ? true : parseActive(req.body.is_active),
+      ...tax,
     });
     res.status(201).json({ success: true, message: 'Category created', id });
   } catch (error) {
@@ -61,6 +73,7 @@ async function createCategory(req, res) {
 async function updateCategory(req, res) {
   const errors = [];
   validateName(req.body, errors);
+  const tax = parseTaxPayload(req.body, errors);
   if (errors.length) return res.status(422).json({ success: false, errors });
 
   try {
@@ -68,6 +81,7 @@ async function updateCategory(req, res) {
       name: String(req.body.name).trim(),
       slug: req.body.slug,
       is_active: req.body.is_active === undefined ? true : parseActive(req.body.is_active),
+      ...tax,
     });
     res.json({ success: true, message: 'Category updated' });
   } catch (error) {

@@ -38,6 +38,30 @@
       <div class="system-alert"><%= error %></div>
     <% } %>
 
+    <% if (typeof message !== 'undefined' && message) { %>
+      <div class="system-alert system-alert-success"><%= message %></div>
+    <% } %>
+
+    <% if (dashboard.maintenance) { %>
+      <section class="maintenance-panel" aria-label="Admin maintenance">
+        <div class="maintenance-copy">
+          <span>Debug maintenance</span>
+          <h2>Quotation, order, and vendor price tools</h2>
+          <p>Use these only for testing. Clearing data removes quotation and order history for every client and vendor.</p>
+        </div>
+        <div class="maintenance-actions">
+          <form method="post" action="/admin/maintenance/clear-quotations-orders" onsubmit="return confirmMaintenanceClear();">
+            <strong><%= dashboard.maintenance.quotationCount %> quotation(s) / <%= dashboard.maintenance.orderCount %> order(s)</strong>
+            <button class="danger-action-button" type="submit">Clear quotes and orders</button>
+          </form>
+          <form method="post" action="/admin/maintenance/sync-vendor-prices" onsubmit="return confirmVendorPriceSync();">
+            <strong><%= dashboard.maintenance.vendorPriceDiffCount %> vendor price(s) different</strong>
+            <button class="settings-save" type="submit">Reset vendor prices</button>
+          </form>
+        </div>
+      </section>
+    <% } %>
+
     <% if (dashboard.notifications && dashboard.notifications.length) { %>
       <section class="dashboard-notifications" aria-label="Notifications">
         <% dashboard.notifications.forEach((notification) => { %>
@@ -197,7 +221,103 @@
       </article>
     </section>
   </main>
+  <script>
+    function confirmMaintenanceClear() {
+      return window.confirm('Warning: this will permanently delete all quotation and order data for every client and vendor. Continue?');
+    }
+
+    function confirmVendorPriceSync() {
+      return window.confirm('This will set every vendor product price to the master product price one time for debugging. Vendors can change their own prices after this reset. Continue?');
+    }
+  </script>
   <style>
+    .system-alert-success {
+      background: #ecfdf5;
+      color: #047857;
+      border-color: #a7f3d0;
+    }
+
+    .maintenance-panel {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: center;
+      padding: 18px;
+      margin-bottom: 18px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+    }
+
+    .maintenance-copy span {
+      color: #c2410c;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .maintenance-copy h2 {
+      margin: 4px 0;
+      color: #263238;
+      font-size: 1.1rem;
+    }
+
+    .maintenance-copy p {
+      margin: 0;
+      color: #7c2d12;
+      font-weight: 700;
+    }
+
+    .maintenance-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(210px, 1fr));
+      gap: 12px;
+      min-width: min(520px, 100%);
+    }
+
+    .maintenance-actions form {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      background: #fff;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+    }
+
+    .maintenance-actions strong {
+      color: #7c2d12;
+      font-size: 0.88rem;
+    }
+
+    .danger-action-button {
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      background: #dc2626;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 900;
+    }
+
+    .theme-dark .maintenance-panel {
+      background: #332114;
+      border-color: #7c2d12;
+    }
+
+    .theme-dark .maintenance-copy h2 {
+      color: #f8fafc;
+    }
+
+    .theme-dark .maintenance-copy p,
+    .theme-dark .maintenance-actions strong {
+      color: #fed7aa;
+    }
+
+    .theme-dark .maintenance-actions form {
+      background: #111827;
+      border-color: #7c2d12;
+    }
+
     .dashboard-notifications {
       display: grid;
       gap: 10px;
@@ -389,10 +509,23 @@
       .vendor-quotation-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
+
+      .maintenance-panel {
+        align-items: stretch;
+        flex-direction: column;
+      }
+
+      .maintenance-actions {
+        min-width: 0;
+      }
     }
 
     @media (max-width: 620px) {
       .vendor-quotation-summary {
+        grid-template-columns: 1fr;
+      }
+
+      .maintenance-actions {
         grid-template-columns: 1fr;
       }
     }

@@ -24,9 +24,11 @@ async function webOrJwtAuth(req, res, next) {
 
   try {
     const authHeader = req.headers.authorization || '';
-    const [scheme, token] = authHeader.split(' ');
+    const [scheme, headerToken] = authHeader.split(' ');
+    const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : '';
+    const token = headerToken || queryToken;
 
-    if (scheme !== 'Bearer' || !token || isTokenRevoked(token)) {
+    if ((!queryToken && scheme !== 'Bearer') || !token || isTokenRevoked(token)) {
       return res.status(401).json({ success: false, message: 'Authentication token required' });
     }
 

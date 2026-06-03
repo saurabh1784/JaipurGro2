@@ -1,4 +1,5 @@
 const pool = require('../db');
+const VendorProduct = require('./VendorProduct');
 
 function normalizeServices(value) {
   if (!value) return [];
@@ -148,6 +149,7 @@ async function create(data) {
         JSON.stringify(data.services || []),
       ]
     );
+    await VendorProduct.ensureVendorHasAllProducts(userId, connection);
     await connection.commit();
     return userId;
   } catch (error) {

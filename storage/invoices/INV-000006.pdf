@@ -1,0 +1,65 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 1371 >>
+stream
+q
+1 w
+BT /F1 20 Tf 48 790 Td (JaipurGro2) Tj ET
+BT /F1 18 Tf 430 790 Td (Tax Invoice) Tj ET
+BT /F1 10 Tf 48 762 Td (Invoice: INV-000006) Tj ET
+BT /F1 10 Tf 430 762 Td (Order: #6) Tj ET
+BT /F1 10 Tf 48 746 Td (Invoice Date: 3/6/2026) Tj ET
+BT /F1 10 Tf 430 746 Td (Order Date: 3/6/2026) Tj ET
+BT /F1 12 Tf 48 718 Td (Bill To) Tj ET
+BT /F1 12 Tf 320 718 Td (Vendor) Tj ET
+BT /F1 10 Tf 48 702 Td (New Client test) Tj ET
+BT /F1 10 Tf 320 702 Td (Vendor) Tj ET
+BT /F1 10 Tf 48 688 Td (Phone: 900000101010) Tj ET
+BT /F1 9 Tf 48 674 Td (Demo client address, Jaipur, Rajasthan, India) Tj ET
+BT /F1 10 Tf 48 650 Td (Item) Tj ET
+BT /F1 10 Tf 315 650 Td (Qty) Tj ET
+BT /F1 10 Tf 370 650 Td (Rate) Tj ET
+BT /F1 10 Tf 470 650 Td (Amount) Tj ET
+48 638 m 548 638 l S
+BT /F1 9 Tf 48 620 Td (1. Haldiram Bhujia Sev 400g) Tj ET
+BT /F1 9 Tf 315 620 Td (1) Tj ET
+BT /F1 9 Tf 370 620 Td (Rs 98.00) Tj ET
+BT /F1 9 Tf 470 620 Td (Rs 98.00) Tj ET
+BT /F1 9 Tf 48 604 Td (2. Maggi 2-Minute Noodles 560g) Tj ET
+BT /F1 9 Tf 315 604 Td (1) Tj ET
+BT /F1 9 Tf 370 604 Td (Rs 100.00) Tj ET
+BT /F1 9 Tf 470 604 Td (Rs 100.00) Tj ET
+340 580 m 548 580 l S
+BT /F1 10 Tf 370 562 Td (Subtotal) Tj ET
+BT /F1 10 Tf 470 562 Td (Rs 198.00) Tj ET
+BT /F1 12 Tf 370 546 Td (Total) Tj ET
+BT /F1 12 Tf 470 546 Td (Rs 198.00) Tj ET
+BT /F1 9 Tf 48 512 Td (This invoice was generated automatically by JaipurGro2.) Tj ET
+Q
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+1734
+%%EOF

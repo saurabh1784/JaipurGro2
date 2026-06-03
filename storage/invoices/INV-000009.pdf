@@ -1,0 +1,81 @@
+%PDF-1.4
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+5 0 obj
+<< /Length 2083 >>
+stream
+q
+1 w
+BT /F1 20 Tf 48 790 Td (Fresh Vendor Co 25) Tj ET
+BT /F1 18 Tf 430 790 Td (Tax Invoice) Tj ET
+BT /F1 9 Tf 48 768 Td (Jaipur, Rajasthan, India) Tj ET
+BT /F1 9 Tf 48 756 Td (Phone: 123456789 | Email: no2@noname.com) Tj ET
+BT /F1 9 Tf 48 744 Td (Services:) Tj ET
+48 724 m 548 724 l S
+BT /F1 12 Tf 48 702 Td (Bill To) Tj ET
+BT /F1 10 Tf 48 684 Td (New Client test) Tj ET
+BT /F1 10 Tf 48 670 Td (Phone: 900000101010) Tj ET
+BT /F1 9 Tf 48 656 Td (Demo client address, Jaipur, Rajasthan, India) Tj ET
+BT /F1 12 Tf 320 702 Td (Invoice Details) Tj ET
+BT /F1 10 Tf 320 684 Td (Invoice: INV-000009) Tj ET
+BT /F1 10 Tf 320 670 Td (Order: #9) Tj ET
+BT /F1 10 Tf 320 656 Td (Invoice Date: 3/6/2026) Tj ET
+BT /F1 10 Tf 320 642 Td (Order Date: 3/6/2026) Tj ET
+BT /F1 10 Tf 48 614 Td (Item) Tj ET
+BT /F1 10 Tf 268 614 Td (Qty) Tj ET
+BT /F1 10 Tf 315 614 Td (Rate) Tj ET
+BT /F1 10 Tf 385 614 Td (Tax) Tj ET
+BT /F1 10 Tf 430 614 Td (Tax Amt) Tj ET
+BT /F1 10 Tf 500 614 Td (Amount) Tj ET
+48 602 m 548 602 l S
+BT /F1 9 Tf 48 584 Td (1. Haldiram Bhujia Sev 400g) Tj ET
+BT /F1 9 Tf 268 584 Td (1) Tj ET
+BT /F1 9 Tf 315 584 Td (Rs 107.07) Tj ET
+BT /F1 9 Tf 385 584 Td (8.00%) Tj ET
+BT /F1 9 Tf 430 584 Td (Rs 7.93) Tj ET
+BT /F1 9 Tf 500 584 Td (Rs 107.07) Tj ET
+BT /F1 9 Tf 48 568 Td (2. Maggi 2-Minute Noodles 560g) Tj ET
+BT /F1 9 Tf 268 568 Td (1) Tj ET
+BT /F1 9 Tf 315 568 Td (Rs 111.94) Tj ET
+BT /F1 9 Tf 385 568 Td (5.00%) Tj ET
+BT /F1 9 Tf 430 568 Td (Rs 5.33) Tj ET
+BT /F1 9 Tf 500 568 Td (Rs 111.94) Tj ET
+340 544 m 548 544 l S
+BT /F1 11 Tf 48 526 Td (Tax Summary) Tj ET
+BT /F1 9 Tf 48 510 Td (GST 8.00%) Tj ET
+BT /F1 9 Tf 185 510 Td (Taxable Rs 99.14) Tj ET
+BT /F1 9 Tf 315 510 Td (Tax Rs 7.93) Tj ET
+BT /F1 9 Tf 48 496 Td (GST 5.00%) Tj ET
+BT /F1 9 Tf 185 496 Td (Taxable Rs 106.61) Tj ET
+BT /F1 9 Tf 315 496 Td (Tax Rs 5.33) Tj ET
+BT /F1 10 Tf 370 476 Td (Subtotal) Tj ET
+BT /F1 10 Tf 470 476 Td (Rs 219.01) Tj ET
+BT /F1 12 Tf 370 460 Td (Total) Tj ET
+BT /F1 12 Tf 470 460 Td (Rs 219.01) Tj ET
+BT /F1 9 Tf 48 426 Td (This invoice was generated automatically for Fresh Vendor Co 25.) Tj ET
+Q
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000058 00000 n 
+0000000115 00000 n 
+0000000241 00000 n 
+0000000311 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2446
+%%EOF

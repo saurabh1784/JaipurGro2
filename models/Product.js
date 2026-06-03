@@ -9,6 +9,12 @@ function normalizeProduct(row) {
   return {
     ...row,
     price: Number(row.price),
+    tax_name: row.tax_name || '',
+    tax_percentage: row.tax_percentage === null || row.tax_percentage === undefined ? null : Number(row.tax_percentage || 0),
+    category_tax_name: row.category_tax_name || '',
+    category_tax_percentage: row.category_tax_percentage === null || row.category_tax_percentage === undefined ? null : Number(row.category_tax_percentage || 0),
+    applied_tax_name: row.tax_percentage === null || row.tax_percentage === undefined ? (row.category_tax_name || '') : (row.tax_name || row.category_tax_name || ''),
+    applied_tax_percentage: Number(row.tax_percentage ?? row.category_tax_percentage ?? 0),
     sponsored_priority: Number(row.sponsored_priority || 0),
     is_sponsored: Boolean(row.is_sponsored),
     keywords: row.keywords || '',
@@ -98,10 +104,11 @@ async function list(filters = {}) {
   const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${fromSql} WHERE ${where}`, params);
   const total = countRows[0].total;
   const [rows] = await pool.query(
-    `SELECT p.id, p.name, p.description, p.price, p.image_url, p.category_id, p.sub_category_id, p.brand_id,
+    `SELECT p.id, p.name, p.description, p.price, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
             p.approval_status, p.created_by_vendor_id, p.approved_by, p.approved_at, p.rejection_reason,
             p.created_at, p.updated_at,
-            c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name, b.logo_path AS brand_logo_path,
+            c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
+            s.name AS sub_category_name, b.name AS brand_name, b.logo_path AS brand_logo_path,
             COALESCE(sp.is_sponsored, 0) AS is_sponsored,
             COALESCE(sp.priority_order, 0) AS sponsored_priority,
             COALESCE(STRING_AGG(DISTINCT pk.keyword, ', '), '') AS keywords
@@ -109,7 +116,7 @@ async function list(filters = {}) {
      LEFT JOIN sponsored_products sp ON sp.product_id = p.id
      LEFT JOIN product_keywords pk ON pk.product_id = p.id
      WHERE ${where}
-     GROUP BY p.id, c.name, s.name, b.name, b.logo_path, sp.is_sponsored, sp.priority_order
+     GROUP BY p.id, c.name, c.tax_name, c.tax_percentage, s.name, b.name, b.logo_path, sp.is_sponsored, sp.priority_order
      ORDER BY COALESCE(sp.is_sponsored, 0) DESC, COALESCE(sp.priority_order, 0) DESC, p.updated_at DESC, p.id DESC
      LIMIT ? OFFSET ?`,
     [...params, limit, offset]
@@ -128,7 +135,8 @@ async function list(filters = {}) {
 
 async function findById(id) {
   const [rows] = await pool.query(
-    `SELECT p.*, c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name, b.logo_path AS brand_logo_path,
+    `SELECT p.*, c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
+            s.name AS sub_category_name, b.name AS brand_name, b.logo_path AS brand_logo_path,
             COALESCE(sp.is_sponsored, 0) AS is_sponsored,
             COALESCE(sp.priority_order, 0) AS sponsored_priority,
             COALESCE(STRING_AGG(DISTINCT pk.keyword, ', '), '') AS keywords
@@ -139,7 +147,7 @@ async function findById(id) {
      LEFT JOIN sponsored_products sp ON sp.product_id = p.id
      LEFT JOIN product_keywords pk ON pk.product_id = p.id
      WHERE p.id = ? AND p.is_deleted = 0
-     GROUP BY p.id, c.name, s.name, b.name, b.logo_path, sp.is_sponsored, sp.priority_order
+     GROUP BY p.id, c.name, c.tax_name, c.tax_percentage, s.name, b.name, b.logo_path, sp.is_sponsored, sp.priority_order
      LIMIT 1`,
     [id]
   );
@@ -148,9 +156,9 @@ async function findById(id) {
 
 async function create(data) {
   const [result] = await pool.query(
-    `INSERT INTO products (name, description, price, image_url, category_id, sub_category_id, brand_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [data.name, data.description || null, data.price, data.image_url || null, data.category_id, data.sub_category_id, data.brand_id]
+    `INSERT INTO products (name, description, price, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.name, data.description || null, data.price, data.image_url || null, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id]
   );
   return result.insertId;
 }
@@ -160,11 +168,13 @@ async function update(id, data) {
     'name = ?',
     'description = ?',
     'price = ?',
+    'tax_name = ?',
+    'tax_percentage = ?',
     'category_id = ?',
     'sub_category_id = ?',
     'brand_id = ?',
   ];
-  const values = [data.name, data.description || null, data.price, data.category_id, data.sub_category_id, data.brand_id];
+  const values = [data.name, data.description || null, data.price, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id];
 
   if (Object.prototype.hasOwnProperty.call(data, 'image_url')) {
     fields.push('image_url = ?');
@@ -185,8 +195,9 @@ async function softDelete(id) {
 
  async function listApproved(limit = 100) {
    const [rows] = await pool.query(
-     `SELECT p.id, p.name, p.description, p.price, p.image_url, p.category_id, p.sub_category_id, p.brand_id,
-             c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name
+     `SELECT p.id, p.name, p.description, p.price, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
+             c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
+             s.name AS sub_category_name, b.name AS brand_name
       FROM products p
       INNER JOIN categories c ON c.id = p.category_id
       INNER JOIN sub_categories s ON s.id = p.sub_category_id
