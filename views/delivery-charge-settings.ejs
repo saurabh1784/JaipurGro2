@@ -1,0 +1,351 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delivery Charge Settings</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Delivery Charge Settings</p>
+        <h1>Delivery Charge Settings</h1>
+      </div>
+      <div class="topbar-actions">
+        <button class="settings-save" type="button" onclick="openRuleModal()">Add Rule</button>
+      </div>
+    </header>
+
+    <section class="settings-shell delivery-charge-page">
+      <div class="panel-header blue-header">
+        <h2>City Wise Delivery Rules</h2>
+        <p>Activate delivery charges per city and assign weight slabs with distance based pricing.</p>
+      </div>
+
+      <div class="delivery-charge-toolbar">
+        <label>
+          City
+          <input id="cityFilter" type="search" placeholder="Filter city" />
+        </label>
+        <button class="product-secondary-button" type="button" onclick="loadRules()">Refresh</button>
+      </div>
+
+      <div class="catalog-table-card">
+        <table class="catalog-table delivery-charge-table">
+          <thead>
+            <tr>
+              <th>City</th>
+              <th>Weight Slab</th>
+              <th>Base</th>
+              <th>Per Km</th>
+              <th>Per Kg</th>
+              <th>Additional</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="rulesBody">
+            <tr><td colspan="8">Loading delivery charge rules...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="delivery-preview">
+        <div class="panel-header green-panel-header">
+          <h2>Charge Preview</h2>
+          <p>Test the selected city, route, and basket weight against the active rules.</p>
+        </div>
+        <form class="settings-grid" id="previewForm">
+          <label>
+            City
+            <input id="previewCity" type="text" list="cityOptions" required />
+          </label>
+          <label>
+            Total Weight Kg
+            <input id="previewWeight" type="number" min="0" step="0.001" value="25" required />
+          </label>
+          <label class="settings-wide">
+            Vendor Location
+            <input id="previewOrigin" type="text" placeholder="Vendor full address" required />
+          </label>
+          <label class="settings-wide">
+            Customer Location
+            <input id="previewDestination" type="text" placeholder="Customer full address" required />
+          </label>
+          <button class="settings-save" type="submit">Calculate</button>
+        </form>
+        <p class="commission-message" id="previewResult"></p>
+      </div>
+    </section>
+  </main>
+
+  <datalist id="cityOptions">
+    <% (cityOptions || []).forEach((city) => { %>
+      <option value="<%= city %>"></option>
+    <% }) %>
+  </datalist>
+
+  <div class="user-modal" id="ruleModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2 id="ruleModalTitle">Add Delivery Rule</h2>
+        <button type="button" onclick="closeRuleModal()">Close</button>
+      </div>
+      <form class="user-modal-grid" id="ruleForm">
+        <input type="hidden" id="ruleId" />
+        <label>
+          City
+          <input id="ruleCity" type="text" list="cityOptions" required />
+        </label>
+        <label>
+          Rule Name
+          <input id="ruleName" type="text" placeholder="Up to 25 kg" />
+        </label>
+        <label>
+          Min Weight Kg
+          <input id="ruleMinWeight" type="number" min="0" step="0.001" value="0" required />
+        </label>
+        <label>
+          Max Weight Kg
+          <input id="ruleMaxWeight" type="number" min="0" step="0.001" placeholder="No limit" />
+        </label>
+        <label>
+          Base Delivery Price
+          <input id="ruleBasePrice" type="number" min="0" step="0.01" value="0" required />
+        </label>
+        <label>
+          Price Per Kilometer
+          <input id="rulePerKm" type="number" min="0" step="0.01" value="0" required />
+        </label>
+        <label>
+          Price Per Kilogram
+          <input id="rulePerKg" type="number" min="0" step="0.01" value="0" required />
+        </label>
+        <label>
+          Additional Charges
+          <input id="ruleAdditional" type="number" min="0" step="0.01" value="0" required />
+        </label>
+        <label class="settings-toggle">
+          <input id="ruleActive" type="checkbox" checked />
+          Active
+        </label>
+        <div class="settings-wide">
+          <button class="settings-save" type="submit">Save Rule</button>
+          <button class="product-secondary-button" type="button" onclick="closeRuleModal()">Cancel</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    let rules = [];
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+      }[char]));
+    }
+
+    function money(value) {
+      return '₹' + Number(value || 0).toFixed(2);
+    }
+
+    function slab(rule) {
+      const min = Number(rule.min_weight_kg || 0).toFixed(3).replace(/\.?0+$/, '');
+      if (rule.max_weight_kg === null || rule.max_weight_kg === undefined || rule.max_weight_kg === '') {
+        return `${min}+ kg`;
+      }
+      const max = Number(rule.max_weight_kg || 0).toFixed(3).replace(/\.?0+$/, '');
+      return `${min} to ${max} kg`;
+    }
+
+    async function loadRules() {
+      const body = document.getElementById('rulesBody');
+      body.innerHTML = '<tr><td colspan="8">Loading delivery charge rules...</td></tr>';
+      const response = await fetch('/delivery-charge-settings/rules');
+      const data = await response.json();
+      if (!data.success) {
+        body.innerHTML = `<tr><td colspan="8">${escapeHtml(data.message || 'Unable to load rules')}</td></tr>`;
+        return;
+      }
+      rules = data.rules || [];
+      const datalist = document.getElementById('cityOptions');
+      datalist.innerHTML = (data.cities || []).map((city) => `<option value="${escapeHtml(city)}"></option>`).join('');
+      renderRules();
+    }
+
+    function renderRules() {
+      const filter = document.getElementById('cityFilter').value.trim().toLowerCase();
+      const visibleRules = filter ? rules.filter((rule) => String(rule.city || '').toLowerCase().includes(filter)) : rules;
+      const body = document.getElementById('rulesBody');
+      if (!visibleRules.length) {
+        body.innerHTML = '<tr><td colspan="8">No delivery charge rules found.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = visibleRules.map((rule) => `
+        <tr>
+          <td>
+            <strong>${escapeHtml(rule.city)}</strong>
+            <span class="commission-subtext">${escapeHtml(rule.rule_name || 'Delivery rule')}</span>
+          </td>
+          <td>${escapeHtml(slab(rule))}</td>
+          <td>${money(rule.base_delivery_price)}</td>
+          <td>${money(rule.price_per_km)}</td>
+          <td>${money(rule.price_per_kg)}</td>
+          <td>${money(rule.additional_charge)}</td>
+          <td><span class="status-pill ${rule.is_active ? 'status-active' : 'status-inactive'}">${rule.is_active ? 'Active' : 'Inactive'}</span></td>
+          <td>
+            <button class="product-secondary-button" type="button" onclick="openRuleModal(${rule.id})">Edit</button>
+            <button class="reject-button" type="button" onclick="deleteRule(${rule.id})">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openRuleModal(id = null) {
+      const rule = id ? rules.find((item) => Number(item.id) === Number(id)) : null;
+      document.getElementById('ruleModalTitle').textContent = rule ? 'Edit Delivery Rule' : 'Add Delivery Rule';
+      document.getElementById('ruleId').value = rule ? rule.id : '';
+      document.getElementById('ruleCity').value = rule ? rule.city : '';
+      document.getElementById('ruleName').value = rule ? rule.rule_name || '' : '';
+      document.getElementById('ruleMinWeight').value = rule ? rule.min_weight_kg : 0;
+      document.getElementById('ruleMaxWeight').value = rule && rule.max_weight_kg !== null ? rule.max_weight_kg : '';
+      document.getElementById('ruleBasePrice').value = rule ? rule.base_delivery_price : 0;
+      document.getElementById('rulePerKm').value = rule ? rule.price_per_km : 0;
+      document.getElementById('rulePerKg').value = rule ? rule.price_per_kg : 0;
+      document.getElementById('ruleAdditional').value = rule ? rule.additional_charge : 0;
+      document.getElementById('ruleActive').checked = rule ? rule.is_active : true;
+      document.getElementById('ruleModal').style.display = 'flex';
+      document.getElementById('ruleModal').setAttribute('aria-hidden', 'false');
+    }
+
+    function closeRuleModal() {
+      document.getElementById('ruleModal').style.display = 'none';
+      document.getElementById('ruleModal').setAttribute('aria-hidden', 'true');
+      document.getElementById('ruleForm').reset();
+    }
+
+    async function saveRule(event) {
+      event.preventDefault();
+      const id = document.getElementById('ruleId').value;
+      const payload = {
+        city: document.getElementById('ruleCity').value.trim(),
+        rule_name: document.getElementById('ruleName').value.trim(),
+        min_weight_kg: document.getElementById('ruleMinWeight').value,
+        max_weight_kg: document.getElementById('ruleMaxWeight').value,
+        base_delivery_price: document.getElementById('ruleBasePrice').value,
+        price_per_km: document.getElementById('rulePerKm').value,
+        price_per_kg: document.getElementById('rulePerKg').value,
+        additional_charge: document.getElementById('ruleAdditional').value,
+        is_active: document.getElementById('ruleActive').checked,
+      };
+      const response = await fetch(`/delivery-charge-settings/rules${id ? `/${id}` : ''}`, {
+        method: id ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to save rule');
+        return;
+      }
+      closeRuleModal();
+      loadRules();
+    }
+
+    async function deleteRule(id) {
+      if (!confirm('Delete this delivery charge rule?')) return;
+      const response = await fetch(`/delivery-charge-settings/rules/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to delete rule');
+        return;
+      }
+      loadRules();
+    }
+
+    async function previewCharge(event) {
+      event.preventDefault();
+      const result = document.getElementById('previewResult');
+      result.textContent = 'Calculating delivery charge...';
+      const response = await fetch('/delivery-charge-settings/calculate', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          city: document.getElementById('previewCity').value.trim(),
+          total_weight_kg: document.getElementById('previewWeight').value,
+          origin: document.getElementById('previewOrigin').value.trim(),
+          destination: document.getElementById('previewDestination').value.trim(),
+        }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        result.textContent = data.message || 'Unable to calculate delivery charge';
+        return;
+      }
+      result.textContent = data.applicable
+        ? `Charge ${money(data.delivery_charge)} | Distance ${Number(data.distance_km || 0).toFixed(2)} km | Weight ${Number(data.total_weight_kg || 0).toFixed(3)} kg | ${data.rule.rule_name || data.rule.city}`
+        : 'No active city/weight rule matched. Delivery charge is ₹0.00.';
+    }
+
+    document.getElementById('ruleForm').addEventListener('submit', saveRule);
+    document.getElementById('previewForm').addEventListener('submit', previewCharge);
+    document.getElementById('cityFilter').addEventListener('input', renderRules);
+    loadRules();
+  </script>
+
+  <style>
+    .delivery-charge-page {
+      display: grid;
+      gap: 18px;
+    }
+    .delivery-charge-toolbar {
+      display: flex;
+      align-items: end;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .delivery-charge-table th,
+    .delivery-charge-table td {
+      white-space: nowrap;
+    }
+    .delivery-preview {
+      display: grid;
+      gap: 14px;
+    }
+    .status-pill {
+      display: inline-flex;
+      padding: 5px 9px;
+      border-radius: 999px;
+      font-weight: 800;
+      font-size: 0.8rem;
+    }
+    .status-active {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .status-inactive {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .reject-button {
+      padding: 8px 12px;
+      border: 0;
+      border-radius: 6px;
+      background: #fee2e2;
+      color: #991b1b;
+      font-weight: 800;
+      cursor: pointer;
+    }
+  </style>
+</body>
+</html>

@@ -47,6 +47,10 @@
             <input id="productPrice" type="number" min="0" step="0.01" required />
           </label>
           <label>
+            Weight Kg
+            <input id="productWeightKg" type="number" min="0" step="0.001" placeholder="Used for delivery charges" />
+          </label>
+          <label>
             Tax Name
             <input id="productTaxName" type="text" placeholder="Uses category tax if blank" />
           </label>
@@ -77,7 +81,7 @@
         <form id="bulkUploadForm" class="bulk-upload-panel">
           <div>
             <h2>Bulk Upload</h2>
-            <p>Upload CSV, XLS, or XLSX with name, description, price, tax_name, tax_percentage, category, subcategory, brand.</p>
+            <p>Upload CSV, XLS, or XLSX with name, description, price, weight_kg, tax_name, tax_percentage, category, subcategory, brand.</p>
           </div>
           <label>
             File
@@ -119,13 +123,14 @@
               <th>Subcategory</th>
               <th>Brand</th>
               <th>Tax</th>
+              <th>Weight</th>
               <th>Search Boost</th>
               <th>Price</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="productsTableBody">
-            <tr><td colspan="11">Loading products...</td></tr>
+            <tr><td colspan="12">Loading products...</td></tr>
           </tbody>
         </table>
       </div>
@@ -359,7 +364,7 @@
       const response = await fetch(`/products?${params.toString()}`, { headers: { Accept: 'application/json' } });
       const data = await readJsonResponse(response);
       if (!data.success) {
-        tableBody.innerHTML = `<tr><td colspan="11">${escapeHtml(data.message || 'Unable to load products')}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="12">${escapeHtml(data.message || 'Unable to load products')}</td></tr>`;
         return;
       }
       products = data.products || [];
@@ -370,7 +375,7 @@
 
     function renderProducts() {
       if (!products.length) {
-        tableBody.innerHTML = '<tr><td colspan="11">No products found</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="12">No products found</td></tr>';
       } else {
         tableBody.innerHTML = products.map((product) => `
           <tr>
@@ -385,6 +390,7 @@
               <strong>${escapeHtml(product.applied_tax_name || product.tax_name || product.category_tax_name || 'No tax')}</strong><br>
               <small>${Number(product.applied_tax_percentage || 0).toFixed(2)}%${product.tax_percentage === null || product.tax_percentage === undefined ? ' category' : ' product'}</small>
             </td>
+            <td>${Number(product.weight_kg || 0).toFixed(3)} kg</td>
             <td>
               <div class="search-boost-cell">
                 <label class="sponsored-toggle">
@@ -430,6 +436,7 @@
       document.getElementById('productName').value = product.name;
       document.getElementById('productDescription').value = product.description || '';
       document.getElementById('productPrice').value = Number(product.price).toFixed(2);
+      document.getElementById('productWeightKg').value = Number(product.weight_kg || 0).toFixed(3);
       document.getElementById('productTaxName').value = product.tax_name || '';
       document.getElementById('productTaxPercentage').value = product.tax_percentage === null || product.tax_percentage === undefined ? '' : Number(product.tax_percentage).toFixed(2);
       document.getElementById('productImage').value = '';
@@ -532,6 +539,7 @@
       payload.append('name', document.getElementById('productName').value);
       payload.append('description', document.getElementById('productDescription').value);
       payload.append('price', document.getElementById('productPrice').value);
+      payload.append('weight_kg', document.getElementById('productWeightKg').value);
       payload.append('tax_name', document.getElementById('productTaxName').value);
       payload.append('tax_percentage', document.getElementById('productTaxPercentage').value);
       payload.append('category_id', document.getElementById('productCategory').value);
@@ -603,7 +611,7 @@
       document.getElementById('deleteModal').classList.remove('active');
     });
     document.getElementById('downloadTemplate').addEventListener('click', () => {
-      const csv = 'name,description,price,tax_name,tax_percentage,category,subcategory,brand\nSample Rice,Long grain rice,120,GST,5,Grains & Staples,Rice,Fortune\n';
+      const csv = 'name,description,price,weight_kg,tax_name,tax_percentage,category,subcategory,brand\nSample Rice,Long grain rice,120,5,GST,5,Grains & Staples,Rice,Fortune\n';
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       link.download = 'product-upload-template.csv';
@@ -614,7 +622,7 @@
     loadCatalog()
       .then(() => loadProducts())
       .catch((error) => {
-        tableBody.innerHTML = `<tr><td colspan="11">${escapeHtml(error.message)}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="12">${escapeHtml(error.message)}</td></tr>`;
       });
   </script>
 </body>

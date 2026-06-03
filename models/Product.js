@@ -9,6 +9,7 @@ function normalizeProduct(row) {
   return {
     ...row,
     price: Number(row.price),
+    weight_kg: Number(row.weight_kg || 0),
     tax_name: row.tax_name || '',
     tax_percentage: row.tax_percentage === null || row.tax_percentage === undefined ? null : Number(row.tax_percentage || 0),
     category_tax_name: row.category_tax_name || '',
@@ -104,7 +105,7 @@ async function list(filters = {}) {
   const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${fromSql} WHERE ${where}`, params);
   const total = countRows[0].total;
   const [rows] = await pool.query(
-    `SELECT p.id, p.name, p.description, p.price, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
+    `SELECT p.id, p.name, p.description, p.price, p.weight_kg, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
             p.approval_status, p.created_by_vendor_id, p.approved_by, p.approved_at, p.rejection_reason,
             p.created_at, p.updated_at,
             c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
@@ -156,9 +157,9 @@ async function findById(id) {
 
 async function create(data) {
   const [result] = await pool.query(
-    `INSERT INTO products (name, description, price, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [data.name, data.description || null, data.price, data.image_url || null, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id]
+    `INSERT INTO products (name, description, price, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.name, data.description || null, data.price, data.weight_kg || 0, data.image_url || null, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id]
   );
   return result.insertId;
 }
@@ -168,13 +169,14 @@ async function update(id, data) {
     'name = ?',
     'description = ?',
     'price = ?',
+    'weight_kg = ?',
     'tax_name = ?',
     'tax_percentage = ?',
     'category_id = ?',
     'sub_category_id = ?',
     'brand_id = ?',
   ];
-  const values = [data.name, data.description || null, data.price, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id];
+  const values = [data.name, data.description || null, data.price, data.weight_kg || 0, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id];
 
   if (Object.prototype.hasOwnProperty.call(data, 'image_url')) {
     fields.push('image_url = ?');
@@ -195,7 +197,7 @@ async function softDelete(id) {
 
  async function listApproved(limit = 100) {
    const [rows] = await pool.query(
-     `SELECT p.id, p.name, p.description, p.price, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
+     `SELECT p.id, p.name, p.description, p.price, p.weight_kg, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
              c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
              s.name AS sub_category_name, b.name AS brand_name
       FROM products p

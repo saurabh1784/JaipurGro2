@@ -53,6 +53,22 @@
       </div>
     </section>
 
+    <section class="payment-section" id="payment-section" style="display: none;">
+      <div class="payment-panel">
+        <div class="cart-header">
+          <h2>Payment Summary</h2>
+          <button type="button" onclick="closePaymentPage()" class="cart-close">&times;</button>
+        </div>
+        <div id="payment-summary" class="payment-summary">
+          <p class="cart-empty">Calculating payment details...</p>
+        </div>
+        <div class="checkout-options">
+          <button class="btn-checkout" id="confirm-payment-button" type="button" onclick="confirmDirectOrder()">Pay & Place Order</button>
+          <button class="btn-quotation" type="button" onclick="closePaymentPage()">Back to Cart</button>
+        </div>
+      </div>
+    </section>
+
     <section class="products-section">
       <div class="products-header">
         <h2>Available Products</h2>
@@ -129,6 +145,7 @@
 
   <script>
     let cart = JSON.parse(localStorage.getItem('clientCart') || '[]');
+    let pendingPaymentPreview = null;
     const catalog = {
       subcategories: <%- JSON.stringify(subcategories || []) %>,
       brands: <%- JSON.stringify(brands || []) %>,
@@ -441,8 +458,77 @@
       closeCart();
     }
 
-    function directOrder() {
+    function money(value) {
+      return 'INR ' + Number(value || 0).toFixed(2);
+    }
+
+    function paymentSummaryHtml(preview) {
+      const vendors = preview.vendors || [];
+      return `
+        <div class="payment-card">
+          <div class="payment-address">
+            <span>Deliver to</span>
+            <strong>${escapeHtml(preview.address && preview.address.recipient_name || 'Customer')}</strong>
+            <p>${escapeHtml(preview.address && preview.address.display_address || '')}</p>
+          </div>
+          <div class="payment-line"><span>Item subtotal</span><strong>${money(preview.subtotal_amount)}</strong></div>
+          <div class="payment-line"><span>Discount</span><strong>- ${money(preview.discount_amount)}</strong></div>
+          <div class="payment-line"><span>Delivery charges</span><strong>${money(preview.delivery_charge)}</strong></div>
+          <div class="payment-line payment-total"><span>Payable amount</span><strong>${money(preview.total_amount)}</strong></div>
+          ${vendors.length ? `
+            <div class="vendor-delivery-breakdown">
+              ${vendors.map((vendor) => `
+                <div>
+                  <strong>Vendor #${vendor.vendor_id}</strong>
+                  <span>${money(vendor.delivery_charge)} delivery${Number(vendor.distance_km || 0) > 0 ? ` - ${Number(vendor.distance_km).toFixed(2)} km` : ''}</span>
+                </div>
+              `).join('')}
+            </div>
+          ` : ''}
+          <p class="payment-note">Temporary payment page. No online gateway is connected yet.</p>
+        </div>
+      `;
+    }
+
+    function openPaymentPage(preview) {
+      pendingPaymentPreview = preview;
+      document.getElementById('payment-summary').innerHTML = paymentSummaryHtml(preview);
+      document.getElementById('payment-section').style.display = 'block';
+    }
+
+    function closePaymentPage() {
+      document.getElementById('payment-section').style.display = 'none';
+    }
+
+    async function directOrder() {
       if (cart.length === 0) return;
+
+      const button = document.querySelector('.btn-checkout');
+      if (button) button.disabled = true;
+      try {
+        const response = await fetch('/client/orders/preview', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ items: cart, coupon_code: document.getElementById('cart-coupon-code').value.trim() })
+        });
+        const data = await response.json();
+        if (!data.success) {
+          alert(data.message || 'Unable to calculate delivery charge');
+          return;
+        }
+        openPaymentPage(data.preview);
+      } catch (error) {
+        alert('Error opening payment page: ' + error.message);
+      } finally {
+        if (button) button.disabled = false;
+      }
+    }
+
+    async function confirmDirectOrder() {
+      if (cart.length === 0) return;
+      const button = document.getElementById('confirm-payment-button');
+      button.disabled = true;
+      button.textContent = 'Processing...';
 
       fetch('/client/orders', {
         method: 'POST',
@@ -452,7 +538,8 @@
       .then(response => response.json())
       .then(data => {
         if (data.success) {
-          alert('Order placed successfully!');
+          alert(`Order placed successfully! Delivery charge: ${money(pendingPaymentPreview && pendingPaymentPreview.delivery_charge || 0)}`);
+          closePaymentPage();
           clearCartAfterSuccess();
         } else {
           alert(data.message || 'Failed to place order');
@@ -460,6 +547,10 @@
       })
       .catch(error => {
         alert('Error placing order: ' + error.message);
+      })
+      .finally(() => {
+        button.disabled = false;
+        button.textContent = 'Pay & Place Order';
       });
     }
 
@@ -892,6 +983,101 @@
       background: rgba(0, 0, 0, 0.5);
       z-index: 1000;
       overflow: hidden;
+    }
+
+    .payment-section {
+      position: fixed;
+      inset: 0;
+      z-index: 1100;
+      background: rgba(15, 23, 42, 0.56);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .payment-panel {
+      width: min(460px, 100%);
+      max-height: calc(100vh - 40px);
+      overflow-y: auto;
+      background: #fff;
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 20px 50px rgba(15, 23, 42, 0.24);
+    }
+
+    .payment-summary {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 16px;
+    }
+
+    .payment-card {
+      display: grid;
+      gap: 12px;
+    }
+
+    .payment-address {
+      padding: 12px;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+
+    .payment-address span,
+    .payment-note {
+      color: #64748b;
+      font-weight: 700;
+      font-size: 0.82rem;
+    }
+
+    .payment-address strong {
+      display: block;
+      margin-top: 4px;
+      color: #0f172a;
+    }
+
+    .payment-address p {
+      margin: 4px 0 0;
+      color: #475569;
+      line-height: 1.4;
+    }
+
+    .payment-line {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px 0;
+      border-bottom: 1px solid #e2e8f0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .payment-total {
+      color: #0f172a;
+      font-size: 1.08rem;
+      border-bottom: 0;
+    }
+
+    .payment-total strong {
+      color: #059669;
+      font-size: 1.3rem;
+    }
+
+    .vendor-delivery-breakdown {
+      display: grid;
+      gap: 8px;
+      padding: 10px;
+      border-radius: 8px;
+      background: #ecfdf5;
+    }
+
+    .vendor-delivery-breakdown div {
+      display: flex;
+      justify-content: space-between;
+      gap: 10px;
+      color: #166534;
+      font-size: 0.86rem;
+      font-weight: 800;
     }
 
     .cart-panel {

@@ -23,6 +23,7 @@ function validateProductPayload(body) {
   const errors = [];
   const name = body.name && String(body.name).trim();
   const price = toNumber(body.price);
+  const weightKg = body.weight_kg === undefined || body.weight_kg === '' ? 0 : toNumber(body.weight_kg);
   const category_id = normalizeId(body.category_id);
   const sub_category_id = normalizeId(body.sub_category_id || body.subcategory_id);
   const brand_id = normalizeId(body.brand_id);
@@ -31,6 +32,7 @@ function validateProductPayload(body) {
 
   if (!name || name.length < 2) errors.push('Name must be at least 2 characters');
   if (!Number.isFinite(price) || price < 0) errors.push('Price must be a valid non-negative number');
+  if (!Number.isFinite(weightKg) || weightKg < 0) errors.push('Weight must be a valid non-negative number');
   if (!category_id) errors.push('Category is required');
   if (!sub_category_id) errors.push('Subcategory is required');
   if (!brand_id) errors.push('Brand is required');
@@ -44,6 +46,7 @@ function validateProductPayload(body) {
       name,
       description: body.description ? String(body.description).trim() : '',
       price,
+      weight_kg: weightKg,
       tax_name: taxName,
       tax_percentage: taxPercentage,
       category_id,
@@ -176,6 +179,7 @@ async function normalizeBulkRow(row, rowNumber) {
     name: String(getCell(row, ['name', 'product name'])).trim(),
     description: String(getCell(row, ['description', 'desc'])).trim(),
     price: getCell(row, ['price']),
+    weight_kg: getCell(row, ['weight_kg', 'weight kg', 'weight', 'kg']),
     tax_name: String(getCell(row, ['tax_name', 'tax name', 'gst name'])).trim(),
     tax_percentage: getCell(row, ['tax_percentage', 'tax percentage', 'gst percentage', 'gst %']),
     category_id: categoryId,

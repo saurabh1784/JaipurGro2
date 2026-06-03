@@ -34,6 +34,7 @@
         <button class="settings-tab active" type="button" data-tab="general">General</button>
         <button class="settings-tab" type="button" data-tab="email">Email</button>
         <button class="settings-tab" type="button" data-tab="firebase">Firebase</button>
+        <button class="settings-tab" type="button" data-tab="google-maps">Google Maps</button>
         <button class="settings-tab" type="button" data-tab="locations">Locations</button>
         <button class="settings-tab" type="button" data-tab="catalog">Catalog</button>
         <button class="settings-tab" type="button" data-tab="commissions">Commission</button>
@@ -147,6 +148,69 @@
         </div>
         <button class="settings-save" type="button">Save Firebase Settings</button>
       </form>
+
+      <section class="settings-panel" id="google-maps" aria-labelledby="google-maps-tab">
+        <div class="panel-header blue-header">
+          <h2>Google Maps & Distance Settings</h2>
+          <p>Configure map, route, and distance credentials used by delivery charge calculation.</p>
+        </div>
+
+        <div class="google-maps-help">
+          <h3>How to get these keys</h3>
+          <ol>
+            <li>Open Google Cloud Console and create or select a project.</li>
+            <li>Go to APIs & Services and enable the required services listed below before using the key.</li>
+            <li>For the browser map key, enable Maps JavaScript API and Directions API. This key displays the map and route test in this admin page.</li>
+            <li>For the distance server key, enable Distance Matrix API. This key calculates delivery distance and delivery charges from the backend.</li>
+            <li>For address pickup/current location in Android apps, enable Maps SDK for Android and Geocoding API on the same Android map key.</li>
+            <li>Go to Credentials and create an API key for the browser map. Restrict it by website referrer, for example your admin domain.</li>
+            <li>Create another API key for server distance calculation. Restrict it by server IP if your hosting provider gives a fixed outbound IP.</li>
+            <li>Paste the browser key into Maps JavaScript API Key and the server key into Distance API Server Key.</li>
+            <li>Billing must be enabled in Google Cloud, otherwise Google Maps route and distance calls may fail.</li>
+          </ol>
+          <p>Use separate keys so the browser key can safely load the map, while the server key stays private for delivery charge distance calculation.</p>
+        </div>
+
+        <form class="settings-grid" id="googleMapsForm">
+          <label class="settings-wide">
+            Maps JavaScript API Key
+            <input id="googleMapsBrowserKey" type="password" value="<%= settings.maps.browserApiKey %>" autocomplete="off" />
+          </label>
+          <label class="settings-wide">
+            Distance API Server Key
+            <input id="googleDistanceApiKey" type="password" value="<%= settings.maps.distanceApiKey %>" autocomplete="off" />
+          </label>
+          <label>
+            Map ID
+            <input id="googleMapsMapId" type="text" value="<%= settings.maps.mapId %>" placeholder="Optional" />
+          </label>
+          <label>
+            Test Origin
+            <input id="googleMapsOrigin" type="text" value="<%= settings.maps.defaultOrigin %>" />
+          </label>
+          <label class="settings-wide">
+            Test Destination
+            <input id="googleMapsDestination" type="text" value="<%= settings.maps.defaultDestination %>" />
+          </label>
+          <div class="settings-wide google-map-actions">
+            <button class="settings-save" type="submit">Save Credentials</button>
+            <button class="product-secondary-button" type="button" onclick="testGoogleMapCredentials()">Test Map & Route</button>
+            <button class="product-secondary-button" type="button" onclick="toggleGoogleKeyVisibility()">Show Keys</button>
+          </div>
+        </form>
+
+        <div class="google-map-test-grid">
+          <div class="google-map-card">
+            <div id="googleMapCanvas" class="google-map-canvas"></div>
+          </div>
+          <div class="google-map-card google-route-card">
+            <h3>Route Test</h3>
+            <div id="googleRouteResult" class="google-route-result">No route tested yet.</div>
+            <div id="googleApiDiagnostics" class="google-api-diagnostics"></div>
+          </div>
+        </div>
+        <p class="commission-message" id="googleMapsMessage"></p>
+      </section>
 
       <form class="settings-panel" id="locations" aria-labelledby="locations-tab">
         <div class="panel-header location-header">
@@ -950,6 +1014,227 @@
     let deliveryPartnerSettings = [];
     let deliveryCities = [];
     let deliveryPartnerModalCities = [];
+    let googleMapsLoadedKey = '';
+    let googleMap = null;
+    let googleDirectionsRenderer = null;
+    let googleMapsAuthError = '';
+
+    function googleMapPayload() {
+      return {
+        browserApiKey: document.getElementById('googleMapsBrowserKey').value.trim(),
+        distanceApiKey: document.getElementById('googleDistanceApiKey').value.trim(),
+        mapId: document.getElementById('googleMapsMapId').value.trim(),
+        defaultOrigin: document.getElementById('googleMapsOrigin').value.trim(),
+        defaultDestination: document.getElementById('googleMapsDestination').value.trim(),
+      };
+    }
+
+    function toggleGoogleKeyVisibility() {
+      const browserKey = document.getElementById('googleMapsBrowserKey');
+      const distanceKey = document.getElementById('googleDistanceApiKey');
+      const nextType = browserKey.type === 'password' ? 'text' : 'password';
+      browserKey.type = nextType;
+      distanceKey.type = nextType;
+    }
+
+    function googleServiceHelp(service, status, fallback) {
+      const code = String(status || '').toUpperCase();
+      const serviceName = String(service || 'Google Maps API');
+      const defaultHelp = fallback || `Check ${serviceName} API enablement, billing, and key restrictions.`;
+      const serviceActions = {
+        'Maps JavaScript API': {
+          REQUEST_DENIED: 'Enable Maps JavaScript API and allow this admin website referrer on the browser key.',
+          AUTH_ERROR: 'Enable Maps JavaScript API and verify the browser key website referrer restrictions.',
+          MISSING_KEY: 'Add a browser API key with Maps JavaScript API enabled.',
+        },
+        'Directions API': {
+          REQUEST_DENIED: 'Enable Directions API and allow it on the browser map key.',
+          ZERO_RESULTS: 'Directions API is enabled, but no route was found for the test addresses.',
+          NOT_FOUND: 'Directions API is enabled, but one test address could not be found.',
+        },
+        'Distance Matrix API': {
+          REQUEST_DENIED: 'Enable Distance Matrix API and allow it on the backend server key.',
+          OVER_QUERY_LIMIT: 'Distance Matrix API quota is exhausted. Increase quota or wait for reset.',
+          OVER_DAILY_LIMIT: 'Distance Matrix API daily limit or billing limit is reached.',
+          INVALID_REQUEST: 'Distance Matrix API request is invalid. Check the test origin and destination.',
+        },
+      };
+      return (serviceActions[serviceName] && serviceActions[serviceName][code]) || defaultHelp;
+    }
+
+    function renderGoogleApiDiagnostics(items) {
+      const diagnostics = document.getElementById('googleApiDiagnostics');
+      const rows = (items || []).filter(Boolean);
+      if (!rows.length) {
+        diagnostics.innerHTML = '';
+        return;
+      }
+      diagnostics.innerHTML = rows.map((item) => {
+        const ok = Boolean(item.ok);
+        const status = item.status || (ok ? 'OK' : 'ERROR');
+        const service = item.service || 'Google Maps API';
+        const action = item.action || googleServiceHelp(service, status);
+        return `
+          <div class="google-api-diagnostic ${ok ? 'ok' : 'error'}">
+            <strong>${escapeCatalog(service)}</strong>
+            <span>${escapeCatalog(status)}</span>
+            <small>${escapeCatalog(action)}</small>
+          </div>
+        `;
+      }).join('');
+    }
+
+    async function saveGoogleMapSettings(event) {
+      if (event) event.preventDefault();
+      const message = document.getElementById('googleMapsMessage');
+      message.textContent = 'Saving Google Maps settings...';
+      try {
+        const response = await fetch('/settings/google-maps', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(googleMapPayload()),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save Google Maps settings');
+        message.textContent = data.message;
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    function loadGoogleMapsScript(apiKey) {
+      if (!apiKey) return Promise.reject(new Error('Maps JavaScript API key is required'));
+      if (window.google && window.google.maps && googleMapsLoadedKey === apiKey) {
+        return Promise.resolve();
+      }
+
+      return new Promise((resolve, reject) => {
+        const existing = document.getElementById('googleMapsScript');
+        if (existing) existing.remove();
+        googleMapsAuthError = '';
+        window.gm_authFailure = () => {
+          googleMapsAuthError = 'AUTH_ERROR';
+          reject(new Error('Maps JavaScript API failed: AUTH_ERROR. Enable Maps JavaScript API and check browser key restrictions.'));
+        };
+        googleMapsLoadedKey = apiKey;
+        window.handleGoogleMapsLoaded = () => {
+          if (googleMapsAuthError) {
+            reject(new Error('Maps JavaScript API failed: AUTH_ERROR. Enable Maps JavaScript API and check browser key restrictions.'));
+            return;
+          }
+          resolve();
+        };
+        const script = document.createElement('script');
+        script.id = 'googleMapsScript';
+        script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&callback=handleGoogleMapsLoaded`;
+        script.async = true;
+        script.defer = true;
+        script.onerror = () => reject(new Error('Maps JavaScript API failed to load. Enable Maps JavaScript API and check browser key restrictions.'));
+        document.head.appendChild(script);
+      });
+    }
+
+    function ensureGoogleMap() {
+      const payload = googleMapPayload();
+      const canvas = document.getElementById('googleMapCanvas');
+      if (!googleMap) {
+        const options = {
+          center: { lat: 26.9124, lng: 75.7873 },
+          zoom: 11,
+        };
+        if (payload.mapId) options.mapId = payload.mapId;
+        googleMap = new google.maps.Map(canvas, options);
+        googleDirectionsRenderer = new google.maps.DirectionsRenderer({ map: googleMap });
+      }
+      return { map: googleMap, renderer: googleDirectionsRenderer };
+    }
+
+    async function testGoogleMapCredentials() {
+      const message = document.getElementById('googleMapsMessage');
+      const result = document.getElementById('googleRouteResult');
+      const payload = googleMapPayload();
+      const diagnostics = [];
+      message.textContent = 'Testing Google Maps credentials...';
+      result.textContent = 'Calculating route...';
+      renderGoogleApiDiagnostics([]);
+
+      try {
+        await saveGoogleMapSettings();
+        await loadGoogleMapsScript(payload.browserApiKey);
+        diagnostics.push({
+          service: 'Maps JavaScript API',
+          ok: true,
+          status: 'OK',
+          action: 'Browser map loaded successfully.',
+        });
+        const { renderer } = ensureGoogleMap();
+        const directionsService = new google.maps.DirectionsService();
+
+        const distanceResponse = await fetch('/settings/google-maps/test-distance', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            origin: payload.defaultOrigin,
+            destination: payload.defaultDestination,
+          }),
+        });
+        const distanceData = await distanceResponse.json();
+        if (Array.isArray(distanceData.diagnostics)) {
+          diagnostics.push(...distanceData.diagnostics);
+        }
+        if (!distanceData.success) {
+          renderGoogleApiDiagnostics(diagnostics);
+          throw new Error(distanceData.message || 'Distance Matrix API test failed');
+        }
+
+        directionsService.route({
+          origin: payload.defaultOrigin,
+          destination: payload.defaultDestination,
+          travelMode: google.maps.TravelMode.DRIVING,
+        }, (routeResult, status) => {
+          if (status !== 'OK') {
+            diagnostics.push({
+              service: 'Directions API',
+              ok: false,
+              status,
+              action: googleServiceHelp('Directions API', status),
+            });
+            renderGoogleApiDiagnostics(diagnostics);
+            result.textContent = `Distance Matrix API worked (${Number(distanceData.distanceKm || 0).toFixed(2)} km), but route failed: ${status}`;
+            message.textContent = googleServiceHelp('Directions API', status);
+            return;
+          }
+          diagnostics.push({
+            service: 'Directions API',
+            ok: true,
+            status: 'OK',
+            action: 'Route drawing is working.',
+          });
+          renderGoogleApiDiagnostics(diagnostics);
+          renderer.setDirections(routeResult);
+          const leg = routeResult.routes[0] && routeResult.routes[0].legs[0];
+          result.innerHTML = `
+            <div><strong>Distance Matrix</strong><span>${Number(distanceData.distanceKm || 0).toFixed(2)} km</span></div>
+            <div><strong>Route distance</strong><span>${escapeCatalog(leg && leg.distance ? leg.distance.text : '-')}</span></div>
+            <div><strong>Duration</strong><span>${escapeCatalog(leg && leg.duration ? leg.duration.text : '-')}</span></div>
+          `;
+          message.textContent = 'Google Maps credentials are working.';
+        });
+      } catch (error) {
+        const text = String(error.message || '');
+        if (text.includes('Maps JavaScript API')) {
+          diagnostics.push({
+            service: 'Maps JavaScript API',
+            ok: false,
+            status: googleMapsAuthError || (payload.browserApiKey ? 'LOAD_ERROR' : 'MISSING_KEY'),
+            action: googleServiceHelp('Maps JavaScript API', googleMapsAuthError || (payload.browserApiKey ? 'LOAD_ERROR' : 'MISSING_KEY'), text),
+          });
+        }
+        renderGoogleApiDiagnostics(diagnostics);
+        result.textContent = error.message;
+        message.textContent = error.message;
+      }
+    }
 
     async function loadRoleSettings() {
       const select = document.getElementById('roleSettingsSelect');
@@ -1364,6 +1649,7 @@
     document.getElementById('commissionTransactionFilter').addEventListener('change', renderCommissionSettings);
     document.getElementById('commissionPreviewAmount').addEventListener('input', renderCommissionSettings);
     document.getElementById('roleSettingsSelect').addEventListener('change', renderRoleSettings);
+    document.getElementById('googleMapsForm').addEventListener('submit', saveGoogleMapSettings);
 
     loadCatalog();
     loadRoleSettings();
@@ -1433,6 +1719,124 @@
       font-weight: 800;
       cursor: pointer;
     }
+    .google-map-actions {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .google-maps-help {
+      margin-bottom: 18px;
+      padding: 14px 16px;
+      border: 1px solid #dbeafe;
+      border-radius: 8px;
+      background: #f8fbff;
+      color: #334155;
+    }
+    .google-maps-help h3 {
+      margin: 0 0 8px;
+      color: #0f172a;
+      font-size: 1rem;
+    }
+    .google-maps-help ol {
+      margin: 0;
+      padding-left: 20px;
+    }
+    .google-maps-help li {
+      margin-bottom: 6px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .google-maps-help p {
+      margin: 8px 0 0;
+      color: #64748b;
+      font-weight: 700;
+    }
+    .google-map-test-grid {
+      display: grid;
+      grid-template-columns: minmax(320px, 1.4fr) minmax(260px, 0.6fr);
+      gap: 16px;
+      margin-top: 18px;
+    }
+    .google-map-card {
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+      box-shadow: 0 8px 24px rgba(15, 23, 42, 0.08);
+    }
+    .google-map-canvas {
+      min-height: 360px;
+      background: #f8fafc;
+    }
+    .google-route-card {
+      display: grid;
+      align-content: start;
+      gap: 12px;
+      padding: 16px;
+    }
+    .google-route-card h3 {
+      margin: 0;
+      color: #0f172a;
+      font-size: 1rem;
+    }
+    .google-route-result {
+      display: grid;
+      gap: 10px;
+      color: #475569;
+      font-weight: 700;
+    }
+    .google-route-result div {
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      padding: 10px;
+      border-radius: 7px;
+      background: #f8fafc;
+    }
+    .google-route-result span {
+      color: #059669;
+      font-weight: 900;
+    }
+    .google-api-diagnostics {
+      display: grid;
+      gap: 8px;
+    }
+    .google-api-diagnostic {
+      display: grid;
+      grid-template-columns: minmax(130px, 1fr) auto;
+      gap: 4px 10px;
+      padding: 10px;
+      border: 1px solid #e2e8f0;
+      border-radius: 7px;
+      background: #f8fafc;
+    }
+    .google-api-diagnostic.ok {
+      border-color: #bbf7d0;
+      background: #f0fdf4;
+    }
+    .google-api-diagnostic.error {
+      border-color: #fecaca;
+      background: #fff7f7;
+    }
+    .google-api-diagnostic strong {
+      color: #0f172a;
+      font-size: 0.92rem;
+    }
+    .google-api-diagnostic span {
+      color: #059669;
+      font-weight: 900;
+      font-size: 0.82rem;
+    }
+    .google-api-diagnostic.error span {
+      color: #dc2626;
+    }
+    .google-api-diagnostic small {
+      grid-column: 1 / -1;
+      color: #475569;
+      font-weight: 700;
+      line-height: 1.4;
+    }
     .reject-button {
       padding: 8px 12px;
       border: 0;
@@ -1444,6 +1848,9 @@
     }
     @media (max-width: 900px) {
       .role-settings-layout {
+        grid-template-columns: 1fr;
+      }
+      .google-map-test-grid {
         grid-template-columns: 1fr;
       }
     }

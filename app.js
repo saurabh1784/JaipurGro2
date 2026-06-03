@@ -18,6 +18,7 @@ const userController = require('./controllers/userController');
 const managedProfileController = require('./controllers/managedProfileController');
 const catalogController = require('./controllers/catalogController');
 const commissionController = require('./controllers/commissionController');
+const DeliveryCharge = require('./services/deliveryChargeService');
 const Wallet = require('./models/Wallet');
 const Product = require('./models/Product');
 const VendorProduct = require('./models/VendorProduct');
@@ -435,6 +436,37 @@ async function addUniqueIndexIfMissing(tableName, indexName, columnName) {
   }
 }
 
+async function settingValue(key, fallback = '') {
+  try {
+    const [rows] = await pool.query('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1', [key]);
+    return rows[0] && rows[0].setting_value !== null && rows[0].setting_value !== undefined
+      ? String(rows[0].setting_value)
+      : fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+async function settingGroup(keys) {
+  const values = {};
+  for (const key of keys) {
+    values[key] = await settingValue(key);
+  }
+  return values;
+}
+
+async function saveSetting(key, value, isSecret = false) {
+  await pool.query(
+    `INSERT INTO app_settings (setting_key, setting_value, is_secret)
+     VALUES (?, ?, ?)
+     ON CONFLICT (setting_key) DO UPDATE
+     SET setting_value = EXCLUDED.setting_value,
+         is_secret = EXCLUDED.is_secret,
+         updated_at = CURRENT_TIMESTAMP`,
+    [key, value || '', isSecret ? 1 : 0]
+  );
+}
+
 function slugify(value) {
   return String(value || '')
     .trim()
@@ -540,6 +572,19 @@ async function initDatabase() {
   console.log('Database init: connectivity check');
   await pool.query('SELECT 1');
   console.log('Database init: syncing schema');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS app_settings (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      setting_key VARCHAR(120) NOT NULL,
+      setting_value TEXT DEFAULT NULL,
+      is_secret TINYINT(1) NOT NULL DEFAULT 0,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_app_settings_key (setting_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
@@ -842,6 +887,7 @@ async function initDatabase() {
       name VARCHAR(180) NOT NULL,
       description TEXT DEFAULT NULL,
       price DECIMAL(10,2) NOT NULL,
+      weight_kg DECIMAL(10,3) NOT NULL DEFAULT 0.000,
       image_url VARCHAR(255) DEFAULT NULL,
       category_id INT UNSIGNED NOT NULL,
       sub_category_id INT UNSIGNED NOT NULL,
@@ -861,6 +907,7 @@ async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('products', 'image_url', 'VARCHAR(255) DEFAULT NULL AFTER price');
+  await addColumnIfMissing('products', 'weight_kg', 'DECIMAL(10,3) NOT NULL DEFAULT 0.000 AFTER price');
   await addColumnIfMissing('products', 'tax_name', 'VARCHAR(80) DEFAULT NULL AFTER image_url');
   await addColumnIfMissing('products', 'tax_percentage', 'DECIMAL(7,2) DEFAULT NULL AFTER tax_name');
   await addColumnIfMissing('products', 'approval_status', "VARCHAR(20) NOT NULL DEFAULT 'approved' AFTER is_deleted");
@@ -1287,6 +1334,24 @@ async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS delivery_charge_rules (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      city VARCHAR(120) NOT NULL,
+      rule_name VARCHAR(120) DEFAULT NULL,
+      min_weight_kg DECIMAL(10,3) NOT NULL DEFAULT 0.000,
+      max_weight_kg DECIMAL(10,3) DEFAULT NULL,
+      base_delivery_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      price_per_km DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      price_per_kg DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      additional_charge DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_delivery_charge_rules_city_weight (city, is_active, min_weight_kg, max_weight_kg)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
     INSERT INTO order_status_history (order_id, old_status, new_status, changed_by_role, note, created_at)
     SELECT co.id, NULL, co.status, 'system', 'Initial status', COALESCE(co.created_at, CURRENT_TIMESTAMP)
     FROM client_orders co
@@ -1573,6 +1638,7 @@ function buildShell(user, activePath = '/dashboard') {
       navItem('Coupon History', '/coupons/history', 'coupon_history.view', 'reports', activePath.startsWith('/coupons/history')),
     ]),
     navItem('Reports', '#', 'reports.view', 'reports', false),
+    navItem('Delivery Charge Settings', '/delivery-charge-settings', 'settings.manage', 'settings', activePath.startsWith('/delivery-charge-settings')),
     navItem('Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings')),
   ]
     .map((item) => item.children
@@ -2637,6 +2703,235 @@ app.post('/api/client/delivery-addresses/:id/default', webOrJwtAuth, requireAuth
   res.json({ success: true, message: 'Default delivery address updated' });
 });
 
+async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddressId = 0, couponCode = '', connection = pool, lockStock = false }) {
+  if (!rawItems || !Array.isArray(rawItems) || rawItems.length === 0) {
+    const error = new Error('No items in order');
+    error.status = 400;
+    throw error;
+  }
+
+  const itemsByProduct = new Map();
+  for (const item of rawItems) {
+    const productKey = Number(item.productId || item.product_id || item.id || item.vendorProductId);
+    const quantity = Math.max(1, Number(item.quantity || 1));
+    const price = Math.max(0, Number(item.price || 0));
+    if (!productKey || quantity <= 0) continue;
+
+    const normalized = { ...item, quantity, price };
+    const existing = itemsByProduct.get(productKey);
+    if (!existing) {
+      itemsByProduct.set(productKey, normalized);
+    } else {
+      existing.quantity = Math.max(existing.quantity, quantity);
+      if (price > 0 && (Number(existing.price || 0) <= 0 || price < Number(existing.price || 0))) {
+        existing.price = price;
+        existing.vendorProductId = item.vendorProductId || existing.vendorProductId;
+      }
+    }
+  }
+
+  const items = [...itemsByProduct.values()];
+  if (items.length === 0) {
+    const error = new Error('No valid items in order');
+    error.status = 400;
+    throw error;
+  }
+
+  const clientRows = await connection.query(
+    'SELECT u.name, u.phone, cp.address, cp.country, cp.state, cp.city FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
+    [clientId]
+  );
+  const client = clientRows[0][0] || {};
+  const [addressRows] = deliveryAddressId
+    ? await connection.query(
+        'SELECT * FROM client_delivery_addresses WHERE id = ? AND user_id = ? LIMIT 1',
+        [deliveryAddressId, clientId]
+      )
+    : await connection.query(
+        'SELECT * FROM client_delivery_addresses WHERE user_id = ? ORDER BY is_default DESC, created_at DESC, id DESC',
+        [clientId]
+      );
+
+  if (!addressRows.length) {
+    const error = new Error(deliveryAddressId ? 'Selected delivery address was not found' : 'Please add a delivery address before placing an order');
+    error.status = 422;
+    throw error;
+  }
+  if (!deliveryAddressId && addressRows.length > 1) {
+    const error = new Error('Please select a delivery address before placing an order');
+    error.status = 422;
+    throw error;
+  }
+
+  const selectedAddress = addressRows[0];
+  const clientAddress = [
+    selectedAddress.address,
+    selectedAddress.city,
+    selectedAddress.state,
+    selectedAddress.country,
+    selectedAddress.pincode,
+  ].filter(Boolean).join(', ');
+
+  const vendorOrders = new Map();
+  for (const item of items) {
+    const vpId = item.vendorProductId || item.id;
+    const [vpRows] = await connection.query(
+      `SELECT vp.product_id, vp.vendor_id, vp.quantity, vp.price,
+              p.name AS product_name,
+              p.weight_kg,
+              vprof.address AS vendor_address,
+              vprof.city AS vendor_city,
+              vprof.state AS vendor_state,
+              vprof.country AS vendor_country,
+              CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
+              COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
+       FROM vendor_products vp
+       INNER JOIN products p ON p.id = vp.product_id
+       INNER JOIN categories c ON c.id = p.category_id
+       LEFT JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+       WHERE vp.id = ?
+       ${lockStock ? 'FOR UPDATE' : ''}`,
+      [vpId]
+    );
+
+    if (!vpRows.length) {
+      const error = new Error(`Product not found: ${vpId}`);
+      error.status = 404;
+      throw error;
+    }
+
+    const vp = vpRows[0];
+    if (Number(vp.quantity || 0) < item.quantity) {
+      const error = new Error(`Insufficient stock for product: ${vpId}`);
+      error.status = 422;
+      throw error;
+    }
+
+    const quantity = Math.max(1, Number(item.quantity || 1));
+    const unitPrice = Math.max(0, Number(item.price || vp.price || 0));
+    const vendorId = Number(vp.vendor_id);
+    if (!vendorOrders.has(vendorId)) {
+      vendorOrders.set(vendorId, {
+        vendorId,
+        subtotal: 0,
+        deliveryCharge: 0,
+        totalWeightKg: 0,
+        items: [],
+        city: selectedAddress.city || client.city || '',
+        destination: clientAddress,
+        origin: [
+          vp.vendor_address,
+          vp.vendor_city,
+          vp.vendor_state,
+          vp.vendor_country,
+        ].filter(Boolean).join(', '),
+      });
+    }
+
+    const vendorOrder = vendorOrders.get(vendorId);
+    vendorOrder.subtotal += unitPrice * quantity;
+    vendorOrder.items.push({
+      vendorProductId: vpId,
+      productId: vp.product_id,
+      productName: vp.product_name,
+      weightKg: Number(vp.weight_kg || 0),
+      quantity,
+      unitPrice,
+      taxName: vp.tax_name || '',
+      taxPercentage: Math.max(0, Number(vp.tax_percentage || 0)),
+    });
+  }
+
+  const subtotalAmount = [...vendorOrders.values()].reduce((sum, vendorOrder) => sum + Number(vendorOrder.subtotal || 0), 0);
+  const globalPromotion = couponCode
+    ? await Promotion.resolveOrderPromotion({
+        couponCode,
+        orderType: 'direct',
+        subtotal: subtotalAmount,
+        userId: clientId,
+      }, connection)
+    : null;
+
+  let totalAmount = 0;
+  let discountAmount = 0;
+  let deliveryCharge = 0;
+  const vendorBreakdown = [];
+
+  for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
+    const promotion = globalPromotion || await Promotion.resolveOrderPromotion({
+      orderType: 'direct',
+      subtotal: vendorOrder.subtotal,
+      userId: clientId,
+      vendorId,
+    }, connection);
+    const vendorDiscount = Math.min(
+      vendorOrder.subtotal,
+      globalPromotion
+        ? (subtotalAmount > 0 ? Number(((vendorOrder.subtotal / subtotalAmount) * Number(globalPromotion.discountAmount || 0)).toFixed(2)) : 0)
+        : Number(promotion.discountAmount || 0)
+    );
+    const delivery = await DeliveryCharge.calculateCharge({
+      city: vendorOrder.city,
+      origin: vendorOrder.origin,
+      destination: vendorOrder.destination,
+      items: vendorOrder.items.map((orderItem) => ({
+        product_name: orderItem.productName,
+        weight_kg: orderItem.weightKg,
+        quantity: orderItem.quantity,
+      })),
+    }, connection);
+    const vendorDeliveryCharge = Number(delivery.delivery_charge || 0);
+    const vendorTotal = Math.max(vendorOrder.subtotal - vendorDiscount, 0) + vendorDeliveryCharge;
+    discountAmount += vendorDiscount;
+    deliveryCharge += vendorDeliveryCharge;
+    totalAmount += vendorTotal;
+    vendorBreakdown.push({
+      vendor_id: vendorId,
+      subtotal_amount: Number(vendorOrder.subtotal.toFixed(2)),
+      discount_amount: Number(vendorDiscount.toFixed(2)),
+      delivery_charge: Number(vendorDeliveryCharge.toFixed(2)),
+      total_amount: Number(vendorTotal.toFixed(2)),
+      distance_km: delivery.distance_km,
+      total_weight_kg: delivery.total_weight_kg,
+      rule: delivery.rule,
+    });
+  }
+
+  return {
+    subtotal_amount: Number(subtotalAmount.toFixed(2)),
+    discount_amount: Number(discountAmount.toFixed(2)),
+    savings_amount: Number(discountAmount.toFixed(2)),
+    delivery_charge: Number(deliveryCharge.toFixed(2)),
+    total_amount: Number(totalAmount.toFixed(2)),
+    address: {
+      id: selectedAddress.id,
+      label: selectedAddress.label || '',
+      recipient_name: selectedAddress.recipient_name || client.name || '',
+      phone: selectedAddress.phone || client.phone || '',
+      display_address: clientAddress,
+      city: selectedAddress.city || client.city || '',
+    },
+    vendors: vendorBreakdown,
+  };
+}
+
+app.post(['/client/orders/preview', '/api/client/orders/preview'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  try {
+    if (String(req.body.coupon_code || '').trim() && !roleCan(req.authUser, 'coupons.apply')) {
+      return res.status(403).json({ success: false, message: 'You do not have permission to apply coupons' });
+    }
+    const preview = await calculateClientOrderPreview({
+      clientId: req.authUser.id,
+      rawItems: req.body.items,
+      deliveryAddressId: Number(req.body.delivery_address_id || req.body.deliveryAddressId || 0),
+      couponCode: String(req.body.coupon_code || '').trim(),
+    });
+    res.json({ success: true, preview });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to calculate order preview' });
+  }
+});
+
 app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
     const rawItems = req.body.items;
@@ -2719,11 +3014,18 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const vpId = item.vendorProductId || item.id;
         const [vpRows] = await connection.query(
           `SELECT vp.product_id, vp.vendor_id, vp.quantity, vp.price,
+                  p.name AS product_name,
+                  p.weight_kg,
+                  vprof.address AS vendor_address,
+                  vprof.city AS vendor_city,
+                  vprof.state AS vendor_state,
+                  vprof.country AS vendor_country,
                   CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
                   COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
            FROM vendor_products vp
            INNER JOIN products p ON p.id = vp.product_id
            INNER JOIN categories c ON c.id = p.category_id
+           LEFT JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
            WHERE vp.id = ?
            FOR UPDATE`,
           [vpId]
@@ -2747,13 +3049,26 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const vendorId = Number(vp.vendor_id);
 
         if (!vendorOrders.has(vendorId)) {
-          vendorOrders.set(vendorId, { total: 0, items: [] });
+          vendorOrders.set(vendorId, {
+            total: 0,
+            items: [],
+            city: selectedAddress.city || client.city || '',
+            destination: clientAddress,
+            origin: [
+              vp.vendor_address,
+              vp.vendor_city,
+              vp.vendor_state,
+              vp.vendor_country,
+            ].filter(Boolean).join(', '),
+          });
         }
 
         vendorOrders.get(vendorId).total += unitPrice * quantity;
         vendorOrders.get(vendorId).items.push({
           vendorProductId: vpId,
           productId: vp.product_id,
+          productName: vp.product_name,
+          weightKg: Number(vp.weight_kg || 0),
           quantity,
           unitPrice,
           taxName: vp.tax_name || '',
@@ -2790,8 +3105,19 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           ? (subtotalAmount > 0 ? Number(((vendorSubtotal / subtotalAmount) * Number(globalPromotion.discountAmount || 0)).toFixed(2)) : 0)
           : Number(promotion.discountAmount || 0);
         const vendorDiscount = Math.min(vendorSubtotal, discountAmount);
-        const vendorTotal = Math.max(vendorSubtotal - vendorDiscount, 0);
-        vendorPromotions.set(vendorId, { promotion, vendorDiscount, vendorTotal });
+        const delivery = await DeliveryCharge.calculateCharge({
+          city: vendorOrder.city,
+          origin: vendorOrder.origin,
+          destination: vendorOrder.destination,
+          items: vendorOrder.items.map((orderItem) => ({
+            product_name: orderItem.productName,
+            weight_kg: orderItem.weightKg,
+            quantity: orderItem.quantity,
+          })),
+        }, connection);
+        const deliveryCharge = Number(delivery.delivery_charge || 0);
+        const vendorTotal = Math.max(vendorSubtotal - vendorDiscount, 0) + deliveryCharge;
+        vendorPromotions.set(vendorId, { promotion, vendorDiscount, vendorTotal, deliveryCharge, delivery });
         totalAmount += vendorTotal;
       }
 
@@ -2808,16 +3134,18 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const promotion = vendorPromotion.promotion;
         const vendorDiscount = vendorPromotion.vendorDiscount;
         const vendorTotal = vendorPromotion.vendorTotal;
+        const deliveryCharge = vendorPromotion.deliveryCharge;
         const [orderResult] = await connection.query(
           `INSERT INTO client_orders
-           (user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           (user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
             vendorId,
             vendorSubtotal,
             vendorDiscount,
             vendorDiscount,
+            deliveryCharge,
             promotion.coupon ? promotion.coupon.id : null,
             promotion.code || null,
             promotion.discount ? promotion.discount.id : null,
@@ -2959,10 +3287,70 @@ async function promotionCityOptions() {
      SELECT DISTINCT city FROM client_profiles WHERE city IS NOT NULL AND TRIM(city) <> ''
      UNION
      SELECT DISTINCT city FROM vendor_profiles WHERE city IS NOT NULL AND TRIM(city) <> ''
+     UNION
+     SELECT DISTINCT city FROM delivery_charge_rules WHERE city IS NOT NULL AND TRIM(city) <> ''
      ORDER BY city`
   );
   return cityRows.map((row) => normalizeCityName(row.city)).filter(Boolean);
 }
+
+app.get('/delivery-charge-settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  res.render('delivery-charge-settings', {
+    user: req.session.user,
+    shell: buildShell(req.session.user, req.path),
+    cityOptions: await promotionCityOptions(),
+  });
+});
+
+app.get('/delivery-charge-settings/rules', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    res.json({ success: true, rules: await DeliveryCharge.listRules(), cities: await promotionCityOptions() });
+  } catch (error) {
+    console.error('Delivery charge rules load error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load delivery charge rules' });
+  }
+});
+
+app.post('/delivery-charge-settings/rules', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const id = await DeliveryCharge.saveRule(req.body);
+    res.status(201).json({ success: true, message: 'Delivery charge rule saved', id, rules: await DeliveryCharge.listRules() });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save delivery charge rule' });
+  }
+});
+
+app.put('/delivery-charge-settings/rules/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const id = await DeliveryCharge.saveRule({ ...req.body, id: req.params.id });
+    res.json({ success: true, message: 'Delivery charge rule updated', id, rules: await DeliveryCharge.listRules() });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update delivery charge rule' });
+  }
+});
+
+app.delete('/delivery-charge-settings/rules/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    await DeliveryCharge.deleteRule(Number(req.params.id));
+    res.json({ success: true, message: 'Delivery charge rule deleted' });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Unable to delete delivery charge rule' });
+  }
+});
+
+app.post('/delivery-charge-settings/calculate', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const result = await DeliveryCharge.calculateCharge({
+      city: req.body.city,
+      origin: req.body.origin,
+      destination: req.body.destination,
+      totalWeightKg: req.body.total_weight_kg,
+    });
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to calculate delivery charge' });
+  }
+});
 
 async function promotionPayload(body) {
   const allowedCities = await promotionCityOptions();
@@ -3243,7 +3631,14 @@ app.get('/api/coupons/history', webOrJwtAuth, requirePermission('coupon_history.
   res.json({ success: true, history: await Promotion.listHistory() });
 });
 
-app.get('/settings', requireAuth, requirePermission('settings.manage'), (req, res) => {
+app.get('/settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  const maps = await settingGroup([
+    'google_maps_browser_api_key',
+    'google_distance_api_key',
+    'google_maps_map_id',
+    'google_maps_default_origin',
+    'google_maps_default_destination',
+  ]);
   res.render('settings', {
     user: req.session.user,
     permissionLabels,
@@ -3268,6 +3663,13 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), (req, re
         storageBucket: 'grocery-app-demo.appspot.com',
         pushNotifications: true,
       },
+      maps: {
+        browserApiKey: maps.google_maps_browser_api_key || process.env.GOOGLE_MAPS_BROWSER_API_KEY || '',
+        distanceApiKey: maps.google_distance_api_key || process.env.GOOGLE_DISTANCE_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '',
+        mapId: maps.google_maps_map_id || '',
+        defaultOrigin: maps.google_maps_default_origin || 'Jaipur, Rajasthan, India',
+        defaultDestination: maps.google_maps_default_destination || 'Mansarovar, Jaipur, Rajasthan, India',
+      },
       security: {
         jwtExpiry: '7 days',
         minPasswordLength: 6,
@@ -3281,6 +3683,58 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), (req, re
       },
     },
   });
+});
+
+app.get('/settings/google-maps', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  const maps = await settingGroup([
+    'google_maps_browser_api_key',
+    'google_distance_api_key',
+    'google_maps_map_id',
+    'google_maps_default_origin',
+    'google_maps_default_destination',
+  ]);
+  res.json({
+    success: true,
+    settings: {
+      browserApiKey: maps.google_maps_browser_api_key || process.env.GOOGLE_MAPS_BROWSER_API_KEY || '',
+      distanceApiKey: maps.google_distance_api_key || process.env.GOOGLE_DISTANCE_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '',
+      mapId: maps.google_maps_map_id || '',
+      defaultOrigin: maps.google_maps_default_origin || 'Jaipur, Rajasthan, India',
+      defaultDestination: maps.google_maps_default_destination || 'Mansarovar, Jaipur, Rajasthan, India',
+    },
+  });
+});
+
+app.put('/settings/google-maps', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    await saveSetting('google_maps_browser_api_key', String(req.body.browserApiKey || '').trim(), true);
+    await saveSetting('google_distance_api_key', String(req.body.distanceApiKey || '').trim(), true);
+    await saveSetting('google_maps_map_id', String(req.body.mapId || '').trim(), false);
+    await saveSetting('google_maps_default_origin', String(req.body.defaultOrigin || '').trim(), false);
+    await saveSetting('google_maps_default_destination', String(req.body.defaultDestination || '').trim(), false);
+    res.json({ success: true, message: 'Google Maps settings saved' });
+  } catch (error) {
+    console.error('Google Maps settings save error:', error);
+    res.status(500).json({ success: false, message: 'Unable to save Google Maps settings' });
+  }
+});
+
+app.post('/settings/google-maps/test-distance', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const origin = String(req.body.origin || '').trim();
+    const destination = String(req.body.destination || '').trim();
+    if (!origin || !destination) {
+      return res.status(422).json({ success: false, message: 'Origin and destination are required' });
+    }
+    const result = await DeliveryCharge.testDistance(origin, destination);
+    res.json({ success: true, ...result });
+  } catch (error) {
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Unable to test Google Distance API',
+      diagnostics: error.googleDiagnostic ? [{ ...error.googleDiagnostic, ok: false }] : [],
+    });
+  }
 });
 
 app.get('/settings/roles', requireAuth, requirePermission('settings.manage'), async (req, res) => {
