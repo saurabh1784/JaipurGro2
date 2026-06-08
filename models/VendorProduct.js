@@ -2,18 +2,25 @@ const pool = require('../db');
 
 function normalize(row) {
   if (!row) return null;
+  const weightValue = Number(row.weight_value ?? row.weight_kg ?? 0);
+  const weightUnit = row.weight_unit || 'kg';
+  const defaultPrice = row.default_price === undefined ? undefined : Number(row.default_price || 0);
   return {
     id: row.id,
     product_id: row.product_id,
     vendor_id: row.vendor_id,
     quantity: Number(row.quantity || 0),
-    price: row.price === undefined ? undefined : Number(row.price || 0),
+    price: defaultPrice === undefined ? (row.price === undefined ? undefined : Number(row.price || 0)) : defaultPrice,
     status: row.status,
     created_at: row.created_at,
     updated_at: row.updated_at,
     product_name: row.product_name,
     description: row.description,
-    default_price: row.default_price === undefined ? undefined : Number(row.default_price || 0),
+    default_price: defaultPrice,
+    weight_value: weightValue,
+    weight_unit: weightUnit,
+    weight_kg: Number(row.weight_kg || 0),
+    weight_label: weightValue > 0 ? `${Number(weightValue.toFixed(3))} ${weightUnit}` : 'Not set',
     approval_status: row.approval_status,
     rejection_reason: row.rejection_reason,
     category_id: row.category_id,
@@ -30,7 +37,9 @@ function normalize(row) {
     image_url: row.image_url || '/default.png',
     client_id: row.client_id,
     custom_price: row.custom_price === undefined || row.custom_price === null ? null : Number(row.custom_price),
-    visible_price: row.visible_price === undefined ? undefined : Number(row.visible_price || 0),
+    visible_price: defaultPrice === undefined
+      ? (row.visible_price === undefined ? undefined : Number(row.visible_price || 0))
+      : defaultPrice,
   };
 }
 
@@ -69,6 +78,7 @@ async function list({ vendor_id, approval_status, status, search, category_id, s
   if (vendor_id) {
     where.push('vp.vendor_id = ?');
     params.push(vendor_id);
+    where.push('EXISTS (SELECT 1 FROM vendor_categories vc WHERE vc.vendor_id = vp.vendor_id AND vc.category_id = p.category_id)');
   }
   if (approval_status) {
     where.push('p.approval_status = ?');
@@ -101,14 +111,16 @@ async function list({ vendor_id, approval_status, status, search, category_id, s
   }
 
   const [rows] = await pool.query(
-    `SELECT vp.*, COALESCE(vp.image_url, p.image_url, '/default.png') AS image_url,
+    `SELECT vp.*, COALESCE(NULLIF(NULLIF(vp.image_url, ''), '/default.png'), p.image_url, '/default.png') AS image_url,
             p.name AS product_name, p.description, p.price AS default_price,
+            p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.rejection_reason, p.category_id, p.sub_category_id, p.brand_id,
             c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name,
             u.name AS vendor_name, u.email AS vendor_email
      FROM vendor_products vp
      INNER JOIN products p ON p.id = vp.product_id
      INNER JOIN users u ON u.id = vp.vendor_id
+     ${vendor_id ? '' : 'LEFT JOIN vendor_categories vc ON vc.vendor_id = vp.vendor_id AND vc.category_id = p.category_id'}
      INNER JOIN categories c ON c.id = p.category_id
      INNER JOIN sub_categories s ON s.id = p.sub_category_id
      INNER JOIN brands b ON b.id = p.brand_id
@@ -121,8 +133,9 @@ async function list({ vendor_id, approval_status, status, search, category_id, s
 
 async function findById(id) {
   const [rows] = await pool.query(
-    `SELECT vp.*, COALESCE(vp.image_url, p.image_url, '/default.png') AS image_url,
+    `SELECT vp.*, COALESCE(NULLIF(NULLIF(vp.image_url, ''), '/default.png'), p.image_url, '/default.png') AS image_url,
             p.name AS product_name, p.description, p.price AS default_price,
+            p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.rejection_reason, p.category_id, p.sub_category_id, p.brand_id,
             c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name,
             u.name AS vendor_name, u.email AS vendor_email
@@ -172,11 +185,15 @@ async function create(data) {
   try {
     await connection.beginTransaction();
     const [productRows] = await connection.query(
-      "SELECT id FROM products WHERE id = ? AND is_deleted = 0 AND approval_status = 'approved' LIMIT 1",
-      [productId]
+      `SELECT p.id
+       FROM products p
+       INNER JOIN vendor_categories vc ON vc.category_id = p.category_id AND vc.vendor_id = ?
+       WHERE p.id = ? AND p.is_deleted = 0 AND p.approval_status = 'approved'
+       LIMIT 1`,
+      [vendorId, productId]
     );
     if (!productRows.length) {
-      const error = new Error('Product not found in approved master product list');
+      const error = new Error('Product not found in your approved categories');
       error.status = 404;
       throw error;
     }
@@ -298,6 +315,7 @@ async function ensureAllProductsForAllVendors(connection = pool) {
      SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
      FROM products p
      INNER JOIN users u ON u.role = 'Vendor' AND u.is_deleted = 0
+     INNER JOIN vendor_categories vc ON vc.vendor_id = u.id AND vc.category_id = p.category_id
      WHERE p.is_deleted = 0
      ON CONFLICT (product_id, vendor_id) DO NOTHING`
   );
@@ -310,6 +328,7 @@ async function ensureProductForAllVendors(productId, connection = pool) {
      SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
      FROM products p
      INNER JOIN users u ON u.role = 'Vendor' AND u.is_deleted = 0
+     INNER JOIN vendor_categories vc ON vc.vendor_id = u.id AND vc.category_id = p.category_id
      WHERE p.id = ? AND p.is_deleted = 0
      ON CONFLICT (product_id, vendor_id) DO NOTHING`,
     [productId]
@@ -323,6 +342,7 @@ async function ensureVendorHasAllProducts(vendorId, connection = pool) {
      SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
      FROM users u
      INNER JOIN products p ON p.is_deleted = 0
+     INNER JOIN vendor_categories vc ON vc.vendor_id = u.id AND vc.category_id = p.category_id
      WHERE u.id = ? AND u.role = 'Vendor' AND u.is_deleted = 0
      ON CONFLICT (product_id, vendor_id) DO NOTHING`,
     [vendorId]
@@ -362,6 +382,7 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
     'p.is_deleted = 0',
     "u.status = 'active'",
     'u.is_deleted = 0',
+    'vc.vendor_id IS NOT NULL',
   ];
   const params = [];
   const term = search ? `%${String(search).trim()}%` : null;
@@ -404,8 +425,13 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
             'active' AS status,
             MIN(vp.created_at) AS created_at,
             MAX(vp.updated_at) AS updated_at,
-            COALESCE(MAX(vp.image_url), p.image_url, '/default.png') AS image_url,
+            COALESCE(
+              MAX(NULLIF(NULLIF(vp.image_url, ''), '/default.png')),
+              p.image_url,
+              '/default.png'
+            ) AS image_url,
             p.name AS product_name, p.description, p.price AS default_price,
+            p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.category_id, p.sub_category_id, p.brand_id,
             c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name,
             NULL AS vendor_name,
@@ -433,6 +459,7 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
      INNER JOIN products p ON p.id = vp.product_id
      INNER JOIN users u ON u.id = vp.vendor_id
      INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+     INNER JOIN vendor_categories vc ON vc.vendor_id = vp.vendor_id AND vc.category_id = p.category_id
      ${client_id ? 'INNER JOIN client_profiles cp ON cp.user_id = ?' : ''}
      INNER JOIN categories c ON c.id = p.category_id
      INNER JOIN sub_categories s ON s.id = p.sub_category_id
@@ -443,7 +470,7 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
      LEFT JOIN client_orders co ON co.user_id = ?
      LEFT JOIN client_order_items coi ON coi.order_id = co.id AND coi.vendor_product_id = vp.id
      WHERE ${where.join(' AND ')}
-     GROUP BY p.id, p.image_url, p.name, p.description, p.price, p.approval_status,
+     GROUP BY p.id, p.image_url, p.name, p.description, p.price, p.weight_value, p.weight_unit, p.weight_kg, p.approval_status,
               p.category_id, p.sub_category_id, p.brand_id,
               c.name, s.name, b.name, sp.is_sponsored, sp.priority_order
      ORDER BY COALESCE(sp.is_sponsored, 0) DESC,

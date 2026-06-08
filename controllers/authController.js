@@ -7,6 +7,7 @@ const VendorProduct = require('../models/VendorProduct');
 const { sign } = require('../utils/jwt');
 const { revokeToken } = require('../middleware/tokenBlacklist');
 const { validateSignup, validateLogin } = require('../middleware/validators');
+const { findOrCreateGoogleClient } = require('../services/googleClientAuthService');
 
 function tokenPayload(user) {
   return {
@@ -103,4 +104,28 @@ function logout(req, res) {
   return res.json({ success: true, message: 'Logout successful' });
 }
 
-module.exports = { signup, login, logout };
+async function googleClientLogin(req, res) {
+  const idToken = String(req.body.idToken || req.body.credential || '').trim();
+  if (!idToken) {
+    return res.status(422).json({ success: false, message: 'Google ID token is required' });
+  }
+
+  try {
+    const user = await findOrCreateGoogleClient(idToken);
+    const token = sign(tokenPayload(user));
+    return res.json({
+      success: true,
+      message: 'Google login successful',
+      token,
+      user: User.publicUser(user),
+    });
+  } catch (error) {
+    console.error('Google client login error:', error);
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to process Google login',
+    });
+  }
+}
+
+module.exports = { signup, login, logout, googleClientLogin };

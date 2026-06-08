@@ -19,7 +19,7 @@ function sanitizeProfileUpdate(role, body) {
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : body;
   const update = {};
   const fieldsByRole = {
-    Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'address', 'gst_number', 'services'],
+    Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'signature_path', 'address', 'gst_number', 'services'],
     Client: ['address', 'age', 'gender', 'notes'],
     Admin: ['permissions'],
   };

@@ -15,8 +15,43 @@ function normalizeServices(value) {
   }
 }
 
+function normalizeCategoryIds(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(raw
+    .map((item) => parseInt(item, 10))
+    .filter((item) => Number.isFinite(item) && item > 0))];
+}
+
+async function assignedCategories(vendorIds, connection = pool) {
+  const ids = [...new Set([].concat(vendorIds || []).map((id) => parseInt(id, 10)).filter(Boolean))];
+  if (!ids.length) return new Map();
+  const placeholders = ids.map(() => '?').join(',');
+  const [rows] = await connection.query(
+    `SELECT vc.vendor_id, c.id, c.name, c.slug, c.status
+     FROM vendor_categories vc
+     INNER JOIN categories c ON c.id = vc.category_id
+     WHERE vc.vendor_id IN (${placeholders})
+       AND c.is_deleted = 0
+     ORDER BY c.name ASC`,
+    ids
+  );
+  const map = new Map(ids.map((id) => [Number(id), []]));
+  for (const row of rows) {
+    const vendorId = Number(row.vendor_id);
+    if (!map.has(vendorId)) map.set(vendorId, []);
+    map.get(vendorId).push({
+      id: row.id,
+      name: row.name,
+      slug: row.slug,
+      status: row.status,
+    });
+  }
+  return map;
+}
+
 function publicVendor(row) {
   if (!row) return null;
+  const categories = Array.isArray(row.categories) ? row.categories : [];
   return {
     id: row.id,
     user_id: row.user_id || row.id,
@@ -31,6 +66,8 @@ function publicVendor(row) {
     city: row.city || '',
     gst_number: row.gst_number || '',
     services: normalizeServices(row.services),
+    categories,
+    category_ids: categories.map((category) => Number(category.id)).filter(Boolean),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -93,8 +130,9 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
     [...params, pageSize, offset]
   );
 
+  const categoriesByVendor = await assignedCategories(rows.map((row) => row.id));
   return {
-    vendors: rows.map(publicVendor),
+    vendors: rows.map((row) => publicVendor({ ...row, categories: categoriesByVendor.get(Number(row.id)) || [] })),
     pagination: {
       page: currentPage,
       limit: pageSize,
@@ -114,7 +152,9 @@ async function findById(id) {
      LIMIT 1`,
     [id]
   );
-  return publicVendor(rows[0]);
+  if (!rows[0]) return null;
+  const categoriesByVendor = await assignedCategories([rows[0].id]);
+  return publicVendor({ ...rows[0], categories: categoriesByVendor.get(Number(rows[0].id)) || [] });
 }
 
 async function emailOrPhoneTaken({ id = 0, email, phone }) {
@@ -150,6 +190,7 @@ async function create(data) {
       ]
     );
     await VendorProduct.ensureVendorHasAllProducts(userId, connection);
+    await setCategories(userId, data.category_ids || data.categories || [], connection);
     await connection.commit();
     return userId;
   } catch (error) {
@@ -175,14 +216,14 @@ async function update(id, data) {
     await connection.query(
       `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, gst_number, services)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         business_name = VALUES(business_name),
-         address = VALUES(address),
-         country = VALUES(country),
-         state = VALUES(state),
-         city = VALUES(city),
-         gst_number = VALUES(gst_number),
-         services = VALUES(services)`,
+       ON CONFLICT (user_id) DO UPDATE
+       SET business_name = EXCLUDED.business_name,
+           address = EXCLUDED.address,
+           country = EXCLUDED.country,
+           state = EXCLUDED.state,
+           city = EXCLUDED.city,
+           gst_number = EXCLUDED.gst_number,
+           services = EXCLUDED.services`,
       [
         id,
         data.business_name || null,
@@ -194,12 +235,30 @@ async function update(id, data) {
         JSON.stringify(data.services || []),
       ]
     );
+    if (Object.prototype.hasOwnProperty.call(data, 'category_ids') || Object.prototype.hasOwnProperty.call(data, 'categories')) {
+      await setCategories(id, data.category_ids || data.categories || [], connection);
+    }
     await connection.commit();
   } catch (error) {
     await connection.rollback();
     throw error;
   } finally {
     connection.release();
+  }
+}
+
+async function setCategories(vendorId, categoryIds, connection = pool) {
+  const ids = normalizeCategoryIds(categoryIds);
+  await connection.query('DELETE FROM vendor_categories WHERE vendor_id = ?', [vendorId]);
+  for (const categoryId of ids) {
+    await connection.query(
+      `INSERT INTO vendor_categories (vendor_id, category_id)
+       SELECT ?, c.id
+       FROM categories c
+       WHERE c.id = ? AND c.is_deleted = 0 AND c.status = 'active'
+       ON CONFLICT (vendor_id, category_id) DO NOTHING`,
+      [vendorId, categoryId]
+    );
   }
 }
 
@@ -219,4 +278,7 @@ module.exports = {
   update,
   updateStatus,
   softDelete,
+  setCategories,
+  assignedCategories,
+  normalizeCategoryIds,
 };

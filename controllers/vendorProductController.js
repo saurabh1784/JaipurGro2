@@ -1,6 +1,7 @@
 const VendorProduct = require('../models/VendorProduct');
 const Product = require('../models/Product');
 const ProductSearch = require('../models/ProductSearch');
+const Vendor = require('../models/Vendor');
 
 function isSuperAdmin(user) {
   return String((user && (user.role || user.roleName)) || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin';
@@ -72,7 +73,12 @@ async function approvedProducts(req, res) {
   }
 
   try {
-    const products = await Product.listApproved(Number(req.query.limit) || 200);
+    let categoryIds = [];
+    if (isVendor(req.authUser)) {
+      const categoriesByVendor = await Vendor.assignedCategories([req.authUser.id]);
+      categoryIds = (categoriesByVendor.get(Number(req.authUser.id)) || []).map((category) => category.id);
+    }
+    const products = await Product.listApproved(Number(req.query.limit) || 200, categoryIds);
     return res.json({ success: true, products });
   } catch (error) {
     console.error('Approved product list error:', error);

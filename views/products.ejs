@@ -47,8 +47,18 @@
             <input id="productPrice" type="number" min="0" step="0.01" required />
           </label>
           <label>
-            Weight Kg
-            <input id="productWeightKg" type="number" min="0" step="0.001" placeholder="Used for delivery charges" />
+            Weight
+            <input id="productWeightValue" type="number" min="0" step="0.001" placeholder="Used for delivery charges" />
+          </label>
+          <label>
+            Weight Unit
+            <select id="productWeightUnit">
+              <option value="g">Gram (g)</option>
+              <option value="kg" selected>Kilogram (kg)</option>
+              <option value="L">Liter (L)</option>
+              <option value="ml">Milliliter (ml)</option>
+              <option value="other">Other</option>
+            </select>
           </label>
           <label>
             Tax Name
@@ -64,7 +74,7 @@
             <span class="image-helper">Images are fitted to the product card without cutting edges.</span>
           </label>
           <label>
-            Category
+            Main Category
             <select id="productCategory" required></select>
           </label>
           <label>
@@ -81,7 +91,7 @@
         <form id="bulkUploadForm" class="bulk-upload-panel">
           <div>
             <h2>Bulk Upload</h2>
-            <p>Upload CSV, XLS, or XLSX with name, description, price, weight_kg, tax_name, tax_percentage, category, subcategory, brand.</p>
+            <p>Upload CSV, XLS, or XLSX with name, description, price, weight_value, weight_unit, tax_name, tax_percentage, category, subcategory, brand.</p>
           </div>
           <label>
             File
@@ -97,7 +107,7 @@
 
       <div class="products-filter-bar">
         <label>
-          Category
+          Main Category
           <select id="categoryFilter"></select>
         </label>
         <label>
@@ -119,7 +129,7 @@
               <th>Name</th>
               <th>Image</th>
               <th>Description</th>
-              <th>Category</th>
+              <th>Main Category</th>
               <th>Subcategory</th>
               <th>Brand</th>
               <th>Tax</th>
@@ -280,6 +290,20 @@
       return `<span class="brand-display">${logo}<span>${label}</span></span>`;
     }
 
+    function weightToKg(value, unit) {
+      const amount = Number(value || 0);
+      if (!Number.isFinite(amount) || amount <= 0) return 0;
+      if (unit === 'g' || unit === 'ml') return amount / 1000;
+      return amount;
+    }
+
+    function weightLabel(product) {
+      if (product.weight_label) return product.weight_label;
+      const value = Number(product.weight_value ?? product.weight_kg ?? 0);
+      if (!value) return 'Not set';
+      return `${Number(value.toFixed(3))} ${product.weight_unit || 'kg'}`;
+    }
+
     async function readJsonResponse(response) {
       const text = await response.text();
       try {
@@ -307,8 +331,8 @@
     }
 
     function renderCatalogSelects() {
-      document.getElementById('productCategory').innerHTML = optionList(catalog.categories, 'Select Category');
-      categoryFilter.innerHTML = optionList(catalog.categories, 'All Categories');
+      document.getElementById('productCategory').innerHTML = optionList(catalog.categories, 'Select Main Category');
+      categoryFilter.innerHTML = optionList(catalog.categories, 'All Main Categories');
       updateProductSubcategories();
       updateProductBrands();
       updateFilterSubcategories();
@@ -390,7 +414,10 @@
               <strong>${escapeHtml(product.applied_tax_name || product.tax_name || product.category_tax_name || 'No tax')}</strong><br>
               <small>${Number(product.applied_tax_percentage || 0).toFixed(2)}%${product.tax_percentage === null || product.tax_percentage === undefined ? ' category' : ' product'}</small>
             </td>
-            <td>${Number(product.weight_kg || 0).toFixed(3)} kg</td>
+            <td>
+              <strong>${escapeHtml(weightLabel(product))}</strong><br>
+              <small>${Number(product.weight_kg || 0).toFixed(3)} kg delivery</small>
+            </td>
             <td>
               <div class="search-boost-cell">
                 <label class="sponsored-toggle">
@@ -436,7 +463,8 @@
       document.getElementById('productName').value = product.name;
       document.getElementById('productDescription').value = product.description || '';
       document.getElementById('productPrice').value = Number(product.price).toFixed(2);
-      document.getElementById('productWeightKg').value = Number(product.weight_kg || 0).toFixed(3);
+      document.getElementById('productWeightValue').value = Number(product.weight_value ?? product.weight_kg ?? 0).toFixed(3);
+      document.getElementById('productWeightUnit').value = product.weight_unit || 'kg';
       document.getElementById('productTaxName').value = product.tax_name || '';
       document.getElementById('productTaxPercentage').value = product.tax_percentage === null || product.tax_percentage === undefined ? '' : Number(product.tax_percentage).toFixed(2);
       document.getElementById('productImage').value = '';
@@ -539,7 +567,11 @@
       payload.append('name', document.getElementById('productName').value);
       payload.append('description', document.getElementById('productDescription').value);
       payload.append('price', document.getElementById('productPrice').value);
-      payload.append('weight_kg', document.getElementById('productWeightKg').value);
+      const weightValue = document.getElementById('productWeightValue').value;
+      const weightUnit = document.getElementById('productWeightUnit').value;
+      payload.append('weight_value', weightValue);
+      payload.append('weight_unit', weightUnit);
+      payload.append('weight_kg', weightToKg(weightValue, weightUnit));
       payload.append('tax_name', document.getElementById('productTaxName').value);
       payload.append('tax_percentage', document.getElementById('productTaxPercentage').value);
       payload.append('category_id', document.getElementById('productCategory').value);
@@ -611,7 +643,7 @@
       document.getElementById('deleteModal').classList.remove('active');
     });
     document.getElementById('downloadTemplate').addEventListener('click', () => {
-      const csv = 'name,description,price,weight_kg,tax_name,tax_percentage,category,subcategory,brand\nSample Rice,Long grain rice,120,5,GST,5,Grains & Staples,Rice,Fortune\n';
+      const csv = 'name,description,price,weight_value,weight_unit,tax_name,tax_percentage,category,subcategory,brand\nSample Rice,Long grain rice,120,5,kg,GST,5,Grains & Staples,Rice,Fortune\n';
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       link.download = 'product-upload-template.csv';

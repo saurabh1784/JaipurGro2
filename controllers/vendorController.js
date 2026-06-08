@@ -1,5 +1,6 @@
 const bcrypt = require('bcryptjs');
 const Vendor = require('../models/Vendor');
+const Catalog = require('../models/Catalog');
 const { validateStatus } = require('../middleware/validators');
 const { flattenLocationOptions, isValidLocation, locationTree } = require('../utils/locationOptions');
 
@@ -24,6 +25,10 @@ function normalizeServices(value) {
     .filter(Boolean);
 }
 
+function normalizeCategoryIds(value) {
+  return Vendor.normalizeCategoryIds(value);
+}
+
 function validateVendor(body, { requirePassword = false } = {}) {
   const errors = [];
   const password = body.password ? String(body.password) : '';
@@ -40,6 +45,7 @@ function validateVendor(body, { requirePassword = false } = {}) {
     city: body.city ? String(body.city).trim() : '',
     gst_number: body.gst_number ? String(body.gst_number).trim() : '',
     services: normalizeServices(body.services),
+    category_ids: normalizeCategoryIds(body.category_ids || body.categories),
   };
 
   if (data.name.length < 2) errors.push('Name must be at least 2 characters');
@@ -65,6 +71,7 @@ async function index(req, res) {
     return res.render('vendors', {
       user: req.session.user,
       locationOptions: flattenLocationOptions(),
+      categories: await Catalog.listCategories(),
     });
   }
 
@@ -150,8 +157,16 @@ async function update(req, res) {
     data.password = await bcrypt.hash(data.password, 10);
   }
 
-  await Vendor.update(id, data);
-  return res.json({ success: true, message: 'Vendor updated', vendor: await Vendor.findById(id) });
+  try {
+    await Vendor.update(id, data);
+    return res.json({ success: true, message: 'Vendor updated', vendor: await Vendor.findById(id) });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
+      return res.status(409).json({ success: false, message: 'A user with this email or phone already exists' });
+    }
+    console.error('Vendor update error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to update vendor' });
+  }
 }
 
 async function destroy(req, res) {

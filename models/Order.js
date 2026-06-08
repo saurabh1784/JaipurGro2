@@ -48,21 +48,35 @@ function statusLabel(status) {
   return STATUS_LABELS[normalizeStatus(status)] || String(status || '').replace(/_/g, ' ');
 }
 
+function orderDisplayNumber(order) {
+  return order.order_number || `ORD${Number(order.id || 0).toString(36).toUpperCase().padStart(7, '0').slice(-7)}`;
+}
+
 function normalizeOrder(row, includeItems = false) {
   if (!row) return null;
   const order = {
     id: row.id,
+    order_number: row.order_number || '',
     user_id: row.user_id,
     vendor_id: row.vendor_id || null,
     client_name: row.client_name || '',
     client_phone: row.client_phone || '',
     client_address: row.client_address || '',
     client_city: row.client_city || '',
+    shipping_address_id: row.shipping_address_id || null,
+    shipping_name: row.shipping_name || row.client_name || '',
+    shipping_phone: row.shipping_phone || row.client_phone || '',
+    shipping_address: row.shipping_address || row.client_address || '',
+    shipping_city: row.shipping_city || '',
+    shipping_state: row.shipping_state || '',
+    shipping_country: row.shipping_country || '',
+    shipping_pincode: row.shipping_pincode || '',
     vendor_name: row.vendor_name || '',
     vendor_email: row.vendor_email || '',
     vendor_phone: row.vendor_phone || '',
     vendor_business_name: row.vendor_business_name || '',
     vendor_gst_number: row.vendor_gst_number || '',
+    vendor_signature_path: row.vendor_signature_path || '',
     vendor_address: row.vendor_address || '',
     vendor_country: row.vendor_country || '',
     vendor_state: row.vendor_state || '',
@@ -129,9 +143,9 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
   const params = [];
 
   if (search) {
-    where.push('(o.client_name LIKE ? OR o.client_phone LIKE ? OR o.client_address LIKE ?)');
+    where.push('(o.order_number LIKE ? OR o.client_name LIKE ? OR o.client_phone LIKE ? OR o.client_address LIKE ? OR o.shipping_name LIKE ? OR o.shipping_phone LIKE ? OR o.shipping_address LIKE ?)');
     const term = `%${String(search).trim()}%`;
-    params.push(term, term, term);
+    params.push(term, term, term, term, term, term, term);
   }
   if (status) {
     if (normalizeStatus(status) === ORDER_STATUS.DELIVERED) {
@@ -169,6 +183,7 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
             v.phone AS vendor_phone,
             vp.business_name AS vendor_business_name,
             vp.gst_number AS vendor_gst_number,
+            vp.signature_path AS vendor_signature_path,
             vp.address AS vendor_address,
             vp.country AS vendor_country,
             vp.state AS vendor_state,
@@ -219,9 +234,9 @@ async function listByVendor(vendorId, { status = '', search = '' } = {}) {
     }
   }
   if (search) {
-    where.push('(o.client_name ILIKE ? OR o.client_phone ILIKE ? OR o.client_address ILIKE ?)');
+    where.push('(o.order_number ILIKE ? OR o.client_name ILIKE ? OR o.client_phone ILIKE ? OR o.client_address ILIKE ? OR o.shipping_name ILIKE ? OR o.shipping_phone ILIKE ? OR o.shipping_address ILIKE ?)');
     const term = `%${String(search).trim()}%`;
-    params.push(term, term, term);
+    params.push(term, term, term, term, term, term, term);
   }
 
   const [rows] = await pool.query(
@@ -232,6 +247,7 @@ async function listByVendor(vendorId, { status = '', search = '' } = {}) {
             v.phone AS vendor_phone,
             vp.business_name AS vendor_business_name,
             vp.gst_number AS vendor_gst_number,
+            vp.signature_path AS vendor_signature_path,
             vp.address AS vendor_address,
             vp.country AS vendor_country,
             vp.state AS vendor_state,
@@ -270,6 +286,7 @@ async function listByClient(clientId) {
             v.phone AS vendor_phone,
             vp.business_name AS vendor_business_name,
             vp.gst_number AS vendor_gst_number,
+            vp.signature_path AS vendor_signature_path,
             vp.address AS vendor_address,
             vp.country AS vendor_country,
             vp.state AS vendor_state,
@@ -308,6 +325,7 @@ async function findById(orderId) {
             v.phone AS vendor_phone,
             vp.business_name AS vendor_business_name,
             vp.gst_number AS vendor_gst_number,
+            vp.signature_path AS vendor_signature_path,
             vp.address AS vendor_address,
             vp.country AS vendor_country,
             vp.state AS vendor_state,
@@ -342,6 +360,8 @@ async function getOrderItems(orderId) {
     `SELECT oi.*,
             p.id AS product_id,
             p.name AS product_name,
+            p.weight_value,
+            p.weight_unit,
             vp.vendor_id,
             v.name AS vendor_name,
             vprof.business_name AS vendor_business_name
@@ -360,6 +380,8 @@ async function getOrderItems(orderId) {
     vendor_product_id: row.vendor_product_id,
     product_id: row.product_id,
     product_name: row.product_name,
+    weight_value: row.weight_value === undefined || row.weight_value === null ? null : Number(row.weight_value || 0),
+    weight_unit: row.weight_unit || '',
     quantity: Number(row.quantity || 0),
     unit_price: Number(row.unit_price || 0),
     line_total: Number(row.unit_price * row.quantity || 0).toFixed(2),
@@ -430,13 +452,14 @@ function syncedDeliveryStatus(status, currentDeliveryStatus) {
 }
 
 async function insertClientNotification(connection, order, newStatus) {
+  const displayOrderNumber = orderDisplayNumber(order);
   await connection.query(
     `INSERT INTO user_notifications (user_id, title, message, link)
      VALUES (?, ?, ?, ?)`,
     [
       order.user_id,
-      `Order #${order.id} ${statusLabel(newStatus)}`,
-      `Your order #${order.id} status changed to ${statusLabel(newStatus)}.`,
+      `Order #${displayOrderNumber} ${statusLabel(newStatus)}`,
+      `Your order #${displayOrderNumber} status changed to ${statusLabel(newStatus)}.`,
       '/orders/client',
     ]
   );
@@ -518,7 +541,7 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
 
     // Verify order exists
     const [orderRows] = await connection.query(
-      'SELECT id, user_id, status, delivery_status FROM client_orders WHERE id = ? FOR UPDATE',
+      'SELECT id, order_number, user_id, status, delivery_status FROM client_orders WHERE id = ? FOR UPDATE',
       [orderId]
     );
     if (!orderRows.length) {
@@ -604,8 +627,8 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
        VALUES (?, ?, ?, ?)`,
       [
         order.user_id,
-        `Order #${orderId} delivery assigned`,
-        `Delivery partner assigned and OTP generated for order #${orderId}.`,
+        `Order #${orderDisplayNumber(order)} delivery assigned`,
+        `Delivery partner assigned and OTP generated for order #${orderDisplayNumber(order)}.`,
         '/orders/client',
       ]
     );

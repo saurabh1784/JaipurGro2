@@ -109,14 +109,24 @@ async function settingValue(key) {
 async function googleDistanceApiKey() {
   return (await settingValue('google_distance_api_key'))
     || process.env.GOOGLE_DISTANCE_API_KEY
-    || process.env.GOOGLE_MAPS_API_KEY
     || '';
 }
 
 async function googleDistanceKm(origin, destination) {
   const key = await googleDistanceApiKey();
-  if (!key || !origin || !destination) {
-    return { distanceKm: 0, source: key ? 'missing_address' : 'not_configured' };
+  if (!key) {
+    const error = new Error('Distance Matrix API failed: MISSING_KEY. Add a dedicated Distance API Server Key in Settings > Google Maps, or set GOOGLE_DISTANCE_API_KEY on the backend.');
+    error.status = 422;
+    error.googleDiagnostic = {
+      service: 'Distance Matrix API',
+      status: 'MISSING_KEY',
+      rawMessage: 'Dedicated backend Distance Matrix API key is not configured.',
+      action: 'Add a server key with Distance Matrix API enabled. Do not use the Android or browser map key for backend distance calculation.',
+    };
+    throw error;
+  }
+  if (!origin || !destination) {
+    return { distanceKm: 0, source: 'missing_address' };
   }
 
   const url = new URL('https://maps.googleapis.com/maps/api/distancematrix/json');

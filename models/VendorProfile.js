@@ -1,4 +1,5 @@
 const pool = require('../db');
+const Vendor = require('./Vendor');
 
 async function createEmpty(userId, connection = pool) {
   await connection.query('INSERT INTO vendor_profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [userId]);
@@ -6,7 +7,14 @@ async function createEmpty(userId, connection = pool) {
 
 async function findByUserId(userId) {
   const { rows } = await pool.query('SELECT * FROM vendor_profiles WHERE user_id = $1 LIMIT 1', [userId]);
-  return rows[0] || null;
+  const profile = rows[0] || null;
+  const categoriesByVendor = await Vendor.assignedCategories([userId]);
+  const categories = categoriesByVendor.get(Number(userId)) || [];
+  return {
+    ...(profile || { user_id: Number(userId) }),
+    categories,
+    category_ids: categories.map((category) => Number(category.id)).filter(Boolean),
+  };
 }
 
 async function update(userId, data) {
@@ -16,6 +24,7 @@ async function update(userId, data) {
     'business_name',
     'logo_path',
     'storefront_image_path',
+    'signature_path',
     'address',
     'country',
     'state',
@@ -37,4 +46,8 @@ async function update(userId, data) {
   await pool.query(`UPDATE vendor_profiles SET ${fields.join(', ')} WHERE user_id = $${values.length}`, values);
 }
 
-module.exports = { createEmpty, findByUserId, update };
+async function updateCategories(userId, categoryIds) {
+  await Vendor.setCategories(userId, categoryIds);
+}
+
+module.exports = { createEmpty, findByUserId, update, updateCategories };

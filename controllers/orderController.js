@@ -1,3 +1,4 @@
+const crypto = require('crypto');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const pool = require('../db');
@@ -11,18 +12,55 @@ function invoiceLinks(req, order) {
   const origin = `${req.protocol}://${req.get('host')}`;
   const basePath = `${origin}${req.baseUrl}/${order.id}/invoice`;
   const accessToken = req.token ? `&access_token=${encodeURIComponent(req.token)}` : '';
+  const publicInvoiceUrl = publicInvoiceLink(req, order);
   return {
     invoice_url: `${basePath}?disposition=inline${accessToken}`,
     invoice_download_url: `${basePath}?download=1${accessToken}`,
+    public_invoice_url: publicInvoiceUrl,
   };
 }
 
 async function attachInvoice(req, order, items) {
-  await ensureInvoice(order, items);
+  await ensureInvoice(order, items, { publicInvoiceUrl: publicInvoiceLink(req, order) });
   return {
     ...order,
     ...invoiceLinks(req, order),
   };
+}
+
+function invoicePublicSecret() {
+  return process.env.INVOICE_PUBLIC_SECRET ||
+    process.env.SESSION_SECRET ||
+    process.env.JWT_SECRET ||
+    'jaipurgro2-invoice-public-secret';
+}
+
+function invoiceNumberFor(order) {
+  return order.invoice_number || `INV-${String(order.id).padStart(6, '0')}`;
+}
+
+function invoicePublicToken(order) {
+  const invoiceNumber = invoiceNumberFor(order);
+  const payload = `${order.id}:${invoiceNumber}`;
+  const signature = crypto
+    .createHmac('sha256', invoicePublicSecret())
+    .update(payload)
+    .digest('base64url');
+  return `${invoiceNumber}.${signature}`;
+}
+
+function isValidPublicInvoiceToken(order, token) {
+  const expected = invoicePublicToken(order);
+  const actual = String(token || '');
+  const expectedBuffer = Buffer.from(expected);
+  const actualBuffer = Buffer.from(actual);
+  return expectedBuffer.length === actualBuffer.length &&
+    crypto.timingSafeEqual(expectedBuffer, actualBuffer);
+}
+
+function publicInvoiceLink(req, order) {
+  const origin = `${req.protocol}://${req.get('host')}`;
+  return `${origin}/public/invoices/${order.id}/${encodeURIComponent(invoicePublicToken(order))}`;
 }
 
 // Admin/Staff - List all orders with filters
@@ -277,7 +315,7 @@ async function streamInvoice(req, res, role) {
     }
 
     const items = await Order.getOrderItems(order.id);
-    const invoice = await ensureInvoice(order, items);
+    const invoice = await ensureInvoice(order, items, { publicInvoiceUrl: publicInvoiceLink(req, order) });
     const inline = req.query.download !== '1' && req.query.disposition !== 'attachment';
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${invoice.fileName}"`);
@@ -298,6 +336,25 @@ function vendorInvoice(req, res) {
 
 function clientInvoice(req, res) {
   return streamInvoice(req, res, 'Client');
+}
+
+async function publicInvoice(req, res) {
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order || !isValidPublicInvoiceToken(order, req.params.token)) {
+      return res.status(404).send('Invoice not found');
+    }
+
+    const items = await Order.getOrderItems(order.id);
+    const invoice = await ensureInvoice(order, items, { publicInvoiceUrl: publicInvoiceLink(req, order) });
+    const inline = req.query.download !== '1' && req.query.disposition !== 'attachment';
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `${inline ? 'inline' : 'attachment'}; filename="${invoice.fileName}"`);
+    return res.sendFile(invoice.absolutePath);
+  } catch (error) {
+    console.error('Public invoice stream error:', error);
+    return res.status(500).send('Unable to generate invoice');
+  }
 }
 
 // Admin/Staff - Get available delivery partners (staff users)
@@ -367,6 +424,7 @@ module.exports = {
   adminInvoice,
   vendorInvoice,
   clientInvoice,
+  publicInvoice,
   vendorOrders,
   vendorOrderDetail,
   clientOrders,

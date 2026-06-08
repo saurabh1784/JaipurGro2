@@ -28,30 +28,56 @@
     <% } %>
     <div class="quotation-alert quotation-alert-error" id="quotationPageAlert" hidden></div>
 
+    <%
+      const quotationCategories = Array.isArray(categories) ? categories : [];
+      const countsByCategory = categoryCounts || {};
+      const activeCategoryId = Number(selectedCategoryId || 0);
+      const allCategoryCount = Object.values(countsByCategory).reduce((sum, count) => sum + Number(count || 0), 0);
+    %>
+    <nav class="quotation-category-tabs" aria-label="Quotation categories">
+      <a class="quotation-category-tab <%= activeCategoryId === 0 ? 'active' : '' %>" href="/vendor/quotations">
+        <span>All</span>
+        <% if (allCategoryCount > 0) { %>
+          <strong><%= allCategoryCount %></strong>
+        <% } %>
+      </a>
+      <% quotationCategories.forEach((category) => { %>
+        <% const categoryCount = Number(countsByCategory[category.id] || countsByCategory[String(category.id)] || 0); %>
+        <a class="quotation-category-tab <%= activeCategoryId === Number(category.id) ? 'active' : '' %>" href="/vendor/quotations?category_id=<%= category.id %>">
+          <span><%= category.name %></span>
+          <% if (categoryCount > 0) { %>
+            <strong><%= categoryCount %></strong>
+          <% } %>
+        </a>
+      <% }) %>
+    </nav>
+
     <section class="quotation-list" id="quotationCardView">
       <% if (!quotations.length) { %>
         <div class="users-table-card quotation-empty">
           <h2>No open quotations</h2>
-          <p>New quotation requests that still need your action will appear here.</p>
+          <p>New quotation requests for the selected category will appear here.</p>
         </div>
       <% } %>
 
       <% quotations.forEach((quotation) => { %>
-        <article class="users-table-card quotation-card" data-recipient-id="<%= quotation.recipient_id %>" data-locked="<%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? '1' : '0' %>">
+        <% const categoryName = quotation.category_name || 'Category quotation'; %>
+        <% const quotationLocked = !quotation.bid_editable || ['accepted', 'rejected'].includes(quotation.recipient_status); %>
+        <article class="users-table-card quotation-card" data-recipient-id="<%= quotation.recipient_id %>" data-locked="<%= quotationLocked ? '1' : '0' %>">
           <div class="quotation-card-header">
             <div>
               <span class="quotation-id">Quotation #<%= quotation.id %></span>
               <h2><%= quotation.client_name %></h2>
-              <p><%= quotation.client_email %> - <%= quotation.client_city %></p>
+              <p><%= categoryName %> - <%= quotation.client_email %> - <%= quotation.client_city %></p>
             </div>
             <div class="quotation-status">
               <span><%= quotation.recipient_status %></span>
               <strong data-grand-total>INR <%= (quotation.response_total || quotation.total_amount).toFixed(2) %></strong>
               <div class="quotation-button-row">
                 <button type="button" class="settings-save process-btn" onclick="openQuotation(<%= quotation.recipient_id %>)">
-                  <%= quotation.recipient_status === 'submitted' ? 'View' : 'Process' %>
+                  <%= quotationLocked ? 'View' : (quotation.recipient_status === 'submitted' ? 'Edit Bid' : 'Process') %>
                 </button>
-                <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status)) { %>
+                <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) && quotation.bid_editable) { %>
                   <button type="button" class="reject-button" onclick="rejectQuotation(<%= quotation.recipient_id %>)">Reject</button>
                 <% } %>
               </div>
@@ -62,9 +88,9 @@
             <div class="discount-toolbar">
               <label>
                 Discount %
-                <input class="quote-discount" type="number" min="0" max="100" step="0.01" value="<%= quotation.discount_percent.toFixed(2) %>" <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> />
+                <input class="quote-discount" type="number" min="0" max="100" step="0.01" value="<%= quotation.discount_percent.toFixed(2) %>" <%= quotationLocked ? 'disabled' : '' %> />
               </label>
-              <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status)) { %>
+              <% if (!quotationLocked) { %>
                 <button type="button" class="settings-save process-btn" onclick="applyDiscount(<%= quotation.recipient_id %>)">Apply to All</button>
               <% } %>
             </div>
@@ -73,10 +99,10 @@
                 <tr>
                   <th>Product</th>
                   <th>Qty</th>
+                  <th>Weight</th>
                   <th>Admin Price</th>
                   <th>Vendor Price</th>
                   <th>Status</th>
-                  <th>Catalog</th>
                   <th>Line Total</th>
                 </tr>
               </thead>
@@ -86,16 +112,14 @@
                   <tr data-item-id="<%= item.id %>" data-available="<%= itemAvailable ? '1' : '0' %>" data-in-catalog="<%= item.in_catalog ? '1' : '0' %>">
                     <td><%= item.product_name %></td>
                     <td><input class="quote-qty" type="number" min="1" step="1" value="<%= item.quantity %>" readonly /></td>
+                    <td>
+                      <strong><%= item.weight_label || 'Not set' %></strong>
+                      <span class="quotation-muted">Total <%= item.total_weight_label || ((item.total_weight_kg || 0).toFixed(3) + ' kg') %></span>
+                    </td>
                     <td>INR <%= item.admin_price.toFixed(2) %></td>
-                    <td><input class="quote-price" type="number" min="0" step="0.01" value="<%= item.unit_price.toFixed(2) %>" data-base-price="<%= item.admin_price.toFixed(2) %>" <%= !itemAvailable || ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> /></td>
+                    <td><input class="quote-price" type="number" min="0" step="0.01" value="<%= item.unit_price.toFixed(2) %>" data-base-price="<%= item.admin_price.toFixed(2) %>" <%= !itemAvailable || quotationLocked ? 'disabled' : '' %> /></td>
                     <td>
                       <span class="quote-status-pill <%= itemAvailable ? 'available' : 'not-available' %>"><%= itemAvailable ? 'Available' : 'Unavailable' %></span>
-                    </td>
-                    <td>
-                      <label class="availability-toggle">
-                        <input class="quote-add-catalog" type="checkbox" <%= item.in_catalog || !itemAvailable ? 'disabled' : '' %> <%= ['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) ? 'disabled' : '' %> />
-                        <span><%= item.in_catalog ? 'In Catalog' : 'Add' %></span>
-                      </label>
                     </td>
                     <td class="quote-line-total">INR <%= (!itemAvailable ? 0 : item.unit_price * item.quantity).toFixed(2) %></td>
                   </tr>
@@ -104,8 +128,8 @@
             </table>
             <div class="quotation-submit-row">
               <strong>Grand Total: <span data-detail-total>INR 0.00</span></strong>
-              <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status)) { %>
-                <button class="settings-save" type="button" onclick="submitQuotation(<%= quotation.recipient_id %>)">Submit to Client</button>
+              <% if (!quotationLocked) { %>
+                <button class="settings-save" type="button" onclick="submitQuotation(<%= quotation.recipient_id %>)"><%= quotation.recipient_status === 'submitted' ? 'Update Bid' : 'Submit to Client' %></button>
               <% } %>
             </div>
           </div>
@@ -119,6 +143,7 @@
           <tr>
             <th>Quote</th>
             <th>Client</th>
+            <th>Category</th>
             <th>City</th>
             <th>Items</th>
             <th>Status</th>
@@ -128,23 +153,26 @@
         </thead>
         <tbody>
           <% if (!quotations.length) { %>
-            <tr><td colspan="7">No open quotations</td></tr>
+            <tr><td colspan="8">No open quotations</td></tr>
           <% } %>
           <% quotations.forEach((quotation) => { %>
+            <% const categoryName = quotation.category_name || 'Category quotation'; %>
+            <% const quotationLocked = !quotation.bid_editable || ['accepted', 'rejected'].includes(quotation.recipient_status); %>
             <tr>
               <td>#<%= quotation.id %></td>
               <td>
                 <strong><%= quotation.client_name %></strong>
                 <span class="quotation-muted"><%= quotation.client_email %></span>
               </td>
+              <td><%= categoryName %></td>
               <td><%= quotation.client_city %></td>
               <td><%= quotation.items.length %></td>
               <td><span class="quotation-pill"><%= quotation.recipient_status %></span></td>
               <td>INR <%= (quotation.response_total || quotation.total_amount).toFixed(2) %></td>
               <td>
                 <div class="quotation-row-actions">
-                  <button type="button" class="settings-save process-btn" onclick="setQuotationView('card'); openQuotation(<%= quotation.recipient_id %>)">Process</button>
-                  <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status)) { %>
+                  <button type="button" class="settings-save process-btn" onclick="setQuotationView('card'); openQuotation(<%= quotation.recipient_id %>)"><%= quotationLocked ? 'View' : (quotation.recipient_status === 'submitted' ? 'Edit Bid' : 'Process') %></button>
+                  <% if (!['submitted', 'accepted', 'rejected'].includes(quotation.recipient_status) && quotation.bid_editable) { %>
                     <button type="button" class="reject-button" onclick="rejectQuotation(<%= quotation.recipient_id %>)">Reject</button>
                   <% } %>
                 </div>
@@ -158,6 +186,10 @@
 
   <style>
     .quotation-list { display: grid; gap: 18px; }
+    .quotation-category-tabs { display: flex; gap: 10px; overflow-x: auto; padding: 2px 0 16px; margin-bottom: 2px; }
+    .quotation-category-tab { display: inline-flex; align-items: center; gap: 8px; flex: 0 0 auto; padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 999px; background: #fff; color: #475569; text-decoration: none; font-weight: 800; }
+    .quotation-category-tab.active { border-color: #26bcd4; background: #e8fbff; color: #0f7180; }
+    .quotation-category-tab strong { min-width: 22px; height: 22px; display: inline-grid; place-items: center; padding: 0 7px; border-radius: 999px; background: #26bcd4; color: #fff; font-size: 0.78rem; }
     .quotation-view-toggle { display: inline-flex; border: 1px solid #cbd5e1; border-radius: 6px; overflow: hidden; background: #fff; }
     .quotation-view-toggle button { padding: 8px 14px; border: 0; background: transparent; cursor: pointer; font-weight: 800; color: #475569; }
     .quotation-view-toggle button.active { background: #26bcd4; color: #fff; }
@@ -200,6 +232,7 @@
   </style>
 
   <script>
+    const selectedQuotationCategoryId = <%= Number(selectedCategoryId || 0) %>;
     const initialQuotationIds = new Set(
       [...document.querySelectorAll('.quotation-card')].map((card) => String(card.dataset.recipientId))
     );
@@ -240,8 +273,6 @@
         total += line;
         row.querySelector('.quote-line-total').textContent = formatMoney(line);
         row.querySelector('.quote-price').disabled = locked || !available;
-        const addCatalog = row.querySelector('.quote-add-catalog');
-        if (addCatalog) addCatalog.disabled = locked || row.dataset.inCatalog === '1' || !available;
       });
       card.querySelector('[data-grand-total]').textContent = formatMoney(total);
       card.querySelector('[data-detail-total]').textContent = formatMoney(total);
@@ -285,7 +316,6 @@
         quantity: row.querySelector('.quote-qty').value,
         unit_price: row.querySelector('.quote-price').value,
         status: row.dataset.available === '1' ? 'available' : 'not_available',
-        add_to_catalog: row.querySelector('.quote-add-catalog') ? row.querySelector('.quote-add-catalog').checked : false,
       }));
       try {
         if (button) {
@@ -336,7 +366,9 @@
 
     async function checkForNewQuotations() {
       try {
-        const response = await fetch('/vendor/quotations?format=json&peek=1', {
+        const params = new URLSearchParams({ format: 'json', peek: '1' });
+        if (selectedQuotationCategoryId > 0) params.set('category_id', selectedQuotationCategoryId);
+        const response = await fetch(`/vendor/quotations?${params.toString()}`, {
           headers: { Accept: 'application/json' },
         });
         const data = await readJsonResponse(response);
@@ -352,7 +384,7 @@
     }
 
     document.querySelectorAll('.quotation-card').forEach((card) => {
-      card.querySelectorAll('.quote-qty, .quote-price, .quote-add-catalog').forEach((input) => {
+      card.querySelectorAll('.quote-qty, .quote-price').forEach((input) => {
         input.addEventListener('input', () => recalc(card));
         input.addEventListener('change', () => recalc(card));
       });

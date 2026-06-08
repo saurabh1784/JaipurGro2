@@ -56,6 +56,31 @@
       </div>
 
       <div class="users-table-card">
+        <div class="users-toolbar">
+          <div>
+            <h2>Category Activation Requests</h2>
+            <p>Approve vendor requests to activate additional main categories.</p>
+          </div>
+          <button class="product-secondary-button" type="button" id="refreshCategoryRequests">Refresh</button>
+        </div>
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>Vendor</th>
+              <th>Business</th>
+              <th>Requested Category</th>
+              <th>Note</th>
+              <th>Requested At</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="categoryRequestsBody">
+            <tr><td colspan="6">Loading category requests...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="users-table-card">
         <table class="users-table vendors-table">
           <thead>
             <tr>
@@ -64,13 +89,14 @@
               <th>Business</th>
               <th>Phone</th>
               <th>Location</th>
+              <th>Main Categories</th>
               <th>Services</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="vendorsTableBody">
-            <tr><td colspan="8">Loading vendors...</td></tr>
+            <tr><td colspan="9">Loading vendors...</td></tr>
           </tbody>
         </table>
       </div>
@@ -134,10 +160,14 @@
           City
           <select id="vendorCity" required></select>
         </label>
-        <label>
+        <div class="vendor-category-field">
           Services
-          <input id="vendorServices" type="text" placeholder="Delivery, Wholesale" />
-        </label>
+          <div id="vendorServices" class="vendor-category-checklist" role="group" aria-label="Vendor Services"></div>
+        </div>
+        <div class="vendor-category-field">
+          Main Categories
+          <div id="vendorCategories" class="vendor-category-checklist" role="group" aria-label="Main Categories"></div>
+        </div>
         <label class="settings-wide">
           Address
           <textarea id="vendorAddress" rows="3"></textarea>
@@ -159,12 +189,15 @@
 
   <script>
     const locationOptions = <%- JSON.stringify(locationOptions) %>;
+    const availableCategories = <%- JSON.stringify((categories || []).filter((category) => category.status === 'active')) %>;
+    const availableServices = ['Home Delivery', 'Counter Pickup', 'Wholesale Supply', 'Express Delivery'];
     let vendors = [];
     let currentPage = 1;
     let totalPages = 1;
     let pendingDeleteId = null;
 
     const tableBody = document.getElementById('vendorsTableBody');
+    const categoryRequestsBody = document.getElementById('categoryRequestsBody');
     const vendorSearch = document.getElementById('vendorSearch');
     const statusFilter = document.getElementById('statusFilter');
     const countryFilter = document.getElementById('countryFilter');
@@ -194,6 +227,10 @@
 
     function servicesText(services) {
       return Array.isArray(services) ? services.join(', ') : String(services || '');
+    }
+
+    function categoriesText(categories) {
+      return Array.isArray(categories) ? categories.map((item) => item.name).join(', ') : '';
     }
 
     function optionList(items, emptyLabel) {
@@ -227,6 +264,48 @@
       updateStateOptions();
     }
 
+    function renderCategoryOptions(selectedIds = []) {
+      const selected = new Set(selectedIds.map((id) => String(id)));
+      document.getElementById('vendorCategories').innerHTML = availableCategories
+        .map((category) => {
+          const id = `vendorCategory${category.id}`;
+          const checked = selected.has(String(category.id)) ? 'checked' : '';
+          return `
+            <label class="vendor-category-option" for="${id}">
+              <input id="${id}" type="checkbox" value="${category.id}" ${checked} />
+              <span>${escapeHtml(category.name)}</span>
+            </label>
+          `;
+        })
+        .join('');
+    }
+
+    function renderServiceOptions(selectedServices = []) {
+      const selected = new Set([].concat(selectedServices || []).map((service) => String(service).toLowerCase()));
+      document.getElementById('vendorServices').innerHTML = availableServices
+        .map((service, index) => {
+          const id = `vendorService${index}`;
+          const checked = selected.has(service.toLowerCase()) ? 'checked' : '';
+          return `
+            <label class="vendor-category-option" for="${id}">
+              <input id="${id}" type="checkbox" value="${escapeHtml(service)}" ${checked} />
+              <span>${escapeHtml(service)}</span>
+            </label>
+          `;
+        })
+        .join('');
+    }
+
+    function selectedCategoryIds() {
+      return Array.from(document.querySelectorAll('#vendorCategories input[type="checkbox"]:checked'))
+        .map((input) => Number(input.value));
+    }
+
+    function selectedServices() {
+      return Array.from(document.querySelectorAll('#vendorServices input[type="checkbox"]:checked'))
+        .map((input) => input.value);
+    }
+
     function updateFilterStates(selectedState) {
       const country = countryFilter.value;
       const states = country && locationOptions.tree[country] ? Object.keys(locationOptions.tree[country]) : locationOptions.states;
@@ -258,6 +337,54 @@
       return [vendor.city, vendor.state].filter(Boolean).join(', ') || '-';
     }
 
+    function dateText(value) {
+      return value ? new Date(value).toLocaleString() : '-';
+    }
+
+    async function loadCategoryRequests() {
+      try {
+        const response = await fetch('/api/admin/vendor-category-requests?status=pending', { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to load requests');
+        const requests = data.requests || [];
+        categoryRequestsBody.innerHTML = requests.length
+          ? requests.map((request) => `
+              <tr>
+                <td>
+                  <strong>${escapeHtml(request.vendor_name)}</strong><br>
+                  <small>${escapeHtml(request.vendor_email)}</small>
+                </td>
+                <td>${escapeHtml(request.business_name || '-')}</td>
+                <td>${escapeHtml(request.category_name)}</td>
+                <td>${escapeHtml(request.note || '-')}</td>
+                <td>${escapeHtml(dateText(request.created_at))}</td>
+                <td>
+                  <button type="button" onclick="decideCategoryRequest(${request.id}, 'approve')">Approve</button>
+                  <button type="button" onclick="decideCategoryRequest(${request.id}, 'reject')">Reject</button>
+                </td>
+              </tr>
+            `).join('')
+          : '<tr><td colspan="6">No pending category activation requests</td></tr>';
+      } catch (error) {
+        categoryRequestsBody.innerHTML = `<tr><td colspan="6">${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+
+    async function decideCategoryRequest(id, action) {
+      const response = await fetch(`/api/admin/vendor-category-requests/${id}/${action}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({}),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to update request');
+        return;
+      }
+      await loadCategoryRequests();
+      await loadVendors(currentPage);
+    }
+
     async function loadVendors(page = 1) {
       const params = new URLSearchParams({
         format: 'json',
@@ -272,7 +399,7 @@
       const response = await fetch(`/vendors?${params.toString()}`, { headers: { Accept: 'application/json' } });
       const data = await response.json();
       if (!data.success) {
-        tableBody.innerHTML = `<tr><td colspan="8">${escapeHtml(data.message || 'Unable to load vendors')}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="9">${escapeHtml(data.message || 'Unable to load vendors')}</td></tr>`;
         return;
       }
       vendors = data.vendors || [];
@@ -283,7 +410,7 @@
 
     function renderVendors() {
       if (!vendors.length) {
-        tableBody.innerHTML = '<tr><td colspan="8">No vendors found</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="9">No vendors found</td></tr>';
       } else {
         tableBody.innerHTML = vendors.map((vendor) => `
           <tr>
@@ -295,6 +422,7 @@
             <td>${escapeHtml(vendor.business_name)}</td>
             <td>${escapeHtml(vendor.phone)}</td>
             <td>${escapeHtml(vendorLocation(vendor))}</td>
+            <td class="vendor-services-cell">${escapeHtml(categoriesText(vendor.categories) || '-')}</td>
             <td class="vendor-services-cell">${escapeHtml(servicesText(vendor.services) || '-')}</td>
             <td><span class="user-status-pill ${vendor.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(vendor.status)}</span></td>
             <td>
@@ -328,6 +456,8 @@
       document.getElementById('vendorModalTitle').textContent = 'Add Vendor';
       document.getElementById('vendorSubmit').textContent = 'Save Vendor';
       renderLocationOptions();
+      renderServiceOptions(['Home Delivery', 'Counter Pickup']);
+      renderCategoryOptions();
     }
 
     function openAddVendor() {
@@ -350,7 +480,8 @@
       document.getElementById('vendorCountry').value = vendor.country || '';
       updateStateOptions(vendor.state || '');
       updateCityOptions(vendor.city || '');
-      document.getElementById('vendorServices').value = servicesText(vendor.services);
+      renderServiceOptions(vendor.services || []);
+      renderCategoryOptions(vendor.category_ids || []);
       document.getElementById('vendorAddress').value = vendor.address || '';
       document.getElementById('vendorModalTitle').textContent = 'Edit Vendor';
       document.getElementById('vendorSubmit').textContent = 'Update Vendor';
@@ -407,7 +538,8 @@
         country: document.getElementById('vendorCountry').value,
         state: document.getElementById('vendorState').value,
         city: document.getElementById('vendorCity').value,
-        services: document.getElementById('vendorServices').value,
+        services: selectedServices(),
+        category_ids: selectedCategoryIds(),
         address: document.getElementById('vendorAddress').value,
       };
       if (id && !payload.password) delete payload.password;
@@ -428,6 +560,7 @@
     });
 
     document.getElementById('addVendorButton').addEventListener('click', openAddVendor);
+    document.getElementById('refreshCategoryRequests').addEventListener('click', loadCategoryRequests);
     document.getElementById('vendorCountry').addEventListener('change', () => updateStateOptions());
     document.getElementById('vendorState').addEventListener('change', () => updateCityOptions());
     document.getElementById('deleteVendorYes').addEventListener('click', deleteVendor);
@@ -459,7 +592,9 @@
     nextPage.addEventListener('click', () => loadVendors(currentPage + 1));
 
     renderLocationOptions();
+    renderCategoryOptions();
     renderFilterOptions();
+    loadCategoryRequests();
     loadVendors();
   </script>
 </body>

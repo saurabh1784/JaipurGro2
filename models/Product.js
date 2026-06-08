@@ -5,11 +5,34 @@ function toPositiveInt(value, fallback) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : fallback;
 }
 
+function cleanWeightUnit(value) {
+  const unit = String(value || 'kg').trim();
+  if (!unit) return 'kg';
+  const lower = unit.toLowerCase();
+  if (['gram', 'grams', 'g'].includes(lower)) return 'g';
+  if (['kilogram', 'kilograms', 'kg'].includes(lower)) return 'kg';
+  if (['liter', 'liters', 'litre', 'litres', 'l'].includes(lower)) return 'L';
+  if (['milliliter', 'milliliters', 'millilitre', 'millilitres', 'ml'].includes(lower)) return 'ml';
+  return unit.slice(0, 20);
+}
+
+function formatWeightLabel(value, unit) {
+  const amount = Number(value || 0);
+  if (!amount) return 'Not set';
+  const normalized = Number(amount.toFixed(3)).toString();
+  return `${normalized} ${cleanWeightUnit(unit)}`;
+}
+
 function normalizeProduct(row) {
+  const weightUnit = cleanWeightUnit(row.weight_unit || 'kg');
+  const weightValue = Number(row.weight_value ?? row.weight_kg ?? 0);
   return {
     ...row,
     price: Number(row.price),
+    weight_value: weightValue,
+    weight_unit: weightUnit,
     weight_kg: Number(row.weight_kg || 0),
+    weight_label: formatWeightLabel(weightValue, weightUnit),
     tax_name: row.tax_name || '',
     tax_percentage: row.tax_percentage === null || row.tax_percentage === undefined ? null : Number(row.tax_percentage || 0),
     category_tax_name: row.category_tax_name || '',
@@ -105,7 +128,7 @@ async function list(filters = {}) {
   const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${fromSql} WHERE ${where}`, params);
   const total = countRows[0].total;
   const [rows] = await pool.query(
-    `SELECT p.id, p.name, p.description, p.price, p.weight_kg, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
+    `SELECT p.id, p.name, p.description, p.price, p.weight_value, p.weight_unit, p.weight_kg, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
             p.approval_status, p.created_by_vendor_id, p.approved_by, p.approved_at, p.rejection_reason,
             p.created_at, p.updated_at,
             c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
@@ -157,9 +180,9 @@ async function findById(id) {
 
 async function create(data) {
   const [result] = await pool.query(
-    `INSERT INTO products (name, description, price, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [data.name, data.description || null, data.price, data.weight_kg || 0, data.image_url || null, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id]
+    `INSERT INTO products (name, description, price, weight_value, weight_unit, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [data.name, data.description || null, data.price, data.weight_value || 0, cleanWeightUnit(data.weight_unit), data.weight_kg || 0, data.image_url || null, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id]
   );
   return result.insertId;
 }
@@ -169,6 +192,8 @@ async function update(id, data) {
     'name = ?',
     'description = ?',
     'price = ?',
+    'weight_value = ?',
+    'weight_unit = ?',
     'weight_kg = ?',
     'tax_name = ?',
     'tax_percentage = ?',
@@ -176,7 +201,7 @@ async function update(id, data) {
     'sub_category_id = ?',
     'brand_id = ?',
   ];
-  const values = [data.name, data.description || null, data.price, data.weight_kg || 0, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id];
+  const values = [data.name, data.description || null, data.price, data.weight_value || 0, cleanWeightUnit(data.weight_unit), data.weight_kg || 0, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id];
 
   if (Object.prototype.hasOwnProperty.call(data, 'image_url')) {
     fields.push('image_url = ?');
@@ -195,19 +220,23 @@ async function softDelete(id) {
    await pool.query('UPDATE products SET is_deleted = 1 WHERE id = ?', [id]);
  }
 
- async function listApproved(limit = 100) {
+ async function listApproved(limit = 100, categoryIds = null) {
+   const hasCategoryFilter = Array.isArray(categoryIds);
+   const ids = [...new Set([].concat(categoryIds || []).map((id) => parseInt(id, 10)).filter(Boolean))];
+   if (hasCategoryFilter && ids.length === 0) return [];
+   const categorySql = ids.length ? ` AND p.category_id IN (${ids.map(() => '?').join(',')})` : '';
    const [rows] = await pool.query(
-     `SELECT p.id, p.name, p.description, p.price, p.weight_kg, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
+     `SELECT p.id, p.name, p.description, p.price, p.weight_value, p.weight_unit, p.weight_kg, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
              c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
              s.name AS sub_category_name, b.name AS brand_name
       FROM products p
       INNER JOIN categories c ON c.id = p.category_id
       INNER JOIN sub_categories s ON s.id = p.sub_category_id
       INNER JOIN brands b ON b.id = p.brand_id
-      WHERE p.is_deleted = 0 AND p.approval_status = 'approved'
+      WHERE p.is_deleted = 0 AND p.approval_status = 'approved'${categorySql}
       ORDER BY p.name ASC
       LIMIT ?`,
-     [limit]
+     [...ids, limit]
    );
    return rows.map(normalizeProduct);
  }

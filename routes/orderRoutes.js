@@ -4,6 +4,10 @@ const orderController = require('../controllers/orderController');
 const adminRouter = express.Router();
 const vendorRouter = express.Router();
 const clientRouter = express.Router();
+const publicRouter = express.Router();
+
+// Public invoice route used by invoice QR codes
+publicRouter.get('/invoices/:id/:token', orderController.publicInvoice);
 
 // Admin routes
 adminRouter.get('/dashboard', orderController.index);
@@ -27,6 +31,7 @@ clientRouter.get('/:id/invoice', orderController.clientInvoice);
 clientRouter.get('/:id', orderController.clientOrderDetail);
 
 module.exports = {
+  publicRouter,
   adminRouter,
   vendorRouter,
   clientRouter,

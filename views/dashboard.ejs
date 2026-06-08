@@ -10,6 +10,9 @@
   <%- include('partials/system_sidebar', { shell }) %>
   <% const vendorQuotationNotice = (dashboard.notifications || []).find((notification) => notification.href === '/vendor/quotations'); %>
   <% const money = (value) => `INR ${Number(value || 0).toFixed(2)}`; %>
+  <% const clientLiveQuotations = dashboard.clientLiveQuotations || []; %>
+  <% const vendorNewOrders = dashboard.vendorNewOrders || []; %>
+  <% const vendorNewQuotations = dashboard.vendorNewQuotations || []; %>
 
   <main class="system-main">
     <header class="topbar">
@@ -42,26 +45,6 @@
       <div class="system-alert system-alert-success"><%= message %></div>
     <% } %>
 
-    <% if (dashboard.maintenance) { %>
-      <section class="maintenance-panel" aria-label="Admin maintenance">
-        <div class="maintenance-copy">
-          <span>Debug maintenance</span>
-          <h2>Quotation, order, and vendor price tools</h2>
-          <p>Use these only for testing. Clearing data removes quotation and order history for every client and vendor.</p>
-        </div>
-        <div class="maintenance-actions">
-          <form method="post" action="/admin/maintenance/clear-quotations-orders" onsubmit="return confirmMaintenanceClear();">
-            <strong><%= dashboard.maintenance.quotationCount %> quotation(s) / <%= dashboard.maintenance.orderCount %> order(s)</strong>
-            <button class="danger-action-button" type="submit">Clear quotes and orders</button>
-          </form>
-          <form method="post" action="/admin/maintenance/sync-vendor-prices" onsubmit="return confirmVendorPriceSync();">
-            <strong><%= dashboard.maintenance.vendorPriceDiffCount %> vendor price(s) different</strong>
-            <button class="settings-save" type="submit">Reset vendor prices</button>
-          </form>
-        </div>
-      </section>
-    <% } %>
-
     <% if (dashboard.notifications && dashboard.notifications.length) { %>
       <section class="dashboard-notifications" aria-label="Notifications">
         <% dashboard.notifications.forEach((notification) => { %>
@@ -70,6 +53,86 @@
             <strong><%= notification.count %></strong>
           </a>
         <% }) %>
+      </section>
+    <% } %>
+
+    <% if (user.role === 'Client') { %>
+      <section class="client-live-bid-home-card" id="clientLiveBidHomeCard" aria-live="polite" hidden>
+        <button class="client-live-bid-close" type="button" id="clientLiveBidHomeClose" aria-label="Hide live bid card">x</button>
+        <div class="client-live-bid-copy">
+          <span id="clientLiveBidStatus">Active bidding</span>
+          <h2 id="clientLiveBidTitle">Live Bid</h2>
+          <p id="clientLiveBidVendor">Vendor response</p>
+        </div>
+        <div class="client-live-bid-metrics">
+          <div>
+            <span>Base Price</span>
+            <strong id="clientLiveBidBase">INR 0.00</strong>
+          </div>
+          <div>
+            <span>Bid Price</span>
+            <strong id="clientLiveBidPrice">INR 0.00</strong>
+          </div>
+          <div>
+            <span>Saving</span>
+            <strong id="clientLiveBidSaving">INR 0.00</strong>
+          </div>
+        </div>
+        <a class="client-live-bid-link" id="clientLiveBidLink" href="/client/quotations">Open Quotation</a>
+      </section>
+    <% } %>
+
+    <% if (user.role === 'Vendor') { %>
+      <section class="vendor-new-order-card" id="vendorNewOrderCard" aria-live="polite" hidden>
+        <div class="vendor-new-order-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
+        </div>
+        <div class="vendor-new-order-copy">
+          <span id="vendorNewOrderStatus">New order found</span>
+          <h2 id="vendorNewOrderTitle">Order #</h2>
+          <p id="vendorNewOrderMeta">Client order request</p>
+        </div>
+        <div class="vendor-new-order-metrics">
+          <div>
+            <span>Order Amount</span>
+            <strong id="vendorNewOrderAmount">INR 0.00</strong>
+          </div>
+          <div>
+            <span>Order Type</span>
+            <strong id="vendorNewOrderType">Direct</strong>
+          </div>
+          <div>
+            <span>Status</span>
+            <strong id="vendorNewOrderState">Pending</strong>
+          </div>
+        </div>
+        <a class="vendor-new-order-link" id="vendorNewOrderLink" href="/orders/vendor">Open Order</a>
+      </section>
+
+      <section class="vendor-new-quotation-card" id="vendorNewQuotationCard" aria-live="polite" hidden>
+        <div class="vendor-new-quotation-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
+        </div>
+        <div class="vendor-new-quotation-copy">
+          <span id="vendorNewQuotationStatus">New quotation found</span>
+          <h2 id="vendorNewQuotationTitle">Quotation #</h2>
+          <p id="vendorNewQuotationMeta">Client quotation request</p>
+        </div>
+        <div class="vendor-new-quotation-metrics">
+          <div>
+            <span>Base Price</span>
+            <strong id="vendorNewQuotationBase">INR 0.00</strong>
+          </div>
+          <div>
+            <span>Minimum Bid</span>
+            <strong id="vendorNewQuotationBid">No bids yet</strong>
+          </div>
+          <div>
+            <span>Items</span>
+            <strong id="vendorNewQuotationItems">0</strong>
+          </div>
+        </div>
+        <a class="vendor-new-quotation-link" id="vendorNewQuotationLink" href="/vendor/quotations">Open Quotation</a>
       </section>
     <% } %>
 
@@ -203,7 +266,7 @@
             <tr>
               <th>ID</th>
               <th>Name</th>
-              <th>Salary</th>
+              <th>Status</th>
               <th>Role</th>
             </tr>
           </thead>
@@ -221,101 +284,11 @@
       </article>
     </section>
   </main>
-  <script>
-    function confirmMaintenanceClear() {
-      return window.confirm('Warning: this will permanently delete all quotation and order data for every client and vendor. Continue?');
-    }
-
-    function confirmVendorPriceSync() {
-      return window.confirm('This will set every vendor product price to the master product price one time for debugging. Vendors can change their own prices after this reset. Continue?');
-    }
-  </script>
   <style>
     .system-alert-success {
       background: #ecfdf5;
       color: #047857;
       border-color: #a7f3d0;
-    }
-
-    .maintenance-panel {
-      display: flex;
-      justify-content: space-between;
-      gap: 18px;
-      align-items: center;
-      padding: 18px;
-      margin-bottom: 18px;
-      background: #fff7ed;
-      border: 1px solid #fed7aa;
-      border-radius: 8px;
-    }
-
-    .maintenance-copy span {
-      color: #c2410c;
-      font-size: 0.78rem;
-      font-weight: 900;
-      text-transform: uppercase;
-    }
-
-    .maintenance-copy h2 {
-      margin: 4px 0;
-      color: #263238;
-      font-size: 1.1rem;
-    }
-
-    .maintenance-copy p {
-      margin: 0;
-      color: #7c2d12;
-      font-weight: 700;
-    }
-
-    .maintenance-actions {
-      display: grid;
-      grid-template-columns: repeat(2, minmax(210px, 1fr));
-      gap: 12px;
-      min-width: min(520px, 100%);
-    }
-
-    .maintenance-actions form {
-      display: grid;
-      gap: 10px;
-      padding: 12px;
-      background: #fff;
-      border: 1px solid #fed7aa;
-      border-radius: 8px;
-    }
-
-    .maintenance-actions strong {
-      color: #7c2d12;
-      font-size: 0.88rem;
-    }
-
-    .danger-action-button {
-      border: 0;
-      border-radius: 6px;
-      padding: 10px 14px;
-      background: #dc2626;
-      color: #fff;
-      cursor: pointer;
-      font-weight: 900;
-    }
-
-    .theme-dark .maintenance-panel {
-      background: #332114;
-      border-color: #7c2d12;
-    }
-
-    .theme-dark .maintenance-copy h2 {
-      color: #f8fafc;
-    }
-
-    .theme-dark .maintenance-copy p,
-    .theme-dark .maintenance-actions strong {
-      color: #fed7aa;
-    }
-
-    .theme-dark .maintenance-actions form {
-      background: #111827;
-      border-color: #7c2d12;
     }
 
     .dashboard-notifications {
@@ -352,6 +325,347 @@
       background: #332114;
       border-color: #7c2d12;
       color: #fed7aa;
+    }
+
+    .client-live-bid-home-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(360px, 1.4fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 54px 18px 20px;
+      margin-bottom: 18px;
+      border: 1px solid #8ed05b;
+      border-radius: 8px;
+      background: #f2fae8;
+      box-shadow: 0 14px 30px rgba(22, 136, 50, 0.12);
+    }
+
+    .client-live-bid-home-card[hidden] {
+      display: none;
+    }
+
+    .client-live-bid-close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 999px;
+      background: #dcfce7;
+      color: #166534;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .client-live-bid-copy span {
+      color: #168832;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .client-live-bid-copy h2 {
+      margin: 5px 0;
+      color: #263238;
+      font-size: 1.25rem;
+    }
+
+    .client-live-bid-copy p {
+      margin: 0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .client-live-bid-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .client-live-bid-metrics div {
+      padding: 11px 12px;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .client-live-bid-metrics span {
+      display: block;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+
+    .client-live-bid-metrics strong {
+      color: #166534;
+      font-size: 1rem;
+    }
+
+    .client-live-bid-link {
+      align-self: stretch;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: #168832;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .theme-dark .client-live-bid-home-card {
+      background: #16301f;
+      border-color: #166534;
+    }
+
+    .theme-dark .client-live-bid-copy h2,
+    .theme-dark .client-live-bid-metrics strong {
+      color: #f8fafc;
+    }
+
+    .theme-dark .client-live-bid-copy p {
+      color: #cbd5e1;
+    }
+
+    .theme-dark .client-live-bid-metrics div {
+      background: #111827;
+      border-color: #166534;
+    }
+
+    .vendor-new-quotation-card {
+      display: grid;
+      grid-template-columns: auto minmax(220px, 1fr) minmax(360px, 1.35fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 20px;
+      margin-bottom: 18px;
+      border: 1px solid #8ed05b;
+      border-radius: 8px;
+      background: #f2fae8;
+      box-shadow: 0 14px 30px rgba(22, 136, 50, 0.12);
+    }
+
+    .vendor-new-quotation-card[hidden] {
+      display: none;
+    }
+
+    .vendor-new-quotation-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: #dcfce7;
+      color: #168832;
+    }
+
+    .vendor-new-quotation-icon svg {
+      width: 25px;
+      height: 25px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .vendor-new-quotation-copy span {
+      color: #168832;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .vendor-new-quotation-copy h2 {
+      margin: 5px 0;
+      color: #263238;
+      font-size: 1.25rem;
+    }
+
+    .vendor-new-quotation-copy p {
+      margin: 0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .vendor-new-quotation-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .vendor-new-quotation-metrics div {
+      padding: 11px 12px;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .vendor-new-quotation-metrics span {
+      display: block;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+
+    .vendor-new-quotation-metrics strong {
+      color: #166534;
+      font-size: 1rem;
+    }
+
+    .vendor-new-quotation-link {
+      align-self: stretch;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: #168832;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .theme-dark .vendor-new-quotation-card {
+      background: #16301f;
+      border-color: #166534;
+    }
+
+    .theme-dark .vendor-new-quotation-copy h2,
+    .theme-dark .vendor-new-quotation-metrics strong {
+      color: #f8fafc;
+    }
+
+    .theme-dark .vendor-new-quotation-copy p {
+      color: #cbd5e1;
+    }
+
+    .theme-dark .vendor-new-quotation-metrics div {
+      background: #111827;
+      border-color: #166534;
+    }
+
+    .vendor-new-order-card {
+      display: grid;
+      grid-template-columns: auto minmax(220px, 1fr) minmax(360px, 1.35fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 20px;
+      margin-bottom: 18px;
+      border: 1px solid #fbbf24;
+      border-radius: 8px;
+      background: #fff7e6;
+      box-shadow: 0 14px 30px rgba(230, 134, 25, 0.12);
+    }
+
+    .vendor-new-order-card[hidden] {
+      display: none;
+    }
+
+    .vendor-new-order-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: #ffedd5;
+      color: #e68619;
+    }
+
+    .vendor-new-order-icon svg {
+      width: 25px;
+      height: 25px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .vendor-new-order-copy span {
+      color: #e68619;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .vendor-new-order-copy h2 {
+      margin: 5px 0;
+      color: #263238;
+      font-size: 1.25rem;
+    }
+
+    .vendor-new-order-copy p {
+      margin: 0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .vendor-new-order-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .vendor-new-order-metrics div {
+      padding: 11px 12px;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .vendor-new-order-metrics span {
+      display: block;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+
+    .vendor-new-order-metrics strong {
+      color: #c2410c;
+      font-size: 1rem;
+    }
+
+    .vendor-new-order-link {
+      align-self: stretch;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: #e68619;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .theme-dark .vendor-new-order-card {
+      background: #332114;
+      border-color: #92400e;
+    }
+
+    .theme-dark .vendor-new-order-copy h2,
+    .theme-dark .vendor-new-order-metrics strong {
+      color: #f8fafc;
+    }
+
+    .theme-dark .vendor-new-order-copy p {
+      color: #cbd5e1;
+    }
+
+    .theme-dark .vendor-new-order-metrics div {
+      background: #111827;
+      border-color: #92400e;
     }
 
     .vendor-quotation-summary {
@@ -506,33 +820,158 @@
     }
 
     @media (max-width: 980px) {
+      .client-live-bid-home-card {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+      }
+
+      .client-live-bid-link {
+        align-self: auto;
+      }
+
+      .vendor-new-quotation-card {
+        grid-template-columns: auto 1fr;
+        align-items: stretch;
+      }
+
+      .vendor-new-order-card {
+        grid-template-columns: auto 1fr;
+        align-items: stretch;
+      }
+
+      .vendor-new-quotation-metrics,
+      .vendor-new-quotation-link,
+      .vendor-new-order-metrics,
+      .vendor-new-order-link {
+        grid-column: 1 / -1;
+      }
+
+      .vendor-new-quotation-link,
+      .vendor-new-order-link {
+        align-self: auto;
+      }
+
       .vendor-quotation-summary {
         grid-template-columns: repeat(2, minmax(0, 1fr));
       }
 
-      .maintenance-panel {
-        align-items: stretch;
-        flex-direction: column;
-      }
-
-      .maintenance-actions {
-        min-width: 0;
-      }
     }
 
     @media (max-width: 620px) {
+      .client-live-bid-metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .vendor-new-quotation-card {
+        grid-template-columns: 1fr;
+      }
+
+      .vendor-new-order-card {
+        grid-template-columns: 1fr;
+      }
+
+      .vendor-new-quotation-metrics,
+      .vendor-new-order-metrics {
+        grid-template-columns: 1fr;
+      }
+
       .vendor-quotation-summary {
         grid-template-columns: 1fr;
       }
 
-      .maintenance-actions {
-        grid-template-columns: 1fr;
-      }
     }
   </style>
   <% if (user.role === 'Vendor') { %>
     <script>
-      const currentVendorQuotationNotice = <%= vendorQuotationNotice ? Number(vendorQuotationNotice.count || 0) : 0 %>;
+      let vendorNewOrders = <%- JSON.stringify(vendorNewOrders).replace(/</g, '\\u003c') %>;
+      let vendorNewOrderIndex = 0;
+      let vendorNewQuotations = <%- JSON.stringify(vendorNewQuotations).replace(/</g, '\\u003c') %>;
+      let vendorNewQuotationIndex = 0;
+
+      function vendorMoney(value) {
+        return `INR ${Number(value || 0).toFixed(2)}`;
+      }
+
+      function pendingVendorOrders() {
+        return vendorNewOrders.filter((order) => order.status === 'pending');
+      }
+
+      function pendingVendorQuotations() {
+        return vendorNewQuotations.filter((quotation) => (
+          quotation.recipient_status === 'new' || quotation.recipient_status === 'seen'
+        ));
+      }
+
+      function renderVendorNewOrderCard() {
+        const card = document.getElementById('vendorNewOrderCard');
+        if (!card) return;
+
+        const orders = pendingVendorOrders();
+        if (!orders.length) {
+          card.hidden = true;
+          return;
+        }
+
+        if (vendorNewOrderIndex >= orders.length) {
+          vendorNewOrderIndex = 0;
+        }
+
+        const order = orders[vendorNewOrderIndex];
+        const amount = Number(order.total_amount || order.amount || 0);
+        const orderType = String(order.order_type || 'direct').replace(/_/g, ' ');
+        document.getElementById('vendorNewOrderStatus').textContent = orders.length === 1
+          ? 'New order found'
+          : `${orders.length} new orders found`;
+        document.getElementById('vendorNewOrderTitle').textContent = `Order #${order.order_number || order.orderNumber || order.id}`;
+        document.getElementById('vendorNewOrderMeta').textContent = [
+          order.client_name || order.customer || 'Client',
+          order.city || order.area || '',
+          order.client_phone || '',
+        ].filter(Boolean).join(' - ');
+        document.getElementById('vendorNewOrderAmount').textContent = vendorMoney(amount);
+        document.getElementById('vendorNewOrderType').textContent = orderType.charAt(0).toUpperCase() + orderType.slice(1);
+        document.getElementById('vendorNewOrderState').textContent = order.status || 'pending';
+        document.getElementById('vendorNewOrderLink').href = '/orders/vendor';
+        card.hidden = false;
+      }
+
+      function renderVendorNewQuotationCard() {
+        const card = document.getElementById('vendorNewQuotationCard');
+        if (!card) return;
+
+        const quotations = pendingVendorQuotations();
+        if (!quotations.length) {
+          card.hidden = true;
+          return;
+        }
+
+        if (vendorNewQuotationIndex >= quotations.length) {
+          vendorNewQuotationIndex = 0;
+        }
+
+        const quotation = quotations[vendorNewQuotationIndex];
+        const category = quotation.category_name || 'Category quotation';
+        const city = quotation.client_city || '';
+        const itemCount = Array.isArray(quotation.items)
+          ? quotation.items.length
+          : Number(quotation.item_count || 0);
+        const minimumBid = Number(quotation.min_bid_price || 0);
+
+        document.getElementById('vendorNewQuotationStatus').textContent = quotations.length === 1
+          ? 'New quotation found'
+          : `${quotations.length} new quotations found`;
+        document.getElementById('vendorNewQuotationTitle').textContent = `Quotation #${quotation.id}`;
+        document.getElementById('vendorNewQuotationMeta').textContent = [
+          quotation.client_name || 'Client',
+          category,
+          city,
+        ].filter(Boolean).join(' - ');
+        document.getElementById('vendorNewQuotationBase').textContent = vendorMoney(quotation.total_amount || quotation.actual_total || 0);
+        document.getElementById('vendorNewQuotationBid').textContent = minimumBid > 0 ? vendorMoney(minimumBid) : 'No bids yet';
+        document.getElementById('vendorNewQuotationItems').textContent = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
+        document.getElementById('vendorNewQuotationLink').href = `/vendor/quotations?recipient_id=${quotation.recipient_id || ''}`;
+        card.hidden = false;
+      }
 
       async function refreshVendorQuotationNotice() {
         try {
@@ -540,18 +979,126 @@
             headers: { Accept: 'application/json' },
           });
           const data = await response.json();
-          if (!response.ok || !data.success) return;
-
-          const newQuotationCount = data.quotations.filter((quotation) => quotation.recipient_status === 'new').length;
-          if (newQuotationCount > currentVendorQuotationNotice) {
-            location.reload();
-          }
+          if (!response.ok || !data.success || !Array.isArray(data.quotations)) return;
+          vendorNewQuotations = data.quotations;
+          renderVendorNewQuotationCard();
         } catch (error) {
           console.error('Vendor quotation dashboard refresh failed:', error);
         }
       }
 
-      setInterval(refreshVendorQuotationNotice, 15000);
+      async function refreshVendorOrderNotice() {
+        try {
+          const response = await fetch('/api/orders/vendor?status=pending', {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success || !Array.isArray(data.orders)) return;
+          vendorNewOrders = data.orders;
+          renderVendorNewOrderCard();
+        } catch (error) {
+          console.error('Vendor order dashboard refresh failed:', error);
+        }
+      }
+
+      renderVendorNewOrderCard();
+      renderVendorNewQuotationCard();
+      setInterval(() => {
+        const orders = pendingVendorOrders();
+        if (orders.length > 1) {
+          vendorNewOrderIndex = (vendorNewOrderIndex + 1) % orders.length;
+          renderVendorNewOrderCard();
+        }
+
+        const quotations = pendingVendorQuotations();
+        if (quotations.length > 1) {
+          vendorNewQuotationIndex = (vendorNewQuotationIndex + 1) % quotations.length;
+          renderVendorNewQuotationCard();
+        }
+      }, 15000);
+      setInterval(refreshVendorOrderNotice, 5000);
+      setInterval(refreshVendorQuotationNotice, 5000);
+    </script>
+  <% } %>
+  <% if (user.role === 'Client') { %>
+    <script>
+      const clientLiveBidStorageKey = 'jaipurgro.client.liveBidCardVisible';
+      let clientLiveQuotations = <%- JSON.stringify(clientLiveQuotations).replace(/</g, '\\u003c') %>;
+      let clientLiveBidIndex = 0;
+
+      function clientMoney(value) {
+        return `INR ${Number(value || 0).toFixed(2)}`;
+      }
+
+      function isClientLiveBidVisible() {
+        return localStorage.getItem(clientLiveBidStorageKey) !== 'hidden';
+      }
+
+      function activeClientLiveQuotations() {
+        return clientLiveQuotations.filter((quotation) => (
+          quotation.recipient_status === 'submitted' && quotation.bid_editable
+        ));
+      }
+
+      function renderClientLiveBidCard() {
+        const card = document.getElementById('clientLiveBidHomeCard');
+        if (!card) return;
+
+        const active = activeClientLiveQuotations();
+        if (!isClientLiveBidVisible() || active.length === 0) {
+          card.hidden = true;
+          return;
+        }
+
+        if (clientLiveBidIndex >= active.length) {
+          clientLiveBidIndex = 0;
+        }
+
+        const quotation = active[clientLiveBidIndex];
+        const baseTotal = Number(quotation.actual_total || quotation.total_amount || 0);
+        const bidTotal = Number(quotation.response_total || 0);
+        const saving = Math.max(0, Number(quotation.savings || (baseTotal - bidTotal) || 0));
+        const vendor = quotation.vendor_store_name || quotation.vendor_name || 'Vendor response';
+        const category = quotation.category_name ? `${quotation.category_name} active bidding` : 'Active bidding';
+
+        document.getElementById('clientLiveBidStatus').textContent = category;
+        document.getElementById('clientLiveBidTitle').textContent = `Quotation #${quotation.id}`;
+        document.getElementById('clientLiveBidVendor').textContent = vendor;
+        document.getElementById('clientLiveBidBase').textContent = clientMoney(baseTotal);
+        document.getElementById('clientLiveBidPrice').textContent = clientMoney(bidTotal);
+        document.getElementById('clientLiveBidSaving').textContent = clientMoney(saving);
+        document.getElementById('clientLiveBidLink').href = `/client/quotations?recipient_id=${quotation.recipient_id}`;
+        card.hidden = false;
+      }
+
+      async function refreshClientLiveBids() {
+        try {
+          const response = await fetch('/api/client/quotations', {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success || !Array.isArray(data.quotations)) return;
+          clientLiveQuotations = data.quotations;
+          renderClientLiveBidCard();
+        } catch (error) {
+          console.error('Client live bid refresh failed:', error);
+        }
+      }
+
+      document.getElementById('clientLiveBidHomeClose')?.addEventListener('click', () => {
+        localStorage.setItem(clientLiveBidStorageKey, 'hidden');
+        renderClientLiveBidCard();
+      });
+
+      renderClientLiveBidCard();
+      setInterval(() => {
+        if (!isClientLiveBidVisible()) return;
+        const active = activeClientLiveQuotations();
+        if (active.length <= 1) return;
+        clientLiveBidIndex = (clientLiveBidIndex + 1) % active.length;
+        renderClientLiveBidCard();
+      }, 15000);
+      setInterval(refreshClientLiveBids, 5000);
     </script>
   <% } %>
 </body>

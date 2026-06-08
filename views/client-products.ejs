@@ -70,11 +70,19 @@
     </section>
 
     <section class="products-section">
+      <div class="client-category-page">
+        <div>
+          <p class="category-eyebrow">Shop by main category</p>
+          <h2>Main Categories</h2>
+        </div>
+        <div class="client-category-grid" id="client-category-grid"></div>
+      </div>
+
       <div class="products-header">
         <h2>Available Products</h2>
         <div class="client-filter-bar">
           <select id="category-filter" aria-label="Category filter">
-            <option value="">All Categories</option>
+            <option value="">Select Main Category</option>
             <% categories.forEach(function(category) { %>
               <option value="<%= category.id %>"><%= category.name %></option>
             <% }); %>
@@ -111,6 +119,7 @@
               <div class="product-meta">
                 <span class="product-category"><%= product.category_name %></span>
                 <span class="product-brand"><%= product.brand_name %></span>
+                <span class="product-weight"><%= product.weight_label || ((product.weight_value || product.weight_kg || 0) + ' ' + (product.weight_unit || 'kg')) %></span>
               </div>
               <div class="product-price">
                 <span>Unit price</span>
@@ -131,6 +140,10 @@
                 data-master-product-id="<%= product.product_id %>"
                 data-name="<%= product.product_name %>"
                 data-price="<%= product.visible_price %>"
+                data-category-id="<%= product.category_id %>"
+                data-category-name="<%= product.category_name %>"
+                data-weight-label="<%= product.weight_label || ((product.weight_value || product.weight_kg || 0) + ' ' + (product.weight_unit || 'kg')) %>"
+                data-weight-kg="<%= product.weight_kg || 0 %>"
                 data-max-qty="<%= product.quantity %>"
                 onclick="addToCartFromButton(this)"
                 <%= product.quantity <= 0 ? 'disabled' : '' %>>
@@ -144,12 +157,16 @@
   </main>
 
   <script>
+    const clientUserId = '<%= user.id %>';
+    const lastCategoryStorageKey = `jaipurgro.client.${clientUserId}.lastCategory`;
     let cart = JSON.parse(localStorage.getItem('clientCart') || '[]');
     let pendingPaymentPreview = null;
     const catalog = {
+      categories: <%- JSON.stringify(categories || []) %>,
       subcategories: <%- JSON.stringify(subcategories || []) %>,
       brands: <%- JSON.stringify(brands || []) %>,
     };
+    const categoryGrid = document.getElementById('client-category-grid');
     const productsGrid = document.getElementById('products-grid');
     const categoryFilter = document.getElementById('category-filter');
     const subcategoryFilter = document.getElementById('subcategory-filter');
@@ -217,6 +234,67 @@
       subcategoryFilter.innerHTML = optionList(items, 'All Subcategories');
     }
 
+    function renderCategoryGrid() {
+      const items = (catalog.categories || []).filter((category) => category.status === 'active');
+      categoryGrid.innerHTML = items.length
+        ? items.map((category) => `
+          <button type="button" class="client-category-card ${String(categoryFilter.value) === String(category.id) ? 'active' : ''}" onclick="selectCategory(${category.id})">
+            <span>${escapeHtml(category.name).slice(0, 1).toUpperCase()}</span>
+            <strong>${escapeHtml(category.name)}</strong>
+          </button>
+        `).join('')
+        : '<p class="cart-empty">No categories available</p>';
+    }
+
+    function selectCategory(categoryId) {
+      categoryFilter.value = String(categoryId);
+      saveSelectedCategory();
+      updateSubcategoryFilter();
+      subcategoryFilter.value = '';
+      updateBrandFilter();
+      renderCategoryGrid();
+      loadProducts();
+    }
+
+    function saveSelectedCategory() {
+      if (categoryFilter.value) {
+        localStorage.setItem(lastCategoryStorageKey, categoryFilter.value);
+      } else {
+        localStorage.removeItem(lastCategoryStorageKey);
+      }
+    }
+
+    function restoreSelectedCategory() {
+      const saved = localStorage.getItem(lastCategoryStorageKey);
+      if (!saved) return;
+      const exists = [...categoryFilter.options].some((option) => option.value === saved);
+      if (exists) {
+        categoryFilter.value = saved;
+      } else {
+        localStorage.removeItem(lastCategoryStorageKey);
+      }
+    }
+
+    async function refreshCatalog() {
+      try {
+        const response = await fetch('/api/client/categories', { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        if (!data.success) return;
+        const selected = categoryFilter.value;
+        catalog.categories = data.categories || [];
+        categoryFilter.innerHTML = optionList(catalog.categories.filter((category) => category.status === 'active'), 'Select Main Category');
+        if (selected && catalog.categories.some((category) => String(category.id) === String(selected))) {
+          categoryFilter.value = selected;
+          saveSelectedCategory();
+        } else if (selected) {
+          localStorage.removeItem(lastCategoryStorageKey);
+        }
+        updateSubcategoryFilter();
+        updateBrandFilter();
+        renderCategoryGrid();
+      } catch (_) {}
+    }
+
     function updateBrandFilter() {
       const categoryId = categoryFilter.value;
       const subcategoryId = subcategoryFilter.value;
@@ -230,6 +308,7 @@
       const stockClass = product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock';
       const stockText = product.quantity > 0 ? `${product.quantity} in stock` : 'Out of stock';
       const disabled = product.quantity <= 0 ? 'disabled' : '';
+      const weight = product.weight_label || `${Number(product.weight_value ?? product.weight_kg ?? 0)} ${product.weight_unit || 'kg'}`;
       return `
         <div class="product-card" data-product-id="${product.id}" data-master-product-id="${product.product_id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}" data-product-description="${escapeHtml(product.description || '').toLowerCase()}">
           <div class="product-media">
@@ -244,6 +323,7 @@
             <div class="product-meta">
               <span class="product-category">${escapeHtml(product.category_name)}</span>
               <span class="product-brand">${escapeHtml(product.brand_name)}</span>
+              <span class="product-weight">${escapeHtml(weight)}</span>
             </div>
             <div class="product-price"><span>Unit price</span><strong>INR ${Number(product.visible_price || 0).toFixed(2)}</strong></div>
           </div>
@@ -259,6 +339,10 @@
               data-master-product-id="${product.product_id}"
               data-name="${escapeHtml(product.product_name)}"
               data-price="${Number(product.visible_price || 0)}"
+              data-category-id="${product.category_id || ''}"
+              data-category-name="${escapeHtml(product.category_name || '')}"
+              data-weight-label="${escapeHtml(weight)}"
+              data-weight-kg="${Number(product.weight_kg || 0)}"
               data-max-qty="${product.quantity}"
               onclick="addToCartFromButton(this)"
               ${disabled}>Add to Cart</button>
@@ -267,6 +351,10 @@
     }
 
     async function loadProducts() {
+      if (!categoryFilter.value) {
+        productsGrid.innerHTML = '<div class="category-first-empty">Select a main category first, then choose products for quotation.</div>';
+        return;
+      }
       const params = new URLSearchParams();
       if (categoryFilter.value) params.set('category_id', categoryFilter.value);
       if (subcategoryFilter.value) params.set('sub_category_id', subcategoryFilter.value);
@@ -374,20 +462,33 @@
       const masterProductId = Number(button.dataset.masterProductId);
       const name = button.dataset.name;
       const price = Number(button.dataset.price);
+      const categoryId = Number(button.dataset.categoryId);
+      const categoryName = button.dataset.categoryName || '';
+      const weightLabel = button.dataset.weightLabel || '';
+      const weightKg = Number(button.dataset.weightKg || 0);
       const maxQty = Number(button.dataset.maxQty);
       const requestedQty = Math.min(Math.max(1, Number(quantityInput.value) || 1), maxQty);
 
-      addToCart(id, name, price, maxQty, vendorProductId, requestedQty);
+      if (!categoryFilter.value || !categoryId) {
+        alert('Please select a main category before adding products for quotation.');
+        return;
+      }
+
+      addToCart(id, name, price, maxQty, vendorProductId, requestedQty, weightLabel, weightKg, categoryId, categoryName);
       trackProductActivity('click', masterProductId);
       quantityInput.value = 1;
     }
 
-    function addToCart(id, name, price, maxQty, vendorProductId, requestedQty = 1) {
+    function addToCart(id, name, price, maxQty, vendorProductId, requestedQty = 1, weightLabel = '', weightKg = 0, categoryId = null, categoryName = '') {
       const existingItem = cart.find(item => item.id === id);
       if (existingItem) {
         existingItem.quantity = Math.min(existingItem.quantity + requestedQty, maxQty);
+        existingItem.weightLabel = weightLabel || existingItem.weightLabel || '';
+        existingItem.weightKg = Number(weightKg || existingItem.weightKg || 0);
+        existingItem.categoryId = categoryId || existingItem.categoryId || null;
+        existingItem.categoryName = categoryName || existingItem.categoryName || '';
       } else {
-        cart.push({ id, vendorProductId, name, price, quantity: requestedQty, maxQty });
+        cart.push({ id, vendorProductId, name, price, quantity: requestedQty, maxQty, weightLabel, weightKg, categoryId, categoryName });
       }
       updateCartCount();
       renderCart();
@@ -426,6 +527,7 @@
             <div class="cart-item-info">
               <strong>${escapeHtml(item.name)}</strong>
               <span>Unit price: ₹${item.price.toFixed(2)}</span>
+              ${item.weightLabel ? `<span>Weight: ${escapeHtml(item.weightLabel)} x ${item.quantity} = ${Number((item.weightKg || 0) * item.quantity).toFixed(3)} kg</span>` : ''}
             </div>
             <div class="cart-item-actions">
               <button type="button" onclick="updateQuantity(${item.id}, ${item.quantity - 1})" ${item.quantity <= 1 ? 'disabled' : ''}>-</button>
@@ -556,6 +658,10 @@
 
     function sendQuotation() {
       if (cart.length === 0) return;
+      if (cart.some((item) => !item.categoryId)) {
+        alert('Please select a main category first, then add products for quotation.');
+        return;
+      }
 
       fetch('/client/quotations', {
         method: 'POST',
@@ -592,12 +698,17 @@
     updateCartCount();
     renderCart();
     loadPromotionScroll();
+    restoreSelectedCategory();
+    renderCategoryGrid();
     updateSubcategoryFilter();
     updateBrandFilter();
+    loadProducts();
     categoryFilter.addEventListener('change', () => {
+      saveSelectedCategory();
       updateSubcategoryFilter();
       subcategoryFilter.value = '';
       updateBrandFilter();
+      renderCategoryGrid();
       loadProducts();
     });
     subcategoryFilter.addEventListener('change', () => {
@@ -615,11 +726,70 @@
         suggestionsPanel.hidden = true;
       }
     });
+    setInterval(refreshCatalog, 5000);
   </script>
 
   <style>
     .products-section {
       padding: 0;
+    }
+
+    .client-category-page {
+      display: grid;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+
+    .category-eyebrow {
+      margin: 0 0 4px;
+      color: #059669;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .client-category-page h2 {
+      margin: 0;
+      color: #1f2937;
+    }
+
+    .client-category-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(150px, 1fr));
+      gap: 10px;
+    }
+
+    .client-category-card {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-height: 62px;
+      padding: 10px;
+      border: 1px solid #dbe4ea;
+      border-radius: 8px;
+      background: #fff;
+      color: #1f2937;
+      cursor: pointer;
+      text-align: left;
+      font-weight: 900;
+    }
+
+    .client-category-card span {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      width: 34px;
+      height: 34px;
+      border-radius: 8px;
+      background: #dcfce7;
+      color: #166534;
+      font-weight: 900;
+    }
+
+    .client-category-card.active,
+    .client-category-card:hover {
+      border-color: #26bcd4;
+      background: #f0fdfa;
     }
 
     .promo-scroll-shell {
@@ -1123,6 +1293,17 @@
       color: #64748b;
       text-align: center;
       padding: 20px;
+    }
+
+    .category-first-empty {
+      grid-column: 1 / -1;
+      padding: 28px;
+      border: 1px dashed #86efac;
+      border-radius: 8px;
+      background: #f0fdf4;
+      color: #166534;
+      text-align: center;
+      font-weight: 800;
     }
 
     .cart-item {

@@ -206,6 +206,10 @@
         .replace(/'/g, '&#39;');
     }
 
+    function orderDisplayNumber(order) {
+      return order.order_number || order.orderNumber || String(order.id || '').padStart(10, '0');
+    }
+
     function money(value) {
       return `₹${Number(value || 0).toFixed(2)}`;
     }
@@ -305,7 +309,7 @@
         const assignLabel = o.delivery_partner_id ? 'Reassign' : 'Assign';
         return `
         <tr>
-          <td>${o.id}</td>
+          <td>${escapeHtml(orderDisplayNumber(o))}</td>
           <td>${new Date(o.created_at).toLocaleDateString()}</td>
           <td>${escapeHtml(o.client_name)}<br><small>${escapeHtml(o.client_phone)}</small></td>
           <td>${escapeHtml(o.client_address)}</td>
@@ -363,7 +367,7 @@
         <div class="assign-summary-hero">
           <div>
             <span>Order</span>
-            <strong>#${escapeHtml(order.id)}</strong>
+            <strong>#${escapeHtml(orderDisplayNumber(order))}</strong>
           </div>
           <div>
             <span>Total</span>
@@ -386,6 +390,12 @@
             <p class="assign-info-title">${escapeHtml(order.client_name || 'Client')}</p>
             <p>${escapeHtml(order.client_address || 'No client address')}</p>
             <p>${escapeHtml(order.client_phone || 'No client phone')}</p>
+          </section>
+          <section>
+            <h3>Shipping Address</h3>
+            <p class="assign-info-title">${escapeHtml(order.shipping_name || order.client_name || 'Client')}</p>
+            <p>${escapeHtml(order.shipping_address || order.client_address || 'No shipping address')}</p>
+            <p>${escapeHtml(order.shipping_phone || order.client_phone || 'No shipping phone')}</p>
           </section>
         </div>
         <div class="assign-order-details">
@@ -498,7 +508,7 @@
               <div class="order-detail-hero">
                 <div>
                   <span class="order-detail-kicker">Order overview</span>
-                  <h3>Order #${order.id}</h3>
+                  <h3>Order #${escapeHtml(orderDisplayNumber(order))}</h3>
                   <p>${new Date(order.created_at).toLocaleString()}</p>
                 </div>
                 <div class="order-detail-actions">
@@ -535,6 +545,12 @@
                   <p class="order-info-title">${order.client_name || 'Client'}</p>
                   <p>${order.client_phone || 'No phone'}</p>
                   <p>${order.client_address || 'No address available'}</p>
+                </section>
+                <section>
+                  <h4>Shipping Address</h4>
+                  <p class="order-info-title">${order.shipping_name || order.client_name || 'Client'}</p>
+                  <p>${order.shipping_phone || order.client_phone || 'No phone'}</p>
+                  <p>${order.shipping_address || order.client_address || 'No shipping address available'}</p>
                 </section>
                 <section>
                   <h4>Vendor</h4>

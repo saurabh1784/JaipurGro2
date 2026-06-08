@@ -29,9 +29,18 @@
       </div>
     </header>
 
+    <% if (error) { %>
+      <div class="system-alert"><%= error %></div>
+    <% } %>
+
+    <% if (typeof message !== 'undefined' && message) { %>
+      <div class="system-alert system-alert-success"><%= message %></div>
+    <% } %>
+
     <section class="settings-shell">
       <div class="settings-tabs" role="tablist" aria-label="Settings tabs">
         <button class="settings-tab active" type="button" data-tab="general">General</button>
+        <button class="settings-tab" type="button" data-tab="invoice">Invoice Settings</button>
         <button class="settings-tab" type="button" data-tab="email">Email</button>
         <button class="settings-tab" type="button" data-tab="firebase">Firebase</button>
         <button class="settings-tab" type="button" data-tab="google-maps">Google Maps</button>
@@ -43,7 +52,7 @@
         <button class="settings-tab" type="button" data-tab="security">Security</button>
       </div>
 
-      <form class="settings-panel active" id="general" aria-labelledby="general-tab">
+      <section class="settings-panel active" id="general" aria-labelledby="general-tab">
         <div class="panel-header green-panel-header">
           <h2>General Settings</h2>
           <p>Core application defaults and business display preferences.</p>
@@ -73,12 +82,105 @@
               <option>EUR</option>
             </select>
           </label>
+          <label>
+            Quotation Submission Time (minutes)
+            <input id="quotationSubmissionMinutes" type="number" min="5" max="10080" step="5" value="<%= settings.general.quotationSubmissionMinutes %>" />
+          </label>
           <label class="settings-toggle">
             <input type="checkbox" <%= settings.general.maintenanceMode ? 'checked' : '' %> />
             Maintenance Mode
           </label>
         </div>
-        <button class="settings-save" type="button">Save General Settings</button>
+        <button class="settings-save" type="button" onclick="saveQuotationSettings()">Save General Settings</button>
+        <p class="commission-message" id="quotationSettingsMessage"></p>
+        <% if (maintenance) { %>
+          <section class="maintenance-panel" aria-label="Admin maintenance">
+            <div class="maintenance-copy">
+              <span>Debug maintenance</span>
+              <h2>Quotation, order, and vendor price tools</h2>
+              <p>Use these only for testing. Clearing data removes quotation and order history for every client and vendor.</p>
+            </div>
+            <div class="maintenance-actions">
+              <form method="post" action="/admin/maintenance/clear-quotations-orders" onsubmit="return confirmMaintenanceClear();">
+                <strong><%= maintenance.quotationCount %> quotation(s) / <%= maintenance.orderCount %> order(s)</strong>
+                <button class="danger-action-button" type="submit">Clear quotes and orders</button>
+              </form>
+              <form method="post" action="/admin/maintenance/sync-vendor-prices" onsubmit="return confirmVendorPriceSync();">
+                <strong><%= maintenance.vendorPriceDiffCount %> vendor price(s) different</strong>
+                <button class="settings-save" type="submit">Reset vendor prices</button>
+              </form>
+            </div>
+          </section>
+        <% } %>
+      </section>
+
+      <form class="settings-panel" id="invoice" aria-labelledby="invoice-tab">
+        <div class="panel-header purple-header settings-purple-header">
+          <h2>Invoice Settings</h2>
+          <p>Platform details and invoice product table visibility.</p>
+        </div>
+        <div class="settings-grid">
+          <label class="settings-wide">
+            Platform Name
+            <input id="invoicePlatformName" type="text" value="<%= settings.invoice.platformName %>" />
+          </label>
+          <label class="settings-wide">
+            Reverse Charge Text
+            <input id="invoiceReverseChargeText" type="text" value="<%= settings.invoice.reverseChargeText %>" />
+          </label>
+          <label class="settings-wide">
+            IMEI / Serial Number Text
+            <input id="invoiceSerialInfoText" type="text" value="<%= settings.invoice.serialInfoText %>" />
+          </label>
+          <label class="settings-wide">
+            Invoice Note
+            <textarea id="invoiceLegalNote" rows="3"><%= settings.invoice.legalNote %></textarea>
+          </label>
+          <label>
+            Delivered From Name
+            <input id="invoiceDeliveryFromName" type="text" value="<%= settings.invoice.deliveryFromName %>" placeholder="Use vendor/store name if blank" />
+          </label>
+          <label class="settings-wide">
+            Delivered From Address
+            <textarea id="invoiceDeliveryFromAddress" rows="3" placeholder="Use vendor/store address if blank"><%= settings.invoice.deliveryFromAddress %></textarea>
+          </label>
+          <label>
+            Delivered From FSSAI
+            <input id="invoiceDeliveryFromFssai" type="text" value="<%= settings.invoice.deliveryFromFssai %>" placeholder="Use vendor FSSAI if blank" />
+          </label>
+          <label class="settings-wide">
+            Platform Address
+            <textarea id="invoicePlatformAddress" rows="3"><%= settings.invoice.platformAddress %></textarea>
+          </label>
+          <label>
+            Platform FSSAI Lic. No.
+            <input id="invoicePlatformFssai" type="text" value="<%= settings.invoice.platformFssai %>" />
+          </label>
+          <label>
+            Platform Email
+            <input id="invoicePlatformEmail" type="email" value="<%= settings.invoice.platformEmail %>" />
+          </label>
+          <div class="settings-wide">
+            <div class="settings-section-title">
+              Invoice Product Columns
+            </div>
+            <div class="invoice-column-grid">
+              <% settings.invoice.productColumns.forEach((column) => { %>
+                <label class="settings-toggle invoice-column-option">
+                  <input
+                    type="checkbox"
+                    name="invoiceProductColumn"
+                    value="<%= column.key %>"
+                    <%= settings.invoice.enabledProductColumns.includes(column.key) ? 'checked' : '' %>
+                  />
+                  <span><%= column.label %></span>
+                </label>
+              <% }) %>
+            </div>
+          </div>
+        </div>
+        <button class="settings-save" type="button" onclick="saveInvoiceSettings()">Save Invoice Settings</button>
+        <p class="commission-message" id="invoiceSettingsMessage"></p>
       </form>
 
       <form class="settings-panel" id="email" aria-labelledby="email-tab">
@@ -162,10 +264,11 @@
             <li>Go to APIs & Services and enable the required services listed below before using the key.</li>
             <li>For the browser map key, enable Maps JavaScript API and Directions API. This key displays the map and route test in this admin page.</li>
             <li>For the distance server key, enable Distance Matrix API. This key calculates delivery distance and delivery charges from the backend.</li>
-            <li>For address pickup/current location in Android apps, enable Maps SDK for Android and Geocoding API on the same Android map key.</li>
+            <li>For address pickup/current location in Android apps, enable Maps SDK for Android and Geocoding API on the Android app key.</li>
             <li>Go to Credentials and create an API key for the browser map. Restrict it by website referrer, for example your admin domain.</li>
+            <li>Create an Android API key for the apps. Restrict it by Android app package name and SHA-1 certificate fingerprint.</li>
             <li>Create another API key for server distance calculation. Restrict it by server IP if your hosting provider gives a fixed outbound IP.</li>
-            <li>Paste the browser key into Maps JavaScript API Key and the server key into Distance API Server Key.</li>
+            <li>Paste the browser key into Maps JavaScript API Key, Android key into Android Maps SDK API Key, and server key into Distance API Server Key.</li>
             <li>Billing must be enabled in Google Cloud, otherwise Google Maps route and distance calls may fail.</li>
           </ol>
           <p>Use separate keys so the browser key can safely load the map, while the server key stays private for delivery charge distance calculation.</p>
@@ -175,6 +278,11 @@
           <label class="settings-wide">
             Maps JavaScript API Key
             <input id="googleMapsBrowserKey" type="password" value="<%= settings.maps.browserApiKey %>" autocomplete="off" />
+          </label>
+          <label class="settings-wide">
+            Android Maps SDK API Key
+            <input id="googleMapsAndroidKey" type="password" value="<%= settings.maps.androidApiKey %>" autocomplete="off" />
+            <small>Enable Maps SDK for Android. Restrict package names: com.example.vendorapp and com.example.clientapp.</small>
           </label>
           <label class="settings-wide">
             Distance API Server Key
@@ -310,7 +418,7 @@
         <div class="catalog-toolbar">
           <div class="catalog-selects">
             <label>
-              Category
+              Main Category
               <select id="catalogCategoryFilter"></select>
             </label>
             <label>
@@ -323,7 +431,7 @@
             </label>
           </div>
           <div class="catalog-actions">
-            <button class="settings-save" type="button" onclick="openCatalogModal('category')">Add Category</button>
+            <button class="settings-save" type="button" onclick="openCatalogModal('category')">Add Main Category</button>
             <button class="settings-save" type="button" onclick="openCatalogModal('subcategory')">Add Subcategory</button>
             <button class="settings-save" type="button" onclick="openCatalogModal('brand')">Add Brand</button>
           </div>
@@ -333,12 +441,12 @@
           <aside class="catalog-tree" id="catalogTree">Loading catalog...</aside>
           <div class="catalog-table-stack">
           <div class="catalog-inner-tabs" role="tablist" aria-label="Catalog tables">
-            <button class="catalog-inner-tab active" type="button" data-catalog-tab="categoryTablePanel">Category</button>
+            <button class="catalog-inner-tab active" type="button" data-catalog-tab="categoryTablePanel">Main Category</button>
             <button class="catalog-inner-tab" type="button" data-catalog-tab="subcategoryTablePanel">SubCategory</button>
             <button class="catalog-inner-tab" type="button" data-catalog-tab="brandTablePanel">Brand</button>
           </div>
           <div class="catalog-table-card catalog-table-panel active" id="categoryTablePanel">
-            <h3>Category Table</h3>
+            <h3>Main Category Table</h3>
             <table class="catalog-table">
               <thead>
                 <tr>
@@ -361,7 +469,7 @@
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Category</th>
+                  <th>Main Category</th>
                   <th>Name</th>
                   <th>Slug</th>
                   <th>Status</th>
@@ -379,7 +487,7 @@
               <thead>
                 <tr>
                   <th>ID</th>
-                  <th>Category</th>
+                  <th>Main Category</th>
                   <th>SubCategory</th>
                   <th>Logo</th>
                   <th>Name</th>
@@ -530,6 +638,14 @@
   </main>
 
   <script>
+    function confirmMaintenanceClear() {
+      return window.confirm('Warning: this will permanently delete all quotation and order data for every client and vendor. Continue?');
+    }
+
+    function confirmVendorPriceSync() {
+      return window.confirm('This will set every vendor product price to the master product price one time for debugging. Vendors can change their own prices after this reset. Continue?');
+    }
+
     const tabs = document.querySelectorAll('.settings-tab');
     const panels = document.querySelectorAll('.settings-panel');
 
@@ -541,6 +657,76 @@
         document.getElementById(tab.dataset.tab).classList.add('active');
       });
     });
+
+    async function saveQuotationSettings() {
+      const message = document.getElementById('quotationSettingsMessage');
+      const input = document.getElementById('quotationSubmissionMinutes');
+      message.textContent = 'Saving quotation settings...';
+      try {
+        const response = await fetch('/settings/quotations', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ submissionMinutes: Number(input.value || 0) }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save quotation settings');
+        input.value = data.submissionMinutes;
+        message.textContent = data.message;
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    async function saveInvoiceSettings() {
+      const message = document.getElementById('invoiceSettingsMessage');
+      const platformInput = document.getElementById('invoicePlatformName');
+      const reverseChargeInput = document.getElementById('invoiceReverseChargeText');
+      const serialInfoInput = document.getElementById('invoiceSerialInfoText');
+      const legalNoteInput = document.getElementById('invoiceLegalNote');
+      const deliveryFromNameInput = document.getElementById('invoiceDeliveryFromName');
+      const deliveryFromAddressInput = document.getElementById('invoiceDeliveryFromAddress');
+      const deliveryFromFssaiInput = document.getElementById('invoiceDeliveryFromFssai');
+      const platformAddressInput = document.getElementById('invoicePlatformAddress');
+      const platformFssaiInput = document.getElementById('invoicePlatformFssai');
+      const platformEmailInput = document.getElementById('invoicePlatformEmail');
+      const enabledProductColumns = [...document.querySelectorAll('input[name="invoiceProductColumn"]:checked')]
+        .map((input) => input.value);
+      message.textContent = 'Saving invoice settings...';
+      try {
+        const response = await fetch('/settings/invoice', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            platformName: platformInput.value,
+            reverseChargeText: reverseChargeInput.value,
+            serialInfoText: serialInfoInput.value,
+            legalNote: legalNoteInput.value,
+            deliveryFromName: deliveryFromNameInput.value,
+            deliveryFromAddress: deliveryFromAddressInput.value,
+            deliveryFromFssai: deliveryFromFssaiInput.value,
+            platformAddress: platformAddressInput.value,
+            platformFssai: platformFssaiInput.value,
+            platformEmail: platformEmailInput.value,
+            enabledProductColumns,
+          }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save invoice settings');
+        platformInput.value = data.settings.platformName;
+        reverseChargeInput.value = data.settings.reverseChargeText;
+        serialInfoInput.value = data.settings.serialInfoText;
+        legalNoteInput.value = data.settings.legalNote;
+        deliveryFromNameInput.value = data.settings.deliveryFromName;
+        deliveryFromAddressInput.value = data.settings.deliveryFromAddress;
+        deliveryFromFssaiInput.value = data.settings.deliveryFromFssai;
+        platformAddressInput.value = data.settings.platformAddress;
+        platformFssaiInput.value = data.settings.platformFssai;
+        platformEmailInput.value = data.settings.platformEmail;
+        message.textContent = data.message;
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
 
     document.querySelectorAll('.catalog-inner-tab').forEach((tab) => {
       tab.addEventListener('click', () => {
@@ -619,7 +805,7 @@
         <input type="hidden" id="catalogType" />
         <input type="hidden" id="catalogId" />
         <label class="catalog-parent-field" id="catalogCategoryField">
-          Category
+          Main Category
           <select id="catalogCategoryInput"></select>
         </label>
         <label class="catalog-parent-field" id="catalogSubcategoryField">
@@ -1022,6 +1208,7 @@
     function googleMapPayload() {
       return {
         browserApiKey: document.getElementById('googleMapsBrowserKey').value.trim(),
+        androidApiKey: document.getElementById('googleMapsAndroidKey').value.trim(),
         distanceApiKey: document.getElementById('googleDistanceApiKey').value.trim(),
         mapId: document.getElementById('googleMapsMapId').value.trim(),
         defaultOrigin: document.getElementById('googleMapsOrigin').value.trim(),
@@ -1031,9 +1218,11 @@
 
     function toggleGoogleKeyVisibility() {
       const browserKey = document.getElementById('googleMapsBrowserKey');
+      const androidKey = document.getElementById('googleMapsAndroidKey');
       const distanceKey = document.getElementById('googleDistanceApiKey');
       const nextType = browserKey.type === 'password' ? 'text' : 'password';
       browserKey.type = nextType;
+      androidKey.type = nextType;
       distanceKey.type = nextType;
     }
 
@@ -1053,6 +1242,7 @@
           NOT_FOUND: 'Directions API is enabled, but one test address could not be found.',
         },
         'Distance Matrix API': {
+          MISSING_KEY: 'Add a dedicated Distance API Server Key with Distance Matrix API enabled.',
           REQUEST_DENIED: 'Enable Distance Matrix API and allow it on the backend server key.',
           OVER_QUERY_LIMIT: 'Distance Matrix API quota is exhausted. Increase quota or wait for reset.',
           OVER_DAILY_LIMIT: 'Distance Matrix API daily limit or billing limit is reached.',
@@ -1657,6 +1847,100 @@
     loadDeliveryPartnerSettings();
   </script>
   <style>
+    .system-alert-success {
+      background: #ecfdf5;
+      color: #047857;
+      border-color: #a7f3d0;
+    }
+    .maintenance-panel {
+      display: flex;
+      justify-content: space-between;
+      gap: 18px;
+      align-items: center;
+      padding: 18px;
+      margin-top: 18px;
+      background: #fff7ed;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+    }
+    .maintenance-copy span {
+      color: #c2410c;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+    .maintenance-copy h2 {
+      margin: 4px 0;
+      color: #263238;
+      font-size: 1.1rem;
+    }
+    .maintenance-copy p {
+      margin: 0;
+      color: #7c2d12;
+      font-weight: 700;
+    }
+    .maintenance-actions {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(210px, 1fr));
+      gap: 12px;
+      min-width: min(520px, 100%);
+    }
+    .maintenance-actions form {
+      display: grid;
+      gap: 10px;
+      padding: 12px;
+      background: #fff;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+    }
+    .maintenance-actions strong {
+      color: #7c2d12;
+      font-size: 0.88rem;
+    }
+    .danger-action-button {
+      border: 0;
+      border-radius: 6px;
+      padding: 10px 14px;
+      background: #dc2626;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 900;
+    }
+    .theme-dark .maintenance-panel {
+      background: #332114;
+      border-color: #7c2d12;
+    }
+    .theme-dark .maintenance-copy h2 {
+      color: #f8fafc;
+    }
+    .theme-dark .maintenance-copy p,
+    .theme-dark .maintenance-actions strong {
+      color: #fed7aa;
+    }
+    .theme-dark .maintenance-actions form {
+      background: #111827;
+      border-color: #7c2d12;
+    }
+    .settings-section-title {
+      margin-bottom: 10px;
+      color: #0f172a;
+      font-weight: 900;
+    }
+    .invoice-column-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 10px;
+    }
+    .invoice-column-option {
+      justify-content: flex-start;
+      padding: 10px 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .invoice-column-option span {
+      font-weight: 800;
+    }
     .role-settings-layout {
       display: grid;
       grid-template-columns: minmax(260px, 0.8fr) minmax(320px, 1.2fr);
@@ -1847,6 +2131,17 @@
       cursor: pointer;
     }
     @media (max-width: 900px) {
+      .maintenance-panel {
+        align-items: stretch;
+        flex-direction: column;
+      }
+      .maintenance-actions {
+        grid-template-columns: 1fr;
+        min-width: 0;
+      }
+      .invoice-column-grid {
+        grid-template-columns: 1fr;
+      }
       .role-settings-layout {
         grid-template-columns: 1fr;
       }

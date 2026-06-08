@@ -56,6 +56,7 @@
         <form id="profilePageForm" class="user-modal-grid">
           <% const data = profile || {}; %>
           <% const arrayValue = (value) => Array.isArray(value) ? value.join(', ') : (value || ''); %>
+          <% const assignedCategories = Array.isArray(data.categories) ? data.categories : []; %>
 
           <% if (profileRole === 'Vendor') { %>
             <label>
@@ -86,6 +87,35 @@
               Services
               <textarea name="services"><%= arrayValue(data.services) %></textarea>
             </label>
+            <div class="profile-full-field profile-readonly-section">
+              <span class="profile-readonly-label">Invoice Signature</span>
+              <% if (data.signature_path) { %>
+                <img class="profile-signature-preview" id="signaturePreview" src="<%= data.signature_path %>" alt="Vendor signature" />
+              <% } else { %>
+                <p id="signaturePreviewEmpty">No signature uploaded yet.</p>
+                <img class="profile-signature-preview" id="signaturePreview" src="" alt="Vendor signature" style="display:none" />
+              <% } %>
+              <input id="vendorSignatureInput" name="signature" type="file" accept="image/png,image/jpeg" />
+            </div>
+            <div class="profile-full-field profile-readonly-section">
+              <span class="profile-readonly-label">Assigned Categories</span>
+              <% if (assignedCategories.length) { %>
+                <div class="profile-readonly-chips" aria-label="Assigned vendor categories">
+                  <% assignedCategories.forEach((category) => { %>
+                    <span><%= category.name %></span>
+                  <% }) %>
+                </div>
+              <% } else { %>
+                <p>No categories assigned yet.</p>
+              <% } %>
+            </div>
+            <div class="profile-full-field profile-readonly-section" id="categoryRequestPanel">
+              <span class="profile-readonly-label">Request Category Activation</span>
+              <p id="categoryRequestStatus">Loading category request options...</p>
+              <div id="categoryRequestOptions" class="profile-readonly-chips" aria-label="Available categories to request"></div>
+              <textarea id="categoryRequestNote" rows="2" placeholder="Optional note for admin"></textarea>
+              <button class="settings-save" id="categoryRequestSubmit" type="button">Send Request</button>
+            </div>
           <% } else if (profileRole === 'Client') { %>
             <label class="profile-full-field">
               Address
@@ -145,6 +175,7 @@
       const profile = {};
 
       for (const [key, value] of formData.entries()) {
+        if (key === 'signature') continue;
         profile[key] = key === 'services' || key === 'permissions'
           ? value.split(',').map((item) => item.trim()).filter(Boolean)
           : value.trim();
@@ -165,10 +196,113 @@
         }
 
         statusText.textContent = 'Profile saved successfully.';
+        await uploadSignatureIfSelected();
       } catch (error) {
         statusText.textContent = error.message;
       }
     });
+
+    async function uploadSignatureIfSelected() {
+      const input = document.getElementById('vendorSignatureInput');
+      if (!input || !input.files || !input.files.length) return;
+
+      statusText.textContent = 'Uploading signature...';
+      const uploadData = new FormData();
+      uploadData.append('signature', input.files[0]);
+
+      const response = await fetch('/profiles/<%= user.id %>/vendor-signature', {
+        method: 'POST',
+        body: uploadData,
+      });
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || 'Unable to upload signature');
+      }
+
+      const preview = document.getElementById('signaturePreview');
+      const emptyText = document.getElementById('signaturePreviewEmpty');
+      if (preview) {
+        preview.src = result.signature_path;
+        preview.style.display = 'block';
+      }
+      if (emptyText) emptyText.style.display = 'none';
+      input.value = '';
+      statusText.textContent = 'Profile and signature saved successfully.';
+    }
+
+    <% if (profileRole === 'Vendor') { %>
+      const categoryRequestStatus = document.getElementById('categoryRequestStatus');
+      const categoryRequestOptions = document.getElementById('categoryRequestOptions');
+      const categoryRequestNote = document.getElementById('categoryRequestNote');
+      const categoryRequestSubmit = document.getElementById('categoryRequestSubmit');
+
+      async function loadCategoryRequestState() {
+        try {
+          const response = await fetch('/api/vendor/category-requests', { headers: { Accept: 'application/json' } });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.message || 'Unable to load category requests');
+
+          const pendingRequests = data.pending_requests || (data.pending_request ? [data.pending_request] : []);
+          const pendingText = pendingRequests.length
+            ? ` Pending approval: ${pendingRequests.map((request) => request.category_name).join(', ')}.`
+            : '';
+
+          const categories = data.available_categories || [];
+          if (!categories.length) {
+            categoryRequestStatus.textContent = `No additional categories are available for request.${pendingText}`;
+            categoryRequestOptions.innerHTML = '';
+            categoryRequestSubmit.disabled = true;
+            return;
+          }
+
+          categoryRequestStatus.textContent = `Select one or more categories and send them to admin for activation.${pendingText}`;
+          categoryRequestNote.disabled = false;
+          categoryRequestSubmit.disabled = false;
+          categoryRequestOptions.innerHTML = categories
+            .map((category) => `
+              <label class="profile-request-option">
+                <input type="checkbox" value="${category.id}" />
+                <span>${escapeHtml(category.name)}</span>
+              </label>
+            `)
+            .join('');
+        } catch (error) {
+          categoryRequestStatus.textContent = error.message;
+          categoryRequestSubmit.disabled = true;
+        }
+      }
+
+      categoryRequestSubmit.addEventListener('click', async () => {
+        const categoryIds = Array.from(categoryRequestOptions.querySelectorAll('input[type="checkbox"]:checked'))
+          .map((input) => Number(input.value))
+          .filter(Boolean);
+        if (!categoryIds.length) {
+          categoryRequestStatus.textContent = 'Select at least one category.';
+          return;
+        }
+        categoryRequestSubmit.disabled = true;
+        categoryRequestStatus.textContent = 'Sending request...';
+        try {
+          const response = await fetch('/api/vendor/category-requests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({
+              category_ids: categoryIds,
+              note: categoryRequestNote.value,
+            }),
+          });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.message || 'Unable to send request');
+          categoryRequestNote.value = '';
+          await loadCategoryRequestState();
+        } catch (error) {
+          categoryRequestStatus.textContent = error.message;
+          categoryRequestSubmit.disabled = false;
+        }
+      });
+
+      loadCategoryRequestState();
+    <% } %>
   </script>
 
   <style>
@@ -246,6 +380,54 @@
 
     .profile-full-field {
       grid-column: 1 / -1;
+    }
+
+    .profile-readonly-section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .profile-readonly-label {
+      color: #64748b;
+      font-weight: 700;
+    }
+
+    .profile-readonly-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .profile-readonly-chips span {
+      border: 1px solid #d7ecdf;
+      background: #eefbf3;
+      color: #166534;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-weight: 700;
+    }
+
+    .profile-request-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #d7ecdf;
+      background: #eefbf3;
+      color: #166534;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-weight: 700;
+    }
+
+    .profile-signature-preview {
+      width: min(260px, 100%);
+      height: 90px;
+      object-fit: contain;
+      object-position: left center;
+      border: 1px solid #d8dee6;
+      border-radius: 6px;
+      background: #fff;
+      padding: 10px;
     }
 
     .theme-dark .profile-summary-panel,

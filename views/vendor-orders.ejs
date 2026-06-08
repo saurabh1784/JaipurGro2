@@ -141,7 +141,7 @@
       }
       tbody.innerHTML = orders.map(o => `
         <tr>
-          <td>${o.id}</td>
+          <td>${orderDisplayNumber(o)}</td>
           <td>${new Date(o.created_at).toLocaleDateString()}</td>
           <td>${o.client_name}</td>
           <td>${o.client_phone}</td>
@@ -175,6 +175,10 @@
 
     function statusBadge(status, label) {
       return `<span class="order-status-badge ${status}">${label || statusLabel(status)}</span>`;
+    }
+
+    function orderDisplayNumber(order) {
+      return order.order_number || order.orderNumber || String(order.id || '').padStart(10, '0');
     }
 
     function renderStatusActions(order) {
@@ -215,12 +219,13 @@
           const content = document.getElementById('orderDetailContent');
           content.innerHTML = `
             <div style="margin-bottom: 20px;">
-              <h3>Order #${order.id}</h3>
+              <h3>Order #${orderDisplayNumber(order)}</h3>
               <p>
                 <button class="product-secondary-button" type="button" onclick="openInvoice(${order.id})">Open Invoice</button>
               </p>
               <p><strong>Client:</strong> ${order.client_name} (${order.client_phone})</p>
               <p><strong>Address:</strong> ${order.client_address}</p>
+              <p><strong>Shipping Address:</strong> ${order.shipping_name || order.client_name} (${order.shipping_phone || order.client_phone}) - ${order.shipping_address || order.client_address}</p>
               <p><strong>Subtotal:</strong> ₹${Number(order.subtotal_amount || order.total_amount).toFixed(2)}</p>
               <p><strong>Discount:</strong> ₹${Number(order.discount_amount || 0).toFixed(2)} ${order.coupon_code ? `(${order.coupon_code})` : order.discount_label ? `(${order.discount_label})` : ''}</p>
               <p><strong>Total:</strong> ₹${Number(order.total_amount).toFixed(2)}</p>

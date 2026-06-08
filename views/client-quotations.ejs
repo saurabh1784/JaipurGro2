@@ -10,6 +10,8 @@
   <%- include('partials/system_sidebar', { shell }) %>
   <% const money = (value) => `INR ${Number(value || 0).toFixed(2)}`; %>
   <% const formatDate = (value) => value ? new Date(value).toLocaleString('en-IN', { dateStyle: 'medium', timeStyle: 'short' }) : 'Not submitted yet'; %>
+  <% const liveQuotations = quotations.filter((quotation) => quotation.recipient_status === 'submitted' && quotation.bid_editable); %>
+  <% const totalLiveSaving = liveQuotations.reduce((sum, quotation) => sum + Math.max(0, Number(quotation.savings || 0)), 0); %>
 
   <main class="system-main">
     <header class="topbar">
@@ -17,7 +19,25 @@
         <p class="crumb">Dashboard / Quotations</p>
         <h1>Vendor Responses</h1>
       </div>
+      <div class="topbar-actions">
+        <button class="quotation-live-toggle" id="liveBidVisibilityToggle" type="button">
+          Hide Live Bid Card from Home
+        </button>
+      </div>
     </header>
+
+    <% if (quotations.length) { %>
+      <section class="users-table-card total-saving-card">
+        <div class="total-saving-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M12 3v18M17 7.5c-.9-1-2.5-1.7-4.3-1.7-2.4 0-4.2 1.1-4.2 2.8 0 4.2 8.8 1.5 8.8 5.9 0 1.9-1.9 3.2-4.6 3.2-2 0-3.8-.7-4.9-1.9"/></svg>
+        </div>
+        <div>
+          <span>Total Saving</span>
+          <h2><%= money(totalLiveSaving) %></h2>
+          <p><%= liveQuotations.length %> active live quotation<%= liveQuotations.length === 1 ? '' : 's' %> included</p>
+        </div>
+      </section>
+    <% } %>
 
     <section class="quotation-list">
       <% if (!quotations.length) { %>
@@ -31,12 +51,13 @@
         <% const storeName = quotation.vendor_store_name || quotation.vendor_name || 'Vendor Store'; %>
         <% const appTotal = quotation.actual_total || quotation.total_amount || 0; %>
         <% const vendorTotal = quotation.response_total || 0; %>
+        <% const categoryName = quotation.category_name || 'Category quotation'; %>
         <details class="users-table-card quotation-card" data-recipient-id="<%= quotation.recipient_id %>">
           <summary class="quotation-summary">
             <div class="quotation-summary-main">
               <span class="quotation-id">Quotation #<%= quotation.id %></span>
               <h2><%= storeName %></h2>
-              <p><%= quotation.vendor_email %> - <%= quotation.client_city %></p>
+              <p><%= categoryName %> - <%= quotation.client_city %></p>
             </div>
             <div class="quotation-summary-meta">
               <span class="quotation-pill"><%= quotation.recipient_status %></span>
@@ -55,6 +76,10 @@
               <div>
                 <span>Vendor Total</span>
                 <strong><%= vendorTotal ? money(vendorTotal) : 'Waiting' %></strong>
+              </div>
+              <div>
+                <span>Category</span>
+                <strong><%= categoryName %></strong>
               </div>
               <div>
                 <span>Store Name</span>
@@ -79,6 +104,7 @@
                 <tr>
                   <th>Product</th>
                   <th>Qty</th>
+                  <th>Weight</th>
                   <th>App Price</th>
                   <th>App Total</th>
                   <th>Vendor Price</th>
@@ -92,6 +118,10 @@
                   <tr>
                     <td><%= item.product_name %></td>
                     <td><%= item.quantity %></td>
+                    <td>
+                      <strong><%= item.weight_label || 'Not set' %></strong>
+                      <span class="quotation-muted">Total <%= item.total_weight_label || ((item.total_weight_kg || 0).toFixed(3) + ' kg') %></span>
+                    </td>
                     <td><%= money(item.admin_price) %></td>
                     <td><%= money(item.master_line_total || item.quantity * item.admin_price) %></td>
                     <td><%= isWaiting ? 'Waiting' : money(item.unit_price) %></td>
@@ -123,6 +153,13 @@
 
   <style>
     .quotation-list { display: grid; gap: 14px; }
+    .quotation-live-toggle { border: 1px solid #8ed05b; border-radius: 6px; padding: 10px 14px; background: #f2fae8; color: #166534; cursor: pointer; font-weight: 900; }
+    .total-saving-card { display: flex; align-items: center; gap: 14px; padding: 18px 20px; margin-bottom: 14px; border: 1px solid #8ed05b; background: linear-gradient(135deg, #ffffff, #f2fae8); }
+    .total-saving-icon { width: 48px; height: 48px; display: grid; place-items: center; border-radius: 999px; background: #168832; color: #fff; flex: 0 0 auto; }
+    .total-saving-icon svg { width: 25px; height: 25px; fill: none; stroke: currentColor; stroke-width: 2.1; stroke-linecap: round; stroke-linejoin: round; }
+    .total-saving-card span { color: #64748b; font-weight: 900; font-size: 0.82rem; text-transform: uppercase; letter-spacing: 0; }
+    .total-saving-card h2 { margin: 4px 0; color: #168832; font-size: 1.7rem; }
+    .total-saving-card p { margin: 0; color: #475569; font-weight: 800; }
     .quotation-card, .quotation-empty { padding: 0; overflow: hidden; }
     .quotation-empty { padding: 20px; }
     .quotation-empty h2 { margin: 4px 0; color: #263238; }
@@ -155,6 +192,7 @@
     .quotation-info-grid span { display: block; color: #64748b; font-size: 0.8rem; margin-bottom: 4px; font-weight: 800; }
     .quotation-info-grid strong { color: #263238; }
     .quotation-items-table { width: 100%; }
+    .quotation-muted { display: block; color: #64748b; font-size: 0.82rem; margin-top: 3px; }
     .quotation-item-status { display: inline-block; padding: 5px 8px; border-radius: 999px; font-size: 0.8rem; font-weight: 800; }
     .quotation-item-status.available { background: #dcfce7; color: #166534; }
     .quotation-item-status.not-available { background: #fee2e2; color: #991b1b; }
@@ -169,6 +207,7 @@
     .theme-dark .quotation-summary-meta strong,
     .theme-dark .quotation-info-grid strong { color: #f8fafc; }
     .theme-dark .quotation-info-grid div { background: #172033; border-color: #334155; }
+    .theme-dark .quotation-live-toggle { background: #16301f; border-color: #166534; color: #bbf7d0; }
     @media (max-width: 860px) {
       .quotation-summary { grid-template-columns: 1fr; align-items: flex-start; }
       .quotation-summary-meta { justify-items: start; }
@@ -178,6 +217,31 @@
   </style>
 
   <script>
+    const liveBidStorageKey = 'jaipurgro.client.liveBidCardVisible';
+    const liveBidToggle = document.getElementById('liveBidVisibilityToggle');
+
+    function isLiveBidCardVisibleOnHome() {
+      return localStorage.getItem(liveBidStorageKey) !== 'hidden';
+    }
+
+    function updateLiveBidToggleLabel() {
+      if (!liveBidToggle) return;
+      liveBidToggle.textContent = isLiveBidCardVisibleOnHome()
+        ? 'Hide Live Bid Card from Home'
+        : 'Show Live Bid Card on Home';
+    }
+
+    liveBidToggle?.addEventListener('click', () => {
+      if (isLiveBidCardVisibleOnHome()) {
+        localStorage.setItem(liveBidStorageKey, 'hidden');
+      } else {
+        localStorage.setItem(liveBidStorageKey, 'visible');
+      }
+      updateLiveBidToggleLabel();
+    });
+
+    updateLiveBidToggleLabel();
+
     async function decideQuotation(recipientId, decision) {
       const couponInput = document.getElementById(`quotationCoupon${recipientId}`);
       const response = await fetch(`/client/quotations/${recipientId}/${decision}`, {

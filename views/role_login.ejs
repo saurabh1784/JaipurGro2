@@ -36,6 +36,26 @@
         <button type="submit"><%= roleLabel %> Sign In</button>
       </form>
 
+      <% const googleLoginClientId = typeof googleWebClientId !== 'undefined' ? googleWebClientId : ''; %>
+      <% if (roleSlug === 'Client' && googleLoginClientId) { %>
+        <div class="role-login-divider"><span>or</span></div>
+        <div id="g_id_onload"
+          data-client_id="<%= googleLoginClientId %>"
+          data-login_uri="/login/client/google"
+          data-auto_prompt="false"></div>
+        <div class="g_id_signin"
+          data-type="standard"
+          data-size="large"
+          data-theme="outline"
+          data-text="signin_with"
+          data-shape="rectangular"
+          data-logo_alignment="left"
+          data-width="384"></div>
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
+      <% } else if (roleSlug === 'Client') { %>
+        <div class="role-google-disabled">Google login is not configured yet.</div>
+      <% } %>
+
       <% if (demoCredentials) { %>
         <div class="role-demo-credentials">
           <strong>Demo <%= roleLabel %> Login</strong>

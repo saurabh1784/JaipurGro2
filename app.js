@@ -19,25 +19,46 @@ const managedProfileController = require('./controllers/managedProfileController
 const catalogController = require('./controllers/catalogController');
 const commissionController = require('./controllers/commissionController');
 const DeliveryCharge = require('./services/deliveryChargeService');
+const {
+  getInvoiceSettings,
+  saveInvoiceSettings,
+} = require('./services/invoiceSettingsService');
 const Wallet = require('./models/Wallet');
 const Product = require('./models/Product');
+const Vendor = require('./models/Vendor');
 const VendorProduct = require('./models/VendorProduct');
 const User = require('./models/User');
+const Order = require('./models/Order');
 const Quotation = require('./models/Quotation');
 const Catalog = require('./models/Catalog');
 const CommissionSetting = require('./models/CommissionSetting');
 const ProductSearch = require('./models/ProductSearch');
 const Promotion = require('./models/Promotion');
 const SupportTicket = require('./models/SupportTicket');
+const VendorCategoryRequest = require('./models/VendorCategoryRequest');
+const { findOrCreateGoogleClient, publicGoogleConfig } = require('./services/googleClientAuthService');
 const {
   uploadBrandLogo,
   handleUploadError,
 } = require('./middleware/brandLogoUpload');
 const {
+  catalogSeed: groceryCatalogSeed,
+  productSeeds: indianProductSeeds,
+  genericProductLabels,
+} = require('./data/indianCatalogSeed');
+const {
   uploadPromotionImage,
   promotionImagePath,
   handlePromotionImageUploadError,
 } = require('./middleware/promotionImageUpload');
+const {
+  uploadVendorSignature,
+  handleVendorSignatureUploadError,
+} = require('./middleware/vendorSignatureUpload');
+const {
+  backfillMissingOrderNumbers,
+  insertClientOrderWithOrderNumber,
+} = require('./utils/orderNumber');
 const {
   webOrJwtAuth,
   requireUserManagement,
@@ -171,51 +192,14 @@ const userSeeds = [
   { name: 'Super Admin', email: 'superadmin@example.com', password: 'admin123', role: 'superadmin' },
   { name: 'Admin User', email: 'admin@example.com', password: 'admin123', role: 'admin' },
   { name: 'API Admin', email: 'apiadmin@example.com', phone: '9000000000', password: 'admin123', role: 'Admin' },
-  { name: 'Demo Vendor', email: 'vendor@example.com', phone: '9000000001', password: 'admin123', role: 'Vendor' },
+  { name: 'Grocery Vendor 1', email: 'vendor1@example.com', phone: '9000000101', password: 'admin123', role: 'Vendor', business_name: 'Grocery Fresh Store', categoryNames: ['Grocery'], serviceNames: ['Home Delivery', 'Counter Pickup'] },
+  { name: 'Stationery Vendor 2', email: 'vendor2@example.com', phone: '9000000102', password: 'admin123', role: 'Vendor', business_name: 'Stationery Point', categoryNames: ['Stationery'], serviceNames: ['Counter Pickup'] },
+  { name: 'Mixed Vendor 3', email: 'vendor3@example.com', phone: '9000000103', password: 'admin123', role: 'Vendor', business_name: 'Grocery Stationery Hub', categoryNames: ['Grocery', 'Stationery', 'Pet Care'], serviceNames: ['Home Delivery', 'Counter Pickup', 'Wholesale Supply'] },
+  { name: 'Grocery Vendor 4', email: 'vendor4@example.com', phone: '9000000104', password: 'admin123', role: 'Vendor', business_name: 'Daily Grocery Mart', categoryNames: ['Grocery'], serviceNames: ['Home Delivery'] },
+  { name: 'Mixed Vendor 5', email: 'vendor5@example.com', phone: '9000000105', password: 'admin123', role: 'Vendor', business_name: 'Wholesale Supply Center', categoryNames: ['Grocery', 'Stationery', 'Pet Care'], serviceNames: ['Home Delivery', 'Counter Pickup', 'Wholesale Supply'] },
   { name: 'Demo Client', email: 'client@example.com', phone: '9000000002', password: 'admin123', role: 'Client' },
   { name: 'Store Manager', email: 'manager@example.com', password: 'admin123', role: 'manager' },
   { name: 'Order Staff', email: 'staff@example.com', password: 'admin123', role: 'staff' },
-];
-
-const groceryCatalogSeed = [
-  ['Grains & Staples', { Atta: ['Aashirvaad'], Rice: ['Fortune'], 'Dal/Pulses': ['Tata Sampann'] }],
-  ['Edible Oils', { Mustard: ['Fortune'], Sunflower: ['Dhara'], Groundnut: ['Patanjali'], Ghee: ['Amul'] }],
-  ['Dairy & Bread', { Milk: ['Amul'], Curd: ['Mother Dairy'], Butter: ['Britannia'], Bread: ['Britannia'] }],
-  ['Spices & Masala', { Whole: ['MDH'], Powder: ['Everest'], Blends: ['Catch'] }],
-  ['Snacks & Namkeen', { Chips: ['Lays'], Bhujia: ['Haldiram’s'], Mixture: ['Bikaji'] }],
-  ['Beverages', { Tea: ['Tata Tea'], Coffee: ['Nescafe'], Juices: ['Real'], 'Soft Drinks': ['Pepsi'] }],
-  ['Packaged Foods', { Noodles: ['Maggi'], Pasta: ['Yippee'], Sauces: ['Kissan'] }],
-  ['Personal Care', { Soap: ['Lux'], Shampoo: ['Dove'], Toothpaste: ['Colgate'] }],
-  ['Cleaning & Household', { Detergent: ['Surf Excel', 'Rin'], Dishwash: ['Vim'] }],
-  ['Dry Fruits', { Almonds: ['Happilo'], Cashew: ['Nutraj'], Raisins: ['Happilo'] }],
-];
-
-const demoProductSeeds = [
-  { name: 'Aashirvaad Select Atta 5kg', category: 'Grains & Staples', subcategory: 'Atta', brand: 'Aashirvaad', price: 265, description: 'Premium whole wheat atta for daily home cooking.' },
-  { name: 'Fortune Rozana Basmati Rice 5kg', category: 'Grains & Staples', subcategory: 'Rice', brand: 'Fortune', price: 520, description: 'Long grain basmati rice for regular meals.' },
-  { name: 'Tata Sampann Toor Dal 1kg', category: 'Grains & Staples', subcategory: 'Dal/Pulses', brand: 'Tata Sampann', price: 185, description: 'Unpolished toor dal packed for freshness.' },
-  { name: 'Fortune Kachi Ghani Mustard Oil 1L', category: 'Edible Oils', subcategory: 'Mustard', brand: 'Fortune', price: 170, description: 'Strong aroma mustard oil for Indian cooking.' },
-  { name: 'Dhara Refined Sunflower Oil 1L', category: 'Edible Oils', subcategory: 'Sunflower', brand: 'Dhara', price: 145, description: 'Light refined sunflower oil for everyday use.' },
-  { name: 'Patanjali Groundnut Oil 1L', category: 'Edible Oils', subcategory: 'Groundnut', brand: 'Patanjali', price: 210, description: 'Groundnut oil with a rich nutty flavor.' },
-  { name: 'Amul Pure Ghee 1L', category: 'Edible Oils', subcategory: 'Ghee', brand: 'Amul', price: 650, description: 'Rich dairy ghee for cooking and sweets.' },
-  { name: 'Amul Taaza Milk 1L', category: 'Dairy & Bread', subcategory: 'Milk', brand: 'Amul', price: 68, description: 'Fresh toned milk for daily consumption.' },
-  { name: 'Mother Dairy Classic Curd 400g', category: 'Dairy & Bread', subcategory: 'Curd', brand: 'Mother Dairy', price: 45, description: 'Thick and creamy curd pack.' },
-  { name: 'Britannia Salted Butter 500g', category: 'Dairy & Bread', subcategory: 'Butter', brand: 'Britannia', price: 285, description: 'Salted table butter for breakfast and baking.' },
-  { name: 'Britannia Whole Wheat Bread 400g', category: 'Dairy & Bread', subcategory: 'Bread', brand: 'Britannia', price: 55, description: 'Soft wheat bread loaf for sandwiches.' },
-  { name: 'MDH Whole Garam Masala 100g', category: 'Spices & Masala', subcategory: 'Whole', brand: 'MDH', price: 92, description: 'Classic whole spice blend for curries and gravies.' },
-  { name: 'Everest Turmeric Powder 200g', category: 'Spices & Masala', subcategory: 'Powder', brand: 'Everest', price: 78, description: 'Fine turmeric powder with bright color.' },
-  { name: 'Catch Kitchen King Masala 100g', category: 'Spices & Masala', subcategory: 'Blends', brand: 'Catch', price: 155, description: 'Aromatic spice blend for rich Indian gravies.' },
-  { name: 'Lays Classic Salted Chips 90g', category: 'Snacks & Namkeen', subcategory: 'Chips', brand: 'Lays', price: 40, description: 'Crispy salted potato chips.' },
-  { name: 'Haldiram Bhujia Sev 400g', category: 'Snacks & Namkeen', subcategory: 'Bhujia', brand: 'Haldiram’s', price: 110, description: 'Crunchy spicy bhujia for snacking.' },
-  { name: 'Bikaji Tana Bana Mixture 400g', category: 'Snacks & Namkeen', subcategory: 'Mixture', brand: 'Bikaji', price: 125, description: 'Traditional savory namkeen mixture.' },
-  { name: 'Tata Tea Premium 1kg', category: 'Beverages', subcategory: 'Tea', brand: 'Tata Tea', price: 485, description: 'Strong tea blend for daily chai.' },
-  { name: 'Nescafe Classic Coffee 200g', category: 'Beverages', subcategory: 'Coffee', brand: 'Nescafe', price: 610, description: 'Instant coffee with rich aroma.' },
-  { name: 'Real Mixed Fruit Juice 1L', category: 'Beverages', subcategory: 'Juices', brand: 'Real', price: 125, description: 'Ready-to-serve mixed fruit juice.' },
-  { name: 'Pepsi Soft Drink 2.25L', category: 'Beverages', subcategory: 'Soft Drinks', brand: 'Pepsi', price: 105, description: 'Chilled cola soft drink bottle.' },
-  { name: 'Maggi 2-Minute Noodles 560g', category: 'Packaged Foods', subcategory: 'Noodles', brand: 'Maggi', price: 115, description: 'Family pack instant masala noodles.' },
-  { name: 'Kissan Fresh Tomato Ketchup 950g', category: 'Packaged Foods', subcategory: 'Sauces', brand: 'Kissan', price: 155, description: 'Tomato ketchup for snacks and meals.' },
-  { name: 'Surf Excel Easy Wash 1kg', category: 'Cleaning & Household', subcategory: 'Detergent', brand: 'Surf Excel', price: 135, description: 'Detergent powder for tough stains.' },
-  { name: 'Happilo Premium Almonds 500g', category: 'Dry Fruits', subcategory: 'Almonds', brand: 'Happilo', price: 475, description: 'Premium California almonds for healthy snacking.' },
 ];
 
 app.set('view engine', 'ejs');
@@ -395,7 +379,7 @@ function requireAdminMaintenance(req, res, next) {
     return res.status(403).json({ success: false, message: 'Only admin users can run maintenance actions' });
   }
 
-  return res.redirect('/dashboard?error=Only%20admin%20users%20can%20run%20maintenance%20actions');
+  return res.redirect('/settings?error=Only%20admin%20users%20can%20run%20maintenance%20actions');
 }
 
 function requestWantsJson(req) {
@@ -467,6 +451,25 @@ async function saveSetting(key, value, isSecret = false) {
   );
 }
 
+function formatRupees(value) {
+  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+
+async function notifyClientBidUpdate(response) {
+  if (!response || !response.clientId || !response.quotationId) return;
+  const message = `Quotation #${response.quotationId} has a new bid update. New bid price: ${formatRupees(response.totalAmount)}`;
+  await pool.query(
+    `INSERT INTO user_notifications (user_id, title, message, link)
+     VALUES (?, ?, ?, ?)`,
+    [
+      response.clientId,
+      response.isUpdate ? 'Quotation bid updated' : 'New quotation bid',
+      message,
+      `/client/quotations?recipient_id=${response.recipientId}`,
+    ]
+  );
+}
+
 function slugify(value) {
   return String(value || '')
     .trim()
@@ -516,14 +519,44 @@ async function seedGroceryCatalog() {
   }
 }
 
-async function seedDemoProducts() {
+async function backfillVendorMainCategories() {
+  await pool.query(`
+    INSERT INTO vendor_categories (vendor_id, category_id)
+    SELECT u.id, c.id
+    FROM users u
+    INNER JOIN categories c ON c.is_deleted = 0 AND c.status = 'active'
+    LEFT JOIN vendor_categories existing ON existing.vendor_id = u.id
+    WHERE u.role = 'Vendor'
+      AND u.is_deleted = 0
+      AND existing.vendor_id IS NULL
+    ON CONFLICT (vendor_id, category_id) DO NOTHING
+  `);
+}
+
+async function removeGeneratedDemoProducts() {
+  if (!genericProductLabels.length) return;
+  const conditions = genericProductLabels.map(() => 'p.name LIKE ?').join(' OR ');
+  const params = genericProductLabels.map((label) => `% ${label}`);
+  await pool.query(
+    `UPDATE products p
+     SET is_deleted = 1,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE p.is_deleted = 0
+       AND (${conditions})`,
+    params
+  );
+}
+
+async function seedIndianProducts() {
   const [adminRows] = await pool.query(
     "SELECT id FROM users WHERE email = ? AND LOWER(role) IN ('admin', 'superadmin') AND is_deleted = 0 ORDER BY id ASC LIMIT 1",
     ['admin@example.com']
   );
   const adminId = adminRows[0] ? adminRows[0].id : null;
 
-  for (const product of demoProductSeeds) {
+  await removeGeneratedDemoProducts();
+
+  for (const product of indianProductSeeds) {
     const [relationRows] = await pool.query(
       `SELECT c.id AS category_id, s.id AS sub_category_id, b.id AS brand_id
        FROM categories c
@@ -537,32 +570,60 @@ async function seedDemoProducts() {
     );
 
     if (!relationRows.length) {
-      console.warn(`Skipping demo product seed, missing catalog relation: ${product.name}`);
+      console.warn(`Skipping Indian product seed, missing catalog relation: ${product.name}`);
       continue;
     }
 
     const relation = relationRows[0];
-    const [existingRows] = await pool.query('SELECT id FROM products WHERE name = ? AND is_deleted = 0 LIMIT 1', [product.name]);
+    const [existingRows] = await pool.query('SELECT id FROM products WHERE name = ? LIMIT 1', [product.name]);
+
+    const productValues = [
+      product.description,
+      product.price,
+      product.weightValue,
+      product.weightUnit,
+      product.weightKg,
+      '/default.png',
+      product.taxName || 'GST',
+      product.taxPercentage ?? 5,
+      relation.category_id,
+      relation.sub_category_id,
+      relation.brand_id,
+      adminId,
+    ];
 
     if (existingRows.length) {
-      continue;
+      await pool.query(
+        `UPDATE products
+         SET description = ?,
+             price = ?,
+             weight_value = ?,
+             weight_unit = ?,
+             weight_kg = ?,
+             image_url = ?,
+             tax_name = ?,
+             tax_percentage = ?,
+             category_id = ?,
+             sub_category_id = ?,
+             brand_id = ?,
+             approval_status = 'approved',
+             approved_by = ?,
+             approved_at = CURRENT_TIMESTAMP,
+             rejection_reason = NULL,
+             is_deleted = 0
+         WHERE id = ?`,
+        [...productValues, existingRows[0].id]
+      );
+    } else {
+      await pool.query(
+        `INSERT INTO products
+         (name, description, price, weight_value, weight_unit, weight_kg, image_url,
+          tax_name, tax_percentage, category_id, sub_category_id, brand_id,
+          approval_status, approved_by, approved_at, rejection_reason, is_deleted)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'approved', ?, CURRENT_TIMESTAMP, NULL, 0)`,
+        [product.name, ...productValues]
+      );
     }
-
-    await pool.query(
-      `INSERT INTO products
-       (name, description, price, image_url, category_id, sub_category_id, brand_id, approval_status, approved_by, approved_at, rejection_reason)
-       VALUES (?, ?, ?, ?, ?, ?, ?, 'approved', ?, CURRENT_TIMESTAMP, NULL)`,
-      [
-        product.name,
-        product.description,
-        product.price,
-        '/default.png',
-        relation.category_id,
-        relation.sub_category_id,
-        relation.brand_id,
-        adminId,
-      ]
-    );
   }
 }
 
@@ -585,7 +646,6 @@ async function initDatabase() {
       UNIQUE KEY uniq_app_settings_key (setting_key)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS users (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -722,6 +782,7 @@ async function initDatabase() {
       business_name VARCHAR(150) DEFAULT NULL,
       logo_path VARCHAR(255) DEFAULT NULL,
       storefront_image_path VARCHAR(255) DEFAULT NULL,
+      signature_path VARCHAR(255) DEFAULT NULL,
       address TEXT DEFAULT NULL,
       country VARCHAR(80) DEFAULT NULL,
       state VARCHAR(80) DEFAULT NULL,
@@ -739,6 +800,7 @@ async function initDatabase() {
   await addColumnIfMissing('vendor_profiles', 'city', 'VARCHAR(80) DEFAULT NULL AFTER state');
   await addColumnIfMissing('vendor_profiles', 'logo_path', 'VARCHAR(255) DEFAULT NULL AFTER business_name');
   await addColumnIfMissing('vendor_profiles', 'storefront_image_path', 'VARCHAR(255) DEFAULT NULL AFTER logo_path');
+  await addColumnIfMissing('vendor_profiles', 'signature_path', 'VARCHAR(255) DEFAULT NULL AFTER storefront_image_path');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_profiles (
@@ -887,6 +949,8 @@ async function initDatabase() {
       name VARCHAR(180) NOT NULL,
       description TEXT DEFAULT NULL,
       price DECIMAL(10,2) NOT NULL,
+      weight_value DECIMAL(10,3) NOT NULL DEFAULT 0.000,
+      weight_unit VARCHAR(20) NOT NULL DEFAULT 'kg',
       weight_kg DECIMAL(10,3) NOT NULL DEFAULT 0.000,
       image_url VARCHAR(255) DEFAULT NULL,
       category_id INT UNSIGNED NOT NULL,
@@ -908,6 +972,8 @@ async function initDatabase() {
   `);
   await addColumnIfMissing('products', 'image_url', 'VARCHAR(255) DEFAULT NULL AFTER price');
   await addColumnIfMissing('products', 'weight_kg', 'DECIMAL(10,3) NOT NULL DEFAULT 0.000 AFTER price');
+  await addColumnIfMissing('products', 'weight_unit', "VARCHAR(20) NOT NULL DEFAULT 'kg' AFTER price");
+  await addColumnIfMissing('products', 'weight_value', 'DECIMAL(10,3) NOT NULL DEFAULT 0.000 AFTER price');
   await addColumnIfMissing('products', 'tax_name', 'VARCHAR(80) DEFAULT NULL AFTER image_url');
   await addColumnIfMissing('products', 'tax_percentage', 'DECIMAL(7,2) DEFAULT NULL AFTER tax_name');
   await addColumnIfMissing('products', 'approval_status', "VARCHAR(20) NOT NULL DEFAULT 'approved' AFTER is_deleted");
@@ -916,6 +982,8 @@ async function initDatabase() {
   await addColumnIfMissing('products', 'approved_at', 'TIMESTAMP NULL DEFAULT NULL AFTER approved_by');
   await addColumnIfMissing('products', 'rejection_reason', 'TEXT DEFAULT NULL AFTER approved_at');
   await pool.query("UPDATE products SET approval_status = 'approved' WHERE approval_status IS NULL OR approval_status = ''");
+  await pool.query("UPDATE products SET weight_unit = 'kg' WHERE weight_unit IS NULL OR TRIM(weight_unit) = ''");
+  await pool.query('UPDATE products SET weight_value = weight_kg WHERE COALESCE(weight_value, 0) = 0 AND COALESCE(weight_kg, 0) > 0');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS product_search_history (
@@ -1015,6 +1083,59 @@ async function initDatabase() {
   await pool.query("UPDATE vendor_products SET quantity = 0 WHERE status = 'unavailable' AND quantity <> 0");
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS vendor_categories (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      vendor_id INT UNSIGNED NOT NULL,
+      category_id INT UNSIGNED NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_vendor_category (vendor_id, category_id),
+      KEY idx_vendor_categories_category (category_id),
+      CONSTRAINT fk_vendor_categories_vendor FOREIGN KEY (vendor_id) REFERENCES users(id) ON DELETE CASCADE,
+      CONSTRAINT fk_vendor_categories_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS vendor_category_requests (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      vendor_id INT UNSIGNED NOT NULL,
+      category_id INT UNSIGNED NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      note TEXT DEFAULT NULL,
+      admin_note TEXT DEFAULT NULL,
+      decided_by INT UNSIGNED DEFAULT NULL,
+      decided_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_vendor_category_request_vendor (vendor_id, status),
+      KEY idx_vendor_category_request_category (category_id),
+      CONSTRAINT fk_vendor_category_requests_vendor FOREIGN KEY (vendor_id) REFERENCES users(id) ON DELETE CASCADE,
+      CONSTRAINT fk_vendor_category_requests_category FOREIGN KEY (category_id) REFERENCES categories(id) ON DELETE CASCADE,
+      CONSTRAINT fk_vendor_category_requests_decider FOREIGN KEY (decided_by) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
+    DROP INDEX IF EXISTS uniq_pending_vendor_category_request
+  `);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_pending_vendor_category_request_category
+    ON vendor_category_requests (vendor_id, category_id)
+    WHERE status = 'pending'
+  `);
+  await pool.query(`
+    INSERT INTO vendor_categories (vendor_id, category_id)
+    SELECT u.id, c.id
+    FROM users u
+    INNER JOIN categories c ON c.is_deleted = 0 AND c.status = 'active'
+    LEFT JOIN vendor_categories existing ON existing.vendor_id = u.id
+    WHERE u.role = 'Vendor'
+      AND u.is_deleted = 0
+      AND existing.vendor_id IS NULL
+    ON CONFLICT (vendor_id, category_id) DO NOTHING
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS vendor_client_product_prices (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       product_id INT UNSIGNED NOT NULL,
@@ -1035,6 +1156,7 @@ async function initDatabase() {
    await pool.query(`
      CREATE TABLE IF NOT EXISTS client_orders (
        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+       order_number VARCHAR(10) DEFAULT NULL,
        user_id INT UNSIGNED NOT NULL,
        vendor_id INT UNSIGNED DEFAULT NULL,
        total_amount DECIMAL(12,2) NOT NULL,
@@ -1045,6 +1167,14 @@ async function initDatabase() {
        client_name VARCHAR(100) DEFAULT NULL,
        client_phone VARCHAR(30) DEFAULT NULL,
        client_address TEXT DEFAULT NULL,
+       shipping_address_id INT UNSIGNED DEFAULT NULL,
+       shipping_name VARCHAR(120) DEFAULT NULL,
+       shipping_phone VARCHAR(30) DEFAULT NULL,
+       shipping_address TEXT DEFAULT NULL,
+       shipping_city VARCHAR(80) DEFAULT NULL,
+       shipping_state VARCHAR(80) DEFAULT NULL,
+       shipping_country VARCHAR(80) DEFAULT NULL,
+       shipping_pincode VARCHAR(20) DEFAULT NULL,
        assigned_at TIMESTAMP NULL DEFAULT NULL,
        ready_at TIMESTAMP NULL DEFAULT NULL,
        delivered_at TIMESTAMP NULL DEFAULT NULL,
@@ -1064,6 +1194,7 @@ async function initDatabase() {
    await pool.query(`
      CREATE TABLE IF NOT EXISTS client_orders (
        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+       order_number VARCHAR(10) DEFAULT NULL,
        user_id INT UNSIGNED NOT NULL,
        vendor_id INT UNSIGNED DEFAULT NULL,
        total_amount DECIMAL(12,2) NOT NULL,
@@ -1074,6 +1205,14 @@ async function initDatabase() {
        client_name VARCHAR(100) DEFAULT NULL,
        client_phone VARCHAR(30) DEFAULT NULL,
        client_address TEXT DEFAULT NULL,
+       shipping_address_id INT UNSIGNED DEFAULT NULL,
+       shipping_name VARCHAR(120) DEFAULT NULL,
+       shipping_phone VARCHAR(30) DEFAULT NULL,
+       shipping_address TEXT DEFAULT NULL,
+       shipping_city VARCHAR(80) DEFAULT NULL,
+       shipping_state VARCHAR(80) DEFAULT NULL,
+       shipping_country VARCHAR(80) DEFAULT NULL,
+       shipping_pincode VARCHAR(20) DEFAULT NULL,
        assigned_at TIMESTAMP NULL DEFAULT NULL,
        ready_at TIMESTAMP NULL DEFAULT NULL,
        delivered_at TIMESTAMP NULL DEFAULT NULL,
@@ -1091,6 +1230,7 @@ async function initDatabase() {
    `);
 
    // Add new columns to existing client_orders table if missing
+  await addColumnIfMissing('client_orders', 'order_number', 'VARCHAR(10) DEFAULT NULL AFTER id');
    await addColumnIfMissing('client_orders', 'vendor_id', 'INT UNSIGNED DEFAULT NULL AFTER user_id');
   await addColumnIfMissing('client_orders', 'delivery_status', "VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER status");
   await addColumnIfMissing('client_orders', 'delivery_partner_id', 'INT UNSIGNED DEFAULT NULL AFTER delivery_status');
@@ -1100,7 +1240,15 @@ async function initDatabase() {
   await addColumnIfMissing('client_orders', 'client_name', 'VARCHAR(100) DEFAULT NULL AFTER delivery_otp');
    await addColumnIfMissing('client_orders', 'client_phone', 'VARCHAR(30) DEFAULT NULL AFTER client_name');
   await addColumnIfMissing('client_orders', 'client_address', 'TEXT DEFAULT NULL AFTER client_phone');
-  await addColumnIfMissing('client_orders', 'assigned_at', 'TIMESTAMP NULL DEFAULT NULL AFTER client_address');
+  await addColumnIfMissing('client_orders', 'shipping_address_id', 'INT UNSIGNED DEFAULT NULL AFTER client_address');
+  await addColumnIfMissing('client_orders', 'shipping_name', 'VARCHAR(120) DEFAULT NULL AFTER shipping_address_id');
+  await addColumnIfMissing('client_orders', 'shipping_phone', 'VARCHAR(30) DEFAULT NULL AFTER shipping_name');
+  await addColumnIfMissing('client_orders', 'shipping_address', 'TEXT DEFAULT NULL AFTER shipping_phone');
+  await addColumnIfMissing('client_orders', 'shipping_city', 'VARCHAR(80) DEFAULT NULL AFTER shipping_address');
+  await addColumnIfMissing('client_orders', 'shipping_state', 'VARCHAR(80) DEFAULT NULL AFTER shipping_city');
+  await addColumnIfMissing('client_orders', 'shipping_country', 'VARCHAR(80) DEFAULT NULL AFTER shipping_state');
+  await addColumnIfMissing('client_orders', 'shipping_pincode', 'VARCHAR(20) DEFAULT NULL AFTER shipping_country');
+  await addColumnIfMissing('client_orders', 'assigned_at', 'TIMESTAMP NULL DEFAULT NULL AFTER shipping_pincode');
   await addColumnIfMissing('client_orders', 'ready_at', 'TIMESTAMP NULL DEFAULT NULL AFTER assigned_at');
   await addColumnIfMissing('client_orders', 'delivered_at', 'TIMESTAMP NULL DEFAULT NULL AFTER ready_at');
   await addColumnIfMissing('client_orders', 'status_updated_at', 'TIMESTAMP NULL DEFAULT NULL AFTER updated_at');
@@ -1117,6 +1265,19 @@ async function initDatabase() {
   await addColumnIfMissing('client_orders', 'invoice_pdf_path', 'VARCHAR(255) DEFAULT NULL AFTER invoice_number');
   await addColumnIfMissing('client_orders', 'invoice_generated_at', 'TIMESTAMP NULL DEFAULT NULL AFTER invoice_pdf_path');
   await pool.query('UPDATE client_orders SET subtotal_amount = total_amount WHERE subtotal_amount = 0 AND total_amount > 0');
+  await backfillMissingOrderNumbers(pool);
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_client_orders_order_number
+    ON client_orders (order_number)
+    WHERE order_number IS NOT NULL
+  `);
+  await pool.query(`
+    UPDATE client_orders
+    SET shipping_name = COALESCE(NULLIF(shipping_name, ''), client_name),
+        shipping_phone = COALESCE(NULLIF(shipping_phone, ''), client_phone),
+        shipping_address = COALESCE(NULLIF(shipping_address, ''), client_address)
+    WHERE shipping_address IS NULL OR TRIM(shipping_address) = ''
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS discounts (
@@ -1366,6 +1527,7 @@ async function initDatabase() {
       client_city VARCHAR(80) NOT NULL,
       total_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      expires_at TIMESTAMP NULL DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -1374,6 +1536,7 @@ async function initDatabase() {
       CONSTRAINT fk_quotation_client FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await addColumnIfMissing('quotation_requests', 'expires_at', 'TIMESTAMP NULL DEFAULT NULL AFTER status');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS quotation_request_items (
@@ -1384,6 +1547,9 @@ async function initDatabase() {
       product_name VARCHAR(255) NOT NULL,
       quantity INT UNSIGNED NOT NULL,
       expected_price DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      weight_value DECIMAL(10,3) NOT NULL DEFAULT 0.000,
+      weight_unit VARCHAR(20) NOT NULL DEFAULT 'kg',
+      weight_kg DECIMAL(10,3) NOT NULL DEFAULT 0.000,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       KEY idx_quotation_items_request (quotation_request_id),
@@ -1391,6 +1557,17 @@ async function initDatabase() {
       CONSTRAINT fk_quotation_items_vendor_product FOREIGN KEY (vendor_product_id) REFERENCES vendor_products(id) ON DELETE SET NULL,
       CONSTRAINT fk_quotation_items_product FOREIGN KEY (product_id) REFERENCES products(id) ON DELETE SET NULL
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('quotation_request_items', 'weight_value', 'DECIMAL(10,3) NOT NULL DEFAULT 0.000 AFTER expected_price');
+  await addColumnIfMissing('quotation_request_items', 'weight_unit', "VARCHAR(20) NOT NULL DEFAULT 'kg' AFTER weight_value");
+  await addColumnIfMissing('quotation_request_items', 'weight_kg', 'DECIMAL(10,3) NOT NULL DEFAULT 0.000 AFTER weight_unit');
+  await pool.query(`
+    UPDATE quotation_request_items qri
+    SET weight_value = CASE WHEN COALESCE(qri.weight_value, 0) = 0 THEN COALESCE(p.weight_value, p.weight_kg, 0) ELSE qri.weight_value END,
+        weight_unit = CASE WHEN qri.weight_unit IS NULL OR TRIM(qri.weight_unit) = '' THEN COALESCE(NULLIF(p.weight_unit, ''), 'kg') ELSE qri.weight_unit END,
+        weight_kg = CASE WHEN COALESCE(qri.weight_kg, 0) = 0 THEN COALESCE(p.weight_kg, 0) ELSE qri.weight_kg END
+    FROM products p
+    WHERE p.id = qri.product_id
   `);
 
   await pool.query(`
@@ -1438,6 +1615,8 @@ async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('quotation_vendor_response_items', 'status', "VARCHAR(20) NOT NULL DEFAULT 'available' AFTER quantity");
+
+  await saveSetting('quotation_submission_minutes', await settingValue('quotation_submission_minutes', '1440'));
 
   await seedGroceryCatalog();
 
@@ -1496,10 +1675,36 @@ async function initDatabase() {
 
     if (seedUser.role === 'Vendor') {
       await pool.query(
-        `INSERT IGNORE INTO vendor_profiles (user_id, business_name, address, country, state, city, gst_number, services)
-         VALUES (?, 'Demo Vendor Store', 'Demo vendor address', 'India', 'Rajasthan', 'Jaipur', NULL, ?)`,
-        [userId, JSON.stringify(['Grocery', 'Delivery'])]
+        `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, gst_number, services)
+         VALUES (?, ?, ?, 'India', 'Rajasthan', 'Jaipur', NULL, ?)
+         ON CONFLICT (user_id) DO UPDATE
+         SET business_name = EXCLUDED.business_name,
+             address = EXCLUDED.address,
+             country = EXCLUDED.country,
+             state = EXCLUDED.state,
+             city = EXCLUDED.city,
+             services = EXCLUDED.services`,
+        [
+          userId,
+          seedUser.business_name || `${seedUser.name} Store`,
+          seedUser.address || 'Demo vendor address',
+          JSON.stringify(seedUser.serviceNames || ['Home Delivery', 'Counter Pickup']),
+        ]
       );
+
+      if (Array.isArray(seedUser.categoryNames) && seedUser.categoryNames.length > 0) {
+        await pool.query('DELETE FROM vendor_categories WHERE vendor_id = ?', [userId]);
+        await pool.query(
+          `INSERT INTO vendor_categories (vendor_id, category_id)
+           SELECT ?, id
+           FROM categories
+           WHERE name IN (${seedUser.categoryNames.map(() => '?').join(',')})
+             AND is_deleted = 0
+             AND status = 'active'
+           ON CONFLICT (vendor_id, category_id) DO NOTHING`,
+          [userId, ...seedUser.categoryNames]
+        );
+      }
     }
 
     if (seedUser.role === 'Client') {
@@ -1512,7 +1717,8 @@ async function initDatabase() {
   }
 
   console.log('Database init: seeding defaults');
-  await seedDemoProducts();
+  await backfillVendorMainCategories();
+  await seedIndianProducts();
   await VendorProduct.ensureAllProductsForAllVendors();
   await Wallet.ensureForAllUsers(pool);
   await pool.query(`
@@ -1724,28 +1930,156 @@ function buildDashboard(user, activePath = '/dashboard') {
   };
 }
 
+function formatDashboardMoney(value) {
+  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+}
+
+function formatDashboardNumber(value) {
+  return Number(value || 0).toLocaleString('en-IN');
+}
+
+function dashboardPercent(current, previous) {
+  const currentValue = Number(current || 0);
+  const previousValue = Number(previous || 0);
+  if (previousValue <= 0) {
+    return currentValue > 0 ? '+100%' : '0%';
+  }
+  const percent = Math.round(((currentValue - previousValue) / previousValue) * 100);
+  return `${percent >= 0 ? '+' : ''}${percent}%`;
+}
+
+async function applyAdminDashboardStats(dashboard) {
+  const [summaryRows] = await pool.query(
+    `SELECT
+       (SELECT COUNT(*) FROM users WHERE is_deleted = 0) AS total_users,
+       (SELECT COUNT(*) FROM users WHERE is_deleted = 0 AND LOWER(status) = 'active') AS active_users,
+       (SELECT COUNT(*) FROM users WHERE is_deleted = 0 AND LOWER(role) = 'client') AS client_count,
+       (SELECT COUNT(*) FROM users WHERE is_deleted = 0 AND LOWER(role) = 'vendor') AS vendor_count,
+       (SELECT COUNT(*) FROM roles) AS role_count,
+       (SELECT COUNT(*) FROM products WHERE is_deleted = 0) AS product_count,
+       (SELECT COUNT(*) FROM products WHERE is_deleted = 0 AND approval_status = 'pending') AS pending_products,
+       (SELECT COUNT(*) FROM vendor_products WHERE status = 'active' AND quantity > 0) AS active_stock_items,
+       (SELECT COUNT(*) FROM vendor_products WHERE status = 'active' AND quantity <= 5) AS low_stock_items,
+       (SELECT COUNT(*) FROM client_orders) AS order_count,
+       (SELECT COUNT(*) FROM client_orders WHERE status = 'pending') AS pending_orders,
+       (SELECT COUNT(*) FROM client_orders WHERE DATE(created_at) = CURRENT_DATE) AS today_orders,
+       (SELECT COUNT(*) FROM client_orders WHERE DATE(created_at) = CURRENT_DATE - INTERVAL '1 day') AS yesterday_orders,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE DATE(created_at) = CURRENT_DATE) AS today_revenue,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE DATE(created_at) = CURRENT_DATE - INTERVAL '1 day') AS yesterday_revenue,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders) AS total_revenue,
+       (SELECT COUNT(*) FROM support_tickets WHERE status = 'Open') AS open_support_tickets,
+       (SELECT COUNT(*) FROM quotation_requests WHERE status = 'pending') AS pending_quotations,
+       (SELECT COUNT(*) FROM quotation_vendor_recipients WHERE status IN ('new', 'seen')) AS unprocessed_vendor_quotes`
+  );
+  const stats = summaryRows[0] || {};
+  const openIssues = Number(stats.open_support_tickets || 0)
+    + Number(stats.pending_products || 0)
+    + Number(stats.pending_orders || 0)
+    + Number(stats.unprocessed_vendor_quotes || 0);
+
+  dashboard.metrics = [
+    {
+      label: 'System Users',
+      value: formatDashboardNumber(stats.total_users),
+      tone: 'orange',
+      icon: 'users',
+      note: `${formatDashboardNumber(stats.active_users)} active / ${formatDashboardNumber(stats.role_count)} roles`,
+    },
+    {
+      label: 'Today Revenue',
+      value: formatDashboardMoney(stats.today_revenue),
+      tone: 'green',
+      icon: 'revenue',
+      note: `${formatDashboardNumber(stats.today_orders)} order${Number(stats.today_orders || 0) === 1 ? '' : 's'} today`,
+    },
+    {
+      label: 'Open Issues',
+      value: formatDashboardNumber(openIssues),
+      tone: 'red',
+      icon: 'alerts',
+      note: `${formatDashboardNumber(stats.open_support_tickets)} support / ${formatDashboardNumber(stats.pending_products)} product approvals`,
+    },
+    {
+      label: 'Clients & Vendors',
+      value: `${formatDashboardNumber(stats.client_count)} / ${formatDashboardNumber(stats.vendor_count)}`,
+      tone: 'blue',
+      icon: 'followers',
+      note: 'Clients / vendors registered',
+    },
+  ];
+
+  dashboard.charts = [
+    {
+      title: 'Daily Sales',
+      tone: 'green-panel',
+      subtitle: `${formatDashboardMoney(stats.today_revenue)} today, ${dashboardPercent(stats.today_revenue, stats.yesterday_revenue)} vs yesterday.`,
+      footer: `${formatDashboardNumber(stats.today_orders)} order${Number(stats.today_orders || 0) === 1 ? '' : 's'} today`,
+      type: 'line-up',
+    },
+    {
+      title: 'Orders & Quotations',
+      tone: 'orange-panel',
+      subtitle: `${formatDashboardNumber(stats.order_count)} orders / ${formatDashboardNumber(stats.pending_quotations)} pending quotations`,
+      footer: `${formatDashboardNumber(stats.pending_orders)} pending orders`,
+      type: 'bars',
+    },
+    {
+      title: 'Operational Issues',
+      tone: 'red-panel',
+      subtitle: `${formatDashboardNumber(openIssues)} open items need action`,
+      footer: `${formatDashboardNumber(stats.low_stock_items)} low-stock active vendor products`,
+      type: 'line-down',
+    },
+  ];
+
+  dashboard.tasks = [
+    Number(stats.pending_orders || 0) > 0
+      ? `Review ${formatDashboardNumber(stats.pending_orders)} pending grocery order${Number(stats.pending_orders || 0) === 1 ? '' : 's'}`
+      : 'No pending grocery orders right now',
+    Number(stats.open_support_tickets || 0) > 0
+      ? `Reply to ${formatDashboardNumber(stats.open_support_tickets)} open support ticket${Number(stats.open_support_tickets || 0) === 1 ? '' : 's'}`
+      : 'No open support tickets',
+    Number(stats.pending_products || 0) > 0
+      ? `Approve or reject ${formatDashboardNumber(stats.pending_products)} product submission${Number(stats.pending_products || 0) === 1 ? '' : 's'}`
+      : 'No pending product approvals',
+    Number(stats.low_stock_items || 0) > 0
+      ? `Check ${formatDashboardNumber(stats.low_stock_items)} low-stock vendor item${Number(stats.low_stock_items || 0) === 1 ? '' : 's'}`
+      : 'Vendor stock levels look healthy',
+  ];
+
+  const [teamRows] = await pool.query(
+    `SELECT id, name, role, status
+     FROM users
+     WHERE is_deleted = 0
+     ORDER BY
+       CASE WHEN LOWER(status) = 'active' THEN 0 ELSE 1 END,
+       updated_at DESC,
+       id DESC
+     LIMIT 6`
+  );
+  dashboard.employees = teamRows.map((row) => ({
+    id: row.id,
+    name: row.name,
+    salary: row.status,
+    country: row.role,
+  }));
+}
+
 async function buildDashboardData(user, activePath = '/dashboard') {
   const dashboard = buildDashboard(user, activePath);
 
   if (['admin', 'superadmin'].includes(String(user.role || '').toLowerCase()) || isSuperAdminUser(user)) {
-    const [maintenanceRows] = await pool.query(
-      `SELECT
-         (SELECT COUNT(*) FROM quotation_requests) AS quotation_count,
-         (SELECT COUNT(*) FROM quotation_vendor_recipients) AS quotation_vendor_count,
-         (SELECT COUNT(*) FROM client_orders) AS order_count,
-         (SELECT COUNT(*) FROM vendor_products vp INNER JOIN products p ON p.id = vp.product_id WHERE COALESCE(vp.price, 0) <> COALESCE(p.price, 0)) AS vendor_price_diff_count`
-    );
-    const maintenance = maintenanceRows[0] || {};
-    dashboard.maintenance = {
-      quotationCount: Number(maintenance.quotation_count || 0),
-      quotationVendorCount: Number(maintenance.quotation_vendor_count || 0),
-      orderCount: Number(maintenance.order_count || 0),
-      vendorPriceDiffCount: Number(maintenance.vendor_price_diff_count || 0),
-    };
+    await applyAdminDashboardStats(dashboard);
   }
 
   if (user.role === 'Vendor') {
     const quotationCount = await Quotation.pendingCountForVendor(user.id);
+    const vendorDashboardOrders = await Order.listByVendor(user.id, { status: 'pending' });
+    dashboard.vendorNewOrders = vendorDashboardOrders.filter((order) => order.status === 'pending');
+    const vendorDashboardQuotations = await Quotation.listForVendor(user.id);
+    dashboard.vendorNewQuotations = vendorDashboardQuotations.filter((quotation) => (
+      quotation.recipient_status === 'new' || quotation.recipient_status === 'seen'
+    ));
     const [quotationRows] = await pool.query(
       `SELECT
          COUNT(*) FILTER (WHERE qvr.status IN ('new', 'seen')) AS unprocessed_count,
@@ -1826,6 +2160,11 @@ async function buildDashboardData(user, activePath = '/dashboard') {
   }
 
   if (user.role === 'Client') {
+    const quotations = await Quotation.listForClient(user.id);
+    dashboard.clientLiveQuotations = quotations.filter((quotation) => (
+      quotation.recipient_status === 'submitted' && quotation.bid_editable
+    ));
+
     const [notificationRows] = await pool.query(
       'SELECT COUNT(*) AS total FROM user_notifications WHERE user_id = ? AND is_read = 0',
       [user.id]
@@ -1861,6 +2200,23 @@ async function buildDashboardData(user, activePath = '/dashboard') {
   }
 
   return dashboard;
+}
+
+async function getAdminMaintenanceStats() {
+  const [maintenanceRows] = await pool.query(
+    `SELECT
+       (SELECT COUNT(*) FROM quotation_requests) AS quotation_count,
+       (SELECT COUNT(*) FROM quotation_vendor_recipients) AS quotation_vendor_count,
+       (SELECT COUNT(*) FROM client_orders) AS order_count,
+       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN products p ON p.id = vp.product_id WHERE COALESCE(vp.price, 0) <> COALESCE(p.price, 0)) AS vendor_price_diff_count`
+  );
+  const maintenance = maintenanceRows[0] || {};
+  return {
+    quotationCount: Number(maintenance.quotation_count || 0),
+    quotationVendorCount: Number(maintenance.quotation_vendor_count || 0),
+    orderCount: Number(maintenance.order_count || 0),
+    vendorPriceDiffCount: Number(maintenance.vendor_price_diff_count || 0),
+  };
 }
 
 async function clearQuotationAndOrderData() {
@@ -1951,7 +2307,8 @@ app.get('/login/vendor', (req, res) => {
     roleLabel: 'Vendor',
     roleSlug: 'Vendor',
     loginPath: '/login/vendor',
-    demoCredentials: { identifier: 'vendor@example.com', password: 'admin123' },
+    demoCredentials: { identifier: 'vendor1@example.com', password: 'admin123' },
+    googleWebClientId: '',
     error: null,
   });
 });
@@ -1966,6 +2323,7 @@ app.get('/login/client', (req, res) => {
     roleSlug: 'Client',
     loginPath: '/login/client',
     demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
+    googleWebClientId: publicGoogleConfig().webClientId,
     error: null,
   });
 });
@@ -2023,8 +2381,9 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
       roleSlug: expectedRole,
       loginPath,
       demoCredentials: expectedRole === 'Vendor'
-        ? { identifier: 'vendor@example.com', password: 'admin123' }
+        ? { identifier: 'vendor1@example.com', password: 'admin123' }
         : { identifier: 'client@example.com', password: 'admin123' },
+      googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
       error: 'Please enter email/username and password.',
     });
   }
@@ -2037,8 +2396,9 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
         roleSlug: expectedRole,
         loginPath,
         demoCredentials: expectedRole === 'Vendor'
-          ? { identifier: 'vendor@example.com', password: 'admin123' }
+          ? { identifier: 'vendor1@example.com', password: 'admin123' }
           : { identifier: 'client@example.com', password: 'admin123' },
+        googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
         error: `Invalid ${roleLabel.toLowerCase()} credentials.`,
       });
     }
@@ -2050,8 +2410,9 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
         roleSlug: expectedRole,
         loginPath,
         demoCredentials: expectedRole === 'Vendor'
-          ? { identifier: 'vendor@example.com', password: 'admin123' }
+          ? { identifier: 'vendor1@example.com', password: 'admin123' }
           : { identifier: 'client@example.com', password: 'admin123' },
+        googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
         error: `Invalid ${roleLabel.toLowerCase()} credentials.`,
       });
     }
@@ -2078,8 +2439,9 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
       roleSlug: expectedRole,
       loginPath,
       demoCredentials: expectedRole === 'Vendor'
-        ? { identifier: 'vendor@example.com', password: 'admin123' }
+        ? { identifier: 'vendor1@example.com', password: 'admin123' }
         : { identifier: 'client@example.com', password: 'admin123' },
+      googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
       error: 'Unable to process login. Please try again later.',
     });
   }
@@ -2087,6 +2449,46 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
 
 app.post('/login/vendor', (req, res) => handleRoleLogin(req, res, 'Vendor', '/vendor/dashboard'));
 app.post('/login/client', (req, res) => handleRoleLogin(req, res, 'Client', '/client/dashboard'));
+
+app.post('/login/client/google', async (req, res) => {
+  const idToken = String(req.body.credential || req.body.idToken || '').trim();
+  if (!idToken) {
+    return res.render('role_login', {
+      roleLabel: 'Client',
+      roleSlug: 'Client',
+      loginPath: '/login/client',
+      demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
+      googleWebClientId: publicGoogleConfig().webClientId,
+      error: 'Google login token is missing. Please try again.',
+    });
+  }
+
+  try {
+    const rawUser = await findOrCreateGoogleClient(idToken);
+    const fallbackPermissions = ['dashboard.view', 'wallets.view', 'coupons.apply'];
+    req.session.user = {
+      id: rawUser.id,
+      name: rawUser.name,
+      email: rawUser.email,
+      themeMode: rawUser.theme_mode || 'light',
+      role: rawUser.role,
+      roleName: rawUser.role,
+      roles: [{ id: null, name: rawUser.role, slug: rawUser.role, level: 99, permissions: fallbackPermissions }],
+      permissions: fallbackPermissions,
+    };
+    return res.redirect('/client/dashboard');
+  } catch (error) {
+    console.error('Client Google web login error:', error);
+    return res.render('role_login', {
+      roleLabel: 'Client',
+      roleSlug: 'Client',
+      loginPath: '/login/client',
+      demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
+      googleWebClientId: publicGoogleConfig().webClientId,
+      error: error.status ? error.message : 'Unable to process Google login. Please try again later.',
+    });
+  }
+});
 
 app.get('/dashboard', requireAuth, async (req, res) => {
   if (req.session.user.role === 'Vendor') {
@@ -2110,10 +2512,10 @@ app.post('/admin/maintenance/clear-quotations-orders', requireAuth, requireAdmin
     const counts = await clearQuotationAndOrderData();
     const removed = counts.quotationRequests + counts.clientOrders;
     const detail = `Cleared ${counts.quotationRequests} quotation request(s), ${counts.quotationVendorRecipients} vendor quote row(s), and ${counts.clientOrders} order(s).`;
-    return res.redirect(`/dashboard?message=${encodeURIComponent(removed > 0 ? detail : 'No quotation or order data was found to clear.')}`);
+    return res.redirect(`/settings?message=${encodeURIComponent(removed > 0 ? detail : 'No quotation or order data was found to clear.')}`);
   } catch (error) {
     console.error('Admin maintenance clear quotation/order data failed:', error);
-    return res.redirect(`/dashboard?error=${encodeURIComponent('Unable to clear quotation and order data. Check server logs.')}`);
+    return res.redirect(`/settings?error=${encodeURIComponent('Unable to clear quotation and order data. Check server logs.')}`);
   }
 });
 
@@ -2123,10 +2525,10 @@ app.post('/admin/maintenance/sync-vendor-prices', requireAuth, requireAdminMaint
     const detail = updated > 0
       ? `Updated ${updated} vendor product price(s) to match master product prices. Vendors can edit their own prices again after this reset.`
       : 'All vendor product prices already match master product prices.';
-    return res.redirect(`/dashboard?message=${encodeURIComponent(detail)}`);
+    return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
   } catch (error) {
     console.error('Admin maintenance sync vendor prices failed:', error);
-    return res.redirect(`/dashboard?error=${encodeURIComponent('Unable to sync vendor product prices. Check server logs.')}`);
+    return res.redirect(`/settings?error=${encodeURIComponent('Unable to sync vendor product prices. Check server logs.')}`);
   }
 });
 
@@ -2151,14 +2553,32 @@ app.get('/client/dashboard', requireSessionRole('Client', '/login/client'), asyn
 app.get('/vendor/quotations', requireSessionRole('Vendor', '/login/vendor'), async (req, res) => {
   const vendorId = req.session.user.id;
   try {
-    const quotations = await Quotation.listForVendor(vendorId);
+    const selectedCategoryId = Number(req.query.category_id || req.query.categoryId || 0) || 0;
+    const categoriesByVendor = await Vendor.assignedCategories([vendorId]);
+    const vendorCategories = categoriesByVendor.get(Number(vendorId)) || [];
+    const allQuotations = await Quotation.listForVendor(vendorId);
+    const categoryCounts = allQuotations.reduce((counts, quotation) => {
+      if (!['new', 'seen'].includes(quotation.recipient_status)) return counts;
+      const categoryId = Number(quotation.category_id || 0);
+      if (categoryId > 0) counts[categoryId] = (counts[categoryId] || 0) + 1;
+      return counts;
+    }, {});
+    const quotations = selectedCategoryId > 0
+      ? await Quotation.listForVendor(vendorId, { categoryId: selectedCategoryId })
+      : allQuotations;
     console.log(`[quotation] vendor ${vendorId} loaded ${quotations.length} quotation request(s)`);
 
     if (requestWantsJson(req)) {
       if (req.query.peek !== '1') {
         await Quotation.markSeenForVendor(vendorId);
       }
-      return res.json({ success: true, quotations });
+      return res.json({
+        success: true,
+        quotations,
+        categories: vendorCategories,
+        category_counts: categoryCounts,
+        selected_category_id: selectedCategoryId,
+      });
     }
 
     await Quotation.markSeenForVendor(vendorId);
@@ -2166,6 +2586,9 @@ app.get('/vendor/quotations', requireSessionRole('Vendor', '/login/vendor'), asy
       user: req.session.user,
       shell: buildShell(req.session.user, req.path),
       quotations,
+      categories: vendorCategories,
+      categoryCounts,
+      selectedCategoryId,
       error: null,
     });
   } catch (error) {
@@ -2187,6 +2610,9 @@ app.get('/vendor/quotations', requireSessionRole('Vendor', '/login/vendor'), asy
       user: req.session.user,
       shell: buildShell(req.session.user, req.path),
       quotations: [],
+      categories: [],
+      categoryCounts: {},
+      selectedCategoryId: 0,
       error: 'Unable to load quotations. Please refresh the page or contact support.',
     });
   }
@@ -2200,7 +2626,8 @@ app.post('/vendor/quotations/:recipientId/submit', requireSessionRole('Vendor', 
       items: req.body.items || [],
       discountPercent: req.body.discount_percent,
     });
-    return res.json({ success: true, message: 'Quotation submitted to client', response });
+    await notifyClientBidUpdate(response);
+    return res.json({ success: true, message: response.isUpdate ? 'Quotation bid updated' : 'Quotation submitted to client', response });
   } catch (error) {
     console.error('Vendor quotation submit error:', error);
     return res.status(error.status || 500).json({
@@ -2250,14 +2677,121 @@ app.get('/api/client/quotations', webOrJwtAuth, requireAuthRole('Client'), async
   }
 });
 
+app.get('/api/client/categories', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  try {
+    const categories = (await Catalog.listCategories()).filter((category) => category.status === 'active');
+    return res.json({
+      success: true,
+      categories,
+      updated_at: categories.map((category) => category.updated_at || '').sort().pop() || null,
+    });
+  } catch (error) {
+    console.error('Client categories API error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load categories' });
+  }
+});
+
+app.get('/api/catalog/categories', webOrJwtAuth, async (req, res) => {
+  try {
+    const categories = (await Catalog.listCategories()).filter((category) => category.status === 'active');
+    return res.json({ success: true, categories });
+  } catch (error) {
+    console.error('Catalog categories API error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load categories' });
+  }
+});
+
+app.get('/api/vendor/category-requests', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
+  try {
+    const vendorId = req.authUser.id;
+    const [pending_request, pending_requests, requests, available_categories] = await Promise.all([
+      VendorCategoryRequest.pendingForVendor(vendorId),
+      VendorCategoryRequest.pendingForVendorList(vendorId),
+      VendorCategoryRequest.listForVendor(vendorId),
+      VendorCategoryRequest.availableCategoriesForVendor(vendorId),
+    ]);
+    return res.json({ success: true, pending_request, pending_requests, requests, available_categories });
+  } catch (error) {
+    console.error('Vendor category request load error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load category requests' });
+  }
+});
+
+app.post('/api/vendor/category-requests', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
+  try {
+    const categoryIds = req.body.category_ids || req.body.categoryIds || req.body.category_id || req.body.categoryId;
+    if (!categoryIds || (Array.isArray(categoryIds) && !categoryIds.length)) {
+      return res.status(422).json({ success: false, message: 'Category is required' });
+    }
+    const ids = await VendorCategoryRequest.create(req.authUser.id, categoryIds, req.body.note);
+    return res.status(201).json({
+      success: true,
+      message: 'Category activation request sent to admin',
+      pending_requests: await VendorCategoryRequest.pendingForVendorList(req.authUser.id),
+      ids,
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.message || 'Unable to create category request',
+    });
+  }
+});
+
+app.get('/api/admin/vendor-category-requests', webOrJwtAuth, requirePermission('vendors.manage'), async (req, res) => {
+  try {
+    const requests = await VendorCategoryRequest.list({ status: req.query.status || 'pending' });
+    return res.json({ success: true, requests });
+  } catch (error) {
+    console.error('Admin category request load error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load category requests' });
+  }
+});
+
+app.post('/api/admin/vendor-category-requests/:id/approve', webOrJwtAuth, requirePermission('vendors.manage'), async (req, res) => {
+  try {
+    await VendorCategoryRequest.decide(Number(req.params.id), 'approved', req.authUser.id, req.body.admin_note);
+    return res.json({ success: true, message: 'Category request approved' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to approve request' });
+  }
+});
+
+app.post('/api/admin/vendor-category-requests/:id/reject', webOrJwtAuth, requirePermission('vendors.manage'), async (req, res) => {
+  try {
+    await VendorCategoryRequest.decide(Number(req.params.id), 'rejected', req.authUser.id, req.body.admin_note);
+    return res.json({ success: true, message: 'Category request rejected' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to reject request' });
+  }
+});
+
 app.get('/api/vendor/quotations', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
   try {
     const vendorId = req.authUser.id;
-    const quotations = await Quotation.listForVendor(vendorId);
+    const selectedCategoryId = Number(req.query.category_id || req.query.categoryId || 0) || 0;
+    const categoriesByVendor = await Vendor.assignedCategories([vendorId]);
+    const vendorCategories = categoriesByVendor.get(Number(vendorId)) || [];
+    const allQuotations = await Quotation.listForVendor(vendorId);
+    const categoryCounts = allQuotations.reduce((counts, quotation) => {
+      if (!['new', 'seen'].includes(quotation.recipient_status)) return counts;
+      const categoryId = Number(quotation.category_id || 0);
+      if (categoryId > 0) counts[categoryId] = (counts[categoryId] || 0) + 1;
+      return counts;
+    }, {});
+    const quotations = selectedCategoryId > 0
+      ? await Quotation.listForVendor(vendorId, { categoryId: selectedCategoryId })
+      : allQuotations;
     if (req.query.peek !== '1') {
       await Quotation.markSeenForVendor(vendorId);
     }
-    return res.json({ success: true, quotations });
+    return res.json({
+      success: true,
+      quotations,
+      categories: vendorCategories,
+      category_counts: categoryCounts,
+      selected_category_id: selectedCategoryId,
+    });
   } catch (error) {
     console.error('Vendor quotations API error:', error);
     return res.status(500).json({ success: false, message: 'Unable to load quotations' });
@@ -2287,7 +2821,8 @@ app.post('/api/vendor/quotations/:recipientId/submit', webOrJwtAuth, requireAuth
       items: req.body.items || [],
       discountPercent: req.body.discount_percent,
     });
-    return res.json({ success: true, message: 'Quotation submitted to client', response });
+    await notifyClientBidUpdate(response);
+    return res.json({ success: true, message: response.isUpdate ? 'Quotation bid updated' : 'Quotation submitted to client', response });
   } catch (error) {
     console.error('Vendor quotation API submit error:', error);
     return res.status(error.status || 500).json({
@@ -2335,6 +2870,7 @@ app.post('/client/quotations/:recipientId/:decision', requireSessionRole('Client
         title: 'New order received',
         message: 'New order received',
         orderId: result.orderId,
+        orderNumber: result.orderNumber,
         orderType: 'quotation',
         totalAmount: result.totalAmount,
       });
@@ -2371,6 +2907,7 @@ app.post('/api/client/quotations/:recipientId/:decision', webOrJwtAuth, requireA
         title: 'New order received',
         message: 'New order received',
         orderId: result.orderId,
+        orderNumber: result.orderNumber,
         orderType: 'quotation',
         totalAmount: result.totalAmount,
       });
@@ -2450,6 +2987,14 @@ app.get('/profiles/:userId', webOrJwtAuth, requireProfileAccess, (req, res, next
   next();
 }, managedProfileController.getByUserId);
 app.put('/profiles/:userId', webOrJwtAuth, requireProfileAccess, managedProfileController.updateByUserId);
+app.post(
+  '/profiles/:userId/vendor-signature',
+  webOrJwtAuth,
+  requireProfileAccess,
+  uploadVendorSignature.single('signature'),
+  handleVendorSignatureUploadError,
+  managedProfileController.uploadVendorSignature
+);
 app.use('/clients', requireAuth, requirePermission('clients.manage'), clientRoutes);
 app.use('/api/clients', webOrJwtAuth, requireClientManagement, clientRoutes);
 app.use('/vendors', requireAuth, requirePermission('vendors.manage'), vendorRoutes);
@@ -2485,6 +3030,7 @@ app.use('/wallets', webOrJwtAuth, requireWalletAccess, walletRoutes);
 app.use('/api/wallets', webOrJwtAuth, requireWalletAccess, walletRoutes);
 
 // Order routes - web (session based)
+app.use('/public', orderRoutes.publicRouter);
 app.use('/orders/admin', requireAuth, requirePermission('orders.manage'), orderRoutes.adminRouter);
 app.use('/orders/vendor', requireAuth, requireSessionRole('Vendor', '/login/vendor'), orderRoutes.vendorRouter);
 app.use('/orders/client', requireAuth, requireSessionRole('Client', '/login/client'), orderRoutes.clientRouter);
@@ -2505,21 +3051,40 @@ app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, require
       clientId: req.authUser.id,
       items,
     });
-    vendorNotifications.notifyVendors(quotation.vendorIds || [], {
-      type: 'quotation',
-      id: quotation.id,
-      title: 'New quotation received',
-      message: 'New quotation received',
-      quotationId: quotation.id,
-      city: quotation.city,
-      totalAmount: quotation.totalAmount,
-    });
-    console.log(`[quotation] client ${req.authUser.id} created quotation ${quotation.id} for ${quotation.vendorCount} vendor(s) in ${quotation.city}`);
+    const createdQuotations = Array.isArray(quotation.quotations) && quotation.quotations.length
+      ? quotation.quotations
+      : [quotation];
+    for (const categoryQuotation of createdQuotations) {
+      vendorNotifications.notifyVendors(categoryQuotation.vendorIds || [], {
+        type: 'quotation',
+        id: categoryQuotation.id,
+        title: 'New quotation received',
+        message: categoryQuotation.categoryName
+          ? `New ${categoryQuotation.categoryName} quotation received`
+          : 'New quotation received',
+        quotationId: categoryQuotation.id,
+        categoryId: categoryQuotation.categoryId,
+        categoryName: categoryQuotation.categoryName,
+        city: categoryQuotation.city,
+        totalAmount: categoryQuotation.totalAmount,
+      });
+    }
+    console.log(`[quotation] client ${req.authUser.id} created ${createdQuotations.length} category quotation(s) for ${quotation.vendorCount} vendor(s) in ${quotation.city}`);
+
+    const skippedCategories = Array.isArray(quotation.skippedCategories) ? quotation.skippedCategories : [];
+    const skippedSuffix = skippedCategories.length
+      ? ` (${skippedCategories.length} categor${skippedCategories.length === 1 ? 'y' : 'ies'} skipped: ${skippedCategories.map((category) => category.categoryName).filter(Boolean).join(', ')})`
+      : '';
+    const message = createdQuotations.length === 1
+      ? `Quotation sent to ${createdQuotations[0].vendorCount} vendor${createdQuotations[0].vendorCount === 1 ? '' : 's'} in ${quotation.city}${skippedSuffix}`
+      : `${createdQuotations.length} category-wise quotations sent to ${quotation.vendorCount} vendor${quotation.vendorCount === 1 ? '' : 's'} in ${quotation.city}${skippedSuffix}`;
 
     return res.json({
       success: true,
-      message: `Quotation sent to ${quotation.vendorCount} vendor${quotation.vendorCount === 1 ? '' : 's'} in ${quotation.city}`,
+      message,
       quotation,
+      quotations: createdQuotations,
+      skipped_categories: skippedCategories,
     });
   } catch (error) {
     console.error('[quotation] Create quotation error:', {
@@ -2530,6 +3095,7 @@ app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, require
     return res.status(error.status || 500).json({
       success: false,
       message: error.status ? error.message : 'Unable to send quotation',
+      skipped_categories: Array.isArray(error.skippedCategories) ? error.skippedCategories : [],
     });
   }
 });
@@ -2562,6 +3128,42 @@ function deliveryAddressPayload(body) {
     country: String(body.country || 'India').trim().slice(0, 80) || 'India',
     pincode: String(body.pincode || body.pinCode || '').trim().slice(0, 20) || null,
     is_default: Boolean(body.is_default || body.isDefault),
+  };
+}
+
+function formatClientProfileAddress(client) {
+  return [
+    client.address,
+    client.city,
+    client.state,
+    client.country,
+  ].filter(Boolean).join(', ');
+}
+
+function formatDeliveryAddress(address) {
+  if (!address) return '';
+  return [
+    address.address,
+    address.city,
+    address.state,
+    address.country,
+    address.pincode,
+  ].filter(Boolean).join(', ');
+}
+
+function buildShippingSnapshot(client, selectedAddress) {
+  const clientAddress = formatClientProfileAddress(client);
+  const shippingAddress = selectedAddress ? formatDeliveryAddress(selectedAddress) : clientAddress;
+  return {
+    clientAddress,
+    shippingAddress,
+    shippingAddressId: selectedAddress ? selectedAddress.id : null,
+    shippingName: (selectedAddress && selectedAddress.recipient_name) || client.name || null,
+    shippingPhone: (selectedAddress && selectedAddress.phone) || client.phone || null,
+    shippingCity: (selectedAddress && selectedAddress.city) || client.city || null,
+    shippingState: (selectedAddress && selectedAddress.state) || client.state || null,
+    shippingCountry: (selectedAddress && selectedAddress.country) || client.country || null,
+    shippingPincode: selectedAddress ? selectedAddress.pincode || null : null,
   };
 }
 
@@ -2752,25 +3354,15 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
         [clientId]
       );
 
-  if (!addressRows.length) {
+  if (deliveryAddressId && !addressRows.length) {
     const error = new Error(deliveryAddressId ? 'Selected delivery address was not found' : 'Please add a delivery address before placing an order');
     error.status = 422;
     throw error;
   }
-  if (!deliveryAddressId && addressRows.length > 1) {
-    const error = new Error('Please select a delivery address before placing an order');
-    error.status = 422;
-    throw error;
-  }
 
-  const selectedAddress = addressRows[0];
-  const clientAddress = [
-    selectedAddress.address,
-    selectedAddress.city,
-    selectedAddress.state,
-    selectedAddress.country,
-    selectedAddress.pincode,
-  ].filter(Boolean).join(', ');
+  const selectedAddress = addressRows[0] || null;
+  const addressSnapshot = buildShippingSnapshot(client, selectedAddress);
+  const clientAddress = addressSnapshot.shippingAddress || addressSnapshot.clientAddress;
 
   const vendorOrders = new Map();
   for (const item of items) {
@@ -2904,12 +3496,12 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
     delivery_charge: Number(deliveryCharge.toFixed(2)),
     total_amount: Number(totalAmount.toFixed(2)),
     address: {
-      id: selectedAddress.id,
-      label: selectedAddress.label || '',
-      recipient_name: selectedAddress.recipient_name || client.name || '',
-      phone: selectedAddress.phone || client.phone || '',
-      display_address: clientAddress,
-      city: selectedAddress.city || client.city || '',
+      id: addressSnapshot.shippingAddressId,
+      label: selectedAddress ? selectedAddress.label || '' : 'Client Address',
+      recipient_name: addressSnapshot.shippingName || '',
+      phone: addressSnapshot.shippingPhone || '',
+      display_address: addressSnapshot.shippingAddress || addressSnapshot.clientAddress,
+      city: addressSnapshot.shippingCity || client.city || '',
     },
     vendors: vendorBreakdown,
   };
@@ -2990,23 +3582,16 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             [clientId]
           );
 
-      if (!addressRows.length) {
+      if (requestedAddressId && !addressRows.length) {
         throw new Error(requestedAddressId ? 'Selected delivery address was not found' : 'Please add a delivery address before placing an order');
       }
-      if (!requestedAddressId && addressRows.length > 1) {
-        throw new Error('Please select a delivery address before placing an order');
-      }
 
-      const selectedAddress = addressRows[0];
-      const clientAddress = [
-        selectedAddress.address,
-        selectedAddress.city,
-        selectedAddress.state,
-        selectedAddress.country,
-        selectedAddress.pincode,
-      ].filter(Boolean).join(', ');
-      const clientName = selectedAddress.recipient_name || client.name || null;
-      const clientPhone = selectedAddress.phone || client.phone || null;
+      const selectedAddress = addressRows[0] || null;
+      const addressSnapshot = buildShippingSnapshot(client, selectedAddress);
+      const clientAddress = addressSnapshot.clientAddress || addressSnapshot.shippingAddress;
+      const shippingAddress = addressSnapshot.shippingAddress || addressSnapshot.clientAddress;
+      const clientName = client.name || addressSnapshot.shippingName || null;
+      const clientPhone = client.phone || addressSnapshot.shippingPhone || null;
 
       const vendorOrders = new Map();
 
@@ -3052,8 +3637,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           vendorOrders.set(vendorId, {
             total: 0,
             items: [],
-            city: selectedAddress.city || client.city || '',
-            destination: clientAddress,
+            city: addressSnapshot.shippingCity || client.city || '',
+            destination: shippingAddress,
             origin: [
               vp.vendor_address,
               vp.vendor_city,
@@ -3079,6 +3664,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
       }
 
       const orderIds = [];
+      const orderNumbers = [];
       const vendorOrderNotifications = [];
       const subtotalAmount = [...vendorOrders.values()].reduce((sum, vendorOrder) => sum + Number(vendorOrder.total || 0), 0);
       const couponCode = String(req.body.coupon_code || '').trim();
@@ -3135,10 +3721,11 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const vendorDiscount = vendorPromotion.vendorDiscount;
         const vendorTotal = vendorPromotion.vendorTotal;
         const deliveryCharge = vendorPromotion.deliveryCharge;
-        const [orderResult] = await connection.query(
+        const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
+          connection,
           `INSERT INTO client_orders
-           (user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country, shipping_pincode, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
             vendorId,
@@ -3157,12 +3744,21 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             clientName,
             clientPhone,
             clientAddress || null,
+            addressSnapshot.shippingAddressId,
+            addressSnapshot.shippingName,
+            addressSnapshot.shippingPhone,
+            shippingAddress || null,
+            addressSnapshot.shippingCity,
+            addressSnapshot.shippingState,
+            addressSnapshot.shippingCountry,
+            addressSnapshot.shippingPincode,
           ]
         );
 
         const orderId = orderResult.insertId;
         orderIds.push(orderId);
-        vendorOrderNotifications.push({ vendorId, orderId, totalAmount: vendorTotal });
+        orderNumbers.push(orderNumber);
+        vendorOrderNotifications.push({ vendorId, orderId, orderNumber, totalAmount: vendorTotal });
         await Promotion.recordUsage({
           orderId,
           userId: clientId,
@@ -3208,8 +3804,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         userId: clientId,
         type: 'debit',
         amount: totalAmount,
-        note: `Order #${orderIds.join(', #')}`,
-        reference: `client_order_${orderIds[0]}`,
+        note: `Order #${orderNumbers.join(', #')}`,
+        reference: `client_order_${orderNumbers[0] || orderIds[0]}`,
         createdBy: clientId,
       });
 
@@ -3221,6 +3817,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           title: 'New order received',
           message: 'New order received',
           orderId: notification.orderId,
+          orderNumber: notification.orderNumber,
           orderType: 'direct',
           totalAmount: notification.totalAmount,
         });
@@ -3236,6 +3833,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         success: true,
         orderId: orderIds[0],
         orderIds,
+        orderNumber: orderNumbers[0],
+        orderNumbers,
         message: orderIds.length > 1 ? `Order placed successfully for ${orderIds.length} vendors` : 'Order placed successfully',
       });
     } catch (error) {
@@ -3634,14 +4233,21 @@ app.get('/api/coupons/history', webOrJwtAuth, requirePermission('coupon_history.
 app.get('/settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   const maps = await settingGroup([
     'google_maps_browser_api_key',
+    'google_maps_android_api_key',
     'google_distance_api_key',
     'google_maps_map_id',
     'google_maps_default_origin',
     'google_maps_default_destination',
   ]);
+  const quotationSubmissionMinutes = Number(await settingValue('quotation_submission_minutes', '1440')) || 1440;
+  const invoiceSettings = await getInvoiceSettings();
+  const canRunMaintenance = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
   res.render('settings', {
     user: req.session.user,
     permissionLabels,
+    maintenance: canRunMaintenance ? await getAdminMaintenanceStats() : null,
+    error: req.query.error || null,
+    message: req.query.message || null,
     settings: {
       general: {
         appName: 'Grocery App',
@@ -3649,6 +4255,7 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
         timezone: 'Asia/Kolkata',
         currency: 'INR',
         maintenanceMode: false,
+        quotationSubmissionMinutes,
       },
       email: {
         mailDriver: 'SMTP',
@@ -3665,7 +4272,8 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
       },
       maps: {
         browserApiKey: maps.google_maps_browser_api_key || process.env.GOOGLE_MAPS_BROWSER_API_KEY || '',
-        distanceApiKey: maps.google_distance_api_key || process.env.GOOGLE_DISTANCE_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '',
+        androidApiKey: maps.google_maps_android_api_key || process.env.GOOGLE_MAPS_ANDROID_API_KEY || '',
+        distanceApiKey: maps.google_distance_api_key || process.env.GOOGLE_DISTANCE_API_KEY || '',
         mapId: maps.google_maps_map_id || '',
         defaultOrigin: maps.google_maps_default_origin || 'Jaipur, Rajasthan, India',
         defaultDestination: maps.google_maps_default_destination || 'Mansarovar, Jaipur, Rajasthan, India',
@@ -3681,13 +4289,57 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
         states: ['Rajasthan', 'Maharashtra', 'California'],
         cities: ['Jaipur', 'Mumbai', 'San Francisco'],
       },
+      invoice: invoiceSettings,
     },
   });
+});
+
+app.put('/settings/quotations', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const minutes = Math.max(5, Math.min(10080, Math.round(Number(req.body.submissionMinutes || 0))));
+    if (!Number.isFinite(minutes)) {
+      return res.status(422).json({ success: false, message: 'Valid quotation submission time is required' });
+    }
+    await saveSetting('quotation_submission_minutes', String(minutes), false);
+    res.json({ success: true, message: 'Quotation submission deadline saved', submissionMinutes: minutes });
+  } catch (error) {
+    console.error('Quotation settings save error:', error);
+    res.status(500).json({ success: false, message: 'Unable to save quotation settings' });
+  }
+});
+
+app.put('/settings/invoice', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const enabledColumns = Array.isArray(req.body.enabledProductColumns)
+      ? req.body.enabledProductColumns
+      : [];
+    if (!enabledColumns.length) {
+      return res.status(422).json({ success: false, message: 'Select at least one invoice product column' });
+    }
+    const settings = await saveInvoiceSettings({
+      platformName: req.body.platformName,
+      reverseChargeText: req.body.reverseChargeText,
+      serialInfoText: req.body.serialInfoText,
+      legalNote: req.body.legalNote,
+      deliveryFromName: req.body.deliveryFromName,
+      deliveryFromAddress: req.body.deliveryFromAddress,
+      deliveryFromFssai: req.body.deliveryFromFssai,
+      platformAddress: req.body.platformAddress,
+      platformFssai: req.body.platformFssai,
+      platformEmail: req.body.platformEmail,
+      enabledProductColumns: enabledColumns,
+    });
+    res.json({ success: true, message: 'Invoice settings saved', settings });
+  } catch (error) {
+    console.error('Invoice settings save error:', error);
+    res.status(500).json({ success: false, message: 'Unable to save invoice settings' });
+  }
 });
 
 app.get('/settings/google-maps', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   const maps = await settingGroup([
     'google_maps_browser_api_key',
+    'google_maps_android_api_key',
     'google_distance_api_key',
     'google_maps_map_id',
     'google_maps_default_origin',
@@ -3697,7 +4349,8 @@ app.get('/settings/google-maps', requireAuth, requirePermission('settings.manage
     success: true,
     settings: {
       browserApiKey: maps.google_maps_browser_api_key || process.env.GOOGLE_MAPS_BROWSER_API_KEY || '',
-      distanceApiKey: maps.google_distance_api_key || process.env.GOOGLE_DISTANCE_API_KEY || process.env.GOOGLE_MAPS_API_KEY || '',
+      androidApiKey: maps.google_maps_android_api_key || process.env.GOOGLE_MAPS_ANDROID_API_KEY || '',
+      distanceApiKey: maps.google_distance_api_key || process.env.GOOGLE_DISTANCE_API_KEY || '',
       mapId: maps.google_maps_map_id || '',
       defaultOrigin: maps.google_maps_default_origin || 'Jaipur, Rajasthan, India',
       defaultDestination: maps.google_maps_default_destination || 'Mansarovar, Jaipur, Rajasthan, India',
@@ -3708,6 +4361,7 @@ app.get('/settings/google-maps', requireAuth, requirePermission('settings.manage
 app.put('/settings/google-maps', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
     await saveSetting('google_maps_browser_api_key', String(req.body.browserApiKey || '').trim(), true);
+    await saveSetting('google_maps_android_api_key', String(req.body.androidApiKey || '').trim(), true);
     await saveSetting('google_distance_api_key', String(req.body.distanceApiKey || '').trim(), true);
     await saveSetting('google_maps_map_id', String(req.body.mapId || '').trim(), false);
     await saveSetting('google_maps_default_origin', String(req.body.defaultOrigin || '').trim(), false);

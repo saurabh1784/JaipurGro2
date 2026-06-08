@@ -1,11 +1,12 @@
 const User = require('../models/User');
 const Profile = require('../models/Profile');
+const { vendorSignaturePath } = require('../middleware/vendorSignatureUpload');
 
 function sanitizeProfileUpdate(role, body) {
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : body;
   const update = {};
   const fieldsByRole = {
-    Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'address', 'country', 'state', 'city', 'gst_number', 'services'],
+    Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'signature_path', 'address', 'country', 'state', 'city', 'gst_number', 'services'],
     Client: ['address', 'country', 'state', 'city', 'age', 'gender', 'notes'],
     Admin: ['permissions'],
   };
@@ -83,4 +84,34 @@ async function updateByUserId(req, res) {
   });
 }
 
-module.exports = { getByUserId, updateByUserId };
+async function uploadVendorSignature(req, res) {
+  const userId = Number(req.params.userId);
+  if (!userId) {
+    return res.status(422).json({ success: false, message: 'Valid user ID is required' });
+  }
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return res.status(404).json({ success: false, message: 'User not found' });
+  }
+  if (user.role !== 'Vendor') {
+    return res.status(422).json({ success: false, message: 'Signature upload is available only for vendors' });
+  }
+  if (!req.file) {
+    return res.status(422).json({ success: false, message: 'Signature image is required' });
+  }
+
+  const signaturePath = vendorSignaturePath(req.file);
+  await Profile.createEmptyForRole(user.id, user.role);
+  await Profile.updateByRole(user.id, user.role, { signature_path: signaturePath });
+  const profile = await Profile.findByRole(user.id, user.role);
+
+  return res.json({
+    success: true,
+    message: 'Signature uploaded successfully',
+    signature_path: signaturePath,
+    profile,
+  });
+}
+
+module.exports = { getByUserId, updateByUserId, uploadVendorSignature };
