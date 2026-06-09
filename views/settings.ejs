@@ -50,6 +50,7 @@
         <button class="settings-tab" type="button" data-tab="delivery-partners">Delivery Partners</button>
         <button class="settings-tab" type="button" data-tab="role-permissions">Role Permissions</button>
         <button class="settings-tab" type="button" data-tab="security">Security</button>
+        <button class="settings-tab" type="button" data-tab="debug">Debug</button>
       </div>
 
       <section class="settings-panel active" id="general" aria-labelledby="general-tab">
@@ -93,14 +94,25 @@
         </div>
         <button class="settings-save" type="button" onclick="saveQuotationSettings()">Save General Settings</button>
         <p class="commission-message" id="quotationSettingsMessage"></p>
+      </section>
+
+      <section class="settings-panel" id="debug" aria-labelledby="debug-tab">
+        <div class="panel-header red-header">
+          <h2>Debug Tools</h2>
+          <p>Maintenance actions for testing and rebuilding the application database.</p>
+        </div>
         <% if (maintenance) { %>
           <section class="maintenance-panel" aria-label="Admin maintenance">
             <div class="maintenance-copy">
               <span>Debug maintenance</span>
-              <h2>Quotation, order, and vendor price tools</h2>
-              <p>Use these only for testing. Clearing data removes quotation and order history for every client and vendor.</p>
+              <h2>Database and test data tools</h2>
+              <p>Use these only for testing. Database restore drops every table, recreates the schema, and reloads default seed data.</p>
             </div>
             <div class="maintenance-actions">
+              <form method="post" action="/admin/maintenance/restore-database" onsubmit="return confirmDatabaseRestore();">
+                <strong>Drop all tables and recreate the database</strong>
+                <button class="danger-action-button" type="submit">Restore database</button>
+              </form>
               <form method="post" action="/admin/maintenance/clear-quotations-orders" onsubmit="return confirmMaintenanceClear();">
                 <strong><%= maintenance.quotationCount %> quotation(s) / <%= maintenance.orderCount %> order(s)</strong>
                 <button class="danger-action-button" type="submit">Clear quotes and orders</button>
@@ -111,6 +123,9 @@
               </form>
             </div>
           </section>
+        <% } %>
+        <% if (!maintenance) { %>
+          <div class="system-alert">Only admin users can run debug maintenance actions.</div>
         <% } %>
       </section>
 
@@ -645,6 +660,10 @@
 
     function confirmVendorPriceSync() {
       return window.confirm('This will set every vendor product price to the master product price one time for debugging. Vendors can change their own prices after this reset. Continue?');
+    }
+
+    function confirmDatabaseRestore() {
+      return window.confirm('Warning: this will drop every table, permanently delete all current data, and recreate the database schema. Continue?');
     }
 
     const tabs = document.querySelectorAll('.settings-tab');

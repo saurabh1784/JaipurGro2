@@ -655,7 +655,8 @@ async function seedIndianProducts() {
   }
 }
 
-async function initDatabase() {
+async function initDatabase(options = {}) {
+  const { restoreSnapshot = true } = options;
   console.log('Database init: ensure database');
   await pgPool.ensureDatabase();
   console.log('Database init: connectivity check');
@@ -1765,7 +1766,9 @@ async function initDatabase() {
   console.log('Database init: running migrations');
   await runMigrations(pgPool);
   console.log('Database init: checking snapshot restore');
-  await restoreSnapshotOnStartup(pgPool, { revision: appRevision });
+  if (restoreSnapshot) {
+    await restoreSnapshotOnStartup(pgPool, { revision: appRevision });
+  }
 }
 
 async function getUserWithRoles(email) {
@@ -2294,6 +2297,44 @@ async function clearQuotationAndOrderData() {
   }
 }
 
+let databaseRestoreInProgress = false;
+
+function quotePgIdentifier(value) {
+  return `"${String(value).replace(/"/g, '""')}"`;
+}
+
+async function restoreDatabaseFromSettings() {
+  if (databaseRestoreInProgress) {
+    const error = new Error('Database restore is already running');
+    error.status = 409;
+    throw error;
+  }
+
+  databaseRestoreInProgress = true;
+
+  try {
+    const tableResult = await pgPool.query(
+      `SELECT tablename
+       FROM pg_tables
+       WHERE schemaname = 'public'
+       ORDER BY tablename`
+    );
+    const tableNames = (tableResult.rows || [])
+      .map((row) => row.tablename)
+      .filter(Boolean);
+
+    if (tableNames.length > 0) {
+      await pgPool.query(`DROP TABLE ${tableNames.map(quotePgIdentifier).join(', ')} CASCADE`);
+    }
+
+    await initDatabase({ restoreSnapshot: false });
+
+    return tableNames.length;
+  } finally {
+    databaseRestoreInProgress = false;
+  }
+}
+
 async function syncVendorPricesToMasterProducts() {
   const [result] = await pool.query(
     `UPDATE vendor_products vp
@@ -2559,6 +2600,21 @@ app.post('/admin/maintenance/sync-vendor-prices', requireAuth, requireAdminMaint
   } catch (error) {
     console.error('Admin maintenance sync vendor prices failed:', error);
     return res.redirect(`/settings?error=${encodeURIComponent('Unable to sync vendor product prices. Check server logs.')}`);
+  }
+});
+
+app.post('/admin/maintenance/restore-database', requireAuth, requireAdminMaintenance, async (req, res) => {
+  try {
+    const droppedTables = await restoreDatabaseFromSettings();
+    const detail = `Database restored successfully. Dropped and recreated ${droppedTables} table(s).`;
+    return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Admin maintenance database restore failed:', error);
+    const status = Number(error.status || 500);
+    const message = status === 409
+      ? 'Database restore is already running. Please wait for it to finish.'
+      : 'Unable to restore database. Check server logs.';
+    return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
   }
 });
 
