@@ -105,6 +105,7 @@
     let lastPlacedAt = 0;
     let mapProjectionOverlay = null;
     let markerUiBound = false;
+    let didChooseInitialAreaCity = false;
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -175,7 +176,7 @@
       bindMarkerUi();
       map.addListener('bounds_changed', renderMarkers);
       window.addEventListener('resize', renderMarkers);
-      loadAreas();
+      refreshVisibleAreas();
     }
 
     function bindMarkerUi() {
@@ -386,9 +387,10 @@
     }
 
     function resetForm() {
+      const currentCity = document.getElementById('areaCity').value.trim() || 'Jaipur';
       document.getElementById('areaId').value = '';
       document.getElementById('areaName').value = '';
-      document.getElementById('areaCity').value = 'Jaipur';
+      document.getElementById('areaCity').value = currentCity;
       document.getElementById('ownDeliveryActive').checked = false;
       document.getElementById('areaActive').checked = true;
       manualMarkingMode = false;
@@ -400,6 +402,7 @@
       setMarkingMode(false, false);
       drawPath([]);
       renderPointList();
+      refreshVisibleAreas();
       setStatus('Click Mark Points, then click on the map to mark the area boundary.');
     }
 
@@ -411,20 +414,62 @@
         const data = await response.json();
         if (!data.success) throw new Error(data.message || 'Unable to load areas');
         areas = data.areas || [];
-        renderAreas();
-        drawExistingAreas();
+        syncCityOptionsFromAreas();
+        chooseInitialAreaCity();
+        refreshVisibleAreas();
       } catch (error) {
         body.innerHTML = `<tr><td colspan="4">${escapeHtml(error.message)}</td></tr>`;
       }
     }
 
+    function selectedAreaCity() {
+      return String(document.getElementById('areaCity').value || '').trim().toLowerCase();
+    }
+
+    function visibleAreas() {
+      const city = selectedAreaCity();
+      if (!city) return areas;
+      return areas.filter((area) => String(area.city || '').trim().toLowerCase() === city);
+    }
+
+    function syncCityOptionsFromAreas() {
+      const datalist = document.getElementById('cityOptions');
+      if (!datalist) return;
+      const existing = new Set(Array.from(datalist.options || []).map((option) => String(option.value || '').trim().toLowerCase()));
+      areas.forEach((area) => {
+        const city = String(area.city || '').trim();
+        if (!city || existing.has(city.toLowerCase())) return;
+        const option = document.createElement('option');
+        option.value = city;
+        datalist.appendChild(option);
+        existing.add(city.toLowerCase());
+      });
+    }
+
+    function chooseInitialAreaCity() {
+      if (didChooseInitialAreaCity || !areas.length) return;
+      didChooseInitialAreaCity = true;
+      if (visibleAreas().length) return;
+      const firstMappedCity = areas.map((area) => String(area.city || '').trim()).find(Boolean);
+      if (firstMappedCity) {
+        document.getElementById('areaCity').value = firstMappedCity;
+      }
+    }
+
+    function refreshVisibleAreas() {
+      renderAreas();
+      drawExistingAreas();
+    }
+
     function renderAreas() {
       const body = document.getElementById('areasBody');
-      if (!areas.length) {
-        body.innerHTML = '<tr><td colspan="4">No mapped areas yet.</td></tr>';
+      const cityAreas = visibleAreas();
+      if (!cityAreas.length) {
+        const cityName = document.getElementById('areaCity').value.trim();
+        body.innerHTML = `<tr><td colspan="4">No mapped areas${cityName ? ` for ${escapeHtml(cityName)}` : ''} yet.</td></tr>`;
         return;
       }
-      body.innerHTML = areas.map((area) => `
+      body.innerHTML = cityAreas.map((area) => `
         <tr>
           <td><strong>${escapeHtml(area.name)}</strong><br><small>${escapeHtml(area.city || 'Any city')}</small></td>
           <td>${area.own_delivery_active ? 'Active' : 'Off'}</td>
@@ -441,7 +486,7 @@
     function drawExistingAreas() {
       if (!map || !window.google) return;
       existingAreaPolygons.forEach((item) => item.setMap(null));
-      existingAreaPolygons = areas.map((area) => new google.maps.Polygon({
+      existingAreaPolygons = visibleAreas().map((area) => new google.maps.Polygon({
         paths: area.polygon || [],
         map,
         strokeColor: area.own_delivery_active ? '#178f49' : '#64748b',
@@ -464,6 +509,7 @@
       document.getElementById('ownDeliveryActive').checked = Boolean(area.own_delivery_active);
       document.getElementById('areaActive').checked = Boolean(area.is_active);
       drawPath(area.polygon || []);
+      refreshVisibleAreas();
     }
 
     async function saveArea() {
@@ -514,7 +560,10 @@
     document.getElementById('toggleMarking').addEventListener('click', toggleManualMarking);
     document.getElementById('undoPoint').addEventListener('click', () => drawPath(selectedPath.slice(0, -1)));
     document.getElementById('clearPolygon').addEventListener('click', () => drawPath([]));
+    document.getElementById('areaCity').addEventListener('input', refreshVisibleAreas);
+    document.getElementById('areaCity').addEventListener('change', refreshVisibleAreas);
     bindMarkerUi();
+    loadAreas();
     ensureMapScript();
   </script>
 

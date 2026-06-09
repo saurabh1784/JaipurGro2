@@ -599,19 +599,17 @@
       <section class="settings-panel" id="delivery-partners" aria-labelledby="delivery-partners-tab">
         <div class="panel-header blue-header">
           <h2>Delivery Partner Settings</h2>
-          <p>Assign active delivery staff to service cities used by order delivery.</p>
+          <p>Assign active delivery staff to mapped areas created on the Area Definition page.</p>
         </div>
 
         <div class="delivery-partner-toolbar">
           <label>
             Add City
-            <input id="deliveryCityInput" type="text" placeholder="e.g. Jaipur" list="deliveryCityOptions" />
-            <datalist id="deliveryCityOptions"></datalist>
+            <select id="deliveryCityInput"></select>
           </label>
           <label>
-            Add Area
-            <input id="deliveryAreaInput" type="text" placeholder="e.g. Mansarovar or *" list="deliveryAreaOptions" />
-            <datalist id="deliveryAreaOptions"></datalist>
+            Add Mapped Area
+            <select id="deliveryAreaInput"></select>
           </label>
           <button class="settings-save" type="button" onclick="openDeliveryPartnerModal()">Add Delivery Partner</button>
           <button class="settings-save" type="button" onclick="saveDeliveryPartnerSettings()">Save Delivery Partners</button>
@@ -940,11 +938,12 @@
         </label>
         <label class="settings-wide">
           City
-          <input id="deliveryPartnerCity" type="text" list="deliveryCityOptions" placeholder="Type city and click Add City" />
+          <select id="deliveryPartnerCity"></select>
         </label>
         <label class="settings-wide">
-          Area
-          <input id="deliveryPartnerArea" type="text" list="deliveryAreaOptions" placeholder="Type area or * for all areas" />
+          Mapped Area
+          <select id="deliveryPartnerArea" multiple size="6"></select>
+          <small class="commission-subtext">Select one or more mapped areas for this city, then click Add Area.</small>
         </label>
         <div class="settings-wide">
           <button class="product-secondary-button" type="button" onclick="addModalDeliveryCity()">Add Area</button>
@@ -1290,6 +1289,7 @@
     let deliveryPartnerSettings = [];
     let deliveryCities = [];
     let deliveryAreas = [];
+    let deliveryMappedAreas = [];
     let deliveryPartnerModalCities = [];
     let googleMapsLoadedKey = '';
     let googleMap = null;
@@ -1729,6 +1729,7 @@
         deliveryPartnerSettings = data.partners || [];
         deliveryCities = data.cities || [];
         deliveryAreas = data.areas || [];
+        deliveryMappedAreas = data.mapped_areas || [];
         renderDeliveryCityOptions();
         renderDeliveryAreaOptions();
         renderDeliveryPartners();
@@ -1738,15 +1739,47 @@
     }
 
     function renderDeliveryCityOptions() {
-      const list = document.getElementById('deliveryCityOptions');
-      list.innerHTML = deliveryCities.map((city) => `<option value="${escapeCatalog(city)}"></option>`).join('');
+      const options = ['<option value="">Select city</option>']
+        .concat(deliveryCities.map((city) => `<option value="${escapeCatalog(city)}">${escapeCatalog(city)}</option>`))
+        .join('');
+      ['deliveryCityInput', 'deliveryPartnerCity'].forEach((id) => {
+        const select = document.getElementById(id);
+        if (select) select.innerHTML = options;
+      });
     }
 
     function renderDeliveryAreaOptions() {
-      const list = document.getElementById('deliveryAreaOptions');
-      if (!list) return;
-      const areas = [...new Set(['*', ...deliveryAreas.map((item) => item.area || '').filter(Boolean)])];
-      list.innerHTML = areas.map((area) => `<option value="${escapeCatalog(area)}"></option>`).join('');
+      ['deliveryAreaInput', 'deliveryPartnerArea'].forEach((id) => populateDeliveryAreaSelect(id));
+    }
+
+    function mappedAreasForCity(city) {
+      const selectedCity = String(city || '').trim().toLowerCase();
+      return deliveryMappedAreas.filter((area) => !selectedCity || String(area.city || '').trim().toLowerCase() === selectedCity);
+    }
+
+    function populateDeliveryAreaSelect(id) {
+      const select = document.getElementById(id);
+      if (!select) return;
+      const citySelectId = id === 'deliveryPartnerArea' ? 'deliveryPartnerCity' : 'deliveryCityInput';
+      const city = document.getElementById(citySelectId)?.value || '';
+      const mappedAreas = mappedAreasForCity(city);
+      const options = id === 'deliveryPartnerArea'
+        ? []
+        : ['<option value="">Select mapped area</option>'];
+      if (city) options.push('<option value="*">All mapped areas in selected city</option>');
+      mappedAreas.forEach((area) => {
+        options.push(`<option value="${escapeCatalog(area.area)}" data-city="${escapeCatalog(area.city)}">${escapeCatalog(area.city)} - ${escapeCatalog(area.area)}</option>`);
+      });
+      select.innerHTML = options.join('');
+    }
+
+    function findMappedArea(city, area) {
+      const cityKey = String(city || '').trim().toLowerCase();
+      const areaKey = String(area || '').trim().toLowerCase();
+      return deliveryMappedAreas.find((item) => (
+        String(item.city || '').trim().toLowerCase() === cityKey
+        && String(item.area || '').trim().toLowerCase() === areaKey
+      ));
     }
 
     function normalizeDeliveryArea(entry) {
@@ -1813,26 +1846,26 @@
 
     function addDeliveryCity(partnerId) {
       const city = document.getElementById('deliveryCityInput').value.trim();
-      const area = document.getElementById('deliveryAreaInput').value.trim() || '*';
+      const area = document.getElementById('deliveryAreaInput').value.trim();
       if (!city) {
-        alert('Enter or select a city first.');
+        alert('Select a city first.');
+        return;
+      }
+      if (!area) {
+        alert('Select a mapped area first.');
+        return;
+      }
+      const mappedArea = area === '*' ? null : findMappedArea(city, area);
+      if (area !== '*' && !mappedArea) {
+        alert('Select an area created on the Area Definition page.');
         return;
       }
       const partner = deliveryPartnerSettings.find((item) => Number(item.id) === Number(partnerId));
       if (!partner) return;
-      const entry = { city, area };
+      const entry = { city, area, area_definition_id: mappedArea ? mappedArea.id : null };
       const areas = partnerCities(partner);
       if (!areas.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
         partner.cities = [...(partner.cities || []), { ...entry, is_active: 1 }];
-      }
-      if (!deliveryCities.some((item) => item.toLowerCase() === city.toLowerCase())) {
-        deliveryCities.push(city);
-        deliveryCities.sort();
-        renderDeliveryCityOptions();
-      }
-      if (!deliveryAreas.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
-        deliveryAreas.push(entry);
-        renderDeliveryAreaOptions();
       }
       renderDeliveryPartners();
     }
@@ -1881,6 +1914,7 @@
       document.getElementById('deliveryPartnerPassword').required = !partner;
       document.getElementById('deliveryPartnerCity').value = '';
       document.getElementById('deliveryPartnerArea').value = '';
+      populateDeliveryAreaSelect('deliveryPartnerArea');
       deliveryPartnerModalCities = partner ? partnerCities(partner) : [];
       renderModalDeliveryCities();
       document.getElementById('deliveryPartnerModal').style.display = 'flex';
@@ -1907,23 +1941,26 @@
       const input = document.getElementById('deliveryPartnerCity');
       const areaInput = document.getElementById('deliveryPartnerArea');
       const city = input.value.trim();
-      const area = areaInput.value.trim() || '*';
+      const selectedAreas = Array.from(areaInput.selectedOptions || [])
+        .map((option) => option.value.trim())
+        .filter(Boolean);
       if (!city) return;
-      const entry = { city, area };
-      if (!deliveryPartnerModalCities.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
-        deliveryPartnerModalCities.push(entry);
+      if (!selectedAreas.length) {
+        alert('Select one or more mapped areas first.');
+        return;
       }
-      if (!deliveryCities.some((item) => item.toLowerCase() === city.toLowerCase())) {
-        deliveryCities.push(city);
-        deliveryCities.sort();
-        renderDeliveryCityOptions();
-      }
-      if (!deliveryAreas.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
-        deliveryAreas.push(entry);
-        renderDeliveryAreaOptions();
-      }
+
+      selectedAreas.forEach((area) => {
+        const mappedArea = area === '*' ? null : findMappedArea(city, area);
+        if (area !== '*' && !mappedArea) return;
+        const entry = { city, area, area_definition_id: mappedArea ? mappedArea.id : null };
+        if (!deliveryPartnerModalCities.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
+          deliveryPartnerModalCities.push(entry);
+        }
+      });
+
       input.value = '';
-      areaInput.value = '';
+      populateDeliveryAreaSelect('deliveryPartnerArea');
       renderModalDeliveryCities();
     }
 
@@ -1980,6 +2017,8 @@
     document.getElementById('commissionPreviewAmount').addEventListener('input', renderCommissionSettings);
     document.getElementById('roleSettingsSelect').addEventListener('change', renderRoleSettings);
     document.getElementById('googleMapsForm').addEventListener('submit', saveGoogleMapSettings);
+    document.getElementById('deliveryCityInput').addEventListener('change', () => populateDeliveryAreaSelect('deliveryAreaInput'));
+    document.getElementById('deliveryPartnerCity').addEventListener('change', () => populateDeliveryAreaSelect('deliveryPartnerArea'));
 
     loadCatalog();
     loadRoleSettings();

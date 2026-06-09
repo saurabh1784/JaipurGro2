@@ -4856,34 +4856,28 @@ app.get('/settings/delivery-partners', requireAuth, requirePermission('settings.
        GROUP BY u.id, u.name, u.email, u.phone
        ORDER BY u.name`
     );
-    const [cityRows] = await pool.query(
-      `SELECT DISTINCT city FROM client_profiles WHERE city IS NOT NULL AND TRIM(city) <> ''
-       UNION
-       SELECT DISTINCT city FROM vendor_profiles WHERE city IS NOT NULL AND TRIM(city) <> ''
-       UNION
-       SELECT DISTINCT shipping_city AS city FROM client_orders WHERE shipping_city IS NOT NULL AND TRIM(shipping_city) <> ''
-       UNION
-       SELECT DISTINCT city FROM delivery_partner_settings WHERE city IS NOT NULL AND TRIM(city) <> ''
-       ORDER BY city`
-    );
-    const [areaRows] = await pool.query(
-      `SELECT DISTINCT city, area FROM (
-         SELECT shipping_city AS city, COALESCE(NULLIF(TRIM(shipping_area), ''), NULLIF(TRIM(shipping_pincode), ''), '*') AS area
-         FROM client_orders
-         WHERE shipping_city IS NOT NULL AND TRIM(shipping_city) <> ''
-         UNION
-         SELECT city, COALESCE(NULLIF(TRIM(area), ''), '*') AS area
-         FROM delivery_partner_settings
-         WHERE city IS NOT NULL AND TRIM(city) <> ''
-       ) area_source
-       WHERE area IS NOT NULL AND TRIM(area) <> ''
-       ORDER BY city, area`
-    );
+    const mappedAreas = await AreaDefinition.list({ includeInactive: false });
+    const mappedDeliveryAreas = mappedAreas
+      .filter((area) => area.name && area.city)
+      .map((area) => ({
+        id: area.id,
+        city: area.city,
+        area: area.name,
+        own_delivery_active: area.own_delivery_active,
+      }));
+    const cityRows = [...new Set(mappedDeliveryAreas.map((area) => area.city).filter(Boolean))]
+      .sort((left, right) => left.localeCompare(right))
+      .map((city) => ({ city }));
+    const allAreaRows = [
+      ...mappedDeliveryAreas,
+      ...cityRows.map((row) => ({ city: row.city, area: '*', id: null, is_all_area: true })),
+    ];
     res.json({
       success: true,
       partners,
       cities: cityRows.map((row) => row.city),
-      areas: areaRows,
+      areas: allAreaRows,
+      mapped_areas: mappedDeliveryAreas,
     });
   } catch (error) {
     console.error('Delivery partner settings load error:', error);
@@ -4913,12 +4907,79 @@ function normalizeDeliveryAreaEntries(input) {
   return entries;
 }
 
+async function resolveMappedDeliveryAreaEntries(input, connection = pool) {
+  const normalizedEntries = normalizeDeliveryAreaEntries(input);
+  const mappedAreas = await AreaDefinition.list({ includeInactive: false });
+  const mappedById = new Map(mappedAreas.map((area) => [String(area.id), area]));
+  const mappedByCityArea = new Map(mappedAreas.map((area) => [
+    `${String(area.city || '').trim().toLowerCase()}::${String(area.name || '').trim().toLowerCase()}`,
+    area,
+  ]));
+  const mappedCityKeys = new Set(mappedAreas.map((area) => String(area.city || '').trim().toLowerCase()).filter(Boolean));
+  const seen = new Set();
+  const resolved = [];
+
+  for (const rawEntry of Array.isArray(input) ? input : []) {
+    const requestedId = rawEntry && typeof rawEntry === 'object'
+      ? Number(rawEntry.area_definition_id || rawEntry.areaDefinitionId || rawEntry.id || 0)
+      : 0;
+    const mappedArea = requestedId ? mappedById.get(String(requestedId)) : null;
+    const entry = mappedArea
+      ? { city: mappedArea.city, area: mappedArea.name }
+      : normalizeDeliveryAreaEntries([rawEntry])[0];
+    if (!entry || !entry.city) continue;
+
+    if (entry.area === '*' && !mappedCityKeys.has(entry.city.toLowerCase())) {
+      const error = new Error(`No mapped delivery areas are defined for ${entry.city}`);
+      error.status = 422;
+      throw error;
+    }
+
+    if (entry.area !== '*') {
+      const key = `${entry.city.toLowerCase()}::${entry.area.toLowerCase()}`;
+      if (!mappedByCityArea.has(key)) {
+        const error = new Error(`Delivery area "${entry.area}" in ${entry.city} is not defined on the Area Definition map page`);
+        error.status = 422;
+        throw error;
+      }
+    }
+
+    const resolvedKey = `${entry.city.toLowerCase()}::${entry.area.toLowerCase()}`;
+    if (seen.has(resolvedKey)) continue;
+    seen.add(resolvedKey);
+    resolved.push(entry);
+  }
+
+  for (const entry of normalizedEntries) {
+    const resolvedKey = `${entry.city.toLowerCase()}::${entry.area.toLowerCase()}`;
+    if (seen.has(resolvedKey)) continue;
+    if (entry.area === '*' && !mappedCityKeys.has(entry.city.toLowerCase())) {
+      const error = new Error(`No mapped delivery areas are defined for ${entry.city}`);
+      error.status = 422;
+      throw error;
+    }
+
+    if (entry.area !== '*') {
+      const key = `${entry.city.toLowerCase()}::${entry.area.toLowerCase()}`;
+      if (!mappedByCityArea.has(key)) {
+        const error = new Error(`Delivery area "${entry.area}" in ${entry.city} is not defined on the Area Definition map page`);
+        error.status = 422;
+        throw error;
+      }
+    }
+    seen.add(resolvedKey);
+    resolved.push(entry);
+  }
+
+  return resolved;
+}
+
 app.post('/settings/delivery-partners', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
   const phone = String(req.body.phone || '').trim();
   const password = String(req.body.password || '').trim();
-  const deliveryAreas = normalizeDeliveryAreaEntries(req.body.delivery_areas || req.body.areas || req.body.cities);
+  const requestedDeliveryAreas = req.body.delivery_areas || req.body.areas || req.body.cities;
 
   if (!name || name.length < 2) return res.status(422).json({ success: false, message: 'Name is required' });
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(422).json({ success: false, message: 'Valid email is required' });
@@ -4927,6 +4988,7 @@ app.post('/settings/delivery-partners', requireAuth, requirePermission('settings
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const deliveryAreas = await resolveMappedDeliveryAreaEntries(requestedDeliveryAreas, connection);
     const [duplicates] = await connection.query(
       'SELECT id FROM users WHERE is_deleted = 0 AND (email = ? OR (? <> ? AND phone = ?)) LIMIT 1',
       [email, phone, '', phone]
@@ -4972,7 +5034,7 @@ app.put('/settings/delivery-partners', requireAuth, requirePermission('settings.
 
     for (const assignment of assignments) {
       const userId = Number(assignment.user_id);
-      const deliveryAreas = normalizeDeliveryAreaEntries(assignment.delivery_areas || assignment.areas || assignment.cities);
+      const deliveryAreas = await resolveMappedDeliveryAreaEntries(assignment.delivery_areas || assignment.areas || assignment.cities, connection);
       if (!userId) continue;
 
       const [staffRows] = await connection.query(
@@ -5007,7 +5069,7 @@ app.put('/settings/delivery-partners/:id', requireAuth, requirePermission('setti
   const email = String(req.body.email || '').trim().toLowerCase();
   const phone = String(req.body.phone || '').trim();
   const password = String(req.body.password || '').trim();
-  const deliveryAreas = normalizeDeliveryAreaEntries(req.body.delivery_areas || req.body.areas || req.body.cities);
+  const requestedDeliveryAreas = req.body.delivery_areas || req.body.areas || req.body.cities;
 
   if (!id) return res.status(422).json({ success: false, message: 'Valid delivery partner is required' });
   if (!name || name.length < 2) return res.status(422).json({ success: false, message: 'Name is required' });
@@ -5017,6 +5079,7 @@ app.put('/settings/delivery-partners/:id', requireAuth, requirePermission('setti
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
+    const deliveryAreas = await resolveMappedDeliveryAreaEntries(requestedDeliveryAreas, connection);
     const [existingRows] = await connection.query(
       "SELECT id FROM users WHERE id = ? AND LOWER(role) = 'staff' AND is_deleted = 0 LIMIT 1",
       [id]

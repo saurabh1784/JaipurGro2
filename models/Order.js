@@ -622,6 +622,15 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
       return { orderId, partnerId: 'own_delivery', otp, deliveryCharge, otpSetBy: actorUser ? actorUser.id : null };
     }
 
+    const mappedDeliveryArea = await AreaDefinition.findMatchingArea({
+      latitude: order.shipping_latitude,
+      longitude: order.shipping_longitude,
+      city: order.shipping_city,
+      area: order.shipping_area || order.shipping_pincode,
+    }, connection);
+    const mappedDeliveryCity = mappedDeliveryArea && mappedDeliveryArea.city ? mappedDeliveryArea.city : null;
+    const mappedDeliveryAreaName = mappedDeliveryArea && mappedDeliveryArea.name ? mappedDeliveryArea.name : null;
+
     // Verify partner exists, is Staff role, and is enabled for the order city/area.
     const [partnerRows] = await connection.query(
       `SELECT u.id, u.name, u.role
@@ -638,10 +647,10 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
        LEFT JOIN delivery_partner_settings dps
          ON dps.user_id = u.id
         AND dps.is_active = 1
-        AND LOWER(TRIM(dps.city)) = LOWER(COALESCE(NULLIF(TRIM(o.shipping_city), ''), NULLIF(TRIM(cp.city), ''), NULLIF(TRIM(vp.city), '')))
+        AND LOWER(TRIM(dps.city)) = LOWER(COALESCE(NULLIF(TRIM(?), ''), NULLIF(TRIM(o.shipping_city), ''), NULLIF(TRIM(cp.city), ''), NULLIF(TRIM(vp.city), '')))
         AND (
           TRIM(COALESCE(dps.area, '*')) = '*'
-          OR LOWER(TRIM(dps.area)) = LOWER(COALESCE(NULLIF(TRIM(o.shipping_area), ''), NULLIF(TRIM(o.shipping_pincode), ''), NULLIF(TRIM(o.shipping_address), '')))
+          OR LOWER(TRIM(dps.area)) = LOWER(COALESCE(NULLIF(TRIM(?), ''), NULLIF(TRIM(o.shipping_area), ''), NULLIF(TRIM(o.shipping_pincode), ''), NULLIF(TRIM(o.shipping_address), '')))
         )
        WHERE u.id = ?
          AND LOWER(u.status) = 'active'
@@ -649,7 +658,7 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
          AND LOWER(u.role) = 'staff'
          AND dps.id IS NOT NULL
        LIMIT 1`,
-      [orderId, partnerId]
+      [orderId, mappedDeliveryCity, mappedDeliveryAreaName, partnerId]
     );
     if (!partnerRows.length) {
       throw new Error('Delivery partner service is not active for this order area');

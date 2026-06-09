@@ -507,15 +507,23 @@ async function getDeliveryPartners(req, res) {
     const area = String(req.query.area || req.query.pincode || '').trim();
     const latitude = Number(req.query.latitude ?? req.query.lat);
     const longitude = Number(req.query.longitude ?? req.query.lng);
-    const params = city ? [city, city, area || '*'] : [];
-    const cityFilter = city
+    const ownDelivery = await AreaDefinition.isOwnDeliveryActiveForLocation({
+      latitude,
+      longitude,
+      city,
+      area,
+    });
+    const matchedCity = ownDelivery.area && ownDelivery.area.city ? ownDelivery.area.city : city;
+    const matchedArea = ownDelivery.area && ownDelivery.area.name ? ownDelivery.area.name : area;
+    const params = matchedCity ? [matchedCity, matchedCity, matchedArea || '*'] : [];
+    const cityFilter = matchedCity
       ? `AND LOWER(TRIM(dps.city)) = LOWER(TRIM(?))
          AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(?)))`
       : '';
 
     const [rows] = await pool.query(
       `SELECT u.id, u.name, u.email, u.phone,
-              ${city ? "COALESCE(MIN(CASE WHEN LOWER(TRIM(dps.city)) = LOWER(TRIM(?)) THEN dps.city END), MIN(dps.city), '') AS city" : "COALESCE(MIN(dps.city), '') AS city"},
+              ${matchedCity ? "COALESCE(MIN(CASE WHEN LOWER(TRIM(dps.city)) = LOWER(TRIM(?)) THEN dps.city END), MIN(dps.city), '') AS city" : "COALESCE(MIN(dps.city), '') AS city"},
               COALESCE(MIN(dps.area), '*') AS area
        FROM users u
        INNER JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
@@ -527,20 +535,14 @@ async function getDeliveryPartners(req, res) {
        ORDER BY u.name`,
       params
     );
-    const ownDelivery = await AreaDefinition.isOwnDeliveryActiveForLocation({
-      latitude,
-      longitude,
-      city,
-      area,
-    });
     const partners = ownDelivery.active
       ? [{
         id: 'own_delivery',
         name: 'Own Delivery',
         email: '',
         phone: '',
-        city: ownDelivery.area ? ownDelivery.area.city : city,
-        area: ownDelivery.area ? ownDelivery.area.name : area,
+        city: ownDelivery.area ? ownDelivery.area.city : matchedCity,
+        area: ownDelivery.area ? ownDelivery.area.name : matchedArea,
         is_own_delivery: true,
       }, ...rows]
       : rows;
