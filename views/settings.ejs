@@ -102,16 +102,36 @@
           <p>Maintenance actions for testing and rebuilding the application database.</p>
         </div>
         <% if (maintenance) { %>
+          <% const backupList = Array.isArray(databaseBackups) ? databaseBackups : []; %>
           <section class="maintenance-panel" aria-label="Admin maintenance">
             <div class="maintenance-copy">
               <span>Debug maintenance</span>
-              <h2>Database and test data tools</h2>
-              <p>Use these only for testing. Database restore drops every table, recreates the schema, and reloads default seed data.</p>
+              <h2>Database backup, restore, and clean tools</h2>
+              <p>Use these only for testing. Backup exports all app tables. Clean drops every table, recreates the schema, and reloads default seed data.</p>
             </div>
             <div class="maintenance-actions">
-              <form method="post" action="/admin/maintenance/restore-database" onsubmit="return confirmDatabaseRestore();">
-                <strong>Drop all tables and recreate the database</strong>
-                <button class="danger-action-button" type="submit">Restore database</button>
+              <form method="post" action="/admin/maintenance/backup-database" onsubmit="return confirmDatabaseBackup();">
+                <strong>Create a complete JSON database backup</strong>
+                <button class="settings-save" type="submit">Backup database</button>
+              </form>
+              <form method="post" action="/admin/maintenance/restore-database-backup" onsubmit="return confirmRestoreBackup();">
+                <strong>Restore from saved backup</strong>
+                <select name="backup_name" required>
+                  <option value="">Select backup</option>
+                  <% backupList.forEach((backup) => { %>
+                    <option value="<%= backup.name %>"><%= backup.name %></option>
+                  <% }) %>
+                </select>
+                <button class="danger-action-button" type="submit" <%= backupList.length ? '' : 'disabled' %>>Restore backup</button>
+              </form>
+              <form method="post" action="/admin/maintenance/restore-database-upload" enctype="multipart/form-data" onsubmit="return confirmRestoreUpload();">
+                <strong>Upload JSON backup and restore</strong>
+                <input type="file" name="backup" accept="application/json,.json" required />
+                <button class="danger-action-button" type="submit">Upload and restore</button>
+              </form>
+              <form method="post" action="/admin/maintenance/clean-database" onsubmit="return confirmCleanDatabase();">
+                <strong>Drop all tables and recreate an empty/default database</strong>
+                <button class="danger-action-button" type="submit">Clean database</button>
               </form>
               <form method="post" action="/admin/maintenance/clear-quotations-orders" onsubmit="return confirmMaintenanceClear();">
                 <strong><%= maintenance.quotationCount %> quotation(s) / <%= maintenance.orderCount %> order(s)</strong>
@@ -122,6 +142,18 @@
                 <button class="settings-save" type="submit">Reset vendor prices</button>
               </form>
             </div>
+            <% if (backupList.length) { %>
+              <div class="database-backup-list">
+                <h3>Saved backups</h3>
+                <% backupList.forEach((backup) => { %>
+                  <div class="database-backup-row">
+                    <span><%= backup.name %></span>
+                    <small><%= Math.ceil(backup.size / 1024) %> KB</small>
+                    <a class="settings-save backup-download-link" href="/admin/maintenance/database-backups/<%= encodeURIComponent(backup.name) %>">Download</a>
+                  </div>
+                <% }) %>
+              </div>
+            <% } %>
           </section>
         <% } %>
         <% if (!maintenance) { %>
@@ -664,6 +696,22 @@
 
     function confirmDatabaseRestore() {
       return window.confirm('Warning: this will drop every table, permanently delete all current data, and recreate the database schema. Continue?');
+    }
+
+    function confirmDatabaseBackup() {
+      return window.confirm('Create a complete JSON backup of the current database now?');
+    }
+
+    function confirmRestoreBackup() {
+      return window.confirm('Warning: this will replace the current database data with the selected backup. Continue?');
+    }
+
+    function confirmRestoreUpload() {
+      return window.confirm('Warning: this will upload a JSON backup and replace the current database data. Continue?');
+    }
+
+    function confirmCleanDatabase() {
+      return window.confirm('Warning: this will drop every table, permanently delete all current data, and recreate the database schema with default seed data. Continue?');
     }
 
     const tabs = document.querySelectorAll('.settings-tab');
@@ -1926,9 +1974,54 @@
       border: 1px solid #fed7aa;
       border-radius: 8px;
     }
+    .maintenance-actions select,
+    .maintenance-actions input[type="file"] {
+      width: 100%;
+      min-height: 40px;
+      border: 1px solid #fed7aa;
+      border-radius: 6px;
+      padding: 8px 10px;
+      background: #fff7ed;
+      color: #7c2d12;
+      font-weight: 700;
+    }
     .maintenance-actions strong {
       color: #7c2d12;
       font-size: 0.88rem;
+    }
+    .database-backup-list {
+      margin-top: 16px;
+      display: grid;
+      gap: 10px;
+    }
+    .database-backup-list h3 {
+      margin: 0;
+      color: #7c2d12;
+      font-size: 0.95rem;
+    }
+    .database-backup-row {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto auto;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .database-backup-row span {
+      min-width: 0;
+      overflow-wrap: anywhere;
+      color: #7c2d12;
+      font-weight: 800;
+    }
+    .database-backup-row small {
+      color: #9a3412;
+      font-weight: 700;
+    }
+    .backup-download-link {
+      text-align: center;
+      text-decoration: none;
     }
     .danger-action-button {
       border: 0;
@@ -1953,6 +2046,18 @@
     .theme-dark .maintenance-actions form {
       background: #111827;
       border-color: #7c2d12;
+    }
+    .theme-dark .maintenance-actions select,
+    .theme-dark .maintenance-actions input[type="file"],
+    .theme-dark .database-backup-row {
+      background: #111827;
+      border-color: #7c2d12;
+      color: #fed7aa;
+    }
+    .theme-dark .database-backup-list h3,
+    .theme-dark .database-backup-row span,
+    .theme-dark .database-backup-row small {
+      color: #fed7aa;
     }
     .settings-section-title {
       margin-bottom: 10px;

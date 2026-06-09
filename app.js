@@ -3,8 +3,13 @@ const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
+const multer = require('multer');
 const pgPool = require('./db');
-const { restoreSnapshotOnStartup } = require('./databaseSnapshot');
+const {
+  exportSnapshot,
+  restoreSnapshot,
+  restoreSnapshotOnStartup,
+} = require('./databaseSnapshot');
 const { runMigrations } = require('./migrationRunner');
 const vendorNotifications = require('./vendorNotifications');
 const authRoutes = require('./routes/authRoutes');
@@ -80,6 +85,65 @@ const appRevision = process.env.RENDER_GIT_COMMIT
   || process.env.COMMIT_SHA
   || process.env.SOURCE_VERSION
   || 'local';
+const manualBackupDir = path.join(__dirname, 'db-snapshots', 'manual');
+
+function ensureManualBackupDir() {
+  fs.mkdirSync(manualBackupDir, { recursive: true });
+}
+
+function backupFileName() {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+  return `manual-backup-${stamp}.json`;
+}
+
+function isSafeBackupFileName(name) {
+  return /^[-\w.]+\.json$/i.test(String(name || ''));
+}
+
+function manualBackupPath(name) {
+  if (!isSafeBackupFileName(name)) {
+    const error = new Error('Invalid backup file name');
+    error.status = 400;
+    throw error;
+  }
+
+  const resolved = path.resolve(manualBackupDir, name);
+  const root = path.resolve(manualBackupDir);
+  if (!resolved.startsWith(`${root}${path.sep}`)) {
+    const error = new Error('Invalid backup file path');
+    error.status = 400;
+    throw error;
+  }
+  return resolved;
+}
+
+function listManualBackupFiles() {
+  ensureManualBackupDir();
+  return fs.readdirSync(manualBackupDir, { withFileTypes: true })
+    .filter((entry) => entry.isFile() && isSafeBackupFileName(entry.name))
+    .map((entry) => {
+      const fullPath = path.join(manualBackupDir, entry.name);
+      const stat = fs.statSync(fullPath);
+      return {
+        name: entry.name,
+        size: stat.size,
+        createdAt: stat.birthtime,
+        updatedAt: stat.mtime,
+      };
+    })
+    .sort((a, b) => b.updatedAt - a.updatedAt);
+}
+
+const uploadDatabaseBackup = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/\.json$/i.test(file.originalname || '') || file.mimetype === 'application/json') {
+      return cb(null, true);
+    }
+    return cb(new Error('Only JSON database backup files are allowed'));
+  },
+});
 
 const permissionLabels = {
   all: 'All Access',
@@ -2335,6 +2399,38 @@ async function restoreDatabaseFromSettings() {
   }
 }
 
+async function backupDatabaseFromSettings() {
+  ensureManualBackupDir();
+  const outputFile = path.join(manualBackupDir, backupFileName());
+  const result = await exportSnapshot(pgPool, outputFile);
+  const stat = fs.statSync(outputFile);
+  return {
+    ...result,
+    name: path.basename(outputFile),
+    size: stat.size,
+  };
+}
+
+async function restoreDatabaseBackupFromFile(snapshotFile) {
+  if (databaseRestoreInProgress) {
+    const error = new Error('Database restore is already running');
+    error.status = 409;
+    throw error;
+  }
+
+  databaseRestoreInProgress = true;
+
+  try {
+    await initDatabase({ restoreSnapshot: false });
+    return await restoreSnapshot(pgPool, snapshotFile, {
+      force: true,
+      revision: `manual-${appRevision}`,
+    });
+  } finally {
+    databaseRestoreInProgress = false;
+  }
+}
+
 async function syncVendorPricesToMasterProducts() {
   const [result] = await pool.query(
     `UPDATE vendor_products vp
@@ -2606,7 +2702,7 @@ app.post('/admin/maintenance/sync-vendor-prices', requireAuth, requireAdminMaint
 app.post('/admin/maintenance/restore-database', requireAuth, requireAdminMaintenance, async (req, res) => {
   try {
     const droppedTables = await restoreDatabaseFromSettings();
-    const detail = `Database restored successfully. Dropped and recreated ${droppedTables} table(s).`;
+    const detail = `Database cleaned successfully. Dropped and recreated ${droppedTables} table(s).`;
     return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
   } catch (error) {
     console.error('Admin maintenance database restore failed:', error);
@@ -2616,6 +2712,94 @@ app.post('/admin/maintenance/restore-database', requireAuth, requireAdminMainten
       : 'Unable to restore database. Check server logs.';
     return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
   }
+});
+
+app.post('/admin/maintenance/clean-database', requireAuth, requireAdminMaintenance, async (req, res) => {
+  try {
+    const droppedTables = await restoreDatabaseFromSettings();
+    const detail = `Database cleaned successfully. Dropped and recreated ${droppedTables} table(s).`;
+    return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Admin maintenance database clean failed:', error);
+    const status = Number(error.status || 500);
+    const message = status === 409
+      ? 'Database maintenance is already running. Please wait for it to finish.'
+      : 'Unable to clean database. Check server logs.';
+    return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
+  }
+});
+
+app.post('/admin/maintenance/backup-database', requireAuth, requireAdminMaintenance, async (req, res) => {
+  try {
+    const backup = await backupDatabaseFromSettings();
+    const detail = `Database backup created: ${backup.name} (${backup.tables} table(s), ${backup.size} bytes).`;
+    return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Admin maintenance database backup failed:', error);
+    return res.redirect(`/settings?error=${encodeURIComponent('Unable to create database backup. Check server logs.')}`);
+  }
+});
+
+app.get('/admin/maintenance/database-backups/:name', requireAuth, requireAdminMaintenance, (req, res) => {
+  try {
+    const filePath = manualBackupPath(req.params.name);
+    if (!fs.existsSync(filePath)) {
+      return res.redirect(`/settings?error=${encodeURIComponent('Backup file was not found.')}`);
+    }
+    return res.download(filePath, path.basename(filePath));
+  } catch (error) {
+    console.error('Admin maintenance database backup download failed:', error);
+    return res.redirect(`/settings?error=${encodeURIComponent(error.message || 'Unable to download backup file.')}`);
+  }
+});
+
+app.post('/admin/maintenance/restore-database-backup', requireAuth, requireAdminMaintenance, async (req, res) => {
+  try {
+    const filePath = manualBackupPath(req.body.backup_name);
+    if (!fs.existsSync(filePath)) {
+      return res.redirect(`/settings?error=${encodeURIComponent('Backup file was not found.')}`);
+    }
+    const result = await restoreDatabaseBackupFromFile(filePath);
+    const detail = `Database restored from ${path.basename(filePath)} (${result.tables || 0} table(s)).`;
+    return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Admin maintenance database backup restore failed:', error);
+    const status = Number(error.status || 500);
+    const message = status === 409
+      ? 'Database maintenance is already running. Please wait for it to finish.'
+      : 'Unable to restore database backup. Check server logs.';
+    return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
+  }
+});
+
+app.post('/admin/maintenance/restore-database-upload', requireAuth, requireAdminMaintenance, (req, res) => {
+  uploadDatabaseBackup.single('backup')(req, res, async (uploadError) => {
+    if (uploadError) {
+      return res.redirect(`/settings?error=${encodeURIComponent(uploadError.message || 'Invalid backup upload.')}`);
+    }
+    if (!req.file) {
+      return res.redirect(`/settings?error=${encodeURIComponent('Choose a JSON backup file to restore.')}`);
+    }
+
+    try {
+      ensureManualBackupDir();
+      const originalBase = path.basename(req.file.originalname || 'uploaded-backup.json').replace(/[^-\w.]+/g, '-');
+      const safeOriginal = isSafeBackupFileName(originalBase) ? originalBase : 'uploaded-backup.json';
+      const outputFile = path.join(manualBackupDir, `uploaded-${Date.now()}-${safeOriginal}`);
+      JSON.parse(req.file.buffer.toString('utf8'));
+      fs.writeFileSync(outputFile, req.file.buffer);
+      const result = await restoreDatabaseBackupFromFile(outputFile);
+      const detail = `Database restored from uploaded backup ${path.basename(outputFile)} (${result.tables || 0} table(s)).`;
+      return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
+    } catch (error) {
+      console.error('Admin maintenance uploaded database restore failed:', error);
+      const status = Number(error.status || 500);
+      const message = status === 409
+        ? 'Database maintenance is already running. Please wait for it to finish.'
+        : 'Unable to restore uploaded backup. Make sure it is a valid database snapshot JSON file.';
+      return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
+    }
+  });
 });
 
 app.get('/vendor/dashboard', requireSessionRole('Vendor', '/login/vendor'), async (req, res) => {
@@ -4328,10 +4512,19 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
   const quotationSubmissionMinutes = Number(await settingValue('quotation_submission_minutes', '1440')) || 1440;
   const invoiceSettings = await getInvoiceSettings();
   const canRunMaintenance = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
+  let databaseBackups = [];
+  if (canRunMaintenance) {
+    try {
+      databaseBackups = listManualBackupFiles();
+    } catch (error) {
+      console.error('Database backup list error:', error);
+    }
+  }
   res.render('settings', {
     user: req.session.user,
     permissionLabels,
     maintenance: canRunMaintenance ? await getAdminMaintenanceStats() : null,
+    databaseBackups,
     error: req.query.error || null,
     message: req.query.message || null,
     settings: {
