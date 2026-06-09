@@ -97,8 +97,13 @@ async function updateCategory(req, res) {
 }
 
 async function deleteCategory(req, res) {
-  await Catalog.deleteCategory(req.params.id);
-  res.json({ success: true, message: 'Category deleted' });
+  try {
+    await Catalog.deleteCategory(req.params.id);
+    res.json({ success: true, message: 'Category deleted' });
+  } catch (error) {
+    console.error('Delete category error:', error);
+    res.status(500).json({ success: false, message: 'Unable to delete category' });
+  }
 }
 
 async function listSubcategories(req, res) {

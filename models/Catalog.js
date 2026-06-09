@@ -146,15 +146,35 @@ async function updateCategory(id, { name, slug, is_active, tax_name, tax_percent
 }
 
 async function deleteCategory(id) {
-  await pool.query("UPDATE categories SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE id = ?", [id]);
-  await pool.query(
-    `UPDATE sub_categories s
-     LEFT JOIN brands b ON b.sub_category_id = s.id
-     SET s.is_deleted = 1, s.status = 'inactive', s.is_active = 0,
-         b.is_deleted = 1, b.status = 'inactive', b.is_active = 0
-     WHERE s.category_id = ?`,
-    [id]
-  );
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    await connection.query(
+      "UPDATE categories SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE id = ?",
+      [id]
+    );
+    await connection.query(
+      "UPDATE sub_categories SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE category_id = ?",
+      [id]
+    );
+    await connection.query(
+      "UPDATE brands SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE category_id = ?",
+      [id]
+    );
+    await connection.query(
+      "UPDATE products SET is_deleted = 1 WHERE category_id = ?",
+      [id]
+    );
+
+    await connection.commit();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
 }
 
 async function createSubcategory({ category_id, name, slug, image_path, is_active }) {
