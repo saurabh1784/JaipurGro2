@@ -42,6 +42,7 @@ const ProductSearch = require('./models/ProductSearch');
 const Promotion = require('./models/Promotion');
 const SupportTicket = require('./models/SupportTicket');
 const VendorCategoryRequest = require('./models/VendorCategoryRequest');
+const AreaDefinition = require('./models/AreaDefinition');
 const { findOrCreateGoogleClient, publicGoogleConfig } = require('./services/googleClientAuthService');
 const {
   uploadBrandLogo,
@@ -924,6 +925,7 @@ async function initDatabase(options = {}) {
       recipient_name VARCHAR(120) DEFAULT NULL,
       phone VARCHAR(30) DEFAULT NULL,
       address TEXT NOT NULL,
+      area VARCHAR(120) DEFAULT NULL,
       city VARCHAR(80) DEFAULT NULL,
       state VARCHAR(80) DEFAULT NULL,
       country VARCHAR(80) DEFAULT NULL,
@@ -936,6 +938,9 @@ async function initDatabase(options = {}) {
       CONSTRAINT fk_client_delivery_addresses_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await addColumnIfMissing('client_delivery_addresses', 'area', 'VARCHAR(120) DEFAULT NULL AFTER address');
+  await addColumnIfMissing('client_delivery_addresses', 'latitude', 'DECIMAL(10,7) DEFAULT NULL AFTER pincode');
+  await addColumnIfMissing('client_delivery_addresses', 'longitude', 'DECIMAL(10,7) DEFAULT NULL AFTER latitude');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_profiles (
@@ -1266,6 +1271,7 @@ async function initDatabase(options = {}) {
        shipping_name VARCHAR(120) DEFAULT NULL,
        shipping_phone VARCHAR(30) DEFAULT NULL,
        shipping_address TEXT DEFAULT NULL,
+       shipping_area VARCHAR(120) DEFAULT NULL,
        shipping_city VARCHAR(80) DEFAULT NULL,
        shipping_state VARCHAR(80) DEFAULT NULL,
        shipping_country VARCHAR(80) DEFAULT NULL,
@@ -1304,6 +1310,7 @@ async function initDatabase(options = {}) {
        shipping_name VARCHAR(120) DEFAULT NULL,
        shipping_phone VARCHAR(30) DEFAULT NULL,
        shipping_address TEXT DEFAULT NULL,
+       shipping_area VARCHAR(120) DEFAULT NULL,
        shipping_city VARCHAR(80) DEFAULT NULL,
        shipping_state VARCHAR(80) DEFAULT NULL,
        shipping_country VARCHAR(80) DEFAULT NULL,
@@ -1339,10 +1346,14 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_orders', 'shipping_name', 'VARCHAR(120) DEFAULT NULL AFTER shipping_address_id');
   await addColumnIfMissing('client_orders', 'shipping_phone', 'VARCHAR(30) DEFAULT NULL AFTER shipping_name');
   await addColumnIfMissing('client_orders', 'shipping_address', 'TEXT DEFAULT NULL AFTER shipping_phone');
+  await addColumnIfMissing('client_orders', 'shipping_area', 'VARCHAR(120) DEFAULT NULL AFTER shipping_address');
   await addColumnIfMissing('client_orders', 'shipping_city', 'VARCHAR(80) DEFAULT NULL AFTER shipping_address');
   await addColumnIfMissing('client_orders', 'shipping_state', 'VARCHAR(80) DEFAULT NULL AFTER shipping_city');
   await addColumnIfMissing('client_orders', 'shipping_country', 'VARCHAR(80) DEFAULT NULL AFTER shipping_state');
   await addColumnIfMissing('client_orders', 'shipping_pincode', 'VARCHAR(20) DEFAULT NULL AFTER shipping_country');
+  await addColumnIfMissing('client_orders', 'shipping_latitude', 'DECIMAL(10,7) DEFAULT NULL AFTER shipping_pincode');
+  await addColumnIfMissing('client_orders', 'shipping_longitude', 'DECIMAL(10,7) DEFAULT NULL AFTER shipping_latitude');
+  await addColumnIfMissing('client_orders', 'delivery_method', "VARCHAR(30) NOT NULL DEFAULT 'partner' AFTER delivery_partner_id");
   await addColumnIfMissing('client_orders', 'assigned_at', 'TIMESTAMP NULL DEFAULT NULL AFTER shipping_pincode');
   await addColumnIfMissing('client_orders', 'ready_at', 'TIMESTAMP NULL DEFAULT NULL AFTER assigned_at');
   await addColumnIfMissing('client_orders', 'delivered_at', 'TIMESTAMP NULL DEFAULT NULL AFTER ready_at');
@@ -1580,13 +1591,35 @@ async function initDatabase(options = {}) {
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       user_id INT UNSIGNED NOT NULL,
       city VARCHAR(100) NOT NULL,
+      area VARCHAR(120) NOT NULL DEFAULT '*',
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
-      UNIQUE KEY uniq_delivery_partner_city (user_id, city),
+      UNIQUE KEY uniq_delivery_partner_city_area (user_id, city, area),
       KEY idx_delivery_partner_city (city, is_active),
       CONSTRAINT fk_delivery_partner_settings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('delivery_partner_settings', 'area', "VARCHAR(120) NOT NULL DEFAULT '*' AFTER city");
+  await pool.query('ALTER TABLE delivery_partner_settings DROP CONSTRAINT IF EXISTS uniq_delivery_partner_city');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uniq_delivery_partner_city_area ON delivery_partner_settings (user_id, city, area)');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS area_definitions (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      name VARCHAR(150) NOT NULL,
+      city VARCHAR(80) DEFAULT NULL,
+      polygon JSON NOT NULL,
+      center_lat DECIMAL(10,7) DEFAULT NULL,
+      center_lng DECIMAL(10,7) DEFAULT NULL,
+      own_delivery_active TINYINT(1) NOT NULL DEFAULT 0,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_area_definitions_city (city, is_active),
+      KEY idx_area_definitions_own_delivery (own_delivery_active, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await pool.query(`
@@ -1941,6 +1974,7 @@ function buildShell(user, activePath = '/dashboard') {
       navItem('Coupon History', '/coupons/history', 'coupon_history.view', 'reports', activePath.startsWith('/coupons/history')),
     ]),
     navItem('Reports', '#', 'reports.view', 'reports', false),
+    navItem('Area Definition', '/area-definitions', 'settings.manage', 'settings', activePath.startsWith('/area-definitions')),
     navItem('Delivery Charge Settings', '/delivery-charge-settings', 'settings.manage', 'settings', activePath.startsWith('/delivery-charge-settings')),
     navItem('Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings')),
   ]
@@ -3309,6 +3343,7 @@ app.use('/orders/client', requireAuth, requireSessionRole('Client', '/login/clie
 app.use('/api/orders/admin', webOrJwtAuth, orderRoutes.adminRouter);
 app.use('/api/orders/vendor', webOrJwtAuth, orderRoutes.vendorRouter);
 app.use('/api/orders/client', webOrJwtAuth, orderRoutes.clientRouter);
+app.use('/api/orders/delivery', webOrJwtAuth, orderRoutes.deliveryRouter);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
@@ -3377,10 +3412,13 @@ function normalizeDeliveryAddress(row) {
     recipient_name: row.recipient_name || '',
     phone: row.phone || '',
     address: row.address || '',
+    area: row.area || '',
     city: row.city || '',
     state: row.state || '',
     country: row.country || '',
     pincode: row.pincode || '',
+    latitude: row.latitude === null || row.latitude === undefined ? null : Number(row.latitude),
+    longitude: row.longitude === null || row.longitude === undefined ? null : Number(row.longitude),
     is_default: Boolean(row.is_default),
     created_at: row.created_at,
     updated_at: row.updated_at,
@@ -3388,15 +3426,20 @@ function normalizeDeliveryAddress(row) {
 }
 
 function deliveryAddressPayload(body) {
+  const latitude = Number(body.latitude ?? body.lat);
+  const longitude = Number(body.longitude ?? body.lng);
   return {
     label: String(body.label || 'Home').trim().slice(0, 80) || 'Home',
     recipient_name: String(body.recipient_name || body.recipientName || '').trim().slice(0, 120) || null,
     phone: String(body.phone || '').trim().slice(0, 30) || null,
     address: String(body.address || '').trim(),
+    area: String(body.area || body.locality || '').trim().slice(0, 120) || null,
     city: String(body.city || '').trim().slice(0, 80) || null,
     state: String(body.state || '').trim().slice(0, 80) || null,
     country: String(body.country || 'India').trim().slice(0, 80) || 'India',
     pincode: String(body.pincode || body.pinCode || '').trim().slice(0, 20) || null,
+    latitude: Number.isFinite(latitude) ? latitude : null,
+    longitude: Number.isFinite(longitude) ? longitude : null,
     is_default: Boolean(body.is_default || body.isDefault),
   };
 }
@@ -3430,10 +3473,13 @@ function buildShippingSnapshot(client, selectedAddress) {
     shippingAddressId: selectedAddress ? selectedAddress.id : null,
     shippingName: (selectedAddress && selectedAddress.recipient_name) || client.name || null,
     shippingPhone: (selectedAddress && selectedAddress.phone) || client.phone || null,
+    shippingArea: (selectedAddress && selectedAddress.area) || null,
     shippingCity: (selectedAddress && selectedAddress.city) || client.city || null,
     shippingState: (selectedAddress && selectedAddress.state) || client.state || null,
     shippingCountry: (selectedAddress && selectedAddress.country) || client.country || null,
     shippingPincode: selectedAddress ? selectedAddress.pincode || null : null,
+    shippingLatitude: selectedAddress ? selectedAddress.latitude || null : null,
+    shippingLongitude: selectedAddress ? selectedAddress.longitude || null : null,
   };
 }
 
@@ -3467,18 +3513,21 @@ app.post('/api/client/delivery-addresses', webOrJwtAuth, requireAuthRole('Client
     }
     const [result] = await connection.query(
       `INSERT INTO client_delivery_addresses
-       (user_id, label, recipient_name, phone, address, city, state, country, pincode, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (user_id, label, recipient_name, phone, address, area, city, state, country, pincode, latitude, longitude, is_default)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         data.label,
         data.recipient_name,
         data.phone,
         data.address,
+        data.area,
         data.city,
         data.state,
         data.country,
         data.pincode,
+        data.latitude,
+        data.longitude,
         shouldDefault ? 1 : 0,
       ]
     );
@@ -3514,7 +3563,8 @@ app.put('/api/client/delivery-addresses/:id', webOrJwtAuth, requireAuthRole('Cli
     }
     await connection.query(
       `UPDATE client_delivery_addresses
-       SET label = ?, recipient_name = ?, phone = ?, address = ?, city = ?, state = ?, country = ?, pincode = ?,
+       SET label = ?, recipient_name = ?, phone = ?, address = ?, area = ?, city = ?, state = ?, country = ?, pincode = ?,
+           latitude = ?, longitude = ?,
            is_default = CASE WHEN ? = 1 THEN 1 ELSE is_default END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND user_id = ?`,
@@ -3523,10 +3573,13 @@ app.put('/api/client/delivery-addresses/:id', webOrJwtAuth, requireAuthRole('Cli
         data.recipient_name,
         data.phone,
         data.address,
+        data.area,
         data.city,
         data.state,
         data.country,
         data.pincode,
+        data.latitude,
+        data.longitude,
         data.is_default ? 1 : 0,
         addressId,
         clientId,
@@ -3771,6 +3824,7 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
       recipient_name: addressSnapshot.shippingName || '',
       phone: addressSnapshot.shippingPhone || '',
       display_address: addressSnapshot.shippingAddress || addressSnapshot.clientAddress,
+      area: addressSnapshot.shippingArea || (selectedAddress ? selectedAddress.pincode || '' : ''),
       city: addressSnapshot.shippingCity || client.city || '',
     },
     vendors: vendorBreakdown,
@@ -3994,8 +4048,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
           connection,
           `INSERT INTO client_orders
-           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country, shipping_pincode, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
             vendorId,
@@ -4018,10 +4072,13 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             addressSnapshot.shippingName,
             addressSnapshot.shippingPhone,
             shippingAddress || null,
+            addressSnapshot.shippingArea,
             addressSnapshot.shippingCity,
             addressSnapshot.shippingState,
             addressSnapshot.shippingCountry,
             addressSnapshot.shippingPincode,
+            addressSnapshot.shippingLatitude,
+            addressSnapshot.shippingLongitude,
           ]
         );
 
@@ -4162,6 +4219,64 @@ async function promotionCityOptions() {
   );
   return cityRows.map((row) => normalizeCityName(row.city)).filter(Boolean);
 }
+
+async function googleMapsBrowserSettings() {
+  const maps = await settingGroup([
+    'google_maps_browser_api_key',
+    'google_maps_map_id',
+    'google_maps_default_origin',
+  ]);
+  return {
+    browserApiKey: maps.google_maps_browser_api_key || process.env.GOOGLE_MAPS_BROWSER_API_KEY || '',
+    mapId: maps.google_maps_map_id || '',
+    defaultOrigin: maps.google_maps_default_origin || 'Jaipur, Rajasthan, India',
+  };
+}
+
+app.get('/area-definitions', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  res.render('area-definitions', {
+    user: req.session.user,
+    shell: buildShell(req.session.user, req.path),
+    maps: await googleMapsBrowserSettings(),
+    cityOptions: await promotionCityOptions(),
+  });
+});
+
+app.get('/area-definitions/list', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    res.json({ success: true, areas: await AreaDefinition.list({ includeInactive: true }) });
+  } catch (error) {
+    console.error('Area definitions load error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load areas' });
+  }
+});
+
+app.post('/area-definitions', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const id = await AreaDefinition.save(req.body);
+    res.status(201).json({ success: true, id, message: 'Area saved' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save area' });
+  }
+});
+
+app.put('/area-definitions/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const id = await AreaDefinition.save({ ...req.body, id: req.params.id });
+    res.json({ success: true, id, message: 'Area updated' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update area' });
+  }
+});
+
+app.delete('/area-definitions/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    await AreaDefinition.remove(Number(req.params.id));
+    res.json({ success: true, message: 'Area deleted' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to delete area' });
+  }
+});
 
 app.get('/delivery-charge-settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   res.render('delivery-charge-settings', {
@@ -4728,8 +4843,8 @@ app.get('/settings/delivery-partners', requireAuth, requirePermission('settings.
       `SELECT u.id, u.name, u.email, u.phone,
               COALESCE(
                 JSON_AGG(
-                  JSON_BUILD_OBJECT('city', dps.city, 'is_active', dps.is_active)
-                  ORDER BY dps.city
+                  JSON_BUILD_OBJECT('city', dps.city, 'area', COALESCE(NULLIF(TRIM(dps.area), ''), '*'), 'is_active', dps.is_active)
+                  ORDER BY dps.city, dps.area
                 ) FILTER (WHERE dps.id IS NOT NULL),
                 '[]'
               ) AS cities
@@ -4745,21 +4860,65 @@ app.get('/settings/delivery-partners', requireAuth, requirePermission('settings.
       `SELECT DISTINCT city FROM client_profiles WHERE city IS NOT NULL AND TRIM(city) <> ''
        UNION
        SELECT DISTINCT city FROM vendor_profiles WHERE city IS NOT NULL AND TRIM(city) <> ''
+       UNION
+       SELECT DISTINCT shipping_city AS city FROM client_orders WHERE shipping_city IS NOT NULL AND TRIM(shipping_city) <> ''
+       UNION
+       SELECT DISTINCT city FROM delivery_partner_settings WHERE city IS NOT NULL AND TRIM(city) <> ''
        ORDER BY city`
     );
-    res.json({ success: true, partners, cities: cityRows.map((row) => row.city) });
+    const [areaRows] = await pool.query(
+      `SELECT DISTINCT city, area FROM (
+         SELECT shipping_city AS city, COALESCE(NULLIF(TRIM(shipping_area), ''), NULLIF(TRIM(shipping_pincode), ''), '*') AS area
+         FROM client_orders
+         WHERE shipping_city IS NOT NULL AND TRIM(shipping_city) <> ''
+         UNION
+         SELECT city, COALESCE(NULLIF(TRIM(area), ''), '*') AS area
+         FROM delivery_partner_settings
+         WHERE city IS NOT NULL AND TRIM(city) <> ''
+       ) area_source
+       WHERE area IS NOT NULL AND TRIM(area) <> ''
+       ORDER BY city, area`
+    );
+    res.json({
+      success: true,
+      partners,
+      cities: cityRows.map((row) => row.city),
+      areas: areaRows,
+    });
   } catch (error) {
     console.error('Delivery partner settings load error:', error);
     res.status(500).json({ success: false, message: 'Unable to load delivery partner settings' });
   }
 });
 
+function normalizeDeliveryAreaEntries(input) {
+  const rawEntries = Array.isArray(input) ? input : [];
+  const seen = new Set();
+  const entries = [];
+
+  for (const entry of rawEntries) {
+    const city = String(
+      entry && typeof entry === 'object' ? entry.city : entry
+    ).trim();
+    const areaValue = entry && typeof entry === 'object' ? entry.area : '*';
+    const area = String(areaValue || '*').trim() || '*';
+    if (!city) continue;
+
+    const key = `${city.toLowerCase()}::${area.toLowerCase()}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    entries.push({ city, area });
+  }
+
+  return entries;
+}
+
 app.post('/settings/delivery-partners', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   const name = String(req.body.name || '').trim();
   const email = String(req.body.email || '').trim().toLowerCase();
   const phone = String(req.body.phone || '').trim();
   const password = String(req.body.password || '').trim();
-  const cities = Array.isArray(req.body.cities) ? req.body.cities : [];
+  const deliveryAreas = normalizeDeliveryAreaEntries(req.body.delivery_areas || req.body.areas || req.body.cities);
 
   if (!name || name.length < 2) return res.status(422).json({ success: false, message: 'Name is required' });
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return res.status(422).json({ success: false, message: 'Valid email is required' });
@@ -4785,16 +4944,11 @@ app.post('/settings/delivery-partners', requireAuth, requirePermission('settings
     );
     const userId = result.insertId;
 
-    for (const cityValue of cities) {
-      const city = String(cityValue || '').trim();
-      if (!city) continue;
+    for (const entry of deliveryAreas) {
       await connection.query(
-        `INSERT INTO delivery_partner_settings (user_id, city, is_active)
-         VALUES (?, ?, 1)
-         ON CONFLICT (user_id, city) DO UPDATE
-         SET is_active = 1,
-             updated_at = CURRENT_TIMESTAMP`,
-        [userId, city]
+        `INSERT INTO delivery_partner_settings (user_id, city, area, is_active)
+         VALUES (?, ?, ?, 1)`,
+        [userId, entry.city, entry.area]
       );
     }
 
@@ -4818,7 +4972,7 @@ app.put('/settings/delivery-partners', requireAuth, requirePermission('settings.
 
     for (const assignment of assignments) {
       const userId = Number(assignment.user_id);
-      const cities = Array.isArray(assignment.cities) ? assignment.cities : [];
+      const deliveryAreas = normalizeDeliveryAreaEntries(assignment.delivery_areas || assignment.areas || assignment.cities);
       if (!userId) continue;
 
       const [staffRows] = await connection.query(
@@ -4827,16 +4981,11 @@ app.put('/settings/delivery-partners', requireAuth, requirePermission('settings.
       );
       if (!staffRows.length) continue;
 
-      for (const cityValue of cities) {
-        const city = String(cityValue || '').trim();
-        if (!city) continue;
+      for (const entry of deliveryAreas) {
         await connection.query(
-          `INSERT INTO delivery_partner_settings (user_id, city, is_active)
-           VALUES (?, ?, 1)
-           ON CONFLICT (user_id, city) DO UPDATE
-           SET is_active = 1,
-               updated_at = CURRENT_TIMESTAMP`,
-          [userId, city]
+          `INSERT INTO delivery_partner_settings (user_id, city, area, is_active)
+           VALUES (?, ?, ?, 1)`,
+          [userId, entry.city, entry.area]
         );
       }
     }
@@ -4858,7 +5007,7 @@ app.put('/settings/delivery-partners/:id', requireAuth, requirePermission('setti
   const email = String(req.body.email || '').trim().toLowerCase();
   const phone = String(req.body.phone || '').trim();
   const password = String(req.body.password || '').trim();
-  const cities = Array.isArray(req.body.cities) ? req.body.cities : [];
+  const deliveryAreas = normalizeDeliveryAreaEntries(req.body.delivery_areas || req.body.areas || req.body.cities);
 
   if (!id) return res.status(422).json({ success: false, message: 'Valid delivery partner is required' });
   if (!name || name.length < 2) return res.status(422).json({ success: false, message: 'Name is required' });
@@ -4902,16 +5051,11 @@ app.put('/settings/delivery-partners/:id', requireAuth, requirePermission('setti
     }
 
     await connection.query('DELETE FROM delivery_partner_settings WHERE user_id = ?', [id]);
-    for (const cityValue of cities) {
-      const city = String(cityValue || '').trim();
-      if (!city) continue;
+    for (const entry of deliveryAreas) {
       await connection.query(
-        `INSERT INTO delivery_partner_settings (user_id, city, is_active)
-         VALUES (?, ?, 1)
-         ON CONFLICT (user_id, city) DO UPDATE
-         SET is_active = 1,
-             updated_at = CURRENT_TIMESTAMP`,
-        [id, city]
+        `INSERT INTO delivery_partner_settings (user_id, city, area, is_active)
+         VALUES (?, ?, ?, 1)`,
+        [id, entry.city, entry.area]
       );
     }
 

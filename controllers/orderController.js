@@ -3,6 +3,7 @@ const Order = require('../models/Order');
 const User = require('../models/User');
 const pool = require('../db');
 const { ensureInvoice } = require('../services/invoiceService');
+const AreaDefinition = require('../models/AreaDefinition');
 
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
@@ -269,6 +270,148 @@ async function clientOrderDetail(req, res) {
   }
 }
 
+function isDeliveryPartnerUser(user) {
+  return user && String(user.role || '').toLowerCase() === 'staff';
+}
+
+async function deliveryProfile(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+
+  try {
+    const [areas] = await pool.query(
+      `SELECT city, COALESCE(NULLIF(TRIM(area), ''), '*') AS area, is_active
+       FROM delivery_partner_settings
+       WHERE user_id = ? AND is_active = 1
+       ORDER BY city, area`,
+      [currentUser.id]
+    );
+    return res.json({
+      success: true,
+      user: User.publicUser(currentUser),
+      service_areas: areas,
+      service_enabled: areas.length > 0,
+    });
+  } catch (error) {
+    console.error('Delivery profile error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load delivery profile' });
+  }
+}
+
+async function deliveryOrders(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+
+  try {
+    const result = await Order.listAll({
+      page: req.query.page || 1,
+      limit: req.query.limit || 100,
+      search: req.query.search,
+      status: req.query.status,
+      deliveryStatus: req.query.delivery_status,
+      deliveryPartnerId: currentUser.id,
+    });
+    return res.json({ success: true, orders: result.orders, pagination: result.pagination });
+  } catch (error) {
+    console.error('Delivery orders error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch delivery orders' });
+  }
+}
+
+async function ensureAssignedDeliveryOrder(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    res.status(403).json({ success: false, message: 'Delivery partner access required' });
+    return null;
+  }
+
+  const order = await Order.findById(req.params.id);
+  if (!order) {
+    res.status(404).json({ success: false, message: 'Order not found' });
+    return null;
+  }
+
+  if (Number(order.delivery_partner_id) !== Number(currentUser.id)) {
+    res.status(403).json({ success: false, message: 'This order is not assigned to you' });
+    return null;
+  }
+
+  return order;
+}
+
+async function deliveryOrderDetail(req, res) {
+  try {
+    const order = await ensureAssignedDeliveryOrder(req, res);
+    if (!order) return;
+
+    const items = await Order.getOrderItems(order.id);
+    const history = await Order.getStatusHistory(order.id);
+    return res.json({
+      success: true,
+      order,
+      items,
+      history,
+      next_statuses: Order.getAllowedNextStatusesForOrder(order, 'staff'),
+    });
+  } catch (error) {
+    console.error('Delivery order detail error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch delivery order' });
+  }
+}
+
+async function deliveryUpdateStatus(req, res) {
+  try {
+    const order = await ensureAssignedDeliveryOrder(req, res);
+    if (!order) return;
+
+    const result = await Order.updateStatus({
+      orderId: Number(req.params.id),
+      actorUser: req.authUser || req.session.user,
+      newStatus: req.body.status,
+      note: req.body.note || 'Updated from delivery partner app',
+    });
+    return res.json({ success: true, message: `Order status changed to ${result.statusLabel}`, ...result });
+  } catch (error) {
+    console.error('Delivery order status update error:', error);
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update delivery order status' });
+  }
+}
+
+async function deliveryVerifyOtp(req, res) {
+  try {
+    const order = await ensureAssignedDeliveryOrder(req, res);
+    if (!order) return;
+
+    const otp = String(req.body.otp || '').trim();
+    if (!/^\d{4,6}$/.test(otp)) {
+      return res.status(422).json({ success: false, message: 'Enter a valid 4 to 6 digit OTP' });
+    }
+
+    const result = await Order.verifyOTP(req.params.id, otp);
+    return res.json({ success: true, message: 'Delivery OTP verified', ...result });
+  } catch (error) {
+    console.error('Delivery OTP verify error:', error);
+    return res.status(400).json({ success: false, message: error.message || 'Unable to verify OTP' });
+  }
+}
+
+async function deliveryMarkDelivered(req, res) {
+  try {
+    const order = await ensureAssignedDeliveryOrder(req, res);
+    if (!order) return;
+
+    const result = await Order.markDelivered(req.params.id);
+    return res.json({ success: true, message: 'Order marked delivered', ...result });
+  } catch (error) {
+    console.error('Delivery delivered error:', error);
+    return res.status(400).json({ success: false, message: error.message || 'Unable to mark order delivered' });
+  }
+}
+
 async function updateVendorStatus(req, res) {
   try {
     const result = await Order.updateStatus({
@@ -361,24 +504,21 @@ async function publicInvoice(req, res) {
 async function getDeliveryPartners(req, res) {
   try {
     const city = String(req.query.city || '').trim();
-    const params = city ? [city, city] : [];
+    const area = String(req.query.area || req.query.pincode || '').trim();
+    const latitude = Number(req.query.latitude ?? req.query.lat);
+    const longitude = Number(req.query.longitude ?? req.query.lng);
+    const params = city ? [city, city, area || '*'] : [];
     const cityFilter = city
-      ? `AND (
-           LOWER(TRIM(dps.city)) = LOWER(TRIM(?))
-           OR NOT EXISTS (
-             SELECT 1
-             FROM delivery_partner_settings dps_any
-             WHERE dps_any.user_id = u.id
-               AND dps_any.is_active = 1
-           )
-         )`
+      ? `AND LOWER(TRIM(dps.city)) = LOWER(TRIM(?))
+         AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(?)))`
       : '';
 
     const [rows] = await pool.query(
       `SELECT u.id, u.name, u.email, u.phone,
-              ${city ? "COALESCE(MIN(CASE WHEN LOWER(TRIM(dps.city)) = LOWER(TRIM(?)) THEN dps.city END), MIN(dps.city), '') AS city" : "COALESCE(MIN(dps.city), '') AS city"}
+              ${city ? "COALESCE(MIN(CASE WHEN LOWER(TRIM(dps.city)) = LOWER(TRIM(?)) THEN dps.city END), MIN(dps.city), '') AS city" : "COALESCE(MIN(dps.city), '') AS city"},
+              COALESCE(MIN(dps.area), '*') AS area
        FROM users u
-       LEFT JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
+       INNER JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
        WHERE LOWER(u.role) = 'staff'
          AND LOWER(u.status) = 'active'
          AND u.is_deleted = 0
@@ -387,7 +527,29 @@ async function getDeliveryPartners(req, res) {
        ORDER BY u.name`,
       params
     );
-    return res.json({ success: true, partners: rows });
+    const ownDelivery = await AreaDefinition.isOwnDeliveryActiveForLocation({
+      latitude,
+      longitude,
+      city,
+      area,
+    });
+    const partners = ownDelivery.active
+      ? [{
+        id: 'own_delivery',
+        name: 'Own Delivery',
+        email: '',
+        phone: '',
+        city: ownDelivery.area ? ownDelivery.area.city : city,
+        area: ownDelivery.area ? ownDelivery.area.name : area,
+        is_own_delivery: true,
+      }, ...rows]
+      : rows;
+    return res.json({
+      success: true,
+      partners,
+      own_delivery_available: ownDelivery.active,
+      matched_area: ownDelivery.area || null,
+    });
   } catch (error) {
     console.error('Get partners error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch partners' });
@@ -429,6 +591,12 @@ module.exports = {
   vendorOrderDetail,
   clientOrders,
   clientOrderDetail,
+  deliveryProfile,
+  deliveryOrders,
+  deliveryOrderDetail,
+  deliveryUpdateStatus,
+  deliveryVerifyOtp,
+  deliveryMarkDelivered,
   getDeliveryPartners,
   dashboardStats,
 };

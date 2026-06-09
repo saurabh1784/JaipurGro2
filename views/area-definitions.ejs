@@ -1,0 +1,384 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Area Definition</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Area Definition</p>
+        <h1>Area Definition</h1>
+      </div>
+      <div class="topbar-actions">
+        <button class="product-secondary-button" type="button" id="resetArea">Reset</button>
+        <button class="settings-save" type="button" id="saveArea">Save Area</button>
+      </div>
+    </header>
+
+    <section class="area-definition-shell">
+      <aside class="area-definition-panel">
+        <form id="areaForm" class="settings-grid">
+          <input id="areaId" type="hidden" />
+          <label>
+            Area Name
+            <input id="areaName" type="text" placeholder="Mansarovar Zone A" required />
+          </label>
+          <label>
+            City
+            <input id="areaCity" type="text" list="cityOptions" value="Jaipur" />
+          </label>
+          <label class="settings-wide area-toggle-row">
+            <input id="ownDeliveryActive" type="checkbox" />
+            <span>Own Delivery active for this area</span>
+          </label>
+          <label class="settings-wide area-toggle-row">
+            <input id="areaActive" type="checkbox" checked />
+            <span>Area active</span>
+          </label>
+          <div class="settings-wide area-map-actions">
+            <button class="product-secondary-button" type="button" id="undoPoint">Undo Point</button>
+            <button class="product-secondary-button" type="button" id="clearPolygon">Clear Polygon</button>
+          </div>
+        </form>
+
+        <div class="area-definition-status" id="areaStatus">Click on the map to mark the area boundary.</div>
+
+        <div class="catalog-table-card area-list-card">
+          <table class="catalog-table">
+            <thead>
+              <tr>
+                <th>Area</th>
+                <th>Own Delivery</th>
+                <th>Status</th>
+                <th></th>
+              </tr>
+            </thead>
+            <tbody id="areasBody">
+              <tr><td colspan="4">Loading areas...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </aside>
+
+      <section class="area-map-card">
+        <div id="areaMap" class="area-map"></div>
+      </section>
+    </section>
+  </main>
+
+  <datalist id="cityOptions">
+    <% (cityOptions || []).forEach((city) => { %>
+      <option value="<%= city %>"></option>
+    <% }) %>
+  </datalist>
+
+  <script>
+    const mapsConfig = <%- JSON.stringify(maps || {}) %>;
+    let map = null;
+    let polygon = null;
+    let markers = [];
+    let areas = [];
+    let selectedPath = [];
+    let googleMapsLoadedKey = '';
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function setStatus(message, isError = false) {
+      const status = document.getElementById('areaStatus');
+      status.textContent = message;
+      status.classList.toggle('error', isError);
+    }
+
+    function ensureMapScript() {
+      const apiKey = mapsConfig.browserApiKey || '';
+      if (!apiKey) {
+        setStatus('Google Maps browser key is missing. Add it in Settings / Google Maps.', true);
+        return;
+      }
+      if (window.google && window.google.maps && googleMapsLoadedKey === apiKey) {
+        initMap();
+        return;
+      }
+      window.handleAreaMapsLoaded = initMap;
+      const script = document.createElement('script');
+      script.id = 'areaGoogleMapsScript';
+      const mapIdParam = mapsConfig.mapId ? `&map_ids=${encodeURIComponent(mapsConfig.mapId)}` : '';
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}${mapIdParam}&callback=handleAreaMapsLoaded`;
+      script.async = true;
+      script.defer = true;
+      script.onerror = () => setStatus('Unable to load Google Maps. Check the browser key.', true);
+      googleMapsLoadedKey = apiKey;
+      document.head.appendChild(script);
+    }
+
+    function initMap() {
+      const options = {
+        center: { lat: 26.9124, lng: 75.7873 },
+        zoom: 12,
+        mapTypeControl: false,
+        streetViewControl: false,
+      };
+      if (mapsConfig.mapId) options.mapId = mapsConfig.mapId;
+      map = new google.maps.Map(document.getElementById('areaMap'), options);
+      polygon = new google.maps.Polygon({
+        paths: [],
+        map,
+        strokeColor: '#178f49',
+        strokeOpacity: 0.95,
+        strokeWeight: 3,
+        fillColor: '#28b446',
+        fillOpacity: 0.18,
+        editable: true,
+      });
+      polygon.getPath().addListener('set_at', syncPathFromPolygon);
+      polygon.getPath().addListener('insert_at', syncPathFromPolygon);
+      polygon.getPath().addListener('remove_at', syncPathFromPolygon);
+      map.addListener('click', (event) => addPoint(event.latLng));
+      loadAreas();
+    }
+
+    function syncPathFromPolygon() {
+      selectedPath = polygon.getPath().getArray().map((point) => ({ lat: point.lat(), lng: point.lng() }));
+      renderMarkers();
+      setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
+    }
+
+    function drawPath(path) {
+      selectedPath = path.map((point) => ({ lat: Number(point.lat), lng: Number(point.lng) }))
+        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+      polygon.setPath(selectedPath);
+      renderMarkers();
+      if (selectedPath.length) {
+        const bounds = new google.maps.LatLngBounds();
+        selectedPath.forEach((point) => bounds.extend(point));
+        map.fitBounds(bounds);
+      }
+      setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
+    }
+
+    function addPoint(latLng) {
+      selectedPath.push({ lat: latLng.lat(), lng: latLng.lng() });
+      polygon.setPath(selectedPath);
+      renderMarkers();
+      setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
+    }
+
+    function renderMarkers() {
+      markers.forEach((marker) => marker.setMap(null));
+      markers = selectedPath.map((point, index) => new google.maps.Marker({
+        position: point,
+        map,
+        label: String(index + 1),
+      }));
+    }
+
+    function resetForm() {
+      document.getElementById('areaId').value = '';
+      document.getElementById('areaName').value = '';
+      document.getElementById('areaCity').value = 'Jaipur';
+      document.getElementById('ownDeliveryActive').checked = false;
+      document.getElementById('areaActive').checked = true;
+      drawPath([]);
+      setStatus('Click on the map to mark the area boundary.');
+    }
+
+    async function loadAreas() {
+      const body = document.getElementById('areasBody');
+      body.innerHTML = '<tr><td colspan="4">Loading areas...</td></tr>';
+      try {
+        const response = await fetch('/area-definitions/list', { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to load areas');
+        areas = data.areas || [];
+        renderAreas();
+        drawExistingAreas();
+      } catch (error) {
+        body.innerHTML = `<tr><td colspan="4">${escapeHtml(error.message)}</td></tr>`;
+      }
+    }
+
+    function renderAreas() {
+      const body = document.getElementById('areasBody');
+      if (!areas.length) {
+        body.innerHTML = '<tr><td colspan="4">No mapped areas yet.</td></tr>';
+        return;
+      }
+      body.innerHTML = areas.map((area) => `
+        <tr>
+          <td><strong>${escapeHtml(area.name)}</strong><br><small>${escapeHtml(area.city || 'Any city')}</small></td>
+          <td>${area.own_delivery_active ? 'Active' : 'Off'}</td>
+          <td>${area.is_active ? 'Active' : 'Inactive'}</td>
+          <td>
+            <button class="product-secondary-button area-row-button" type="button" onclick="editArea(${Number(area.id)})">Edit</button>
+            <button class="danger-action-button area-row-button" type="button" onclick="deleteArea(${Number(area.id)})">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    let existingAreaPolygons = [];
+    function drawExistingAreas() {
+      if (!map || !window.google) return;
+      existingAreaPolygons.forEach((item) => item.setMap(null));
+      existingAreaPolygons = areas.map((area) => new google.maps.Polygon({
+        paths: area.polygon || [],
+        map,
+        strokeColor: area.own_delivery_active ? '#178f49' : '#64748b',
+        strokeOpacity: 0.65,
+        strokeWeight: 2,
+        fillColor: area.own_delivery_active ? '#28b446' : '#94a3b8',
+        fillOpacity: area.is_active ? 0.10 : 0.04,
+        clickable: false,
+      }));
+    }
+
+    function editArea(id) {
+      const area = areas.find((item) => Number(item.id) === Number(id));
+      if (!area) return;
+      document.getElementById('areaId').value = area.id;
+      document.getElementById('areaName').value = area.name;
+      document.getElementById('areaCity').value = area.city || '';
+      document.getElementById('ownDeliveryActive').checked = Boolean(area.own_delivery_active);
+      document.getElementById('areaActive').checked = Boolean(area.is_active);
+      drawPath(area.polygon || []);
+    }
+
+    async function saveArea() {
+      const payload = {
+        name: document.getElementById('areaName').value.trim(),
+        city: document.getElementById('areaCity').value.trim(),
+        polygon: selectedPath,
+        own_delivery_active: document.getElementById('ownDeliveryActive').checked,
+        is_active: document.getElementById('areaActive').checked,
+      };
+      const id = document.getElementById('areaId').value;
+      const url = id ? `/area-definitions/${encodeURIComponent(id)}` : '/area-definitions';
+      const method = id ? 'PUT' : 'POST';
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save area');
+        setStatus(data.message || 'Area saved');
+        resetForm();
+        await loadAreas();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function deleteArea(id) {
+      if (!confirm('Delete this mapped area?')) return;
+      try {
+        const response = await fetch(`/area-definitions/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to delete area');
+        resetForm();
+        await loadAreas();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    document.getElementById('saveArea').addEventListener('click', saveArea);
+    document.getElementById('resetArea').addEventListener('click', resetForm);
+    document.getElementById('undoPoint').addEventListener('click', () => drawPath(selectedPath.slice(0, -1)));
+    document.getElementById('clearPolygon').addEventListener('click', () => drawPath([]));
+    ensureMapScript();
+  </script>
+
+  <style>
+    .area-definition-shell {
+      display: grid;
+      grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+    .area-definition-panel,
+    .area-map-card {
+      background: #fff;
+      border: 1px solid rgba(204, 210, 215, 0.75);
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(32, 42, 54, 0.08);
+    }
+    .area-definition-panel {
+      padding: 16px;
+      min-width: 0;
+    }
+    .area-map-card {
+      overflow: hidden;
+      min-height: 680px;
+    }
+    .area-map {
+      width: 100%;
+      height: 100%;
+      min-height: 680px;
+    }
+    .area-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      color: #334155;
+    }
+    .area-toggle-row input {
+      width: 18px;
+      height: 18px;
+    }
+    .area-map-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .area-definition-status {
+      margin: 14px 0;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #ecfdf5;
+      color: #17643a;
+      font-weight: 800;
+    }
+    .area-definition-status.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .area-list-card {
+      max-height: 390px;
+      overflow: auto;
+    }
+    .area-row-button {
+      margin: 2px;
+      padding: 5px 8px;
+      font-size: 12px;
+    }
+    @media (max-width: 980px) {
+      .area-definition-shell {
+        grid-template-columns: 1fr;
+      }
+      .area-map-card,
+      .area-map {
+        min-height: 520px;
+      }
+    }
+  </style>
+</body>
+</html>

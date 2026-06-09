@@ -608,6 +608,11 @@
             <input id="deliveryCityInput" type="text" placeholder="e.g. Jaipur" list="deliveryCityOptions" />
             <datalist id="deliveryCityOptions"></datalist>
           </label>
+          <label>
+            Add Area
+            <input id="deliveryAreaInput" type="text" placeholder="e.g. Mansarovar or *" list="deliveryAreaOptions" />
+            <datalist id="deliveryAreaOptions"></datalist>
+          </label>
           <button class="settings-save" type="button" onclick="openDeliveryPartnerModal()">Add Delivery Partner</button>
           <button class="settings-save" type="button" onclick="saveDeliveryPartnerSettings()">Save Delivery Partners</button>
         </div>
@@ -618,8 +623,8 @@
               <tr>
                 <th>Partner</th>
                 <th>Contact</th>
-                <th>Assigned Cities</th>
-                <th>Add Selected City</th>
+                <th>Activated Areas</th>
+                <th>Add Selected Area</th>
                 <th>Actions</th>
               </tr>
             </thead>
@@ -937,8 +942,12 @@
           City
           <input id="deliveryPartnerCity" type="text" list="deliveryCityOptions" placeholder="Type city and click Add City" />
         </label>
+        <label class="settings-wide">
+          Area
+          <input id="deliveryPartnerArea" type="text" list="deliveryAreaOptions" placeholder="Type area or * for all areas" />
+        </label>
         <div class="settings-wide">
-          <button class="product-secondary-button" type="button" onclick="addModalDeliveryCity()">Add City</button>
+          <button class="product-secondary-button" type="button" onclick="addModalDeliveryCity()">Add Area</button>
           <div class="delivery-city-pills" id="deliveryPartnerModalCities"></div>
         </div>
         <div class="settings-wide">
@@ -1280,6 +1289,7 @@
     let commissionSettings = [];
     let deliveryPartnerSettings = [];
     let deliveryCities = [];
+    let deliveryAreas = [];
     let deliveryPartnerModalCities = [];
     let googleMapsLoadedKey = '';
     let googleMap = null;
@@ -1718,7 +1728,9 @@
         if (!data.success) throw new Error(data.message || 'Unable to load delivery partners');
         deliveryPartnerSettings = data.partners || [];
         deliveryCities = data.cities || [];
+        deliveryAreas = data.areas || [];
         renderDeliveryCityOptions();
+        renderDeliveryAreaOptions();
         renderDeliveryPartners();
       } catch (error) {
         body.innerHTML = `<tr><td colspan="5">${escapeCatalog(error.message)}</td></tr>`;
@@ -1730,11 +1742,35 @@
       list.innerHTML = deliveryCities.map((city) => `<option value="${escapeCatalog(city)}"></option>`).join('');
     }
 
+    function renderDeliveryAreaOptions() {
+      const list = document.getElementById('deliveryAreaOptions');
+      if (!list) return;
+      const areas = [...new Set(['*', ...deliveryAreas.map((item) => item.area || '').filter(Boolean)])];
+      list.innerHTML = areas.map((area) => `<option value="${escapeCatalog(area)}"></option>`).join('');
+    }
+
+    function normalizeDeliveryArea(entry) {
+      if (typeof entry === 'string') return { city: entry.trim(), area: '*' };
+      return {
+        city: String(entry && entry.city || '').trim(),
+        area: String(entry && entry.area || '*').trim() || '*',
+      };
+    }
+
+    function deliveryAreaKey(entry) {
+      return `${String(entry.city || '').toLowerCase()}::${String(entry.area || '*').toLowerCase()}`;
+    }
+
+    function deliveryAreaLabel(entry) {
+      const area = String(entry.area || '*').trim();
+      return `${entry.city} - ${area === '*' ? 'All areas' : area}`;
+    }
+
     function partnerCities(partner) {
       return (partner.cities || [])
         .filter((entry) => entry && Number(entry.is_active) !== 0)
-        .map((entry) => String(entry.city || '').trim())
-        .filter(Boolean);
+        .map(normalizeDeliveryArea)
+        .filter((entry) => entry.city);
     }
 
     function renderDeliveryPartners() {
@@ -1745,7 +1781,7 @@
       }
 
       body.innerHTML = deliveryPartnerSettings.map((partner) => {
-        const cities = partnerCities(partner);
+        const areas = partnerCities(partner);
         return `
           <tr data-partner-id="${partner.id}">
             <td>
@@ -1758,8 +1794,8 @@
             </td>
             <td>
               <div class="delivery-city-pills">
-                ${cities.length ? cities.map((city) => `
-                  <button type="button" class="delivery-city-pill" onclick="removeDeliveryCity(${partner.id}, '${escapeCatalog(city)}')">${escapeCatalog(city)} x</button>
+                ${areas.length ? areas.map((entry) => `
+                  <button type="button" class="delivery-city-pill" onclick="removeDeliveryCity(${partner.id}, '${encodeURIComponent(entry.city)}', '${encodeURIComponent(entry.area)}')">${escapeCatalog(deliveryAreaLabel(entry))} x</button>
                 `).join('') : '<span class="commission-subtext">No city assigned</span>'}
               </div>
             </td>
@@ -1777,28 +1813,38 @@
 
     function addDeliveryCity(partnerId) {
       const city = document.getElementById('deliveryCityInput').value.trim();
+      const area = document.getElementById('deliveryAreaInput').value.trim() || '*';
       if (!city) {
         alert('Enter or select a city first.');
         return;
       }
       const partner = deliveryPartnerSettings.find((item) => Number(item.id) === Number(partnerId));
       if (!partner) return;
-      const cities = partnerCities(partner);
-      if (!cities.some((item) => item.toLowerCase() === city.toLowerCase())) {
-        partner.cities = [...(partner.cities || []), { city, is_active: 1 }];
+      const entry = { city, area };
+      const areas = partnerCities(partner);
+      if (!areas.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
+        partner.cities = [...(partner.cities || []), { ...entry, is_active: 1 }];
       }
       if (!deliveryCities.some((item) => item.toLowerCase() === city.toLowerCase())) {
         deliveryCities.push(city);
         deliveryCities.sort();
         renderDeliveryCityOptions();
       }
+      if (!deliveryAreas.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
+        deliveryAreas.push(entry);
+        renderDeliveryAreaOptions();
+      }
       renderDeliveryPartners();
     }
 
-    function removeDeliveryCity(partnerId, city) {
+    function removeDeliveryCity(partnerId, city, area = '*') {
       const partner = deliveryPartnerSettings.find((item) => Number(item.id) === Number(partnerId));
       if (!partner) return;
-      partner.cities = (partner.cities || []).filter((entry) => String(entry.city || '').toLowerCase() !== String(city || '').toLowerCase());
+      const target = {
+        city: decodeURIComponent(city || ''),
+        area: decodeURIComponent(area || '*'),
+      };
+      partner.cities = (partner.cities || []).filter((entry) => deliveryAreaKey(normalizeDeliveryArea(entry)) !== deliveryAreaKey(target));
       renderDeliveryPartners();
     }
 
@@ -1807,7 +1853,7 @@
       message.textContent = 'Saving delivery partner settings...';
       const assignments = deliveryPartnerSettings.map((partner) => ({
         user_id: partner.id,
-        cities: partnerCities(partner),
+        delivery_areas: partnerCities(partner),
       }));
       try {
         const response = await fetch('/settings/delivery-partners', {
@@ -1834,6 +1880,7 @@
       document.getElementById('deliveryPartnerPassword').value = '';
       document.getElementById('deliveryPartnerPassword').required = !partner;
       document.getElementById('deliveryPartnerCity').value = '';
+      document.getElementById('deliveryPartnerArea').value = '';
       deliveryPartnerModalCities = partner ? partnerCities(partner) : [];
       renderModalDeliveryCities();
       document.getElementById('deliveryPartnerModal').style.display = 'flex';
@@ -1850,30 +1897,42 @@
     function renderModalDeliveryCities() {
       const target = document.getElementById('deliveryPartnerModalCities');
       target.innerHTML = deliveryPartnerModalCities.length
-        ? deliveryPartnerModalCities.map((city) => `
-          <button type="button" class="delivery-city-pill" onclick="removeModalDeliveryCity('${escapeCatalog(city)}')">${escapeCatalog(city)} x</button>
+        ? deliveryPartnerModalCities.map((entry) => `
+          <button type="button" class="delivery-city-pill" onclick="removeModalDeliveryCity('${encodeURIComponent(entry.city)}', '${encodeURIComponent(entry.area)}')">${escapeCatalog(deliveryAreaLabel(entry))} x</button>
         `).join('')
         : '<span class="commission-subtext">No city assigned</span>';
     }
 
     function addModalDeliveryCity() {
       const input = document.getElementById('deliveryPartnerCity');
+      const areaInput = document.getElementById('deliveryPartnerArea');
       const city = input.value.trim();
+      const area = areaInput.value.trim() || '*';
       if (!city) return;
-      if (!deliveryPartnerModalCities.some((item) => item.toLowerCase() === city.toLowerCase())) {
-        deliveryPartnerModalCities.push(city);
+      const entry = { city, area };
+      if (!deliveryPartnerModalCities.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
+        deliveryPartnerModalCities.push(entry);
       }
       if (!deliveryCities.some((item) => item.toLowerCase() === city.toLowerCase())) {
         deliveryCities.push(city);
         deliveryCities.sort();
         renderDeliveryCityOptions();
       }
+      if (!deliveryAreas.some((item) => deliveryAreaKey(item) === deliveryAreaKey(entry))) {
+        deliveryAreas.push(entry);
+        renderDeliveryAreaOptions();
+      }
       input.value = '';
+      areaInput.value = '';
       renderModalDeliveryCities();
     }
 
-    function removeModalDeliveryCity(city) {
-      deliveryPartnerModalCities = deliveryPartnerModalCities.filter((item) => item.toLowerCase() !== String(city || '').toLowerCase());
+    function removeModalDeliveryCity(city, area = '*') {
+      const target = {
+        city: decodeURIComponent(city || ''),
+        area: decodeURIComponent(area || '*'),
+      };
+      deliveryPartnerModalCities = deliveryPartnerModalCities.filter((item) => deliveryAreaKey(item) !== deliveryAreaKey(target));
       renderModalDeliveryCities();
     }
 
@@ -1899,7 +1958,7 @@
         email: document.getElementById('deliveryPartnerEmail').value.trim(),
         phone: document.getElementById('deliveryPartnerPhone').value.trim(),
         password: document.getElementById('deliveryPartnerPassword').value,
-        cities: deliveryPartnerModalCities,
+        delivery_areas: deliveryPartnerModalCities,
       };
       try {
         const response = await fetch(`/settings/delivery-partners${id ? `/${id}` : ''}`, {

@@ -4,6 +4,7 @@ const orderController = require('../controllers/orderController');
 const adminRouter = express.Router();
 const vendorRouter = express.Router();
 const clientRouter = express.Router();
+const deliveryRouter = express.Router();
 const publicRouter = express.Router();
 
 // Public invoice route used by invoice QR codes
@@ -30,9 +31,18 @@ clientRouter.get('/', orderController.clientOrders);
 clientRouter.get('/:id/invoice', orderController.clientInvoice);
 clientRouter.get('/:id', orderController.clientOrderDetail);
 
+// Delivery partner routes
+deliveryRouter.get('/me', orderController.deliveryProfile);
+deliveryRouter.get('/', orderController.deliveryOrders);
+deliveryRouter.get('/:id', orderController.deliveryOrderDetail);
+deliveryRouter.post('/:id/status', orderController.deliveryUpdateStatus);
+deliveryRouter.post('/:id/verify-otp', orderController.deliveryVerifyOtp);
+deliveryRouter.post('/:id/delivered', orderController.deliveryMarkDelivered);
+
 module.exports = {
   publicRouter,
   adminRouter,
   vendorRouter,
   clientRouter,
+  deliveryRouter,
 };

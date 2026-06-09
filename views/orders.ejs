@@ -219,15 +219,23 @@
     }
 
     // Fetch available delivery partners on load
-    async function loadPartners(city = '', allowFallback = true) {
+    async function loadPartners(orderOrCity = '', allowFallback = true) {
       const select = document.getElementById('partnerSelect');
       const submit = document.getElementById('assignSubmit');
       select.innerHTML = '<option value="">Loading partners...</option>';
       select.disabled = true;
       submit.disabled = true;
       try {
-        const params = city ? `?city=${encodeURIComponent(city)}` : '';
-        const res = await fetch(`/api/orders/admin/partners/list${params}`, { headers: { 'Accept': 'application/json' } });
+        const order = orderOrCity && typeof orderOrCity === 'object' ? orderOrCity : null;
+        const city = order ? (order.shipping_city || order.client_city || order.vendor_city || '') : orderOrCity;
+        const params = new URLSearchParams();
+        if (city) params.set('city', city);
+        if (order && order.shipping_area) params.set('area', order.shipping_area);
+        if (order && order.shipping_pincode && !order.shipping_area) params.set('pincode', order.shipping_pincode);
+        if (order && order.shipping_latitude !== null && order.shipping_latitude !== undefined) params.set('latitude', order.shipping_latitude);
+        if (order && order.shipping_longitude !== null && order.shipping_longitude !== undefined) params.set('longitude', order.shipping_longitude);
+        const query = params.toString() ? `?${params}` : '';
+        const res = await fetch(`/api/orders/admin/partners/list${query}`, { headers: { 'Accept': 'application/json' } });
         const data = await res.json();
         if (data.success) {
           deliveryPartners = data.partners;
@@ -239,7 +247,9 @@
           deliveryPartners.forEach(p => {
             const opt = document.createElement('option');
             opt.value = p.id;
-            opt.textContent = `${p.name}${p.phone ? ` - ${p.phone}` : ''}${p.city ? ` (${p.city})` : ''}`;
+            opt.textContent = p.is_own_delivery
+              ? `${p.name}${p.area ? ` (${p.area})` : ''}`
+              : `${p.name}${p.phone ? ` - ${p.phone}` : ''}${p.city ? ` (${p.city})` : ''}`;
             select.appendChild(opt);
           });
           if (!deliveryPartners.length) {
@@ -455,7 +465,7 @@
       } catch (error) {
         console.error('Unable to load full order details for assignment', error);
       }
-      await loadPartners(order.client_city || order.vendor_city || '');
+      await loadPartners(order);
     }
 
     function closeAssignModal() {
@@ -663,7 +673,7 @@
         });
         const data = await res.json();
         if (data.success) {
-          alert(`Delivery partner assigned successfully. OTP: ${data.otp || otp}`);
+          alert(`${partnerId === 'own_delivery' ? 'Own Delivery assigned' : 'Delivery partner assigned'} successfully. OTP: ${data.otp || otp}`);
           closeAssignModal();
           loadOrders(currentPage);
         } else {

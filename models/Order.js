@@ -1,4 +1,5 @@
 const pool = require('../db');
+const AreaDefinition = require('./AreaDefinition');
 
 const ORDER_STATUS = {
   PENDING: 'pending',
@@ -67,10 +68,13 @@ function normalizeOrder(row, includeItems = false) {
     shipping_name: row.shipping_name || row.client_name || '',
     shipping_phone: row.shipping_phone || row.client_phone || '',
     shipping_address: row.shipping_address || row.client_address || '',
+    shipping_area: row.shipping_area || '',
     shipping_city: row.shipping_city || '',
     shipping_state: row.shipping_state || '',
     shipping_country: row.shipping_country || '',
     shipping_pincode: row.shipping_pincode || '',
+    shipping_latitude: row.shipping_latitude === null || row.shipping_latitude === undefined ? null : Number(row.shipping_latitude),
+    shipping_longitude: row.shipping_longitude === null || row.shipping_longitude === undefined ? null : Number(row.shipping_longitude),
     vendor_name: row.vendor_name || '',
     vendor_email: row.vendor_email || '',
     vendor_phone: row.vendor_phone || '',
@@ -98,8 +102,9 @@ function normalizeOrder(row, includeItems = false) {
     status: normalizeStatus(row.status),
     status_label: statusLabel(row.status),
     delivery_status: row.delivery_status || 'pending',
+    delivery_method: row.delivery_method || 'partner',
     delivery_partner_id: row.delivery_partner_id || null,
-    delivery_partner_name: row.delivery_partner_name || '',
+    delivery_partner_name: row.delivery_method === 'own_delivery' ? 'Own Delivery' : row.delivery_partner_name || '',
     delivery_otp: row.delivery_otp || '',
     otp_set_by: row.otp_set_by || null,
     otp_set_by_name: row.otp_set_by_name || '',
@@ -134,7 +139,7 @@ function normalizeOrder(row, includeItems = false) {
   return order;
 }
 
-async function listAll({ page = 1, limit = 10, search = '', status = '', deliveryStatus = '', vendorId = '', clientId = '' } = {}) {
+async function listAll({ page = 1, limit = 10, search = '', status = '', deliveryStatus = '', vendorId = '', clientId = '', deliveryPartnerId = '' } = {}) {
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
   const pageSize = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
   const offset = (currentPage - 1) * pageSize;
@@ -166,6 +171,10 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
   if (clientId) {
     where.push('o.user_id = ?');
     params.push(clientId);
+  }
+  if (deliveryPartnerId) {
+    where.push('o.delivery_partner_id = ?');
+    params.push(deliveryPartnerId);
   }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';
@@ -541,7 +550,10 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
 
     // Verify order exists
     const [orderRows] = await connection.query(
-      'SELECT id, order_number, user_id, status, delivery_status FROM client_orders WHERE id = ? FOR UPDATE',
+      `SELECT id, order_number, user_id, status, delivery_status, shipping_city, shipping_area,
+              shipping_pincode, shipping_latitude, shipping_longitude
+       FROM client_orders
+       WHERE id = ? FOR UPDATE`,
       [orderId]
     );
     if (!orderRows.length) {
@@ -556,7 +568,61 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
       throw new Error('Delivery partner can be assigned before the order is out for delivery or delivered');
     }
 
-    // Verify partner exists, is Staff role, and is enabled for the order city when configured.
+    if (String(partnerId) === 'own_delivery') {
+      const ownDelivery = await AreaDefinition.isOwnDeliveryActiveForLocation({
+        latitude: order.shipping_latitude,
+        longitude: order.shipping_longitude,
+        city: order.shipping_city,
+        area: order.shipping_area || order.shipping_pincode,
+      }, connection);
+      if (!ownDelivery.active) {
+        throw new Error('Own Delivery is not active for this order area');
+      }
+
+      await connection.query(
+        `UPDATE client_orders
+         SET delivery_partner_id = NULL,
+             delivery_method = 'own_delivery',
+             delivery_otp = ?,
+             delivery_charge = ?,
+             otp_set_by = ?,
+             otp_set_at = CURRENT_TIMESTAMP,
+             delivery_status = CASE WHEN delivery_status = 'ready_to_deliver' THEN delivery_status ELSE 'assigned' END,
+             assigned_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [otp, deliveryCharge, actorUser ? actorUser.id : null, orderId]
+      );
+
+      await connection.query(
+        `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          order.delivery_status,
+          'assigned',
+          actorUser ? actorUser.id : null,
+          actorUser ? actorUser.role : null,
+          `OTP set, delivery charge ${deliveryCharge}, and Own Delivery assigned`,
+        ]
+      );
+
+      await connection.query(
+        `INSERT INTO user_notifications (user_id, title, message, link)
+         VALUES (?, ?, ?, ?)`,
+        [
+          order.user_id,
+          `Order #${orderDisplayNumber(order)} delivery assigned`,
+          `Own Delivery assigned and OTP generated for order #${orderDisplayNumber(order)}.`,
+          '/orders/client',
+        ]
+      );
+
+      await connection.commit();
+      return { orderId, partnerId: 'own_delivery', otp, deliveryCharge, otpSetBy: actorUser ? actorUser.id : null };
+    }
+
+    // Verify partner exists, is Staff role, and is enabled for the order city/area.
     const [partnerRows] = await connection.query(
       `SELECT u.id, u.name, u.role
        FROM users u
@@ -572,32 +638,28 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
        LEFT JOIN delivery_partner_settings dps
          ON dps.user_id = u.id
         AND dps.is_active = 1
-        AND LOWER(TRIM(dps.city)) = LOWER(COALESCE(NULLIF(TRIM(cp.city), ''), NULLIF(TRIM(vp.city), '')))
+        AND LOWER(TRIM(dps.city)) = LOWER(COALESCE(NULLIF(TRIM(o.shipping_city), ''), NULLIF(TRIM(cp.city), ''), NULLIF(TRIM(vp.city), '')))
+        AND (
+          TRIM(COALESCE(dps.area, '*')) = '*'
+          OR LOWER(TRIM(dps.area)) = LOWER(COALESCE(NULLIF(TRIM(o.shipping_area), ''), NULLIF(TRIM(o.shipping_pincode), ''), NULLIF(TRIM(o.shipping_address), '')))
+        )
        WHERE u.id = ?
          AND LOWER(u.status) = 'active'
          AND u.is_deleted = 0
          AND LOWER(u.role) = 'staff'
-         AND (
-           COALESCE(NULLIF(TRIM(cp.city), ''), NULLIF(TRIM(vp.city), '')) IS NULL
-           OR dps.id IS NOT NULL
-           OR NOT EXISTS (
-             SELECT 1
-             FROM delivery_partner_settings dps_any
-             WHERE dps_any.user_id = u.id
-               AND dps_any.is_active = 1
-           )
-         )
+         AND dps.id IS NOT NULL
        LIMIT 1`,
       [orderId, partnerId]
     );
     if (!partnerRows.length) {
-      throw new Error('Delivery partner is not active for this order city');
+      throw new Error('Delivery partner service is not active for this order area');
     }
 
     // Update order
     await connection.query(
       `UPDATE client_orders
        SET delivery_partner_id = ?,
+           delivery_method = 'partner',
            delivery_otp = ?,
            delivery_charge = ?,
            otp_set_by = ?,
