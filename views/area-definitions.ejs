@@ -42,12 +42,26 @@
             <span>Area active</span>
           </label>
           <div class="settings-wide area-map-actions">
+            <button class="settings-save" type="button" id="toggleMarking">Mark Points: Off</button>
             <button class="product-secondary-button" type="button" id="undoPoint">Undo Point</button>
             <button class="product-secondary-button" type="button" id="clearPolygon">Clear Polygon</button>
           </div>
         </form>
 
-        <div class="area-definition-status" id="areaStatus">Click on the map to mark the area boundary.</div>
+        <div class="area-help-card">
+          <h2>How to mark an area</h2>
+          <ol>
+            <li>Enter the area name and city.</li>
+            <li>Click Mark Points, then click on the map to add boundary points. You can also hold Ctrl and click.</li>
+            <li>Add at least three points. The green shape shows the selected area.</li>
+            <li>Drag any point on the shape to adjust the boundary.</li>
+            <li>Use Undo Point or Clear Polygon if the boundary needs correction.</li>
+            <li>Turn on Own Delivery active, then click Save Area.</li>
+          </ol>
+        </div>
+
+        <div class="area-definition-status" id="areaStatus">Click Mark Points, then click on the map to mark the area boundary.</div>
+        <div class="area-point-list" id="areaPointList">No points marked yet.</div>
 
         <div class="catalog-table-card area-list-card">
           <table class="catalog-table">
@@ -68,6 +82,7 @@
 
       <section class="area-map-card">
         <div id="areaMap" class="area-map"></div>
+        <div id="areaMarkerLayer" class="area-marker-layer" aria-hidden="true"></div>
       </section>
     </section>
   </main>
@@ -86,6 +101,10 @@
     let areas = [];
     let selectedPath = [];
     let googleMapsLoadedKey = '';
+    let manualMarkingMode = false;
+    let lastPlacedAt = 0;
+    let mapProjectionOverlay = null;
+    let markerUiBound = false;
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -133,26 +152,52 @@
       };
       if (mapsConfig.mapId) options.mapId = mapsConfig.mapId;
       map = new google.maps.Map(document.getElementById('areaMap'), options);
+      mapProjectionOverlay = new google.maps.OverlayView();
+      mapProjectionOverlay.onAdd = function onAdd() {};
+      mapProjectionOverlay.draw = function draw() {};
+      mapProjectionOverlay.onRemove = function onRemove() {};
+      mapProjectionOverlay.setMap(map);
       polygon = new google.maps.Polygon({
         paths: [],
         map,
-        strokeColor: '#178f49',
-        strokeOpacity: 0.95,
-        strokeWeight: 3,
-        fillColor: '#28b446',
-        fillOpacity: 0.18,
+        strokeColor: '#0f9f4f',
+        strokeOpacity: 1,
+        strokeWeight: 4,
+        fillColor: '#22c55e',
+        fillOpacity: 0.26,
         editable: true,
+        clickable: false,
+        zIndex: 50,
       });
       polygon.getPath().addListener('set_at', syncPathFromPolygon);
       polygon.getPath().addListener('insert_at', syncPathFromPolygon);
       polygon.getPath().addListener('remove_at', syncPathFromPolygon);
-      map.addListener('click', (event) => addPoint(event.latLng));
+      bindMarkerUi();
+      map.addListener('bounds_changed', renderMarkers);
+      window.addEventListener('resize', renderMarkers);
       loadAreas();
+    }
+
+    function bindMarkerUi() {
+      if (markerUiBound) return;
+      markerUiBound = true;
+      const mapElement = document.getElementById('areaMap');
+      const markerLayer = document.getElementById('areaMarkerLayer');
+      const mapCard = document.querySelector('.area-map-card');
+      mapElement.addEventListener('click', handleMapDomClick, true);
+      markerLayer.addEventListener('pointerdown', handleMarkerLayerPointer);
+      markerLayer.addEventListener('click', handleMarkerLayerPointer);
+      mapCard.addEventListener('pointerdown', handleMarkerLayerPointer);
+      document.addEventListener('keydown', handleMarkingKey);
+      document.addEventListener('keyup', handleMarkingKey);
+      document.addEventListener('mousemove', handleMarkingMouseMove, true);
+      window.addEventListener('blur', () => setMarkingMode(false));
     }
 
     function syncPathFromPolygon() {
       selectedPath = polygon.getPath().getArray().map((point) => ({ lat: point.lat(), lng: point.lng() }));
       renderMarkers();
+      renderPointList();
       setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
     }
 
@@ -160,7 +205,9 @@
       selectedPath = path.map((point) => ({ lat: Number(point.lat), lng: Number(point.lng) }))
         .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
       polygon.setPath(selectedPath);
+      polygon.setOptions({ zIndex: 50 });
       renderMarkers();
+      renderPointList();
       if (selectedPath.length) {
         const bounds = new google.maps.LatLngBounds();
         selectedPath.forEach((point) => bounds.extend(point));
@@ -169,20 +216,173 @@
       setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
     }
 
-    function addPoint(latLng) {
-      selectedPath.push({ lat: latLng.lat(), lng: latLng.lng() });
+    function addPoint(latLng, domEvent = null) {
+      addPointFromValues(latLng.lat(), latLng.lng(), domEvent ? clickPixel(domEvent) : null);
+    }
+
+    function addPointFromValues(lat, lng, screen = null) {
+      selectedPath.push({ lat, lng, screen });
       polygon.setPath(selectedPath);
+      polygon.setOptions({ zIndex: 50 });
       renderMarkers();
+      renderPointList();
       setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
     }
 
+    function handleMapDomClick(event) {
+      if (!map || !polygon) return;
+      if (!shouldPlacePoint(event)) {
+        setStatus('Click Mark Points first, or hold Ctrl and click on the map to add a point.');
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const screen = clickPixel(event);
+      if (!screen) return;
+      const latLng = mapPixelToLatLng(screen);
+      if (!latLng) return;
+      const lastPoint = selectedPath[selectedPath.length - 1];
+      if (
+        lastPoint
+        && Math.abs(lastPoint.lat - latLng.lat) < 0.0000001
+        && Math.abs(lastPoint.lng - latLng.lng) < 0.0000001
+      ) {
+        return;
+      }
+      addPointFromValues(latLng.lat, latLng.lng, screen);
+    }
+
+    function handleMarkerLayerPointer(event) {
+      if (!map || !polygon) {
+        setStatus('Map is still loading. Please wait a moment, then try again.', true);
+        return;
+      }
+      if (!shouldPlacePoint(event)) {
+        setStatus(`Map click detected at ${Math.round(event.clientX)}, ${Math.round(event.clientY)}. Click Mark Points first to add a point.`);
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (Date.now() - lastPlacedAt < 120) return;
+      const screen = clickPixel(event);
+      if (!screen) {
+        setStatus('Map click detected, but screen position could not be read.', true);
+        return;
+      }
+      const latLng = mapPixelToLatLng(screen);
+      if (!latLng) {
+        const center = map.getCenter && map.getCenter();
+        if (center) {
+          addPointFromValues(center.lat(), center.lng(), screen);
+          setStatus('Point placed visually. Map projection was still loading, so the map center was used.');
+          return;
+        }
+        setStatus('Map click detected, but map coordinates are not ready yet. Try again in one second.', true);
+        return;
+      }
+      lastPlacedAt = Date.now();
+      addPointFromValues(latLng.lat, latLng.lng, screen);
+    }
+
+    function handleMarkingKey(event) {
+      if (event.key !== 'Control') return;
+      setMarkingMode(event.type === 'keydown');
+    }
+
+    function handleMarkingMouseMove(event) {
+      const card = document.querySelector('.area-map-card');
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      const insideMap = event.clientX >= rect.left
+        && event.clientX <= rect.right
+        && event.clientY >= rect.top
+        && event.clientY <= rect.bottom;
+      if (insideMap && shouldPlacePoint(event)) {
+        setMarkingMode(true);
+      } else if (!manualMarkingMode && !isCtrlPressed(event)) {
+        setMarkingMode(false, false);
+      }
+    }
+
+    function shouldPlacePoint(event) {
+      return manualMarkingMode || isCtrlPressed(event);
+    }
+
+    function isCtrlPressed(event) {
+      return Boolean(event && (event.ctrlKey || (event.getModifierState && event.getModifierState('Control'))));
+    }
+
+    function setMarkingMode(enabled, announce = true) {
+      const card = document.querySelector('.area-map-card');
+      if (!card) return;
+      card.classList.toggle('marking-mode', Boolean(enabled));
+      if (enabled && announce) setStatus('Point marking active. Click the map to add a point.');
+    }
+
+    function toggleManualMarking() {
+      manualMarkingMode = !manualMarkingMode;
+      const button = document.getElementById('toggleMarking');
+      button.textContent = manualMarkingMode ? 'Mark Points: On' : 'Mark Points: Off';
+      button.classList.toggle('area-marking-active', manualMarkingMode);
+      setMarkingMode(manualMarkingMode);
+      setStatus(manualMarkingMode
+        ? 'Point marking active. Click the map to add a point.'
+        : 'Click Mark Points, then click on the map to mark the area boundary.');
+    }
+
     function renderMarkers() {
-      markers.forEach((marker) => marker.setMap(null));
-      markers = selectedPath.map((point, index) => new google.maps.Marker({
-        position: point,
-        map,
-        label: String(index + 1),
-      }));
+      const layer = document.getElementById('areaMarkerLayer');
+      if (!layer || !map) return;
+      layer.innerHTML = '';
+      markers = [];
+
+      selectedPath.forEach((point, index) => {
+        const pixel = latLngToMapPixel(point) || point.screen;
+        if (!pixel) return;
+        const marker = document.createElement('span');
+        marker.className = 'area-point-marker';
+        marker.textContent = String(index + 1);
+        marker.title = `Point ${index + 1}`;
+        marker.style.left = `${pixel.x}px`;
+        marker.style.top = `${pixel.y}px`;
+        layer.appendChild(marker);
+        markers.push(marker);
+      });
+    }
+
+    function latLngToMapPixel(point) {
+      const projection = mapProjectionOverlay && mapProjectionOverlay.getProjection();
+      if (!projection) return point.screen || null;
+      const pixel = projection.fromLatLngToContainerPixel(new google.maps.LatLng(point.lat, point.lng));
+      return pixel ? { x: pixel.x, y: pixel.y } : point.screen || null;
+    }
+
+    function clickPixel(domEvent) {
+      const mapDiv = document.getElementById('areaMap');
+      if (!mapDiv || !domEvent || domEvent.clientX === undefined || domEvent.clientY === undefined) return null;
+      const rect = mapDiv.getBoundingClientRect();
+      return {
+        x: domEvent.clientX - rect.left,
+        y: domEvent.clientY - rect.top,
+      };
+    }
+
+    function mapPixelToLatLng(pixel) {
+      const projection = mapProjectionOverlay && mapProjectionOverlay.getProjection();
+      if (!projection) return null;
+      const latLng = projection.fromContainerPixelToLatLng(new google.maps.Point(pixel.x, pixel.y));
+      return latLng ? { lat: latLng.lat(), lng: latLng.lng() } : null;
+    }
+
+    function renderPointList() {
+      const list = document.getElementById('areaPointList');
+      if (!selectedPath.length) {
+        list.textContent = 'No points marked yet.';
+        return;
+      }
+      list.innerHTML = selectedPath.map((point, index) => (
+        `<span>Point ${index + 1}: ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}</span>`
+      )).join('');
     }
 
     function resetForm() {
@@ -191,8 +391,16 @@
       document.getElementById('areaCity').value = 'Jaipur';
       document.getElementById('ownDeliveryActive').checked = false;
       document.getElementById('areaActive').checked = true;
+      manualMarkingMode = false;
+      const markingButton = document.getElementById('toggleMarking');
+      if (markingButton) {
+        markingButton.textContent = 'Mark Points: Off';
+        markingButton.classList.remove('area-marking-active');
+      }
+      setMarkingMode(false, false);
       drawPath([]);
-      setStatus('Click on the map to mark the area boundary.');
+      renderPointList();
+      setStatus('Click Mark Points, then click on the map to mark the area boundary.');
     }
 
     async function loadAreas() {
@@ -242,7 +450,9 @@
         fillColor: area.own_delivery_active ? '#28b446' : '#94a3b8',
         fillOpacity: area.is_active ? 0.10 : 0.04,
         clickable: false,
+        zIndex: 5,
       }));
+      if (polygon) polygon.setOptions({ zIndex: 50 });
     }
 
     function editArea(id) {
@@ -301,8 +511,10 @@
 
     document.getElementById('saveArea').addEventListener('click', saveArea);
     document.getElementById('resetArea').addEventListener('click', resetForm);
+    document.getElementById('toggleMarking').addEventListener('click', toggleManualMarking);
     document.getElementById('undoPoint').addEventListener('click', () => drawPath(selectedPath.slice(0, -1)));
     document.getElementById('clearPolygon').addEventListener('click', () => drawPath([]));
+    bindMarkerUi();
     ensureMapScript();
   </script>
 
@@ -327,11 +539,54 @@
     .area-map-card {
       overflow: hidden;
       min-height: 680px;
+      position: relative;
     }
     .area-map {
       width: 100%;
       height: 100%;
       min-height: 680px;
+    }
+    .area-marker-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 100000;
+      pointer-events: auto;
+      cursor: grab;
+    }
+    .area-map-card.marking-mode .area-marker-layer {
+      cursor: crosshair;
+    }
+    .area-map img {
+      max-width: none !important;
+    }
+    .area-map svg {
+      width: auto !important;
+      height: auto !important;
+      fill: initial !important;
+      stroke: initial !important;
+      stroke-width: initial !important;
+      stroke-linecap: initial !important;
+      stroke-linejoin: initial !important;
+      overflow: visible !important;
+    }
+    .area-point-marker {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 3px solid #fff;
+      border-radius: 999px;
+      background: #ef4444;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+      z-index: 999999;
+      cursor: pointer;
+      pointer-events: auto;
     }
     .area-toggle-row {
       display: flex;
@@ -349,6 +604,33 @@
       gap: 10px;
       flex-wrap: wrap;
     }
+    .area-map-actions .area-marking-active {
+      background: #dc2626;
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+    }
+    .area-help-card {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border: 1px solid #dbeafe;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1e3a8a;
+    }
+    .area-help-card h2 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 900;
+      color: #1e40af;
+    }
+    .area-help-card ol {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 5px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
     .area-definition-status {
       margin: 14px 0;
       padding: 10px 12px;
@@ -360,6 +642,22 @@
     .area-definition-status.error {
       background: #fee2e2;
       color: #991b1b;
+    }
+    .area-point-list {
+      display: grid;
+      gap: 5px;
+      margin: -4px 0 14px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 800;
+      max-height: 116px;
+      overflow: auto;
+    }
+    .area-point-list span {
+      display: block;
     }
     .area-list-card {
       max-height: 390px;
