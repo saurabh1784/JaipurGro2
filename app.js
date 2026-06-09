@@ -1,6 +1,7 @@
 const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
+const fs = require('fs');
 const path = require('path');
 const pgPool = require('./db');
 const { restoreSnapshotOnStartup } = require('./databaseSnapshot');
@@ -41,6 +42,10 @@ const {
   uploadBrandLogo,
   handleUploadError,
 } = require('./middleware/brandLogoUpload');
+const {
+  uploadSubcategoryImage,
+  handleSubcategoryImageUploadError,
+} = require('./middleware/subcategoryImageUpload');
 const {
   catalogSeed: groceryCatalogSeed,
   productSeeds: indianProductSeeds,
@@ -208,13 +213,9 @@ app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/default.png', (req, res) => {
-  res.type('image/svg+xml').send(`
-    <svg xmlns="http://www.w3.org/2000/svg" width="320" height="240" viewBox="0 0 320 240">
-      <rect width="320" height="240" fill="#f1f5f9"/>
-      <rect x="96" y="54" width="128" height="132" rx="14" fill="#d8dee6"/>
-      <path d="M122 96h76M122 122h76M122 148h52" stroke="#64748b" stroke-width="10" stroke-linecap="round"/>
-    </svg>
-  `);
+  const defaultPng =
+    'iVBORw0KGgoAAAANSUhEUgAAAAMAAAADCAIAAADZSiLoAAAAEklEQVR4nGNkYPjPgASYGFABqgE/BuZX43gAAAAASUVORK5CYII=';
+  res.type('image/png').send(Buffer.from(defaultPng, 'base64'));
 });
 
 app.get('/api/system/status', async (req, res) => {
@@ -479,6 +480,29 @@ function slugify(value) {
     .replace(/^-+|-+$/g, '');
 }
 
+let uploadedProductImageFiles;
+
+function uploadedProductImagePath(productName) {
+  if (!uploadedProductImageFiles) {
+    const uploadDir = path.join(__dirname, 'public', 'uploads', 'products');
+    try {
+      uploadedProductImageFiles = fs
+        .readdirSync(uploadDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => entry.name)
+        .filter((name) => /\.(png|jpe?g|webp|gif)$/i.test(name));
+    } catch {
+      uploadedProductImageFiles = [];
+    }
+  }
+
+  const productSlug = slugify(productName);
+  const file = uploadedProductImageFiles.find((name) => (
+    name.toLowerCase().startsWith(`${productSlug}-`)
+  ));
+  return file ? `/uploads/products/${file}` : null;
+}
+
 async function seedGroceryCatalog() {
   for (const [categoryName, subcategories] of groceryCatalogSeed) {
     const categorySlug = slugify(categoryName);
@@ -577,13 +601,14 @@ async function seedIndianProducts() {
     const relation = relationRows[0];
     const [existingRows] = await pool.query('SELECT id FROM products WHERE name = ? LIMIT 1', [product.name]);
 
+    const imageUrl = uploadedProductImagePath(product.name) || '/default.png';
     const productValues = [
       product.description,
       product.price,
       product.weightValue,
       product.weightUnit,
       product.weightKg,
-      '/default.png',
+      imageUrl,
       product.taxName || 'GST',
       product.taxPercentage ?? 5,
       relation.category_id,
@@ -600,7 +625,10 @@ async function seedIndianProducts() {
              weight_value = ?,
              weight_unit = ?,
              weight_kg = ?,
-             image_url = ?,
+             image_url = CASE
+               WHEN NULLIF(NULLIF(image_url, ''), '/default.png') IS NULL THEN ?
+               ELSE image_url
+             END,
              tax_name = ?,
              tax_percentage = ?,
              category_id = ?,
@@ -892,6 +920,7 @@ async function initDatabase() {
       category_id INT UNSIGNED NOT NULL,
       name VARCHAR(150) NOT NULL,
       slug VARCHAR(180) NOT NULL,
+      image_path VARCHAR(255) DEFAULT NULL,
       status VARCHAR(20) NOT NULL DEFAULT 'active',
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       is_deleted TINYINT(1) NOT NULL DEFAULT 0,
@@ -904,6 +933,7 @@ async function initDatabase() {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('sub_categories', 'slug', 'VARCHAR(180) NOT NULL DEFAULT "" AFTER name');
+  await addColumnIfMissing('sub_categories', 'image_path', 'VARCHAR(255) DEFAULT NULL AFTER slug');
   await addColumnIfMissing('sub_categories', 'status', "VARCHAR(20) NOT NULL DEFAULT 'active' AFTER slug");
   await addColumnIfMissing('sub_categories', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER status');
   await addColumnIfMissing('sub_categories', 'is_deleted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER is_active');
@@ -4683,9 +4713,9 @@ app.post('/settings/categories', requireAuth, requirePermission('settings.manage
 app.get('/settings/categories', requireAuth, requirePermission('settings.manage'), catalogController.listCategories);
 app.put('/settings/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.updateCategory);
 app.delete('/settings/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteCategory);
-app.post('/settings/subcategories', requireAuth, requirePermission('settings.manage'), catalogController.createSubcategory);
+app.post('/settings/subcategories', requireAuth, requirePermission('settings.manage'), uploadSubcategoryImage.single('image'), handleSubcategoryImageUploadError, catalogController.createSubcategory);
 app.get('/settings/subcategories', requireAuth, requirePermission('settings.manage'), catalogController.listSubcategories);
-app.put('/settings/subcategories/:id', requireAuth, requirePermission('settings.manage'), catalogController.updateSubcategory);
+app.put('/settings/subcategories/:id', requireAuth, requirePermission('settings.manage'), uploadSubcategoryImage.single('image'), handleSubcategoryImageUploadError, catalogController.updateSubcategory);
 app.delete('/settings/subcategories/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteSubcategory);
 app.post('/settings/brands', requireAuth, requirePermission('settings.manage'), uploadBrandLogo.single('logo'), handleUploadError, catalogController.createBrand);
 app.get('/settings/brands', requireAuth, requirePermission('settings.manage'), catalogController.listBrands);
@@ -4696,9 +4726,9 @@ app.post('/categories', requireAuth, requirePermission('settings.manage'), catal
 app.get('/categories', requireAuth, requirePermission('settings.manage'), catalogController.listCategories);
 app.put('/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.updateCategory);
 app.delete('/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteCategory);
-app.post('/sub-categories', requireAuth, requirePermission('settings.manage'), catalogController.createSubcategory);
+app.post('/sub-categories', requireAuth, requirePermission('settings.manage'), uploadSubcategoryImage.single('image'), handleSubcategoryImageUploadError, catalogController.createSubcategory);
 app.get('/sub-categories', requireAuth, requirePermission('settings.manage'), catalogController.listSubcategories);
-app.put('/sub-categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.updateSubcategory);
+app.put('/sub-categories/:id', requireAuth, requirePermission('settings.manage'), uploadSubcategoryImage.single('image'), handleSubcategoryImageUploadError, catalogController.updateSubcategory);
 app.delete('/sub-categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteSubcategory);
 app.post('/brands', requireAuth, requirePermission('settings.manage'), uploadBrandLogo.single('logo'), handleUploadError, catalogController.createBrand);
 app.get('/brands', requireAuth, requirePermission('settings.manage'), catalogController.listBrands);

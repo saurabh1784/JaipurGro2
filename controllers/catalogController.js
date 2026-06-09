@@ -1,5 +1,6 @@
 const Catalog = require('../models/Catalog');
 const { brandLogoPath } = require('../middleware/brandLogoUpload');
+const { subcategoryImagePath } = require('../middleware/subcategoryImageUpload');
 
 function parseActive(value) {
   return value === true || value === 'true' || value === 1 || value === '1';
@@ -9,6 +10,10 @@ function validateName(body, errors) {
   if (!body.name || String(body.name).trim().length < 2) {
     errors.push('Name must be at least 2 characters');
   }
+}
+
+function categoryIdFrom(body) {
+  return body.category_id || body.categoryId;
 }
 
 function parseTaxPayload(body, errors) {
@@ -104,17 +109,19 @@ async function listSubcategories(req, res) {
 async function createSubcategory(req, res) {
   const errors = [];
   validateName(req.body, errors);
-  if (!req.body.category_id) errors.push('Category is required');
+  const categoryId = categoryIdFrom(req.body);
+  if (!categoryId) errors.push('Category is required');
   if (errors.length) return res.status(422).json({ success: false, errors });
 
   try {
     const id = await Catalog.createSubcategory({
-      category_id: req.body.category_id,
+      category_id: categoryId,
       name: String(req.body.name).trim(),
       slug: req.body.slug,
+      image_path: subcategoryImagePath(req.file),
       is_active: req.body.is_active === undefined ? true : parseActive(req.body.is_active),
     });
-    res.status(201).json({ success: true, message: 'Subcategory created', id });
+    res.status(201).json({ success: true, message: 'Subcategory created', id, image_path: subcategoryImagePath(req.file) });
   } catch (error) {
     if (duplicateResponse(res, error)) return;
     console.error('Create subcategory error:', error);
@@ -125,14 +132,16 @@ async function createSubcategory(req, res) {
 async function updateSubcategory(req, res) {
   const errors = [];
   validateName(req.body, errors);
-  if (!req.body.category_id) errors.push('Category is required');
+  const categoryId = categoryIdFrom(req.body);
+  if (!categoryId) errors.push('Category is required');
   if (errors.length) return res.status(422).json({ success: false, errors });
 
   try {
     await Catalog.updateSubcategory(req.params.id, {
-      category_id: req.body.category_id,
+      category_id: categoryId,
       name: String(req.body.name).trim(),
       slug: req.body.slug,
+      image_path: subcategoryImagePath(req.file),
       is_active: req.body.is_active === undefined ? true : parseActive(req.body.is_active),
     });
     res.json({ success: true, message: 'Subcategory updated' });

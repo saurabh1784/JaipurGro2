@@ -28,6 +28,7 @@ function normalize(row) {
     brand_id: row.brand_id,
     category_name: row.category_name,
     sub_category_name: row.sub_category_name,
+    sub_category_image_path: row.sub_category_image_path || '',
     brand_name: row.brand_name,
     vendor_name: row.vendor_name,
     vendor_email: row.vendor_email,
@@ -35,6 +36,8 @@ function normalize(row) {
     sponsored_priority: Number(row.sponsored_priority || 0),
     ranking_score: row.ranking_score === undefined ? 0 : Number(row.ranking_score || 0),
     image_url: row.image_url || '/default.png',
+    vendor_image_url: row.vendor_image_url || '',
+    product_image_url: row.product_image_url || '',
     client_id: row.client_id,
     custom_price: row.custom_price === undefined || row.custom_price === null ? null : Number(row.custom_price),
     visible_price: defaultPrice === undefined
@@ -111,11 +114,18 @@ async function list({ vendor_id, approval_status, status, search, category_id, s
   }
 
   const [rows] = await pool.query(
-    `SELECT vp.*, COALESCE(NULLIF(NULLIF(vp.image_url, ''), '/default.png'), p.image_url, '/default.png') AS image_url,
+    `SELECT vp.*,
+            COALESCE(
+              NULLIF(NULLIF(vp.image_url, ''), '/default.png'),
+              NULLIF(NULLIF(p.image_url, ''), '/default.png'),
+              '/default.png'
+            ) AS image_url,
+            NULLIF(NULLIF(vp.image_url, ''), '/default.png') AS vendor_image_url,
+            NULLIF(NULLIF(p.image_url, ''), '/default.png') AS product_image_url,
             p.name AS product_name, p.description, p.price AS default_price,
             p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.rejection_reason, p.category_id, p.sub_category_id, p.brand_id,
-            c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name,
+            c.name AS category_name, s.name AS sub_category_name, s.image_path AS sub_category_image_path, b.name AS brand_name,
             u.name AS vendor_name, u.email AS vendor_email
      FROM vendor_products vp
      INNER JOIN products p ON p.id = vp.product_id
@@ -133,11 +143,18 @@ async function list({ vendor_id, approval_status, status, search, category_id, s
 
 async function findById(id) {
   const [rows] = await pool.query(
-    `SELECT vp.*, COALESCE(NULLIF(NULLIF(vp.image_url, ''), '/default.png'), p.image_url, '/default.png') AS image_url,
+    `SELECT vp.*,
+            COALESCE(
+              NULLIF(NULLIF(vp.image_url, ''), '/default.png'),
+              NULLIF(NULLIF(p.image_url, ''), '/default.png'),
+              '/default.png'
+            ) AS image_url,
+            NULLIF(NULLIF(vp.image_url, ''), '/default.png') AS vendor_image_url,
+            NULLIF(NULLIF(p.image_url, ''), '/default.png') AS product_image_url,
             p.name AS product_name, p.description, p.price AS default_price,
             p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.rejection_reason, p.category_id, p.sub_category_id, p.brand_id,
-            c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name,
+            c.name AS category_name, s.name AS sub_category_name, s.image_path AS sub_category_image_path, b.name AS brand_name,
             u.name AS vendor_name, u.email AS vendor_email
      FROM vendor_products vp
      INNER JOIN products p ON p.id = vp.product_id
@@ -427,13 +444,15 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
             MAX(vp.updated_at) AS updated_at,
             COALESCE(
               MAX(NULLIF(NULLIF(vp.image_url, ''), '/default.png')),
-              p.image_url,
+              NULLIF(NULLIF(p.image_url, ''), '/default.png'),
               '/default.png'
             ) AS image_url,
+            MAX(NULLIF(NULLIF(vp.image_url, ''), '/default.png')) AS vendor_image_url,
+            NULLIF(NULLIF(p.image_url, ''), '/default.png') AS product_image_url,
             p.name AS product_name, p.description, p.price AS default_price,
             p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.category_id, p.sub_category_id, p.brand_id,
-            c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name,
+            c.name AS category_name, s.name AS sub_category_name, s.image_path AS sub_category_image_path, b.name AS brand_name,
             NULL AS vendor_name,
             NULL AS vendor_email,
             NULL AS client_id,
@@ -472,7 +491,7 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
      WHERE ${where.join(' AND ')}
      GROUP BY p.id, p.image_url, p.name, p.description, p.price, p.weight_value, p.weight_unit, p.weight_kg, p.approval_status,
               p.category_id, p.sub_category_id, p.brand_id,
-              c.name, s.name, b.name, sp.is_sponsored, sp.priority_order
+              c.name, s.name, s.image_path, b.name, sp.is_sponsored, sp.priority_order
      ORDER BY COALESCE(sp.is_sponsored, 0) DESC,
               COALESCE(sp.priority_order, 0) DESC,
               ranking_score DESC,

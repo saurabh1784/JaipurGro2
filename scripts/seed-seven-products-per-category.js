@@ -1,4 +1,6 @@
 const pool = require('../db');
+const fs = require('fs');
+const path = require('path');
 const {
   productSeeds,
   genericProductLabels,
@@ -7,6 +9,38 @@ const {
 async function firstRow(connection, sql, params = []) {
   const [rows] = await connection.query(sql, params);
   return rows[0] || null;
+}
+
+function slugify(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+let uploadedProductImageFiles;
+
+function uploadedProductImagePath(productName) {
+  if (!uploadedProductImageFiles) {
+    const uploadDir = path.join(__dirname, '..', 'public', 'uploads', 'products');
+    try {
+      uploadedProductImageFiles = fs
+        .readdirSync(uploadDir, { withFileTypes: true })
+        .filter((entry) => entry.isFile())
+        .map((entry) => entry.name)
+        .filter((name) => /\.(png|jpe?g|webp|gif)$/i.test(name));
+    } catch {
+      uploadedProductImageFiles = [];
+    }
+  }
+
+  const productSlug = slugify(productName);
+  const file = uploadedProductImageFiles.find((name) => (
+    name.toLowerCase().startsWith(`${productSlug}-`)
+  ));
+  return file ? `/uploads/products/${file}` : null;
 }
 
 async function removeGeneratedDemoProducts(connection) {
@@ -48,13 +82,14 @@ async function upsertProduct(connection, product, adminId) {
     return { skipped: true, name: product.name };
   }
 
+  const imageUrl = uploadedProductImagePath(product.name) || '/default.png';
   const values = [
     product.description,
     product.price,
     product.weightValue,
     product.weightUnit,
     product.weightKg,
-    '/default.png',
+    imageUrl,
     product.taxName || 'GST',
     product.taxPercentage ?? 5,
     relation.category_id,
@@ -76,7 +111,10 @@ async function upsertProduct(connection, product, adminId) {
            weight_value = ?,
            weight_unit = ?,
            weight_kg = ?,
-           image_url = ?,
+           image_url = CASE
+             WHEN NULLIF(NULLIF(image_url, ''), '/default.png') IS NULL THEN ?
+             ELSE image_url
+           END,
            tax_name = ?,
            tax_percentage = ?,
            category_id = ?,

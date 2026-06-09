@@ -34,7 +34,7 @@ async function listCategories() {
 
 async function listSubcategories() {
   const { rows } = await pool.query(
-    `SELECT s.id, s.category_id, s.name, s.slug, s.status, s.created_at, s.updated_at, c.name AS category_name
+    `SELECT s.id, s.category_id, s.name, s.slug, s.image_path, s.status, s.created_at, s.updated_at, c.name AS category_name
      FROM sub_categories s
      INNER JOIN categories c ON c.id = s.category_id
      WHERE s.is_deleted = 0 AND c.is_deleted = 0
@@ -63,7 +63,7 @@ async function listBrands() {
 async function getTree() {
   const [rows] = await pool.query(
     `SELECT c.id AS category_id, c.name AS category_name, c.slug AS category_slug, c.status AS category_status,
-            s.id AS sub_category_id, s.name AS sub_category_name, s.slug AS sub_category_slug, s.status AS sub_category_status,
+            s.id AS sub_category_id, s.name AS sub_category_name, s.slug AS sub_category_slug, s.image_path AS sub_category_image_path, s.status AS sub_category_status,
             c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
             b.id AS brand_id, b.name AS brand_name, b.slug AS brand_slug, b.logo_path AS brand_logo_path, b.status AS brand_status
      FROM categories c
@@ -95,6 +95,7 @@ async function getTree() {
         category_id: item.category_id,
         name: item.sub_category_name,
         slug: item.sub_category_slug,
+        image_path: item.sub_category_image_path || '',
         status: item.sub_category_status,
         is_active: item.sub_category_status === 'active',
         brands: [],
@@ -156,20 +157,20 @@ async function deleteCategory(id) {
   );
 }
 
-async function createSubcategory({ category_id, name, slug, is_active }) {
+async function createSubcategory({ category_id, name, slug, image_path, is_active }) {
   const status = activeToStatus(is_active);
   const [result] = await pool.query(
-    'INSERT INTO sub_categories (category_id, name, slug, status, is_active) VALUES (?, ?, ?, ?, ?)',
-    [category_id, name, slugify(slug || name), status, status === 'active' ? 1 : 0]
+    'INSERT INTO sub_categories (category_id, name, slug, image_path, status, is_active) VALUES (?, ?, ?, ?, ?, ?)',
+    [category_id, name, slugify(slug || name), image_path || null, status, status === 'active' ? 1 : 0]
   );
   return result.insertId;
 }
 
-async function updateSubcategory(id, { category_id, name, slug, is_active }) {
+async function updateSubcategory(id, { category_id, name, slug, image_path, is_active }) {
   const status = activeToStatus(is_active);
   await pool.query(
-    'UPDATE sub_categories SET category_id = ?, name = ?, slug = ?, status = ?, is_active = ? WHERE id = ? AND is_deleted = 0',
-    [category_id, name, slugify(slug || name), status, status === 'active' ? 1 : 0, id]
+    'UPDATE sub_categories SET category_id = ?, name = ?, slug = ?, image_path = COALESCE(?, image_path), status = ?, is_active = ? WHERE id = ? AND is_deleted = 0',
+    [category_id, name, slugify(slug || name), image_path || null, status, status === 'active' ? 1 : 0, id]
   );
 }
 

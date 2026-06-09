@@ -454,6 +454,7 @@
                   <th>Name</th>
                   <th>Slug</th>
                   <th>Tax</th>
+                  <th>Picture</th>
                   <th>Status</th>
                   <th>Actions</th>
                 </tr>
@@ -477,7 +478,7 @@
                 </tr>
               </thead>
               <tbody id="subcategoryTableBody">
-                <tr><td colspan="6">Loading...</td></tr>
+                <tr><td colspan="7">Loading...</td></tr>
               </tbody>
             </table>
           </div>
@@ -829,7 +830,7 @@
           <input id="catalogTaxPercentageInput" type="number" min="0" max="100" step="0.01" />
         </label>
         <label class="catalog-logo-field" id="catalogLogoField">
-          Logo
+          Picture / Logo
           <input id="catalogLogoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
         </label>
         <label class="settings-toggle">
@@ -901,7 +902,7 @@
       const brandBody = document.getElementById('brandTableBody');
       tree.textContent = 'Loading catalog...';
       categoryBody.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
-      subcategoryBody.innerHTML = '<tr><td colspan="6">Loading...</td></tr>';
+      subcategoryBody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
       brandBody.innerHTML = '<tr><td colspan="7">Loading...</td></tr>';
 
       try {
@@ -933,7 +934,7 @@
         console.error(error);
         tree.innerHTML = `<div class="catalog-error">${escapeCatalog(error.message)}</div>`;
         categoryBody.innerHTML = `<tr><td colspan="5">${escapeCatalog(error.message)}</td></tr>`;
-        subcategoryBody.innerHTML = `<tr><td colspan="6">${escapeCatalog(error.message)}</td></tr>`;
+        subcategoryBody.innerHTML = `<tr><td colspan="7">${escapeCatalog(error.message)}</td></tr>`;
         brandBody.innerHTML = `<tr><td colspan="7">${escapeCatalog(error.message)}</td></tr>`;
       }
     }
@@ -948,6 +949,14 @@
         return `<span class="brand-logo-wrap"><img class="brand-logo" src="${escapeCatalog(brand.logo_path)}" alt="${escapeCatalog(brand.name)} logo" /></span>`;
       }
       return `<span class="brand-logo-fallback" aria-label="${escapeCatalog(brand.name)} logo">${escapeCatalog(initial)}</span>`;
+    }
+
+    function subcategoryImageMarkup(subcategory) {
+      const initial = String(subcategory.name || '?').trim().charAt(0).toUpperCase() || '?';
+      if (subcategory.image_path) {
+        return `<span class="brand-logo-wrap"><img class="brand-logo" src="${escapeCatalog(subcategory.image_path)}" alt="${escapeCatalog(subcategory.name)} picture" /></span>`;
+      }
+      return `<span class="brand-logo-fallback" aria-label="${escapeCatalog(subcategory.name)} picture">${escapeCatalog(initial)}</span>`;
     }
 
     function renderCatalogFilters() {
@@ -1078,6 +1087,7 @@
             <td>${escapeCatalog(row.category_name)}</td>
             <td>${escapeCatalog(row.name)}</td>
             <td>${escapeCatalog(row.slug)}</td>
+            <td>${subcategoryImageMarkup(row)}</td>
             <td><span class="user-status-pill ${row.is_active ? 'active' : 'inactive'}">${row.is_active ? 'active' : 'inactive'}</span></td>
             <td>
               <div class="user-actions">
@@ -1087,7 +1097,7 @@
             </td>
           </tr>
         `).join('')
-        : '<tr><td colspan="6">No subcategories found</td></tr>';
+        : '<tr><td colspan="7">No subcategories found</td></tr>';
 
       document.getElementById('brandTableBody').innerHTML = brands.length
         ? brands.map((row) => `
@@ -1121,7 +1131,7 @@
       document.getElementById('catalogActiveInput').checked = item ? item.is_active : true;
       document.getElementById('catalogCategoryField').style.display = type === 'subcategory' || type === 'brand' ? 'block' : 'none';
       document.getElementById('catalogSubcategoryField').style.display = type === 'brand' ? 'block' : 'none';
-      document.getElementById('catalogLogoField').style.display = type === 'brand' ? 'block' : 'none';
+      document.getElementById('catalogLogoField').style.display = type === 'subcategory' || type === 'brand' ? 'block' : 'none';
       document.getElementById('catalogTaxNameField').style.display = type === 'category' ? 'block' : 'none';
       document.getElementById('catalogTaxPercentageField').style.display = type === 'category' ? 'block' : 'none';
       document.getElementById('catalogLogoInput').value = '';
@@ -1151,20 +1161,24 @@
         payload.tax_name = document.getElementById('catalogTaxNameInput').value;
         payload.tax_percentage = document.getElementById('catalogTaxPercentageInput').value;
       }
-      if (type === 'brand') {
+      const selectedLogo = document.getElementById('catalogLogoInput').files[0];
+      const needsMultipart = type === 'brand' || (type === 'subcategory' && selectedLogo);
+
+      if (needsMultipart) {
         payload.category_id = document.getElementById('catalogCategoryInput').value;
-        payload.sub_category_id = document.getElementById('catalogSubcategoryInput').value;
+        if (type === 'brand') {
+          payload.sub_category_id = document.getElementById('catalogSubcategoryInput').value;
+        }
         const formData = new FormData();
         Object.entries(payload).forEach(([key, value]) => formData.append(key, value));
-        const logo = document.getElementById('catalogLogoInput').files[0];
-        if (logo) formData.append('logo', logo);
+        formData.append(type === 'subcategory' ? 'image' : 'logo', selectedLogo);
         payload = formData;
       }
 
       const response = await fetch(`${catalogEndpoint(type)}${id ? `/${id}` : ''}`, {
         method: id ? 'PUT' : 'POST',
-        headers: type === 'brand' ? undefined : { 'Content-Type': 'application/json' },
-        body: type === 'brand' ? payload : JSON.stringify(payload),
+        headers: needsMultipart ? undefined : { 'Content-Type': 'application/json' },
+        body: needsMultipart ? payload : JSON.stringify(payload),
       });
       const data = await response.json();
       if (!data.success) {
