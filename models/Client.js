@@ -146,14 +146,14 @@ async function update(id, data) {
     await connection.query(
       `INSERT INTO client_profiles (user_id, address, country, state, city, age, gender, notes)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-       ON DUPLICATE KEY UPDATE
-         address = VALUES(address),
-         country = VALUES(country),
-         state = VALUES(state),
-         city = VALUES(city),
-         age = VALUES(age),
-         gender = VALUES(gender),
-         notes = VALUES(notes)`,
+       ON CONFLICT (user_id) DO UPDATE
+       SET address = EXCLUDED.address,
+           country = EXCLUDED.country,
+           state = EXCLUDED.state,
+           city = EXCLUDED.city,
+           age = EXCLUDED.age,
+           gender = EXCLUDED.gender,
+           notes = EXCLUDED.notes`,
       [id, data.address || null, data.country || null, data.state || null, data.city || null, data.age || null, data.gender || null, data.notes || null]
     );
     await connection.commit();

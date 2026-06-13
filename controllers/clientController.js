@@ -102,29 +102,37 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
-  const id = Number(req.params.id);
-  if (!id) return res.status(422).json({ success: false, message: 'Valid client ID is required' });
+  try {
+    const id = Number(req.params.id);
+    if (!id) return res.status(422).json({ success: false, message: 'Valid client ID is required' });
 
-  const existing = await Client.findById(id);
-  if (!existing) return res.status(404).json({ success: false, message: 'Client not found' });
+    const existing = await Client.findById(id);
+    if (!existing) return res.status(404).json({ success: false, message: 'Client not found' });
 
-  if (Object.keys(req.body).length === 1 && req.body.status !== undefined) {
-    if (!validateStatus(req.body.status)) {
-      return res.status(422).json({ success: false, message: 'Status must be active or inactive' });
+    if (Object.keys(req.body).length === 1 && req.body.status !== undefined) {
+      if (!validateStatus(req.body.status)) {
+        return res.status(422).json({ success: false, message: 'Status must be active or inactive' });
+      }
+      await Client.updateStatus(id, req.body.status);
+      return res.json({ success: true, message: 'Client status updated', client: await Client.findById(id) });
     }
-    await Client.updateStatus(id, req.body.status);
-    return res.json({ success: true, message: 'Client status updated', client: await Client.findById(id) });
+
+    const { errors, data } = validateClient(req.body);
+    if (errors.length) return res.status(422).json({ success: false, message: 'Validation failed', errors });
+
+    const duplicate = await Client.emailOrPhoneTaken({ id, email: data.email, phone: data.phone });
+    if (duplicate) return res.status(409).json({ success: false, message: 'A user with this email or phone already exists' });
+
+    if (data.password) data.password = await bcrypt.hash(data.password, 10);
+    await Client.update(id, data);
+    return res.json({ success: true, message: 'Client updated', client: await Client.findById(id) });
+  } catch (error) {
+    if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
+      return res.status(409).json({ success: false, message: 'A user with this email or phone already exists' });
+    }
+    console.error('Client update error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to update client' });
   }
-
-  const { errors, data } = validateClient(req.body);
-  if (errors.length) return res.status(422).json({ success: false, message: 'Validation failed', errors });
-
-  const duplicate = await Client.emailOrPhoneTaken({ id, email: data.email, phone: data.phone });
-  if (duplicate) return res.status(409).json({ success: false, message: 'A user with this email or phone already exists' });
-
-  if (data.password) data.password = await bcrypt.hash(data.password, 10);
-  await Client.update(id, data);
-  return res.json({ success: true, message: 'Client updated', client: await Client.findById(id) });
 }
 
 async function destroy(req, res) {
