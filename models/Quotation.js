@@ -460,6 +460,12 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
       const catalogUnavailable = existing.vendor_product_status === 'unavailable' || (existing.stock !== null && existing.stock !== undefined && Number(existing.stock || 0) <= 0);
       const status = catalogUnavailable || submitted.status === 'not_available' || submitted.status === 'NA' ? 'not_available' : 'available';
       const unitPrice = Math.max(0, Number(submitted.unit_price || submitted.price || existing.admin_price || 0));
+      const adminPrice = Number(existing.admin_price || 0);
+      if (status === 'available' && unitPrice > adminPrice + 0.005) {
+        const error = new Error(`Bid amount for ${existing.product_name} cannot be higher than admin MRP INR ${adminPrice.toFixed(2)}`);
+        error.status = 422;
+        throw error;
+      }
       const lineTotal = status === 'available' ? quantity * unitPrice : 0;
       total += lineTotal;
 

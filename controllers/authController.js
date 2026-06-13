@@ -7,7 +7,7 @@ const VendorProduct = require('../models/VendorProduct');
 const { sign } = require('../utils/jwt');
 const { revokeToken } = require('../middleware/tokenBlacklist');
 const { validateSignup, validateLogin } = require('../middleware/validators');
-const { findOrCreateGoogleClient } = require('../services/googleClientAuthService');
+const { findOrCreateGoogleUser } = require('../services/googleClientAuthService');
 
 function tokenPayload(user) {
   return {
@@ -28,6 +28,7 @@ async function signup(req, res) {
   const phone = String(req.body.phone).trim();
   const password = String(req.body.password);
   const role = req.body.role;
+  const city = String(req.body.city || '').trim().slice(0, 100);
 
   const existingUser = await User.findByEmailOrPhone(email, phone);
   if (existingUser) {
@@ -41,6 +42,26 @@ async function signup(req, res) {
     const hashedPassword = await bcrypt.hash(password, 10);
     const userId = await User.create({ name, email, phone, password: hashedPassword, role }, connection);
     await Profile.createEmptyForRole(userId, role, connection);
+    if (city && role === 'Client') {
+      await connection.query(
+        'UPDATE client_profiles SET city = $1 WHERE user_id = $2',
+        [city, userId]
+      );
+    }
+    if (city && role === 'Vendor') {
+      await connection.query(
+        'UPDATE vendor_profiles SET city = $1 WHERE user_id = $2',
+        [city, userId]
+      );
+    }
+    if (city && String(role).toLowerCase() === 'staff') {
+      await connection.query(
+        `INSERT INTO delivery_partner_settings (user_id, city, area, is_active)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (user_id, city, area) DO UPDATE SET is_active = EXCLUDED.is_active`,
+        [userId, city, '*', 1]
+      );
+    }
     await Wallet.ensureForUser(userId, connection);
     if (role === 'Vendor') {
       await VendorProduct.ensureVendorHasAllProducts(userId, connection);
@@ -109,9 +130,13 @@ async function googleClientLogin(req, res) {
   if (!idToken) {
     return res.status(422).json({ success: false, message: 'Google ID token is required' });
   }
+  const requestedRole = String(req.body.role || 'Client').trim();
+  if (!['Client', 'Vendor'].includes(requestedRole)) {
+    return res.status(422).json({ success: false, message: 'Google login role must be Client or Vendor' });
+  }
 
   try {
-    const user = await findOrCreateGoogleClient(idToken);
+    const user = await findOrCreateGoogleUser(idToken, requestedRole);
     const token = sign(tokenPayload(user));
     return res.json({
       success: true,
@@ -128,4 +153,11 @@ async function googleClientLogin(req, res) {
   }
 }
 
-module.exports = { signup, login, logout, googleClientLogin };
+function googlePublicConfig(req, res) {
+  return res.json({
+    success: true,
+    google: publicGoogleConfig(),
+  });
+}
+
+module.exports = { signup, login, logout, googleClientLogin, googlePublicConfig };

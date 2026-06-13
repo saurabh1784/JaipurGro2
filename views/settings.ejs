@@ -271,20 +271,52 @@
       <form class="settings-panel" id="firebase" aria-labelledby="firebase-tab">
         <div class="panel-header blue-header">
           <h2>Firebase Settings</h2>
-          <p>Firebase project values for notifications, storage, and mobile clients.</p>
+          <p>Firebase project values for Google login, analytics, notifications, storage, and mobile clients.</p>
         </div>
         <div class="settings-grid">
+          <label class="settings-wide">
+            API Key
+            <input type="text" value="<%= settings.firebase.apiKey %>" readonly />
+          </label>
+          <label>
+            Auth Domain
+            <input type="text" value="<%= settings.firebase.authDomain %>" readonly />
+          </label>
           <label>
             Project ID
-            <input type="text" value="<%= settings.firebase.projectId %>" />
+            <input type="text" value="<%= settings.firebase.projectId %>" readonly />
           </label>
           <label>
             Messaging Sender ID
-            <input type="text" value="<%= settings.firebase.messagingSenderId %>" />
+            <input type="text" value="<%= settings.firebase.messagingSenderId %>" readonly />
           </label>
           <label>
             Storage Bucket
-            <input type="text" value="<%= settings.firebase.storageBucket %>" />
+            <input type="text" value="<%= settings.firebase.storageBucket %>" readonly />
+          </label>
+          <label class="settings-wide">
+            Firebase Web App ID
+            <input type="text" value="<%= settings.firebase.appId %>" readonly />
+          </label>
+          <label>
+            Measurement ID
+            <input type="text" value="<%= settings.firebase.measurementId %>" readonly />
+          </label>
+          <label class="settings-wide">
+            Google Web Client ID
+            <input type="text" value="<%= settings.firebase.googleWebClientId || 'Set GOOGLE_WEB_CLIENT_ID in server environment' %>" readonly />
+          </label>
+          <label class="settings-wide">
+            Firebase Admin SDK
+            <input type="text" value="<%= settings.firebase.adminMessage %>" readonly />
+          </label>
+          <label>
+            Admin Project ID
+            <input type="text" value="<%= settings.firebase.adminProjectId || '-' %>" readonly />
+          </label>
+          <label class="settings-wide">
+            Admin Client Email
+            <input type="text" value="<%= settings.firebase.adminClientEmail || '-' %>" readonly />
           </label>
           <label class="settings-wide">
             Server Key
@@ -295,7 +327,7 @@
             Push Notifications
           </label>
         </div>
-        <button class="settings-save" type="button">Save Firebase Settings</button>
+        <button class="settings-save" type="button" disabled>Loaded From Firebase Config</button>
       </form>
 
       <section class="settings-panel" id="google-maps" aria-labelledby="google-maps-tab">

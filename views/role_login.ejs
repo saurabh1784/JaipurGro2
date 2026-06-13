@@ -37,6 +37,19 @@
       </form>
 
       <% const googleLoginClientId = typeof googleWebClientId !== 'undefined' ? googleWebClientId : ''; %>
+      <% const firebaseLoginConfig = typeof firebaseConfig !== 'undefined' ? firebaseConfig : null; %>
+      <% if (firebaseLoginConfig && firebaseLoginConfig.apiKey) { %>
+        <script type="module">
+          import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js';
+          import { getAnalytics, isSupported } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-analytics.js';
+
+          const firebaseConfig = <%- JSON.stringify(firebaseLoginConfig) %>;
+          const firebaseApp = initializeApp(firebaseConfig);
+          isSupported().then((supported) => {
+            if (supported) getAnalytics(firebaseApp);
+          });
+        </script>
+      <% } %>
       <% if (roleSlug === 'Client' && googleLoginClientId) { %>
         <div class="role-login-divider"><span>or</span></div>
         <div id="g_id_onload"

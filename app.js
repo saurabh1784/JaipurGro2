@@ -44,6 +44,7 @@ const SupportTicket = require('./models/SupportTicket');
 const VendorCategoryRequest = require('./models/VendorCategoryRequest');
 const AreaDefinition = require('./models/AreaDefinition');
 const { findOrCreateGoogleClient, publicGoogleConfig } = require('./services/googleClientAuthService');
+const { firebaseAdminStatus } = require('./services/firebaseAdminService');
 const {
   uploadBrandLogo,
   handleUploadError,
@@ -2510,6 +2511,7 @@ app.get('/login/vendor', (req, res) => {
     loginPath: '/login/vendor',
     demoCredentials: { identifier: 'vendor1@example.com', password: 'admin123' },
     googleWebClientId: '',
+    firebaseConfig: publicGoogleConfig().firebase,
     error: null,
   });
 });
@@ -2525,6 +2527,7 @@ app.get('/login/client', (req, res) => {
     loginPath: '/login/client',
     demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
     googleWebClientId: publicGoogleConfig().webClientId,
+    firebaseConfig: publicGoogleConfig().firebase,
     error: null,
   });
 });
@@ -2585,6 +2588,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
         ? { identifier: 'vendor1@example.com', password: 'admin123' }
         : { identifier: 'client@example.com', password: 'admin123' },
       googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
+      firebaseConfig: publicGoogleConfig().firebase,
       error: 'Please enter email/username and password.',
     });
   }
@@ -2600,6 +2604,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
           ? { identifier: 'vendor1@example.com', password: 'admin123' }
           : { identifier: 'client@example.com', password: 'admin123' },
         googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
+        firebaseConfig: publicGoogleConfig().firebase,
         error: `Invalid ${roleLabel.toLowerCase()} credentials.`,
       });
     }
@@ -2614,6 +2619,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
           ? { identifier: 'vendor1@example.com', password: 'admin123' }
           : { identifier: 'client@example.com', password: 'admin123' },
         googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
+        firebaseConfig: publicGoogleConfig().firebase,
         error: `Invalid ${roleLabel.toLowerCase()} credentials.`,
       });
     }
@@ -2643,6 +2649,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
         ? { identifier: 'vendor1@example.com', password: 'admin123' }
         : { identifier: 'client@example.com', password: 'admin123' },
       googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
+      firebaseConfig: publicGoogleConfig().firebase,
       error: 'Unable to process login. Please try again later.',
     });
   }
@@ -2660,6 +2667,7 @@ app.post('/login/client/google', async (req, res) => {
       loginPath: '/login/client',
       demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
       googleWebClientId: publicGoogleConfig().webClientId,
+      firebaseConfig: publicGoogleConfig().firebase,
       error: 'Google login token is missing. Please try again.',
     });
   }
@@ -2686,6 +2694,7 @@ app.post('/login/client/google', async (req, res) => {
       loginPath: '/login/client',
       demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
       googleWebClientId: publicGoogleConfig().webClientId,
+      firebaseConfig: publicGoogleConfig().firebase,
       error: error.status ? error.message : 'Unable to process Google login. Please try again later.',
     });
   }
@@ -4616,6 +4625,8 @@ app.get('/api/coupons/history', webOrJwtAuth, requirePermission('coupon_history.
 });
 
 app.get('/settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  const googleConfig = publicGoogleConfig();
+  const firebaseAdmin = firebaseAdminStatus();
   const maps = await settingGroup([
     'google_maps_browser_api_key',
     'google_maps_android_api_key',
@@ -4659,9 +4670,18 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
         encryption: 'TLS',
       },
       firebase: {
-        projectId: 'grocery-app-demo',
-        messagingSenderId: '000000000000',
-        storageBucket: 'grocery-app-demo.appspot.com',
+        apiKey: googleConfig.firebase.apiKey,
+        authDomain: googleConfig.firebase.authDomain,
+        projectId: googleConfig.firebase.projectId,
+        storageBucket: googleConfig.firebase.storageBucket,
+        messagingSenderId: googleConfig.firebase.messagingSenderId,
+        appId: googleConfig.firebase.appId,
+        measurementId: googleConfig.firebase.measurementId,
+        googleWebClientId: googleConfig.webClientId,
+        adminConfigured: firebaseAdmin.configured,
+        adminProjectId: firebaseAdmin.projectId,
+        adminClientEmail: firebaseAdmin.clientEmail,
+        adminMessage: firebaseAdmin.message,
         pushNotifications: true,
       },
       maps: {

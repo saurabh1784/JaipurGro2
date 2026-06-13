@@ -117,7 +117,7 @@
                       <span class="quotation-muted">Total <%= item.total_weight_label || ((item.total_weight_kg || 0).toFixed(3) + ' kg') %></span>
                     </td>
                     <td>INR <%= item.admin_price.toFixed(2) %></td>
-                    <td><input class="quote-price" type="number" min="0" step="0.01" value="<%= item.unit_price.toFixed(2) %>" data-base-price="<%= item.admin_price.toFixed(2) %>" <%= !itemAvailable || quotationLocked ? 'disabled' : '' %> /></td>
+                    <td><input class="quote-price" type="number" min="0" max="<%= item.admin_price.toFixed(2) %>" step="0.01" value="<%= item.unit_price.toFixed(2) %>" data-base-price="<%= item.admin_price.toFixed(2) %>" data-product-name="<%= item.product_name %>" <%= !itemAvailable || quotationLocked ? 'disabled' : '' %> /></td>
                     <td>
                       <span class="quote-status-pill <%= itemAvailable ? 'available' : 'not-available' %>"><%= itemAvailable ? 'Available' : 'Unavailable' %></span>
                     </td>
@@ -247,6 +247,10 @@
       alertBox.hidden = false;
     }
 
+    function showBidAmountError(message) {
+      window.alert(message || 'Bid amount cannot be higher than admin MRP.');
+    }
+
     async function readJsonResponse(response) {
       let data = null;
       try {
@@ -276,6 +280,20 @@
       });
       card.querySelector('[data-grand-total]').textContent = formatMoney(total);
       card.querySelector('[data-detail-total]').textContent = formatMoney(total);
+    }
+
+    function findInvalidBidAmount(card) {
+      for (const row of card.querySelectorAll('tbody tr[data-item-id]')) {
+        if (row.dataset.available !== '1') continue;
+        const priceInput = row.querySelector('.quote-price');
+        const price = Number(priceInput.value || 0);
+        const adminPrice = Number(priceInput.dataset.basePrice || 0);
+        if (price > adminPrice + 0.005) {
+          const productName = priceInput.dataset.productName || 'this product';
+          return `Bid amount for ${productName} cannot be higher than admin MRP INR ${adminPrice.toFixed(2)}.`;
+        }
+      }
+      return '';
     }
 
     function openQuotation(recipientId) {
@@ -310,6 +328,11 @@
 
     async function submitQuotation(recipientId) {
       const card = document.querySelector(`[data-recipient-id="${recipientId}"]`);
+      const invalidBidMessage = findInvalidBidAmount(card);
+      if (invalidBidMessage) {
+        showBidAmountError(invalidBidMessage);
+        return;
+      }
       const button = card.querySelector('.quotation-submit-row button');
       const items = [...card.querySelectorAll('tbody tr[data-item-id]')].map((row) => ({
         item_id: row.dataset.itemId,
@@ -386,7 +409,11 @@
     document.querySelectorAll('.quotation-card').forEach((card) => {
       card.querySelectorAll('.quote-qty, .quote-price').forEach((input) => {
         input.addEventListener('input', () => recalc(card));
-        input.addEventListener('change', () => recalc(card));
+        input.addEventListener('change', () => {
+          recalc(card);
+          const invalidBidMessage = findInvalidBidAmount(card);
+          if (invalidBidMessage) showBidAmountError(invalidBidMessage);
+        });
       });
       recalc(card);
     });

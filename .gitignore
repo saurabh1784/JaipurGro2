@@ -11,3 +11,5 @@ db-snapshots/*
 !db-snapshots/deploy-snapshot.json
 *.dump
 *.sql.backup
+firebase-service-account*.json
+service-account*.json
