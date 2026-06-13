@@ -7,7 +7,7 @@ const VendorProduct = require('../models/VendorProduct');
 const { sign } = require('../utils/jwt');
 const { revokeToken } = require('../middleware/tokenBlacklist');
 const { validateSignup, validateLogin } = require('../middleware/validators');
-const { findOrCreateGoogleUser } = require('../services/googleClientAuthService');
+const { findOrCreateGoogleUser, publicGoogleConfig } = require('../services/googleClientAuthService');
 
 function tokenPayload(user) {
   return {
@@ -154,10 +154,18 @@ async function googleClientLogin(req, res) {
 }
 
 function googlePublicConfig(req, res) {
-  return res.json({
-    success: true,
-    google: publicGoogleConfig(),
-  });
+  try {
+    return res.json({
+      success: true,
+      google: publicGoogleConfig(),
+    });
+  } catch (error) {
+    console.error('Google public config error:', error);
+    return res.status(500).json({
+      success: false,
+      message: 'Unable to load Google login configuration',
+    });
+  }
 }
 
 module.exports = { signup, login, logout, googleClientLogin, googlePublicConfig };
