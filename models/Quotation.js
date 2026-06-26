@@ -603,13 +603,12 @@ async function listForClient(clientId) {
        ON qvri.quotation_vendor_recipient_id = qvr.id
       AND qvri.quotation_request_item_id = qri.id
      WHERE qr.client_id = ?
-       AND qvr.status = 'submitted'
      ORDER BY qr.created_at DESC, qvr.submitted_at DESC NULLS LAST, qvr.id ASC, qri.id ASC`,
     [clientId]
   );
 
-  // Return every submitted bid so clients can compare price and vendor ratings,
-  // rather than silently reducing the list to the cheapest response.
+  // Return every quotation recipient row so clients can see sent, seen,
+  // submitted, accepted, and rejected quotations in their history.
   const quotations = normalizeRows(rows);
   const ratingSummaries = await Rating.summaries('vendor', quotations.map((quotation) => quotation.vendor_id));
   return quotations.map((quotation) => ({

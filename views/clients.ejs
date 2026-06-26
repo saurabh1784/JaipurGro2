@@ -457,7 +457,7 @@
       });
       const data = await response.json();
       if (!data.success) {
-        alert(data.message || (data.errors || []).join(', ') || 'Unable to save client');
+        alert((data.errors || []).join(', ') || data.message || 'Unable to save client');
         return;
       }
       closeClientModal();

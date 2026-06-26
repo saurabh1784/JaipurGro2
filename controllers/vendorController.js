@@ -63,7 +63,6 @@ function validateVendor(body, { requirePassword = false } = {}) {
   if (!isValidLocation(data)) {
     errors.push('City is required');
   }
-  if (!data.area) errors.push('Area is required');
 
   return { errors, data };
 }
