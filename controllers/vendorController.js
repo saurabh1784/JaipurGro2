@@ -43,6 +43,7 @@ function validateVendor(body, { requirePassword = false } = {}) {
     country: body.country ? String(body.country).trim() : '',
     state: body.state ? String(body.state).trim() : '',
     city: body.city ? String(body.city).trim() : '',
+    area: body.area ? String(body.area).trim() : '',
     gst_number: body.gst_number ? String(body.gst_number).trim() : '',
     services: normalizeServices(body.services),
     category_ids: normalizeCategoryIds(body.category_ids || body.categories),
@@ -62,6 +63,7 @@ function validateVendor(body, { requirePassword = false } = {}) {
   if (!isValidLocation(data)) {
     errors.push('City is required');
   }
+  if (!data.area) errors.push('Area is required');
 
   return { errors, data };
 }

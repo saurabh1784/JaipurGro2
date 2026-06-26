@@ -29,6 +29,7 @@ function validateClient(body, { requirePassword = false } = {}) {
     country: body.country ? String(body.country).trim() : '',
     state: body.state ? String(body.state).trim() : '',
     city: body.city ? String(body.city).trim() : '',
+    area: body.area ? String(body.area).trim() : '',
     age: ageValue,
     gender: body.gender ? String(body.gender).trim() : '',
     notes: body.notes ? String(body.notes).trim() : '',
@@ -43,6 +44,7 @@ function validateClient(body, { requirePassword = false } = {}) {
   if (!locationTree[data.country]) errors.push('Country is required');
   if (!data.country || !locationTree[data.country] || !locationTree[data.country][data.state]) errors.push('State is required');
   if (!isValidLocation(data)) errors.push('City is required');
+  if (!data.area) errors.push('Area is required');
   if (data.age !== '' && (!Number.isInteger(data.age) || data.age < 1 || data.age > 120)) {
     errors.push('Age must be between 1 and 120');
   }

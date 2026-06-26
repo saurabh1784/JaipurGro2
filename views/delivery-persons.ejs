@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Delivery Person Management</title><link rel="stylesheet" href="/styles.css"></head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  <main class="system-main">
+    <header class="topbar"><div><p class="crumb">Dashboard / Delivery Persons</p><h1>Delivery Person Management</h1></div><button class="settings-save" id="addPerson">Create Delivery Person</button></header>
+    <section class="delivery-admin-shell">
+      <div class="delivery-filter-bar">
+        <input id="search" type="search" placeholder="Search name, login ID, or person ID">
+        <input id="cityFilter" placeholder="Filter city">
+        <select id="statusFilter"><option value="">All statuses</option><option value="active">Active</option><option value="blocked">Blocked</option></select>
+        <select id="vehicleFilter"><option value="">All vehicles</option><option>Bike</option><option>Scooter</option><option>Bicycle</option><option>Car</option><option>Van</option><option>Other</option></select>
+        <button class="product-secondary-button" id="clearFilters">Clear</button>
+      </div>
+      <div class="delivery-summary-grid" id="summary"></div>
+      <div class="delivery-person-list" id="personGrid"><p>Loading delivery persons…</p></div>
+      <div class="users-pagination"><button id="previous">Previous</button><span id="pageInfo">Page 1</span><button id="next">Next</button></div>
+    </section>
+  </main>
+
+  <div class="user-modal" id="personModal" aria-hidden="true"><div class="user-modal-card delivery-form-card">
+    <div class="user-modal-header"><h2 id="formTitle">Create Delivery Person</h2><button onclick="closeModal('personModal')">Close</button></div>
+    <form id="personForm" class="user-modal-grid">
+      <input type="hidden" id="personId">
+      <h3 class="settings-wide">Personal & login details</h3>
+      <label>Name<input id="name" required minlength="2"></label><label>Login ID / Email<input id="loginId" type="email" required></label>
+      <label>Phone number<input id="phone" required></label><label>Password<input id="password" type="password" minlength="6"><small id="passwordHint">Required for a new profile</small></label>
+      <h3 class="settings-wide">Address & documents</h3>
+      <div class="settings-wide vendor-category-field">Service areas <small>Select one or more areas from Area Definition.</small><div id="serviceAreas" class="vendor-category-checklist" role="group" aria-label="Delivery service areas"></div></div><label>Address proof type<select id="proofType"><option value="">Select</option><option>Aadhaar</option><option>Driving Licence</option><option>Voter ID</option><option>Passport</option><option>Other</option></select></label>
+      <label class="settings-wide">Full address<textarea id="address" rows="3"></textarea></label><label>Address proof ID<input id="proofId"></label>
+      <h3 class="settings-wide">Vehicle & wallet</h3>
+      <label>Vehicle type<select id="vehicleType"><option value="">Select</option><option>Bike</option><option>Scooter</option><option>Bicycle</option><option>Car</option><option>Van</option><option>Other</option></select></label><label>Vehicle number<input id="vehicleNumber"></label>
+      <label>Account status<select id="accountStatus"><option value="active">Active</option><option value="blocked">Blocked</option></select></label><label>Availability<select id="availabilityStatus"><option value="available">Available</option><option value="unavailable">Unavailable</option></select></label><label id="openingBalanceLabel">Initial wallet balance<input id="openingBalance" type="number" min="0" step="0.01" value="0"></label>
+      <label class="settings-wide">Document notes<textarea id="documentNotes" rows="2"></textarea></label>
+      <button class="settings-save" type="submit">Save Profile</button>
+    </form>
+  </div></div>
+
+  <div class="user-modal" id="walletModal"><div class="user-modal-card"><div class="user-modal-header"><h2>Wallet Balance</h2><button onclick="closeModal('walletModal')">Close</button></div><form id="walletForm" class="user-modal-grid"><input type="hidden" id="walletPersonId"><label>Action<select id="walletType"><option value="credit">Add money</option><option value="debit">Deduct money</option></select></label><label>Amount<input id="walletAmount" type="number" min="0.01" step="0.01" required></label><label>Reference<input id="walletReference"></label><label>Reason<textarea id="walletNote" required></textarea></label><button class="settings-save">Save Transaction</button></form></div></div>
+
+  <script>
+    let people = [], page = 1, totalPages = 1, areaOptions = [];
+    const el = (id) => document.getElementById(id);
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+    const money = (v) => `₹${Number(v || 0).toFixed(2)}`;
+    const debounce = (fn, ms=300) => { let t; return (...a) => { clearTimeout(t); t=setTimeout(() => fn(...a), ms); }; };
+    function openModal(id){ el(id).classList.add('active'); } function closeModal(id){ el(id).classList.remove('active'); }
+    async function api(url, options={}) { const r=await fetch(url,{headers:{'Content-Type':'application/json'},...options}); const d=await r.json(); if(!r.ok||!d.success) throw new Error(d.message||'Request failed'); return d; }
+    function areaKey(entry){return `${String(entry.city||'').trim().toLowerCase()}::${String(entry.area||'').trim().toLowerCase()}`;}
+    function renderAreaPicker(selectedAreas=[]){
+      const selected=new Set(selectedAreas.map(areaKey));
+      el('serviceAreas').innerHTML=areaOptions.length?areaOptions.map((entry,index)=>`<label class="vendor-category-option" for="deliveryArea${index}"><input id="deliveryArea${index}" type="checkbox" data-city="${esc(entry.city)}" value="${esc(entry.area)}" ${selected.has(areaKey(entry))?'checked':''}><span>${esc(entry.city)} — ${esc(entry.area)}</span></label>`).join(''):'<p>No active areas are defined. Add an area in Area Definition first.</p>';
+    }
+    function selectedAreas(){return Array.from(document.querySelectorAll('#serviceAreas input:checked')).map(input=>({city:input.dataset.city,area:input.value}));}
+    async function loadAreaOptions(){const d=await api('/area-options');areaOptions=d.areas||[];renderAreaPicker();}
+    async function load(newPage=1){
+      const q=new URLSearchParams({format:'json',page:newPage,limit:12,search:el('search').value.trim(),city:el('cityFilter').value.trim(),status:el('statusFilter').value,vehicle_type:el('vehicleFilter').value});
+      try { const d=await api(`/delivery-persons?${q}`); people=d.deliveryPersons; page=d.pagination.page; totalPages=d.pagination.totalPages; render(); } catch(e){ el('personGrid').innerHTML=`<p>${esc(e.message)}</p>`; }
+    }
+    function render(){
+      const active=people.filter(p=>p.status==='active').length, delivered=people.reduce((n,p)=>n+p.total_orders_delivered,0), balance=people.reduce((n,p)=>n+p.wallet_balance,0);
+      el('summary').innerHTML=`<article><span>Profiles on page</span><strong>${people.length}</strong></article><article><span>Active</span><strong>${active}</strong></article><article><span>Orders delivered</span><strong>${delivered}</strong></article><article><span>Wallet balance</span><strong>${money(balance)}</strong></article>`;
+      el('personGrid').innerHTML=people.length?`<div class="delivery-person-list-head"><span>Person</span><span>Contact</span><span>Areas</span><span>Vehicle</span><span>Performance</span><span>Wallet</span><span>Actions</span></div>${people.map(p=>`<article class="delivery-person-row">
+        <div class="delivery-person-heading"><div class="delivery-avatar">${esc((p.name||'?')[0].toUpperCase())}</div><div><h3>${esc(p.name)}</h3><span>#DP-${p.id} · ${esc(p.login_id)}</span></div><b class="delivery-status ${p.status}">${esc(p.status)}</b></div>
+        <div class="delivery-person-cell"><span>Phone</span><strong>${esc(p.phone||'-')}</strong><small>${esc(p.city||'-')}</small></div>
+        <div class="delivery-person-cell"><span>Assigned areas</span><strong>${esc((p.service_areas||[]).map(a=>`${a.city} / ${a.area}`).join(', ')||`${p.city||'-'} / ${p.area||'*'}`)}</strong></div>
+        <div class="delivery-person-cell"><span>Vehicle</span><strong>${esc(p.vehicle_type||'-')}</strong><small>${esc(p.vehicle_number||'-')}</small></div>
+        <div class="delivery-stat-row"><span><b>${p.total_orders_delivered}</b> Delivered</span><span><b>${p.total_accepted_orders}</b> Accepted</span><span><b>${p.total_rejected_orders}</b> Rejected</span><span><b>${p.failed_delivery_attempts}</b> Failed</span></div>
+        <div class="delivery-person-cell"><span>Balance</span><strong>${money(p.wallet_balance)}</strong><small>${p.is_available?'Available':'Unavailable'}</small></div>
+        <div class="delivery-card-actions"><a href="/delivery-persons/${p.id}/profile">View</a><button onclick="editPerson(${p.id})">Edit</button><button onclick="changeAreas(${p.id})">Change Areas</button><button onclick="wallet(${p.id})">Wallet</button><button onclick="toggleStatus(${p.id},'${p.status==='active'?'blocked':'active'}')">${p.status==='active'?'Block':'Unblock'}</button><button onclick="resetPassword(${p.id})">Reset</button></div>
+      </article>`).join('')}`:'<p>No delivery persons match these filters.</p>';
+      el('pageInfo').textContent=`Page ${page} of ${totalPages}`; el('previous').disabled=page<=1; el('next').disabled=page>=totalPages;
+    }
+    function createPerson(){ el('personForm').reset(); renderAreaPicker(); el('personId').value=''; el('formTitle').textContent='Create Delivery Person'; el('password').required=true; el('passwordHint').textContent='Required for a new profile'; el('openingBalanceLabel').hidden=false; openModal('personModal'); }
+    function editPerson(id){ const p=people.find(x=>x.id===id); if(!p)return; el('personId').value=id; el('formTitle').textContent=`Edit ${p.name}`; el('name').value=p.name||''; el('loginId').value=p.login_id||''; el('phone').value=p.phone||''; el('password').value=''; el('password').required=false; el('passwordHint').textContent='Leave blank to keep current password'; renderAreaPicker((p.service_areas&&p.service_areas.length)?p.service_areas:[{city:p.city,area:p.area||'*'}]); el('address').value=p.address||''; el('proofType').value=p.address_proof_type||''; el('proofId').value=p.address_proof_id||''; el('vehicleType').value=p.vehicle_type||''; el('vehicleNumber').value=p.vehicle_number||''; el('accountStatus').value=p.status||'active'; el('availabilityStatus').value=p.is_available?'available':'unavailable'; el('documentNotes').value=p.document_notes||''; el('openingBalanceLabel').hidden=true; openModal('personModal'); }
+    function changeAreas(id){editPerson(id);setTimeout(()=>el('serviceAreas').scrollIntoView({block:'center'}),0);}
+    function payload(){ const areas=selectedAreas(); return {name:el('name').value,login_id:el('loginId').value,phone:el('phone').value,password:el('password').value,city:areas[0]?.city||'',area:areas[0]?.area||'',delivery_areas:areas,availability_status:el('availabilityStatus').value,address:el('address').value,address_proof_type:el('proofType').value,address_proof_id:el('proofId').value,vehicle_type:el('vehicleType').value,vehicle_number:el('vehicleNumber').value,status:el('accountStatus').value,document_notes:el('documentNotes').value,initial_wallet_balance:el('openingBalance').value}; }
+    el('personForm').onsubmit=async(e)=>{e.preventDefault();const id=el('personId').value;try{const d=await api(id?`/delivery-persons/${id}`:'/delivery-persons',{method:id?'PUT':'POST',body:JSON.stringify(payload())}); if(id&&el('accountStatus').value!==people.find(p=>String(p.id)===id).status) await api(`/delivery-persons/${id}/status`,{method:'PUT',body:JSON.stringify({status:el('accountStatus').value})}); alert(d.message);closeModal('personModal');load(page);}catch(x){alert(x.message)}};
+    async function toggleStatus(id,status){if(!confirm(`${status==='blocked'?'Block':'Unblock'} this delivery person?`))return;try{alert((await api(`/delivery-persons/${id}/status`,{method:'PUT',body:JSON.stringify({status})})).message);load(page)}catch(e){alert(e.message)}}
+    async function resetPassword(id){if(!confirm('Generate a new password?'))return;try{const d=await api(`/delivery-persons/${id}/reset-password`,{method:'POST',body:'{}'});alert(`New password: ${d.generatedPassword}\nCopy it now and share it securely.`)}catch(e){alert(e.message)}}
+    function wallet(id){el('walletPersonId').value=id;el('walletForm').reset();el('walletPersonId').value=id;openModal('walletModal')}
+    el('walletForm').onsubmit=async(e)=>{e.preventDefault();try{const d=await api(`/delivery-persons/${el('walletPersonId').value}/wallet`,{method:'POST',body:JSON.stringify({type:el('walletType').value,amount:el('walletAmount').value,reference:el('walletReference').value,note:el('walletNote').value})});alert(d.message);closeModal('walletModal');load(page)}catch(x){alert(x.message)}};
+    el('addPerson').onclick=createPerson; el('previous').onclick=()=>load(page-1); el('next').onclick=()=>load(page+1); el('clearFilters').onclick=()=>{['search','cityFilter','statusFilter','vehicleFilter'].forEach(id=>el(id).value='');load(1)};
+    ['search','cityFilter'].forEach(id=>el(id).addEventListener('input',debounce(()=>load(1)))); ['statusFilter','vehicleFilter'].forEach(id=>el(id).onchange=()=>load(1)); loadAreaOptions().then(()=>load()).catch(e=>{alert(e.message);load();});
+  </script>
+</body></html>

@@ -119,6 +119,7 @@
     let currentPage = 1;
     let totalPages = 1;
     let users = [];
+    let roleOptions = <%- JSON.stringify(roleOptions || []) %>;
     let activeProfileUserId = null;
     let activeProfileRole = null;
 
@@ -160,9 +161,29 @@
       }
 
       users = data.users;
+      if (Array.isArray(data.roleOptions) && data.roleOptions.length) {
+        roleOptions = data.roleOptions;
+        renderRoleSelects();
+      }
       currentPage = data.pagination.page;
       totalPages = data.pagination.totalPages;
       renderUsers();
+    }
+
+    function renderRoleSelects(extraRole = '') {
+      const uniqueRoles = [...new Set([...(roleOptions || []), extraRole].filter(Boolean))];
+      const filterValue = roleFilter.value;
+      roleFilter.innerHTML = '<option value="">All Roles</option>' + uniqueRoles.map((role) => (
+        `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`
+      )).join('');
+      roleFilter.value = uniqueRoles.includes(filterValue) ? filterValue : '';
+
+      const editRole = document.getElementById('editRole');
+      const editValue = editRole.value || extraRole;
+      editRole.innerHTML = uniqueRoles.map((role) => (
+        `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`
+      )).join('');
+      editRole.value = uniqueRoles.includes(editValue) ? editValue : '';
     }
 
     function renderUsers() {
@@ -218,6 +239,7 @@
       document.getElementById('editUserId').value = user.id;
       document.getElementById('editName').value = user.name;
       document.getElementById('editEmail').value = user.email;
+      renderRoleSelects(user.role);
       document.getElementById('editRole').value = user.role;
       document.getElementById('editStatus').value = user.status;
       openModal('editUserModal');

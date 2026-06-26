@@ -1,0 +1,171 @@
+const Wallet = require('../models/Wallet');
+const CommissionSetting = require('../models/CommissionSetting');
+
+const money = (value) => Number(Math.max(Number(value || 0), 0).toFixed(2));
+
+async function platformAdmin(connection) {
+  const configuredId = Number(process.env.PLATFORM_ADMIN_USER_ID || 0);
+  const params = configuredId > 0 ? [configuredId] : [];
+  const configuredFilter = configuredId > 0 ? 'AND id = ?' : '';
+  const [rows] = await connection.query(
+    `SELECT id, name, email, role
+     FROM users
+     WHERE is_deleted = 0
+       AND LOWER(role) IN ('superadmin', 'admin')
+       ${configuredFilter}
+     ORDER BY CASE WHEN LOWER(role) = 'superadmin' THEN 0 ELSE 1 END, id ASC
+     LIMIT 1`,
+    params
+  );
+  if (!rows.length) {
+    const error = new Error(configuredId > 0
+      ? 'Configured platform admin wallet user was not found'
+      : 'No active platform admin user is available for portal settlement');
+    error.status = 500;
+    throw error;
+  }
+  return rows[0];
+}
+
+async function platformCommissionSetting(connection) {
+  const candidates = ['superadmin', 'admin', 'Admin', 'Vendor', 'vendor', 'deliveryperson', 'deliveryPerson'];
+  for (const role of candidates) {
+    const setting = await CommissionSetting.findForRoleAndTransaction(role, 'order_payment', connection);
+    if (setting) return setting;
+  }
+  return null;
+}
+
+async function assertSufficientBalance(userId, requiredAmount, connection) {
+  const wallet = await Wallet.lockForUser(userId, connection);
+  if (wallet.status !== 'active') {
+    const error = new Error('Client wallet is not active');
+    error.status = 422;
+    throw error;
+  }
+  if (money(wallet.balance) < money(requiredAmount)) {
+    const error = new Error('Insufficient wallet balance');
+    error.status = 400;
+    throw error;
+  }
+  return wallet;
+}
+
+async function settleOrderPlacement({ orderId, actorId, connection }) {
+  const [rows] = await connection.query(
+    `SELECT id, order_number, user_id, vendor_id, total_amount, subtotal_amount,
+            discount_amount, delivery_charge
+     FROM client_orders WHERE id = ? FOR UPDATE`,
+    [orderId]
+  );
+  if (!rows.length) throw new Error('Order not found for wallet settlement');
+  const order = rows[0];
+  if (!order.vendor_id) throw new Error('Order vendor is required for wallet settlement');
+
+  const totalPaid = money(order.total_amount);
+  const deliveryCharge = Math.min(money(order.delivery_charge), totalPaid);
+  const vendorGross = money(totalPaid - deliveryCharge);
+  const setting = await platformCommissionSetting(connection);
+  const portalCharge = Math.min(
+    money(CommissionSetting.calculateAmount(setting, totalPaid)),
+    vendorGross
+  );
+  const vendorEarning = money(vendorGross - portalCharge);
+  const admin = await platformAdmin(connection);
+  const displayOrder = order.order_number || order.id;
+
+  await Wallet.applyLedgerEntry({
+    userId: order.user_id,
+    orderId: order.id,
+    type: 'debit',
+    amount: totalPaid,
+    component: 'client_order_payment',
+    ledgerKey: `ORDER:${order.id}:CLIENT:PAYMENT`,
+    reference: `ORDER_${order.id}`,
+    note: `Payment for order #${displayOrder}, including delivery charge INR ${deliveryCharge.toFixed(2)}`,
+    createdBy: actorId || order.user_id,
+    connection,
+  });
+
+  await Wallet.applyLedgerEntry({
+    userId: admin.id,
+    orderId: order.id,
+    type: 'credit',
+    amount: portalCharge,
+    component: 'admin_platform_charge',
+    ledgerKey: `ORDER:${order.id}:ADMIN:PLATFORM_CHARGE`,
+    reference: `ORDER_${order.id}`,
+    note: `Portal charge for order #${displayOrder}`,
+    createdBy: actorId || order.user_id,
+    commissionSettingId: setting ? setting.id : null,
+    commissionAmount: portalCharge,
+    allowZero: true,
+    connection,
+  });
+
+  await Wallet.applyLedgerEntry({
+    userId: order.vendor_id,
+    orderId: order.id,
+    type: 'credit',
+    amount: vendorEarning,
+    component: 'vendor_order_earning',
+    ledgerKey: `ORDER:${order.id}:VENDOR:EARNING`,
+    reference: `ORDER_${order.id}`,
+    note: `Vendor earning for order #${displayOrder} after portal charge INR ${portalCharge.toFixed(2)}`,
+    createdBy: actorId || order.user_id,
+    commissionSettingId: setting ? setting.id : null,
+    commissionAmount: portalCharge,
+    allowZero: true,
+    connection,
+  });
+
+  await connection.query(
+    `UPDATE client_orders
+     SET platform_charge = ?, vendor_earning = ?, wallet_settled_at = CURRENT_TIMESTAMP,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [portalCharge, vendorEarning, order.id]
+  );
+
+  return { totalPaid, deliveryCharge, vendorGross, portalCharge, vendorEarning, adminUserId: admin.id };
+}
+
+async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, connection }) {
+  const [rows] = await connection.query(
+    `SELECT id, order_number, delivery_partner_id, delivery_charge
+     FROM client_orders WHERE id = ? FOR UPDATE`,
+    [orderId]
+  );
+  if (!rows.length) throw new Error('Order not found for delivery settlement');
+  const order = rows[0];
+  const partnerId = Number(deliveryPersonId || order.delivery_partner_id || 0);
+  const deliveryCharge = money(order.delivery_charge);
+  if (!partnerId || deliveryCharge <= 0) {
+    return { deliveryPersonId: partnerId || null, deliveryEarning: 0 };
+  }
+  const displayOrder = order.order_number || order.id;
+  await Wallet.applyLedgerEntry({
+    userId: partnerId,
+    orderId: order.id,
+    type: 'credit',
+    amount: deliveryCharge,
+    component: 'delivery_person_earning',
+    ledgerKey: `ORDER:${order.id}:DELIVERY_PERSON:EARNING`,
+    reference: `ORDER_${order.id}`,
+    note: `Delivery earning for completed order #${displayOrder}`,
+    createdBy: actorId || partnerId,
+    connection,
+  });
+  await connection.query(
+    `UPDATE client_orders SET delivery_earning = ?, delivery_wallet_settled_at = CURRENT_TIMESTAMP,
+     updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+    [deliveryCharge, order.id]
+  );
+  return { deliveryPersonId: partnerId, deliveryEarning: deliveryCharge };
+}
+
+module.exports = {
+  assertSufficientBalance,
+  settleOrderPlacement,
+  settleDeliveryCompletion,
+};

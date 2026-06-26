@@ -192,6 +192,9 @@
       const activeActions = next.map(status => `
         <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="updateOrderStatus(${order.id}, '${status}')">${statusLabel(status)}</button>
       `);
+      if (order.delivery_partner_id && ['assigned', 'ready_to_deliver'].includes(String(order.delivery_status || '').toLowerCase())) {
+        activeActions.push(`<button class="settings-save" style="padding: 4px 8px; font-size: 12px;" onclick="verifyPickupOtp(${order.id})">Verify Pickup OTP</button>`);
+      }
       return [...disabledActions, ...activeActions].join('');
     }
 
@@ -232,7 +235,8 @@
               <p><strong>Order Status:</strong> ${order.status}</p>
               <p><strong>Delivery Status:</strong> ${order.delivery_status}</p>
               <p><strong>Delivery Partner:</strong> ${order.delivery_partner_name || 'Not assigned'}</p>
-              <p><strong>OTP:</strong> ${order.delivery_otp || '-'}</p>
+              <p><strong>Customer Delivery OTP:</strong> ${order.delivery_otp || '-'}</p>
+              ${order.delivery_partner_id && ['assigned','ready_to_deliver'].includes(String(order.delivery_status || '').toLowerCase()) ? `<p><button class="settings-save" type="button" onclick="verifyPickupOtp(${order.id})">Verify Pickup OTP</button></p>` : ''}
               ${order.otp_set_by_name ? `<p><strong>OTP Set By:</strong> ${order.otp_set_by_name} (${order.otp_set_by_role || 'staff'})</p>` : ''}
               ${order.otp_set_at ? `<p><strong>OTP Set At:</strong> ${new Date(order.otp_set_at).toLocaleString()}</p>` : ''}
             <h4>Status Timeline</h4>
@@ -275,6 +279,28 @@
         loadOrders(currentPage);
       } catch (error) {
         alert('Error updating order status');
+      }
+    }
+
+    async function verifyPickupOtp(orderId) {
+      const otp = prompt('Enter pickup OTP shown in the delivery partner app');
+      if (!otp) return;
+      try {
+        const res = await fetch(`/api/orders/vendor/${orderId}/verify-pickup-otp`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+          body: JSON.stringify({ otp })
+        });
+        const data = await res.json();
+        if (!data.success) {
+          alert(data.message || 'Unable to verify pickup OTP');
+          return;
+        }
+        alert(data.message || 'Pickup verified');
+        closeDetailModal();
+        loadOrders(currentPage);
+      } catch (error) {
+        alert('Error verifying pickup OTP');
       }
     }
 

@@ -4,6 +4,7 @@ const User = require('../models/User');
 const Profile = require('../models/Profile');
 const Wallet = require('../models/Wallet');
 const VendorProduct = require('../models/VendorProduct');
+const DeliveryPerson = require('../models/DeliveryPerson');
 const { sign } = require('../utils/jwt');
 const { revokeToken } = require('../middleware/tokenBlacklist');
 const { validateSignup, validateLogin } = require('../middleware/validators');
@@ -54,13 +55,14 @@ async function signup(req, res) {
         [city, userId]
       );
     }
-    if (city && String(role).toLowerCase() === 'staff') {
+    if (city && ['staff', 'deliveryperson'].includes(String(role).toLowerCase())) {
       await connection.query(
         `INSERT INTO delivery_partner_settings (user_id, city, area, is_active)
          VALUES ($1, $2, $3, $4)
          ON CONFLICT (user_id, city, area) DO UPDATE SET is_active = EXCLUDED.is_active`,
         [userId, city, '*', 1]
       );
+      await DeliveryPerson.upsertProfile(userId, { city, area: '*', status: 'active', is_available: true }, connection);
     }
     await Wallet.ensureForUser(userId, connection);
     if (role === 'Vendor') {
@@ -92,8 +94,8 @@ async function login(req, res) {
     return res.status(422).json({ success: false, message: 'Validation failed', errors });
   }
 
-  const email = String(req.body.email).trim().toLowerCase();
-  const user = await User.findByEmail(email);
+  const identifier = String(req.body.identifier || req.body.email || req.body.phone || '').trim();
+  const user = await User.findByEmailOrPhoneIdentifier(identifier);
 
   if (!user) {
     return res.status(401).json({ success: false, message: 'Invalid credentials' });

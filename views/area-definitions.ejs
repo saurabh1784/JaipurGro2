@@ -106,6 +106,14 @@
     let mapProjectionOverlay = null;
     let markerUiBound = false;
     let didChooseInitialAreaCity = false;
+    let fallbackMapMode = false;
+    const fallbackMapState = {
+      zoom: 12,
+      center: { lat: 26.9124, lng: 75.7873 },
+      dragging: false,
+      dragStart: null,
+      dragCenter: null,
+    };
 
     function escapeHtml(value) {
       return String(value ?? '')
@@ -125,7 +133,7 @@
     function ensureMapScript() {
       const apiKey = mapsConfig.browserApiKey || '';
       if (!apiKey) {
-        setStatus('Google Maps browser key is missing. Add it in Settings / Google Maps.', true);
+        initFallbackMap('Google Maps browser key is missing. Using local fallback map for area marking.');
         return;
       }
       if (window.google && window.google.maps && googleMapsLoadedKey === apiKey) {
@@ -133,15 +141,82 @@
         return;
       }
       window.handleAreaMapsLoaded = initMap;
+      window.gm_authFailure = () => initFallbackMap('Google Maps authentication failed. Using local fallback map for area marking.');
       const script = document.createElement('script');
       script.id = 'areaGoogleMapsScript';
-      const mapIdParam = mapsConfig.mapId ? `&map_ids=${encodeURIComponent(mapsConfig.mapId)}` : '';
-      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}${mapIdParam}&callback=handleAreaMapsLoaded`;
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&callback=handleAreaMapsLoaded`;
       script.async = true;
       script.defer = true;
-      script.onerror = () => setStatus('Unable to load Google Maps. Check the browser key.', true);
+      script.onerror = () => initFallbackMap('Unable to load Google Maps. Using local fallback map for area marking.');
       googleMapsLoadedKey = apiKey;
       document.head.appendChild(script);
+    }
+
+    function initFallbackMap(message = 'Using local fallback map for area marking.') {
+      fallbackMapMode = true;
+      const mapElement = document.getElementById('areaMap');
+      if (!mapElement) return;
+      mapElement.innerHTML = `
+        <div class="fallback-map-grid">
+          <div id="fallbackTileLayer" class="fallback-tile-layer"></div>
+          <svg id="fallbackPolygonSvg" class="fallback-polygon-svg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+          <div class="fallback-map-title">Jaipur Map</div>
+          <div class="fallback-map-subtitle">${escapeHtml(message)} <a href="/settings#google-maps">Check Google Maps settings</a></div>
+          <div class="fallback-map-controls">
+            <button type="button" onclick="fallbackZoom(1)">+</button>
+            <button type="button" onclick="fallbackZoom(-1)">−</button>
+          </div>
+          <div class="fallback-map-attribution">© OpenStreetMap contributors</div>
+        </div>
+      `;
+      bindMarkerUi();
+      bindFallbackMapUi();
+      renderFallbackTiles();
+      window.addEventListener('resize', () => {
+        if (!fallbackMapMode) return;
+        renderFallbackTiles();
+        renderMarkers();
+      });
+      drawPath(selectedPath);
+      refreshVisibleAreas();
+      setStatus(message);
+    }
+
+    function bindFallbackMapUi() {
+      const card = document.querySelector('.area-map-card');
+      if (!card || card.dataset.fallbackBound === '1') return;
+      card.dataset.fallbackBound = '1';
+      card.addEventListener('wheel', (event) => {
+        if (!fallbackMapMode) return;
+        event.preventDefault();
+        fallbackZoom(event.deltaY < 0 ? 1 : -1, clickPixel(event));
+      }, { passive: false });
+      card.addEventListener('pointerdown', (event) => {
+        if (!fallbackMapMode || shouldPlacePoint(event)) return;
+        fallbackMapState.dragging = true;
+        fallbackMapState.dragStart = { x: event.clientX, y: event.clientY };
+        fallbackMapState.dragCenter = { ...fallbackMapState.center };
+        card.setPointerCapture?.(event.pointerId);
+      });
+      card.addEventListener('pointermove', (event) => {
+        if (!fallbackMapMode || !fallbackMapState.dragging || !fallbackMapState.dragStart) return;
+        const startCenter = fallbackWorldPixel(fallbackMapState.dragCenter.lat, fallbackMapState.dragCenter.lng);
+        const dx = event.clientX - fallbackMapState.dragStart.x;
+        const dy = event.clientY - fallbackMapState.dragStart.y;
+        fallbackMapState.center = fallbackLatLngFromWorldPixel(startCenter.x - dx, startCenter.y - dy);
+        renderFallbackTiles();
+        renderMarkers();
+      });
+      const stopDrag = (event) => {
+        if (!fallbackMapMode) return;
+        fallbackMapState.dragging = false;
+        fallbackMapState.dragStart = null;
+        fallbackMapState.dragCenter = null;
+        if (event && event.pointerId !== undefined) card.releasePointerCapture?.(event.pointerId);
+      };
+      card.addEventListener('pointerup', stopDrag);
+      card.addEventListener('pointercancel', stopDrag);
+      card.addEventListener('pointerleave', stopDrag);
     }
 
     function initMap() {
@@ -205,11 +280,13 @@
     function drawPath(path) {
       selectedPath = path.map((point) => ({ lat: Number(point.lat), lng: Number(point.lng) }))
         .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
-      polygon.setPath(selectedPath);
-      polygon.setOptions({ zIndex: 50 });
+      if (polygon) {
+        polygon.setPath(selectedPath);
+        polygon.setOptions({ zIndex: 50 });
+      }
       renderMarkers();
       renderPointList();
-      if (selectedPath.length) {
+      if (!fallbackMapMode && map && window.google && selectedPath.length) {
         const bounds = new google.maps.LatLngBounds();
         selectedPath.forEach((point) => bounds.extend(point));
         map.fitBounds(bounds);
@@ -223,15 +300,17 @@
 
     function addPointFromValues(lat, lng, screen = null) {
       selectedPath.push({ lat, lng, screen });
-      polygon.setPath(selectedPath);
-      polygon.setOptions({ zIndex: 50 });
+      if (polygon) {
+        polygon.setPath(selectedPath);
+        polygon.setOptions({ zIndex: 50 });
+      }
       renderMarkers();
       renderPointList();
       setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
     }
 
     function handleMapDomClick(event) {
-      if (!map || !polygon) return;
+      if (!fallbackMapMode && (!map || !polygon)) return;
       if (!shouldPlacePoint(event)) {
         setStatus('Click Mark Points first, or hold Ctrl and click on the map to add a point.');
         return;
@@ -254,7 +333,7 @@
     }
 
     function handleMarkerLayerPointer(event) {
-      if (!map || !polygon) {
+      if (!fallbackMapMode && (!map || !polygon)) {
         setStatus('Map is still loading. Please wait a moment, then try again.', true);
         return;
       }
@@ -272,7 +351,7 @@
       }
       const latLng = mapPixelToLatLng(screen);
       if (!latLng) {
-        const center = map.getCenter && map.getCenter();
+        const center = map && map.getCenter && map.getCenter();
         if (center) {
           addPointFromValues(center.lat(), center.lng(), screen);
           setStatus('Point placed visually. Map projection was still loading, so the map center was used.');
@@ -333,7 +412,7 @@
 
     function renderMarkers() {
       const layer = document.getElementById('areaMarkerLayer');
-      if (!layer || !map) return;
+      if (!layer || (!map && !fallbackMapMode)) return;
       layer.innerHTML = '';
       markers = [];
 
@@ -349,9 +428,11 @@
         layer.appendChild(marker);
         markers.push(marker);
       });
+      renderFallbackPolygons();
     }
 
     function latLngToMapPixel(point) {
+      if (fallbackMapMode) return fallbackLatLngToPixel(point);
       const projection = mapProjectionOverlay && mapProjectionOverlay.getProjection();
       if (!projection) return point.screen || null;
       const pixel = projection.fromLatLngToContainerPixel(new google.maps.LatLng(point.lat, point.lng));
@@ -369,6 +450,7 @@
     }
 
     function mapPixelToLatLng(pixel) {
+      if (fallbackMapMode) return fallbackPixelToLatLng(pixel);
       const projection = mapProjectionOverlay && mapProjectionOverlay.getProjection();
       if (!projection) return null;
       const latLng = projection.fromContainerPixelToLatLng(new google.maps.Point(pixel.x, pixel.y));
@@ -459,6 +541,7 @@
     function refreshVisibleAreas() {
       renderAreas();
       drawExistingAreas();
+      renderFallbackPolygons();
     }
 
     function renderAreas() {
@@ -484,6 +567,10 @@
 
     let existingAreaPolygons = [];
     function drawExistingAreas() {
+      if (fallbackMapMode) {
+        renderFallbackPolygons();
+        return;
+      }
       if (!map || !window.google) return;
       existingAreaPolygons.forEach((item) => item.setMap(null));
       existingAreaPolygons = visibleAreas().map((area) => new google.maps.Polygon({
@@ -498,6 +585,145 @@
         zIndex: 5,
       }));
       if (polygon) polygon.setOptions({ zIndex: 50 });
+    }
+
+    function fallbackBounds() {
+      return {
+        minLat: 26.78,
+        maxLat: 27.05,
+        minLng: 75.62,
+        maxLng: 75.95,
+      };
+    }
+
+    function fallbackWorldPixel(lat, lng, zoom = fallbackMapState.zoom) {
+      const sinLat = Math.sin((Number(lat) * Math.PI) / 180);
+      const scale = 256 * Math.pow(2, zoom);
+      return {
+        x: ((Number(lng) + 180) / 360) * scale,
+        y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale,
+      };
+    }
+
+    function fallbackZoom(delta, focusPixel = null) {
+      if (!fallbackMapMode) return;
+      const oldZoom = fallbackMapState.zoom;
+      const nextZoom = Math.max(10, Math.min(18, oldZoom + delta));
+      if (nextZoom === oldZoom) return;
+
+      if (focusPixel) {
+        const before = fallbackPixelToLatLng(focusPixel);
+        fallbackMapState.zoom = nextZoom;
+        const mapDiv = document.getElementById('areaMap');
+        const rect = mapDiv ? mapDiv.getBoundingClientRect() : { width: 1, height: 1 };
+        const world = fallbackWorldPixel(before.lat, before.lng);
+        const centerWorld = {
+          x: world.x - focusPixel.x + rect.width / 2,
+          y: world.y - focusPixel.y + rect.height / 2,
+        };
+        fallbackMapState.center = fallbackLatLngFromWorldPixel(centerWorld.x, centerWorld.y);
+      } else {
+        fallbackMapState.zoom = nextZoom;
+      }
+      renderFallbackTiles();
+      renderMarkers();
+      setStatus(`Fallback map zoom ${fallbackMapState.zoom}. Drag to pan, scroll to zoom, or turn Mark Points on to draw.`);
+    }
+
+    function fallbackLatLngFromWorldPixel(x, y, zoom = fallbackMapState.zoom) {
+      const scale = 256 * Math.pow(2, zoom);
+      const lng = (x / scale) * 360 - 180;
+      const n = Math.PI - (2 * Math.PI * y) / scale;
+      const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+      return { lat, lng };
+    }
+
+    function fallbackViewportOrigin() {
+      const mapDiv = document.getElementById('areaMap');
+      const rect = mapDiv ? mapDiv.getBoundingClientRect() : { width: 1, height: 1 };
+      const center = fallbackWorldPixel(fallbackMapState.center.lat, fallbackMapState.center.lng);
+      return {
+        x: center.x - rect.width / 2,
+        y: center.y - rect.height / 2,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+
+    function renderFallbackTiles() {
+      if (!fallbackMapMode) return;
+      const layer = document.getElementById('fallbackTileLayer');
+      if (!layer) return;
+      const origin = fallbackViewportOrigin();
+      const zoom = fallbackMapState.zoom;
+      const tileSize = 256;
+      const maxTile = Math.pow(2, zoom);
+      const startX = Math.floor(origin.x / tileSize);
+      const endX = Math.floor((origin.x + origin.width) / tileSize);
+      const startY = Math.floor(origin.y / tileSize);
+      const endY = Math.floor((origin.y + origin.height) / tileSize);
+      const tiles = [];
+      for (let x = startX; x <= endX; x += 1) {
+        for (let y = startY; y <= endY; y += 1) {
+          if (y < 0 || y >= maxTile) continue;
+          const wrappedX = ((x % maxTile) + maxTile) % maxTile;
+          tiles.push(`
+            <img
+              class="fallback-map-tile"
+              alt=""
+              src="https://tile.openstreetmap.org/${zoom}/${wrappedX}/${y}.png"
+              style="left:${(x * tileSize) - origin.x}px;top:${(y * tileSize) - origin.y}px"
+              onerror="this.style.display='none'; document.getElementById('fallbackTileLayer').classList.add('tiles-failed');"
+            />`);
+        }
+      }
+      layer.innerHTML = tiles.join('');
+    }
+
+    function fallbackLatLngToPixel(point) {
+      const mapDiv = document.getElementById('areaMap');
+      if (!mapDiv) return point.screen || null;
+      const origin = fallbackViewportOrigin();
+      const world = fallbackWorldPixel(point.lat, point.lng);
+      return {
+        x: world.x - origin.x,
+        y: world.y - origin.y,
+      };
+    }
+
+    function fallbackPixelToLatLng(pixel) {
+      const mapDiv = document.getElementById('areaMap');
+      if (!mapDiv || !pixel) return null;
+      const origin = fallbackViewportOrigin();
+      return fallbackLatLngFromWorldPixel(origin.x + pixel.x, origin.y + pixel.y);
+    }
+
+    function fallbackPointsAttr(points) {
+      const mapDiv = document.getElementById('areaMap');
+      if (!mapDiv) return '';
+      const rect = mapDiv.getBoundingClientRect();
+      return points
+        .map((point) => fallbackLatLngToPixel(point))
+        .filter(Boolean)
+        .map((pixel) => `${(pixel.x / Math.max(rect.width, 1)) * 100},${(pixel.y / Math.max(rect.height, 1)) * 100}`)
+        .join(' ');
+    }
+
+    function renderFallbackPolygons() {
+      if (!fallbackMapMode) return;
+      const svg = document.getElementById('fallbackPolygonSvg');
+      if (!svg) return;
+      const existing = visibleAreas()
+        .filter((area) => Array.isArray(area.polygon) && area.polygon.length >= 3)
+        .map((area) => `<polygon points="${fallbackPointsAttr(area.polygon)}" class="fallback-existing-polygon ${area.own_delivery_active ? 'own-active' : ''}" />`)
+        .join('');
+      const selected = selectedPath.length >= 2
+        ? `<polyline points="${fallbackPointsAttr(selectedPath)}" class="fallback-selected-line" />`
+        : '';
+      const selectedPolygon = selectedPath.length >= 3
+        ? `<polygon points="${fallbackPointsAttr(selectedPath)}" class="fallback-selected-polygon" />`
+        : '';
+      svg.innerHTML = existing + selectedPolygon + selected;
     }
 
     function editArea(id) {
@@ -599,10 +825,11 @@
       position: absolute;
       inset: 0;
       z-index: 100000;
-      pointer-events: auto;
+      pointer-events: none;
       cursor: grab;
     }
     .area-map-card.marking-mode .area-marker-layer {
+      pointer-events: auto;
       cursor: crosshair;
     }
     .area-map img {
@@ -617,6 +844,139 @@
       stroke-linecap: initial !important;
       stroke-linejoin: initial !important;
       overflow: visible !important;
+    }
+    .fallback-map-grid {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 680px;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, rgba(37, 99, 235, 0.09) 1px, transparent 1px),
+        linear-gradient(rgba(37, 99, 235, 0.09) 1px, transparent 1px),
+        #dbeafe;
+      background-size: 48px 48px, 48px 48px, auto;
+    }
+    .fallback-tile-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background: #dbeafe;
+    }
+    .fallback-tile-layer.tiles-failed::after {
+      content: 'Map tiles could not load. You can still mark area points on this fallback grid.';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      max-width: 360px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #334155;
+      font-weight: 900;
+      text-align: center;
+      box-shadow: 0 14px 32px rgba(15, 23, 42, 0.16);
+    }
+    .fallback-map-tile {
+      position: absolute;
+      width: 256px !important;
+      height: 256px !important;
+      max-width: none !important;
+      user-select: none;
+      pointer-events: none;
+    }
+    .fallback-map-title {
+      position: absolute;
+      top: 22px;
+      left: 24px;
+      z-index: 4;
+      padding: 9px 13px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.82);
+      color: #fff;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+    }
+    .fallback-map-subtitle {
+      position: absolute;
+      top: 70px;
+      left: 24px;
+      z-index: 4;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.88);
+      color: #334155;
+      font-weight: 800;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+    }
+    .fallback-map-subtitle a {
+      color: #1d4ed8;
+      font-weight: 900;
+      text-decoration: underline;
+    }
+    .fallback-map-controls {
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      z-index: 5;
+      display: grid;
+      gap: 8px;
+    }
+    .fallback-map-controls button {
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.94);
+      color: #0f172a;
+      font-size: 24px;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
+    }
+    .fallback-map-controls button:hover {
+      background: #eff6ff;
+    }
+    .fallback-map-attribution {
+      position: absolute;
+      right: 8px;
+      bottom: 6px;
+      z-index: 4;
+      padding: 3px 6px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.86);
+      color: #334155;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .fallback-polygon-svg {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      width: 100% !important;
+      height: 100% !important;
+      pointer-events: none;
+    }
+    .fallback-existing-polygon {
+      fill: rgba(100, 116, 139, 0.18);
+      stroke: rgba(71, 85, 105, 0.7);
+      stroke-width: 0.45;
+    }
+    .fallback-existing-polygon.own-active {
+      fill: rgba(34, 197, 94, 0.16);
+      stroke: rgba(22, 163, 74, 0.8);
+    }
+    .fallback-selected-polygon {
+      fill: rgba(34, 197, 94, 0.28);
+      stroke: rgba(15, 159, 79, 0.95);
+      stroke-width: 0.65;
+    }
+    .fallback-selected-line {
+      fill: none;
+      stroke: #ef4444;
+      stroke-width: 0.48;
+      stroke-dasharray: 1.3 1;
     }
     .area-point-marker {
       position: absolute;

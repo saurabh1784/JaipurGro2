@@ -26,6 +26,8 @@ async function update(userId, data) {
     'storefront_image_path',
     'signature_path',
     'address',
+    'pickup_latitude',
+    'pickup_longitude',
     'country',
     'state',
     'city',

@@ -239,26 +239,28 @@
       const transactions = data.transactions || [];
       walletTableHead.innerHTML = `
         <tr>
+          <th>Transaction ID</th>
+          <th>Order ID</th>
           <th>Type</th>
           <th>Amount</th>
-          <th>Balance After</th>
-          <th>Reference</th>
-          <th>Made By</th>
-          <th>Date</th>
+          <th>Description</th>
+          <th>Current Balance</th>
+          <th>Date & Time</th>
         </tr>
       `;
       walletTableBody.innerHTML = transactions.length
         ? transactions.map((item) => `
           <tr>
+            <td>#${item.transaction_id || item.id}</td>
+            <td>${item.order_id ? '#' + item.order_id : '-'}</td>
             <td><span class="wallet-transaction-type ${item.type}">${escapeHtml(item.type)}</span></td>
             <td>${formatMoney(item.amount, wallet.currency)}</td>
-            <td>${formatMoney(item.balance_after, wallet.currency)}</td>
-            <td>${escapeHtml(item.reference || item.note || 'N/A')}</td>
-            <td>${escapeHtml(item.transaction_by_name || item.created_by_name || 'System')}</td>
-            <td>${formatDateTime(item.transaction_at || item.created_at)}</td>
+            <td>${escapeHtml(item.description || item.note || item.reference || 'Wallet transaction')}</td>
+            <td>${formatMoney(item.current_wallet_balance ?? item.balance_after, wallet.currency)}</td>
+            <td>${formatDateTime(item.date_time || item.transaction_at || item.created_at)}</td>
           </tr>
         `).join('')
-        : '<tr><td colspan="6">No transactions yet</td></tr>';
+        : '<tr><td colspan="7">No transactions yet</td></tr>';
 
       walletTotal.textContent = formatMoney(wallet.balance, wallet.currency);
       walletSummaryNote.textContent = `Status: ${wallet.status}`;
@@ -297,13 +299,14 @@
         ? data.transactions.map((item) => `
           <article class="wallet-transaction-row">
             <div>
-              <strong class="${item.type}">${escapeHtml(item.type)}</strong>
-              <span>${escapeHtml(item.reference || item.note || 'Manual transaction')}</span>
+              <strong class="${item.type}">TXN #${item.transaction_id || item.id} · ${escapeHtml(item.type)}</strong>
+              <span>${item.order_id ? 'Order #' + item.order_id + ' · ' : ''}${escapeHtml(item.description || item.note || item.reference || 'Manual transaction')}</span>
               <span>Made by ${escapeHtml(item.transaction_by_name || item.created_by_name || 'System')}</span>
             </div>
             <div>
               <strong>${formatMoney(item.amount, data.wallet.currency)}</strong>
-              <span>${formatDateTime(item.transaction_at || item.created_at)}</span>
+              <span>Balance ${formatMoney(item.current_wallet_balance ?? item.balance_after, data.wallet.currency)}</span>
+              <span>${formatDateTime(item.date_time || item.transaction_at || item.created_at)}</span>
             </div>
           </article>
         `).join('')

@@ -64,6 +64,7 @@ function publicVendor(row) {
     country: row.country || '',
     state: row.state || '',
     city: row.city || '',
+    area: row.area || '',
     gst_number: row.gst_number || '',
     services: normalizeServices(row.services),
     categories,
@@ -121,7 +122,7 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
   );
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.gst_number, vp.services
+            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE ${whereSql}
@@ -145,7 +146,7 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
 async function findById(id) {
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.gst_number, vp.services
+            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE u.id = ? AND u.role = 'Vendor' AND u.is_deleted = 0
@@ -176,8 +177,8 @@ async function create(data) {
     );
     const userId = result.insertId;
     await connection.query(
-      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, gst_number, services)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, area, gst_number, services)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         data.business_name || null,
@@ -185,6 +186,7 @@ async function create(data) {
         data.country || null,
         data.state || null,
         data.city || null,
+        data.area || null,
         data.gst_number || null,
         JSON.stringify(data.services || []),
       ]
@@ -214,14 +216,15 @@ async function update(id, data) {
     userValues.push(id);
     await connection.query(`UPDATE users SET ${userFields.join(', ')} WHERE id = ? AND role = 'Vendor' AND is_deleted = 0`, userValues);
     await connection.query(
-      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, gst_number, services)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, area, gst_number, services)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO UPDATE
        SET business_name = EXCLUDED.business_name,
            address = EXCLUDED.address,
            country = EXCLUDED.country,
            state = EXCLUDED.state,
            city = EXCLUDED.city,
+           area = EXCLUDED.area,
            gst_number = EXCLUDED.gst_number,
            services = EXCLUDED.services`,
       [
@@ -231,6 +234,7 @@ async function update(id, data) {
         data.country || null,
         data.state || null,
         data.city || null,
+        data.area || null,
         data.gst_number || null,
         JSON.stringify(data.services || []),
       ]

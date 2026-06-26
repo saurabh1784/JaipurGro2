@@ -19,6 +19,11 @@ function canManageWallets(user) {
   );
 }
 
+function isAdminWalletUser(user) {
+  const role = String((user && (user.role || user.roleName)) || '').toLowerCase().replace(/[\s_-]+/g, '');
+  return role === 'admin' || role === 'superadmin';
+}
+
 async function index(req, res) {
   if (!wantsJson(req)) {
     return res.render('wallets', {
@@ -49,6 +54,33 @@ async function index(req, res) {
   } catch (error) {
     console.error('Wallet list error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch wallets' });
+  }
+}
+
+function adminTransactionsPage(req, res) {
+  return res.render('admin-wallet-transactions', {
+    user: req.session.user,
+    shell: res.locals.shell,
+  });
+}
+
+async function adminTransactions(req, res) {
+  if (!isAdminWalletUser(req.authUser || req.session.user)) {
+    return res.status(403).json({ success: false, message: 'Only Admin users can access admin wallet transactions' });
+  }
+
+  try {
+    const result = await Wallet.adminTransactions({
+      page: req.query.page,
+      limit: req.query.limit,
+      filter: req.query.filter,
+      fromDate: req.query.fromDate,
+      toDate: req.query.toDate,
+    });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Admin wallet transactions error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch admin wallet transactions' });
   }
 }
 
@@ -129,4 +161,13 @@ async function updateStatus(req, res) {
   }
 }
 
-module.exports = { index, show, adjust, updateStatus, canManageWallets };
+module.exports = {
+  index,
+  show,
+  adjust,
+  updateStatus,
+  adminTransactionsPage,
+  adminTransactions,
+  canManageWallets,
+  isAdminWalletUser,
+};

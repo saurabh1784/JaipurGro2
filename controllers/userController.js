@@ -1,12 +1,13 @@
 const User = require('../models/User');
 const Profile = require('../models/Profile');
+const pool = require('../db');
 const { editableUserRoles, validateStatus } = require('../middleware/validators');
 
 function wantsJson(req) {
   return req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
 }
 
-function validateUserUpdate(body) {
+function validateUserUpdate(body, allowedRoles = editableUserRoles) {
   const errors = [];
   const name = body.name && String(body.name).trim();
   const email = body.email && String(body.email).trim().toLowerCase();
@@ -15,17 +16,32 @@ function validateUserUpdate(body) {
 
   if (!name || name.length < 2) errors.push('Name must be at least 2 characters');
   if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.push('Valid email is required');
-  if (!editableUserRoles.includes(role)) errors.push('Invalid role');
+  if (!allowedRoles.includes(role)) errors.push('Invalid role');
   if (!validateStatus(status)) errors.push('Status must be active or inactive');
 
   return errors;
+}
+
+async function roleOptions() {
+  try {
+    const [rows] = await pool.query(
+      `SELECT slug, name
+       FROM roles
+       WHERE slug IS NOT NULL AND TRIM(slug) <> ''
+       ORDER BY level ASC, name ASC`
+    );
+    const slugs = rows.map((role) => role.slug).filter(Boolean);
+    return [...new Set([...slugs, ...editableUserRoles])];
+  } catch {
+    return editableUserRoles;
+  }
 }
 
 async function index(req, res) {
   if (!wantsJson(req)) {
     return res.render('users', {
       user: req.session.user,
-      roleOptions: editableUserRoles,
+      roleOptions: await roleOptions(),
     });
   }
 
@@ -37,7 +53,7 @@ async function index(req, res) {
       role: req.query.role,
     });
 
-    return res.json({ success: true, ...result });
+    return res.json({ success: true, roleOptions: await roleOptions(), ...result });
   } catch (error) {
     console.error('User list error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch users' });
@@ -46,7 +62,8 @@ async function index(req, res) {
 
 async function update(req, res) {
   const id = Number(req.params.id);
-  const errors = validateUserUpdate(req.body);
+  const allowedRoles = await roleOptions();
+  const errors = validateUserUpdate(req.body, allowedRoles);
 
   if (!id) errors.push('Valid user ID is required');
   if (errors.length > 0) {

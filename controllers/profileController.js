@@ -1,6 +1,7 @@
 const User = require('../models/User');
 const Profile = require('../models/Profile');
 const { validateStatus } = require('../middleware/validators');
+const Rating = require('../models/Rating');
 
 function sanitizeUserUpdate(body) {
   const update = {};
@@ -19,7 +20,7 @@ function sanitizeProfileUpdate(role, body) {
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : body;
   const update = {};
   const fieldsByRole = {
-    Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'signature_path', 'address', 'country', 'state', 'city', 'gst_number', 'services'],
+    Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'signature_path', 'address', 'pickup_latitude', 'pickup_longitude', 'country', 'state', 'city', 'gst_number', 'services'],
     Client: ['address', 'country', 'state', 'city', 'age', 'gender', 'notes'],
     Admin: ['permissions'],
   };
@@ -58,11 +59,16 @@ function normalizeProfileValue(field, value) {
 
 async function getProfile(req, res) {
   const profile = await Profile.findByRole(req.user.id, req.user.role);
+  const ratingType = String(req.user.role || '').toLowerCase() === 'vendor'
+    ? 'vendor'
+    : (String(req.user.role || '').toLowerCase() === 'deliveryperson' ? 'delivery_person' : null);
+  const ratingSummary = ratingType ? await Rating.summary(ratingType, req.user.id) : null;
 
   return res.json({
     success: true,
     user: User.publicUser(req.user),
     profile,
+    rating_summary: ratingSummary,
   });
 }
 
@@ -104,6 +110,9 @@ async function updateProfile(req, res) {
       message: 'Profile updated successfully',
       user: User.publicUser(updatedUser),
       profile: updatedProfile,
+      rating_summary: String(updatedUser.role || '').toLowerCase() === 'vendor'
+        ? await Rating.summary('vendor', updatedUser.id)
+        : null,
     });
   } catch (error) {
     if (error.status) {

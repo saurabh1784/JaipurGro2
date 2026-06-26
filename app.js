@@ -20,6 +20,10 @@ const clientRoutes = require('./routes/clientRoutes');
 const walletRoutes = require('./routes/walletRoutes');
 const vendorProductRoutes = require('./routes/vendorProductRoutes');
 const orderRoutes = require('./routes/orderRoutes');
+const deliveryPersonRoutes = require('./routes/deliveryPersonRoutes');
+const deliveryTypeRoutes = require('./routes/deliveryTypeRoutes');
+const orderController = require('./controllers/orderController');
+const walletController = require('./controllers/walletController');
 const userController = require('./controllers/userController');
 const managedProfileController = require('./controllers/managedProfileController');
 const catalogController = require('./controllers/catalogController');
@@ -35,7 +39,10 @@ const Vendor = require('./models/Vendor');
 const VendorProduct = require('./models/VendorProduct');
 const User = require('./models/User');
 const Order = require('./models/Order');
+const Rating = require('./models/Rating');
+const OrderWalletSettlement = require('./services/orderWalletSettlementService');
 const Quotation = require('./models/Quotation');
+const DeliveryPerson = require('./models/DeliveryPerson');
 const Catalog = require('./models/Catalog');
 const CommissionSetting = require('./models/CommissionSetting');
 const ProductSearch = require('./models/ProductSearch');
@@ -43,6 +50,7 @@ const Promotion = require('./models/Promotion');
 const SupportTicket = require('./models/SupportTicket');
 const VendorCategoryRequest = require('./models/VendorCategoryRequest');
 const AreaDefinition = require('./models/AreaDefinition');
+const DeliveryType = require('./models/DeliveryType');
 const { findOrCreateGoogleClient, publicGoogleConfig } = require('./services/googleClientAuthService');
 const { firebaseAdminStatus } = require('./services/firebaseAdminService');
 const {
@@ -223,6 +231,13 @@ const roleSeeds = [
     permissions: ['dashboard.view', 'wallets.view', 'orders.manage', 'support.manage'],
   },
   {
+    name: 'Delivery Person',
+    slug: 'deliveryperson',
+    description: 'In-house delivery partner access for accepting, picking up, and delivering orders.',
+    level: 3,
+    permissions: ['dashboard.view', 'orders.manage', 'wallets.view'],
+  },
+  {
     name: 'Staff L1',
     slug: 'staff-l1',
     description: 'Entry-level staff access for dashboard, product lookup, and order support.',
@@ -259,6 +274,77 @@ const roleSeeds = [
   },
 ];
 
+const roleFallbackDetails = {
+  Admin: { name: 'API Admin', level: 1, permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view'] },
+  Vendor: { name: 'Vendor', level: 5, permissions: ['dashboard.view', 'wallets.view'] },
+  Client: { name: 'Client', level: 5, permissions: ['dashboard.view', 'wallets.view'] },
+  superadmin: { name: 'Super Admin', level: 0, permissions: allPermissionKeys() },
+  admin: { name: 'Admin', level: 1, permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view'] },
+  manager: { name: 'Manager', level: 2, permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'products.manage', 'orders.manage', 'reports.view'] },
+  staff: { name: 'Staff', level: 3, permissions: ['dashboard.view', 'wallets.view', 'orders.manage', 'support.manage'] },
+  deliveryPerson: { name: 'Delivery Person App', level: 3, permissions: ['dashboard.view', 'orders.manage', 'wallets.view'] },
+  deliveryperson: { name: 'Delivery Person', level: 3, permissions: ['dashboard.view', 'orders.manage', 'wallets.view'] },
+  'staff-l1': { name: 'Staff L1', level: 4, permissions: ['dashboard.view', 'products.manage', 'orders.manage', 'support.manage'] },
+  'staff-l2': { name: 'Staff L2', level: 5, permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'products.manage', 'orders.manage', 'wallets.view', 'support.manage'] },
+  'staff-l3': { name: 'Staff L3', level: 6, permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'products.manage', 'inventory.manage', 'orders.manage', 'wallets.view', 'wallets.manage', 'reports.view', 'support.manage'] },
+  'support-staff': { name: 'Support Staff', level: 7, permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'orders.manage', 'reports.view', 'support.manage'] },
+  accountant: { name: 'Accountant', level: 8, permissions: ['dashboard.view', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view'] },
+};
+
+function humanizeRoleSlug(slug) {
+  return String(slug || '')
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .replace(/[-_]+/g, ' ')
+    .replace(/\b\w/g, (letter) => letter.toUpperCase())
+    .trim();
+}
+
+function fallbackRoleForSlug(slug) {
+  const key = String(slug || '').trim();
+  const details = roleFallbackDetails[key] || roleFallbackDetails[key.toLowerCase()] || {};
+  return {
+    name: details.name || humanizeRoleSlug(key),
+    level: Number.isFinite(Number(details.level)) ? Number(details.level) : 9,
+    permissions: Array.isArray(details.permissions) ? details.permissions : ['dashboard.view'],
+  };
+}
+
+async function syncRolesFromUsers() {
+  const deletedSlugs = new Set(await deletedRoleSlugs());
+  const expectedSlugs = [
+    ...roleSeeds.map((role) => role.slug),
+    ...Object.keys(roleFallbackDetails),
+  ];
+  const [userRoleRows] = await pool.query(
+    `SELECT DISTINCT role
+     FROM users
+     WHERE role IS NOT NULL AND TRIM(role) <> ''`
+  );
+  const slugs = [...new Set([...expectedSlugs, ...userRoleRows.map((row) => row.role)].filter(Boolean))]
+    .filter((slug) => !deletedSlugs.has(String(slug)));
+
+  for (const slug of slugs) {
+    const seed = roleSeeds.find((role) => role.slug === slug);
+    const fallback = seed || fallbackRoleForSlug(slug);
+    await pool.query(
+      `INSERT INTO roles (name, slug, description, level, permissions)
+       VALUES (?, ?, ?, ?, ?)
+       ON CONFLICT (slug) DO UPDATE
+       SET name = EXCLUDED.name,
+           description = COALESCE(roles.description, EXCLUDED.description),
+           level = COALESCE(roles.level, EXCLUDED.level),
+           permissions = COALESCE(roles.permissions, EXCLUDED.permissions)`,
+      [
+        seed ? seed.name : fallback.name,
+        slug,
+        seed ? seed.description : `${fallback.name} role`,
+        seed ? seed.level : fallback.level,
+        JSON.stringify(seed ? seed.permissions : fallback.permissions),
+      ]
+    );
+  }
+}
+
 const userSeeds = [
   { name: 'Super Admin', email: 'superadmin@example.com', password: 'admin123', role: 'superadmin' },
   { name: 'Admin User', email: 'admin@example.com', password: 'admin123', role: 'admin' },
@@ -271,6 +357,9 @@ const userSeeds = [
   { name: 'Demo Client', email: 'client@example.com', phone: '9000000002', password: 'admin123', role: 'Client' },
   { name: 'Store Manager', email: 'manager@example.com', password: 'admin123', role: 'manager' },
   { name: 'Order Staff', email: 'staff@example.com', password: 'admin123', role: 'staff' },
+  { name: 'Santosh Nayak', email: 'delivery@example.com', phone: '9000000003', password: 'admin123', role: 'deliveryPerson', city: 'Jaipur', area: '*', vehicle_type: 'Bike', vehicle_number: 'RJ14DP0003' },
+  { name: 'Delivery Partner One', email: 'delivery1@example.com', phone: '9000000004', password: 'admin123', role: 'deliveryPerson', city: 'Jaipur', area: 'Malviya Nagar', vehicle_type: 'Bike', vehicle_number: 'RJ14DP0001' },
+  { name: 'Delivery Partner Two', email: 'delivery2@example.com', phone: '9000000005', password: 'admin123', role: 'deliveryPerson', city: 'Jaipur', area: 'Vaishali Nagar', vehicle_type: 'Scooter', vehicle_number: 'RJ14DP0002' },
 ];
 
 app.set('view engine', 'ejs');
@@ -449,6 +538,23 @@ function requireAdminMaintenance(req, res, next) {
   return res.redirect('/settings?error=Only%20admin%20users%20can%20run%20maintenance%20actions');
 }
 
+function requireAdminWalletTransactions(req, res, next) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  if (walletController.isAdminWalletUser(currentUser)) {
+    return next();
+  }
+
+  if (requestWantsJson(req)) {
+    return res.status(403).json({ success: false, message: 'Only Admin users can access admin wallet transactions' });
+  }
+
+  return res.status(403).render('dashboard', {
+    user: currentUser,
+    dashboard: buildDashboard(currentUser, req.path),
+    error: 'Only Admin users can access Admin Wallet Transactions.',
+  });
+}
+
 function requestWantsJson(req) {
   const accept = req.get('accept') || '';
   const requestedWith = req.get('x-requested-with') || '';
@@ -516,6 +622,31 @@ async function saveSetting(key, value, isSecret = false) {
          updated_at = CURRENT_TIMESTAMP`,
     [key, value || '', isSecret ? 1 : 0]
   );
+}
+
+async function deletedRoleSlugs() {
+  try {
+    const raw = await settingValue('deleted_role_slugs', '[]');
+    const parsed = JSON.parse(raw || '[]');
+    return Array.isArray(parsed) ? parsed.map((slug) => String(slug)).filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
+async function rememberDeletedRoleSlug(slug) {
+  const value = String(slug || '').trim();
+  if (!value) return;
+  const slugs = new Set(await deletedRoleSlugs());
+  slugs.add(value);
+  await saveSetting('deleted_role_slugs', JSON.stringify([...slugs]), false);
+}
+
+async function forgetDeletedRoleSlug(slug) {
+  const value = String(slug || '').trim();
+  if (!value) return;
+  const slugs = (await deletedRoleSlugs()).filter((existing) => existing !== value);
+  await saveSetting('deleted_role_slugs', JSON.stringify(slugs), false);
 }
 
 function formatRupees(value) {
@@ -784,12 +915,15 @@ async function initDatabase(options = {}) {
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       wallet_id INT UNSIGNED NOT NULL,
       user_id INT UNSIGNED NOT NULL,
+      order_id INT UNSIGNED DEFAULT NULL,
       type VARCHAR(20) NOT NULL,
       amount DECIMAL(12,2) NOT NULL,
       balance_before DECIMAL(12,2) NOT NULL,
       balance_after DECIMAL(12,2) NOT NULL,
       reference VARCHAR(120) DEFAULT NULL,
       note TEXT DEFAULT NULL,
+      component VARCHAR(60) DEFAULT NULL,
+      ledger_key VARCHAR(190) DEFAULT NULL,
       created_by INT UNSIGNED DEFAULT NULL,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
@@ -828,6 +962,10 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('wallet_transactions', 'transaction_by_email', 'VARCHAR(150) DEFAULT NULL AFTER transaction_by_name');
   await addColumnIfMissing('wallet_transactions', 'transaction_by_role', 'VARCHAR(50) DEFAULT NULL AFTER transaction_by_email');
   await addColumnIfMissing('wallet_transactions', 'transaction_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP AFTER transaction_by_role');
+  await addColumnIfMissing('wallet_transactions', 'order_id', 'INT UNSIGNED DEFAULT NULL AFTER user_id');
+  await addColumnIfMissing('wallet_transactions', 'component', 'VARCHAR(60) DEFAULT NULL AFTER note');
+  await addColumnIfMissing('wallet_transactions', 'ledger_key', 'VARCHAR(190) DEFAULT NULL AFTER component');
+  await addUniqueIndexIfMissing('wallet_transactions', 'idx_wallet_transactions_ledger_key_unique', 'ledger_key');
   await pool.query(`
     UPDATE wallet_transactions wt
     SET transaction_by_name = COALESCE(wt.transaction_by_name, u.name),
@@ -879,6 +1017,8 @@ async function initDatabase(options = {}) {
       storefront_image_path VARCHAR(255) DEFAULT NULL,
       signature_path VARCHAR(255) DEFAULT NULL,
       address TEXT DEFAULT NULL,
+      pickup_latitude DECIMAL(10,7) DEFAULT NULL,
+      pickup_longitude DECIMAL(10,7) DEFAULT NULL,
       country VARCHAR(80) DEFAULT NULL,
       state VARCHAR(80) DEFAULT NULL,
       city VARCHAR(80) DEFAULT NULL,
@@ -891,8 +1031,11 @@ async function initDatabase(options = {}) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('vendor_profiles', 'country', 'VARCHAR(80) DEFAULT NULL AFTER address');
+  await addColumnIfMissing('vendor_profiles', 'pickup_latitude', 'DECIMAL(10,7) DEFAULT NULL AFTER address');
+  await addColumnIfMissing('vendor_profiles', 'pickup_longitude', 'DECIMAL(10,7) DEFAULT NULL AFTER pickup_latitude');
   await addColumnIfMissing('vendor_profiles', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
   await addColumnIfMissing('vendor_profiles', 'city', 'VARCHAR(80) DEFAULT NULL AFTER state');
+  await addColumnIfMissing('vendor_profiles', 'area', 'VARCHAR(120) DEFAULT NULL AFTER city');
   await addColumnIfMissing('vendor_profiles', 'logo_path', 'VARCHAR(255) DEFAULT NULL AFTER business_name');
   await addColumnIfMissing('vendor_profiles', 'storefront_image_path', 'VARCHAR(255) DEFAULT NULL AFTER logo_path');
   await addColumnIfMissing('vendor_profiles', 'signature_path', 'VARCHAR(255) DEFAULT NULL AFTER storefront_image_path');
@@ -917,6 +1060,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_profiles', 'country', 'VARCHAR(80) DEFAULT NULL AFTER address');
   await addColumnIfMissing('client_profiles', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
   await addColumnIfMissing('client_profiles', 'city', 'VARCHAR(80) DEFAULT NULL AFTER state');
+  await addColumnIfMissing('client_profiles', 'area', 'VARCHAR(120) DEFAULT NULL AFTER city');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_delivery_addresses (
@@ -1265,6 +1409,8 @@ async function initDatabase(options = {}) {
        delivery_status VARCHAR(20) NOT NULL DEFAULT 'pending',
        delivery_partner_id INT UNSIGNED DEFAULT NULL,
        delivery_otp VARCHAR(10) DEFAULT NULL,
+       pickup_otp VARCHAR(10) DEFAULT NULL,
+       auto_delivery_offer_id INT UNSIGNED DEFAULT NULL,
        client_name VARCHAR(100) DEFAULT NULL,
        client_phone VARCHAR(30) DEFAULT NULL,
        client_address TEXT DEFAULT NULL,
@@ -1304,6 +1450,8 @@ async function initDatabase(options = {}) {
        delivery_status VARCHAR(20) NOT NULL DEFAULT 'pending',
        delivery_partner_id INT UNSIGNED DEFAULT NULL,
        delivery_otp VARCHAR(10) DEFAULT NULL,
+       pickup_otp VARCHAR(10) DEFAULT NULL,
+       auto_delivery_offer_id INT UNSIGNED DEFAULT NULL,
        client_name VARCHAR(100) DEFAULT NULL,
        client_phone VARCHAR(30) DEFAULT NULL,
        client_address TEXT DEFAULT NULL,
@@ -1338,6 +1486,11 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_orders', 'delivery_status', "VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER status");
   await addColumnIfMissing('client_orders', 'delivery_partner_id', 'INT UNSIGNED DEFAULT NULL AFTER delivery_status');
   await addColumnIfMissing('client_orders', 'delivery_otp', 'VARCHAR(10) DEFAULT NULL AFTER delivery_partner_id');
+  await addColumnIfMissing('client_orders', 'delivery_otp_attempts', 'INT NOT NULL DEFAULT 0 AFTER delivery_otp');
+  await addColumnIfMissing('client_orders', 'delivery_otp_locked_at', 'TIMESTAMP NULL DEFAULT NULL AFTER delivery_otp_attempts');
+  await addColumnIfMissing('client_orders', 'delivery_otp_verified_at', 'TIMESTAMP NULL DEFAULT NULL AFTER delivery_otp_locked_at');
+  await addColumnIfMissing('client_orders', 'pickup_otp', 'VARCHAR(10) DEFAULT NULL AFTER delivery_otp');
+  await addColumnIfMissing('client_orders', 'auto_delivery_offer_id', 'INT UNSIGNED DEFAULT NULL AFTER pickup_otp');
   await addColumnIfMissing('client_orders', 'otp_set_by', 'INT UNSIGNED DEFAULT NULL AFTER delivery_otp');
   await addColumnIfMissing('client_orders', 'otp_set_at', 'TIMESTAMP NULL DEFAULT NULL AFTER otp_set_by');
   await addColumnIfMissing('client_orders', 'client_name', 'VARCHAR(100) DEFAULT NULL AFTER delivery_otp');
@@ -1355,6 +1508,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_orders', 'shipping_latitude', 'DECIMAL(10,7) DEFAULT NULL AFTER shipping_pincode');
   await addColumnIfMissing('client_orders', 'shipping_longitude', 'DECIMAL(10,7) DEFAULT NULL AFTER shipping_latitude');
   await addColumnIfMissing('client_orders', 'delivery_method', "VARCHAR(30) NOT NULL DEFAULT 'partner' AFTER delivery_partner_id");
+  await addColumnIfMissing('client_orders', 'delivery_type', "VARCHAR(40) DEFAULT NULL AFTER delivery_method");
   await addColumnIfMissing('client_orders', 'assigned_at', 'TIMESTAMP NULL DEFAULT NULL AFTER shipping_pincode');
   await addColumnIfMissing('client_orders', 'ready_at', 'TIMESTAMP NULL DEFAULT NULL AFTER assigned_at');
   await addColumnIfMissing('client_orders', 'delivered_at', 'TIMESTAMP NULL DEFAULT NULL AFTER ready_at');
@@ -1363,6 +1517,11 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_orders', 'discount_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER subtotal_amount');
   await addColumnIfMissing('client_orders', 'savings_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER discount_amount');
   await addColumnIfMissing('client_orders', 'delivery_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER savings_amount');
+  await addColumnIfMissing('client_orders', 'platform_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
+  await addColumnIfMissing('client_orders', 'vendor_earning', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER platform_charge');
+  await addColumnIfMissing('client_orders', 'delivery_earning', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER vendor_earning');
+  await addColumnIfMissing('client_orders', 'wallet_settled_at', 'TIMESTAMP NULL DEFAULT NULL AFTER delivery_earning');
+  await addColumnIfMissing('client_orders', 'delivery_wallet_settled_at', 'TIMESTAMP NULL DEFAULT NULL AFTER wallet_settled_at');
   await addColumnIfMissing('client_orders', 'coupon_id', 'INT UNSIGNED DEFAULT NULL AFTER delivery_charge');
   await addColumnIfMissing('client_orders', 'coupon_code', 'VARCHAR(80) DEFAULT NULL AFTER coupon_id');
   await addColumnIfMissing('client_orders', 'discount_id', 'INT UNSIGNED DEFAULT NULL AFTER coupon_code');
@@ -1607,6 +1766,121 @@ async function initDatabase(options = {}) {
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uniq_delivery_partner_city_area ON delivery_partner_settings (user_id, city, area)');
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS delivery_person_profiles (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      user_id INT UNSIGNED NOT NULL,
+      city VARCHAR(100) DEFAULT NULL,
+      area VARCHAR(120) NOT NULL DEFAULT '*',
+      address TEXT DEFAULT NULL,
+      address_proof_id VARCHAR(120) DEFAULT NULL,
+      address_proof_type VARCHAR(80) DEFAULT NULL,
+      profile_image_path VARCHAR(255) DEFAULT NULL,
+      vehicle_type VARCHAR(60) DEFAULT NULL,
+      vehicle_number VARCHAR(80) DEFAULT NULL,
+      document_notes TEXT DEFAULT NULL,
+      is_available TINYINT(1) NOT NULL DEFAULT 1,
+      current_latitude DECIMAL(10,7) DEFAULT NULL,
+      current_longitude DECIMAL(10,7) DEFAULT NULL,
+      last_seen_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_delivery_person_profile_user (user_id),
+      KEY idx_delivery_person_profile_city_vehicle (city, vehicle_type),
+      CONSTRAINT fk_delivery_person_profile_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('delivery_person_profiles', 'area', "VARCHAR(120) NOT NULL DEFAULT '*' AFTER city");
+  await addColumnIfMissing('delivery_person_profiles', 'profile_image_path', 'VARCHAR(255) DEFAULT NULL AFTER address_proof_type');
+  await addColumnIfMissing('delivery_person_profiles', 'is_available', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER document_notes');
+  await addColumnIfMissing('delivery_person_profiles', 'current_latitude', 'DECIMAL(10,7) DEFAULT NULL AFTER is_available');
+  await addColumnIfMissing('delivery_person_profiles', 'current_longitude', 'DECIMAL(10,7) DEFAULT NULL AFTER current_latitude');
+  await addColumnIfMissing('delivery_person_profiles', 'last_seen_at', 'TIMESTAMP NULL DEFAULT NULL AFTER current_longitude');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS delivery_person_activity_logs (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      delivery_person_id INT UNSIGNED NOT NULL,
+      actor_id INT UNSIGNED DEFAULT NULL,
+      action VARCHAR(80) NOT NULL,
+      description TEXT NOT NULL,
+      metadata JSON DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_delivery_activity_person_date (delivery_person_id, created_at),
+      KEY idx_delivery_activity_action (action),
+      CONSTRAINT fk_delivery_activity_person FOREIGN KEY (delivery_person_id) REFERENCES users(id) ON DELETE CASCADE,
+      CONSTRAINT fk_delivery_activity_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS delivery_order_offers (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      order_id INT UNSIGNED NOT NULL,
+      delivery_person_id INT UNSIGNED NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      pickup_area VARCHAR(180) DEFAULT NULL,
+      delivery_area VARCHAR(180) DEFAULT NULL,
+      delivery_charge DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      platform_fee DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      delivery_partner_earning DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      notification_payload JSON DEFAULT NULL,
+      response_note TEXT DEFAULT NULL,
+      expires_at TIMESTAMP NULL DEFAULT NULL,
+      responded_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_delivery_offer_person_status (delivery_person_id, status),
+      KEY idx_delivery_offer_order (order_id),
+      CONSTRAINT fk_delivery_offer_order FOREIGN KEY (order_id) REFERENCES client_orders(id) ON DELETE CASCADE,
+      CONSTRAINT fk_delivery_offer_person FOREIGN KEY (delivery_person_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('delivery_order_offers', 'delivery_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER delivery_area');
+  await addColumnIfMissing('delivery_order_offers', 'platform_fee', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
+  await addColumnIfMissing('delivery_order_offers', 'delivery_partner_earning', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER platform_fee');
+  await addColumnIfMissing('delivery_order_offers', 'notification_payload', 'JSON DEFAULT NULL AFTER delivery_partner_earning');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_ratings (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      order_id INT UNSIGNED NOT NULL,
+      client_id INT UNSIGNED NOT NULL,
+      subject_type VARCHAR(30) NOT NULL,
+      subject_id INT UNSIGNED NOT NULL,
+      overall_rating SMALLINT NOT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_order_rating_subject (order_id, client_id, subject_type),
+      KEY idx_order_rating_subject (subject_type, subject_id),
+      CONSTRAINT fk_order_rating_order FOREIGN KEY (order_id) REFERENCES client_orders(id) ON DELETE CASCADE,
+      CONSTRAINT fk_order_rating_client FOREIGN KEY (client_id) REFERENCES users(id) ON DELETE CASCADE,
+      CONSTRAINT fk_order_rating_subject FOREIGN KEY (subject_id) REFERENCES users(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS order_rating_categories (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      rating_id INT UNSIGNED NOT NULL,
+      category_key VARCHAR(60) NOT NULL,
+      score SMALLINT NOT NULL,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_rating_category (rating_id, category_key),
+      KEY idx_rating_category_key (category_key),
+      CONSTRAINT fk_rating_category_rating FOREIGN KEY (rating_id) REFERENCES order_ratings(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
+    INSERT INTO delivery_person_profiles (user_id, city)
+    SELECT u.id, MIN(dps.city)
+    FROM users u INNER JOIN delivery_partner_settings dps ON dps.user_id = u.id
+    LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+    WHERE LOWER(u.role) = 'deliveryperson' AND u.is_deleted = 0 AND dpp.id IS NULL
+    GROUP BY u.id
+    ON CONFLICT (user_id) DO NOTHING
+  `);
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS area_definitions (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       name VARCHAR(150) NOT NULL,
@@ -1622,6 +1896,43 @@ async function initDatabase(options = {}) {
       KEY idx_area_definitions_city (city, is_active),
       KEY idx_area_definitions_own_delivery (own_delivery_active, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS delivery_type_area_settings (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      city VARCHAR(120) NOT NULL,
+      area VARCHAR(150) NOT NULL DEFAULT '*',
+      delivery_type VARCHAR(40) NOT NULL,
+      label VARCHAR(120) NOT NULL,
+      priority INT UNSIGNED NOT NULL DEFAULT 99,
+      is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_delivery_type_area (city, area, delivery_type),
+      KEY idx_delivery_type_area_lookup (city, area, is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
+    INSERT INTO delivery_type_area_settings (city, area, delivery_type, label, priority, is_enabled, is_active)
+    SELECT ad.city, ad.name, seed.delivery_type, seed.label, seed.priority,
+           CASE
+             WHEN seed.delivery_type IN ('in_house_delivery', 'delivered_by_vendor') THEN COALESCE(ad.own_delivery_active, 0)
+             ELSE 1
+           END,
+           1
+    FROM area_definitions ad
+    CROSS JOIN (
+      SELECT 'in_house_delivery' AS delivery_type, 'In-house Delivery' AS label, 1 AS priority
+      UNION ALL SELECT 'delivery_partner', 'Delivery Partner', 2
+      UNION ALL SELECT 'counter_pickup', 'Client Self Pickup', 3
+      UNION ALL SELECT 'delivered_by_vendor', 'Vendor Delivery', 4
+    ) seed
+    WHERE ad.is_active = 1
+      AND ad.city IS NOT NULL
+      AND TRIM(ad.city) <> ''
+    ON CONFLICT (city, area, delivery_type) DO NOTHING
   `);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_charge_rules (
@@ -1749,7 +2060,9 @@ async function initDatabase(options = {}) {
 
   await seedGroceryCatalog();
 
+  const deletedSeedRoleSlugs = new Set(await deletedRoleSlugs());
   for (const role of roleSeeds) {
+    if (deletedSeedRoleSlugs.has(role.slug)) continue;
     await pool.query(
       `INSERT INTO roles (name, slug, description, level, permissions)
        VALUES (?, ?, ?, ?, ?)
@@ -1761,6 +2074,7 @@ async function initDatabase(options = {}) {
       [role.name, role.slug, role.description, role.level, JSON.stringify(role.permissions)]
     );
   }
+  await syncRolesFromUsers();
 
   await CommissionSetting.seedForRoles(pool);
 
@@ -1778,7 +2092,7 @@ async function initDatabase(options = {}) {
       console.log(`Seeded ${seedUser.role} account: ${seedUser.email} / ${seedUser.password}`);
     } else {
       const hashedPassword = await bcrypt.hash(seedUser.password, 10);
-      await pool.query('UPDATE users SET role = ?, phone = COALESCE(phone, ?), password = ?, status = ? WHERE id = ?', [
+      await pool.query('UPDATE users SET role = ?, phone = COALESCE(phone, ?), password = ?, status = ?, is_deleted = 0 WHERE id = ?', [
         seedUser.role,
         seedUser.phone || null,
         hashedPassword,
@@ -1842,6 +2156,18 @@ async function initDatabase(options = {}) {
          VALUES (?, 'Demo client address', 'India', 'Rajasthan', 'Jaipur', 'Demo login account')`,
         [userId]
       );
+    }
+
+    if (String(seedUser.role).toLowerCase() === 'deliveryperson') {
+      await DeliveryPerson.upsertProfile(userId, {
+        city: seedUser.city || 'Jaipur',
+        area: seedUser.area || '*',
+        address: seedUser.address || 'Demo delivery partner address',
+        vehicle_type: seedUser.vehicle_type || 'Bike',
+        vehicle_number: seedUser.vehicle_number || null,
+        status: 'active',
+        is_available: true,
+      }, pool);
     }
   }
 
@@ -1964,7 +2290,22 @@ function buildShell(user, activePath = '/dashboard') {
     navItem('Vendors', '/vendors', 'vendors.manage', 'vendors', activePath.startsWith('/vendors')),
     navItem('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products')),
     navItem('Wallets', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
-    navItem('Orders', '/orders/admin/dashboard', 'orders.manage', 'orders', activePath.startsWith('/orders/admin')),
+    ...(walletController.isAdminWalletUser(user)
+      ? [navItem('Admin Wallet Transactions', '/admin-wallet-transactions', null, 'wallets', activePath.startsWith('/admin-wallet-transactions'))]
+      : []),
+    navItem('Orders', '/orders/admin/dashboard', 'orders.manage', 'orders', activePath.startsWith('/orders/admin') && !activePath.startsWith('/orders/admin/delivery-dashboard')),
+    navGroup('Delivery Dashboard', '/delivery-dashboard', 'orders.manage', 'delivery',
+      activePath.startsWith('/delivery-dashboard')
+      || activePath.startsWith('/delivery-persons')
+      || activePath.startsWith('/delivery-types')
+      || activePath.startsWith('/delivery-charge-settings')
+      || activePath.startsWith('/area-definitions'), [
+      navItem('Dashboard', '/delivery-dashboard', 'orders.manage', 'dashboard', activePath.startsWith('/delivery-dashboard')),
+      navItem('Delivery Persons', '/delivery-persons', 'orders.manage', 'delivery', activePath.startsWith('/delivery-persons')),
+      navItem('Delivery Area Management', '/delivery-types', 'settings.manage', 'delivery', activePath.startsWith('/delivery-types')),
+      navItem('Delivery Charge Settings', '/delivery-charge-settings', 'settings.manage', 'settings', activePath.startsWith('/delivery-charge-settings')),
+      navItem('Area Definition', '/area-definitions', 'settings.manage', 'settings', activePath.startsWith('/area-definitions')),
+    ]),
     navGroup('Support', '/support', 'support.manage', 'support', activePath.startsWith('/support'), [
       navItem('Client Support', '/support/clients', 'support.manage', 'support', activePath.startsWith('/support/clients')),
       navItem('Vendor Support', '/support/vendors', 'support.manage', 'support', activePath.startsWith('/support/vendors')),
@@ -1975,8 +2316,6 @@ function buildShell(user, activePath = '/dashboard') {
       navItem('Coupon History', '/coupons/history', 'coupon_history.view', 'reports', activePath.startsWith('/coupons/history')),
     ]),
     navItem('Reports', '#', 'reports.view', 'reports', false),
-    navItem('Area Definition', '/area-definitions', 'settings.manage', 'settings', activePath.startsWith('/area-definitions')),
-    navItem('Delivery Charge Settings', '/delivery-charge-settings', 'settings.manage', 'settings', activePath.startsWith('/delivery-charge-settings')),
     navItem('Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings')),
   ]
     .map((item) => item.children
@@ -3341,6 +3680,18 @@ app.use('/vendor-products', webOrJwtAuth, vendorProductRoutes);
 app.use('/api/vendor-products', webOrJwtAuth, vendorProductRoutes);
 app.use('/wallets', webOrJwtAuth, requireWalletAccess, walletRoutes);
 app.use('/api/wallets', webOrJwtAuth, requireWalletAccess, walletRoutes);
+app.get('/admin-wallet-transactions', webOrJwtAuth, requireAdminWalletTransactions, walletController.adminTransactionsPage);
+app.get('/api/admin-wallet-transactions', webOrJwtAuth, requireAdminWalletTransactions, walletController.adminTransactions);
+app.get('/delivery-dashboard', requireAuth, requirePermission('orders.manage'), orderController.deliveryDashboardPage);
+app.use('/delivery-persons', requireAuth, requirePermission('orders.manage'), deliveryPersonRoutes);
+app.get('/delivery-types', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  res.render('delivery-types', {
+    user: req.session.user,
+    shell: buildShell(req.session.user, req.path),
+    cityOptions: await promotionCityOptions(),
+  });
+});
+app.use('/delivery-types', requireAuth, requirePermission('settings.manage'), deliveryTypeRoutes);
 
 // Order routes - web (session based)
 app.use('/public', orderRoutes.publicRouter);
@@ -3353,6 +3704,7 @@ app.use('/api/orders/admin', webOrJwtAuth, orderRoutes.adminRouter);
 app.use('/api/orders/vendor', webOrJwtAuth, orderRoutes.vendorRouter);
 app.use('/api/orders/client', webOrJwtAuth, orderRoutes.clientRouter);
 app.use('/api/orders/delivery', webOrJwtAuth, orderRoutes.deliveryRouter);
+app.use('/api/delivery-types', webOrJwtAuth, deliveryTypeRoutes);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
@@ -3637,7 +3989,7 @@ app.post('/api/client/delivery-addresses/:id/default', webOrJwtAuth, requireAuth
   res.json({ success: true, message: 'Default delivery address updated' });
 });
 
-async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddressId = 0, couponCode = '', connection = pool, lockStock = false }) {
+async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddressId = 0, couponCode = '', deliveryType = '', connection = pool, lockStock = false }) {
   if (!rawItems || !Array.isArray(rawItems) || rawItems.length === 0) {
     const error = new Error('No items in order');
     error.status = 400;
@@ -3704,6 +4056,8 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
               p.name AS product_name,
               p.weight_kg,
               vprof.address AS vendor_address,
+              vprof.pickup_latitude AS vendor_pickup_latitude,
+              vprof.pickup_longitude AS vendor_pickup_longitude,
               vprof.city AS vendor_city,
               vprof.state AS vendor_state,
               vprof.country AS vendor_country,
@@ -3743,12 +4097,16 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
         items: [],
         city: selectedAddress.city || client.city || '',
         destination: clientAddress,
+        destinationLatitude: addressSnapshot.shippingLatitude,
+        destinationLongitude: addressSnapshot.shippingLongitude,
         origin: [
           vp.vendor_address,
           vp.vendor_city,
           vp.vendor_state,
           vp.vendor_country,
         ].filter(Boolean).join(', '),
+        originLatitude: vp.vendor_pickup_latitude,
+        originLongitude: vp.vendor_pickup_longitude,
       });
     }
 
@@ -3794,26 +4152,53 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
         ? (subtotalAmount > 0 ? Number(((vendorOrder.subtotal / subtotalAmount) * Number(globalPromotion.discountAmount || 0)).toFixed(2)) : 0)
         : Number(promotion.discountAmount || 0)
     );
+    const deliveryOptions = await DeliveryType.availableForLocation({
+      city: vendorOrder.city,
+      area: addressSnapshot.shippingArea || addressSnapshot.shippingPincode,
+      latitude: addressSnapshot.shippingLatitude,
+      longitude: addressSnapshot.shippingLongitude,
+      vendorId,
+      requestedType: deliveryType,
+    }, connection);
     const delivery = await DeliveryCharge.calculateCharge({
       city: vendorOrder.city,
       origin: vendorOrder.origin,
       destination: vendorOrder.destination,
+      originLatitude: vendorOrder.originLatitude,
+      originLongitude: vendorOrder.originLongitude,
+      destinationLatitude: vendorOrder.destinationLatitude,
+      destinationLongitude: vendorOrder.destinationLongitude,
       items: vendorOrder.items.map((orderItem) => ({
         product_name: orderItem.productName,
         weight_kg: orderItem.weightKg,
         quantity: orderItem.quantity,
       })),
     }, connection);
-    const vendorDeliveryCharge = Number(delivery.delivery_charge || 0);
+    const vendorDeliveryCharge = deliveryOptions.selected_type === 'counter_pickup'
+      ? 0
+      : Number(delivery.delivery_charge || 0);
     const vendorTotal = Math.max(vendorOrder.subtotal - vendorDiscount, 0) + vendorDeliveryCharge;
     discountAmount += vendorDiscount;
     deliveryCharge += vendorDeliveryCharge;
     totalAmount += vendorTotal;
     vendorBreakdown.push({
       vendor_id: vendorId,
+      vendor_name: await (async () => {
+        const [vendorRows] = await connection.query(
+          `SELECT COALESCE(NULLIF(vp.business_name, ''), u.name) AS name
+           FROM users u LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+           WHERE u.id = ? LIMIT 1`,
+          [vendorId]
+        );
+        return vendorRows[0] ? vendorRows[0].name : `Vendor #${vendorId}`;
+      })(),
+      vendor_rating: await Rating.summary('vendor', vendorId, connection),
       subtotal_amount: Number(vendorOrder.subtotal.toFixed(2)),
       discount_amount: Number(vendorDiscount.toFixed(2)),
       delivery_charge: Number(vendorDeliveryCharge.toFixed(2)),
+      delivery_type: deliveryOptions.selected_type,
+      delivery_method: deliveryOptions.selected_method,
+      delivery_types: deliveryOptions.delivery_types,
       total_amount: Number(vendorTotal.toFixed(2)),
       distance_km: delivery.distance_km,
       total_weight_kg: delivery.total_weight_kg,
@@ -3850,6 +4235,7 @@ app.post(['/client/orders/preview', '/api/client/orders/preview'], webOrJwtAuth,
       rawItems: req.body.items,
       deliveryAddressId: Number(req.body.delivery_address_id || req.body.deliveryAddressId || 0),
       couponCode: String(req.body.coupon_code || '').trim(),
+      deliveryType: String(req.body.delivery_type || req.body.deliveryType || req.body.delivery_method || '').trim(),
     });
     res.json({ success: true, preview });
   } catch (error) {
@@ -3935,6 +4321,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
                   p.name AS product_name,
                   p.weight_kg,
                   vprof.address AS vendor_address,
+                  vprof.pickup_latitude AS vendor_pickup_latitude,
+                  vprof.pickup_longitude AS vendor_pickup_longitude,
                   vprof.city AS vendor_city,
                   vprof.state AS vendor_state,
                   vprof.country AS vendor_country,
@@ -3972,12 +4360,16 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             items: [],
             city: addressSnapshot.shippingCity || client.city || '',
             destination: shippingAddress,
+            destinationLatitude: addressSnapshot.shippingLatitude,
+            destinationLongitude: addressSnapshot.shippingLongitude,
             origin: [
               vp.vendor_address,
               vp.vendor_city,
               vp.vendor_state,
               vp.vendor_country,
             ].filter(Boolean).join(', '),
+            originLatitude: vp.vendor_pickup_latitude,
+            originLongitude: vp.vendor_pickup_longitude,
           });
         }
 
@@ -4010,6 +4402,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           }, connection)
         : null;
       const vendorPromotions = new Map();
+      const requestedDeliveryType = String(req.body.delivery_type || req.body.deliveryType || req.body.delivery_method || '').trim();
 
       totalAmount = 0;
       for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
@@ -4024,28 +4417,37 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           ? (subtotalAmount > 0 ? Number(((vendorSubtotal / subtotalAmount) * Number(globalPromotion.discountAmount || 0)).toFixed(2)) : 0)
           : Number(promotion.discountAmount || 0);
         const vendorDiscount = Math.min(vendorSubtotal, discountAmount);
+        const deliveryOptions = await DeliveryType.availableForLocation({
+          city: vendorOrder.city,
+          area: addressSnapshot.shippingArea || addressSnapshot.shippingPincode,
+          latitude: addressSnapshot.shippingLatitude,
+          longitude: addressSnapshot.shippingLongitude,
+          vendorId,
+          requestedType: requestedDeliveryType,
+        }, connection);
         const delivery = await DeliveryCharge.calculateCharge({
           city: vendorOrder.city,
           origin: vendorOrder.origin,
           destination: vendorOrder.destination,
+          originLatitude: vendorOrder.originLatitude,
+          originLongitude: vendorOrder.originLongitude,
+          destinationLatitude: vendorOrder.destinationLatitude,
+          destinationLongitude: vendorOrder.destinationLongitude,
           items: vendorOrder.items.map((orderItem) => ({
             product_name: orderItem.productName,
             weight_kg: orderItem.weightKg,
             quantity: orderItem.quantity,
           })),
         }, connection);
-        const deliveryCharge = Number(delivery.delivery_charge || 0);
+        const deliveryCharge = deliveryOptions.selected_type === 'counter_pickup'
+          ? 0
+          : Number(delivery.delivery_charge || 0);
         const vendorTotal = Math.max(vendorSubtotal - vendorDiscount, 0) + deliveryCharge;
-        vendorPromotions.set(vendorId, { promotion, vendorDiscount, vendorTotal, deliveryCharge, delivery });
+        vendorPromotions.set(vendorId, { promotion, vendorDiscount, vendorTotal, deliveryCharge, delivery, deliveryOptions });
         totalAmount += vendorTotal;
       }
 
-      const clientWallet = await Wallet.findByUserId(clientId);
-      if (clientWallet.balance < totalAmount) {
-        const error = new Error('Insufficient wallet balance');
-        error.status = 400;
-        throw error;
-      }
+      await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
 
       for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
         const vendorSubtotal = vendorOrder.total;
@@ -4054,11 +4456,12 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const vendorDiscount = vendorPromotion.vendorDiscount;
         const vendorTotal = vendorPromotion.vendorTotal;
         const deliveryCharge = vendorPromotion.deliveryCharge;
+        const deliveryOptions = vendorPromotion.deliveryOptions;
         const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
           connection,
           `INSERT INTO client_orders
-           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
             vendorId,
@@ -4074,6 +4477,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             vendorTotal,
             'pending',
             'pending',
+            deliveryOptions.selected_method,
+            deliveryOptions.selected_type,
             clientName,
             clientPhone,
             clientAddress || null,
@@ -4134,16 +4539,12 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
 
           purchasedProducts.push({ productId: orderItem.productId, quantity: orderItem.quantity });
         }
+        await OrderWalletSettlement.settleOrderPlacement({
+          orderId,
+          actorId: clientId,
+          connection,
+        });
       }
-
-      await Wallet.adjustBalance({
-        userId: clientId,
-        type: 'debit',
-        amount: totalAmount,
-        note: `Order #${orderNumbers.join(', #')}`,
-        reference: `client_order_${orderNumbers[0] || orderIds[0]}`,
-        createdBy: clientId,
-      });
 
       await connection.commit();
       for (const notification of vendorOrderNotifications) {
@@ -4187,6 +4588,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
 
 app.get('/roles', requireAuth, requirePermission('roles.manage'), async (req, res) => {
   try {
+    await syncRolesFromUsers();
     const [roles] = await pool.query(`
       SELECT r.*,
              p.name as parent_name,
@@ -4257,6 +4659,21 @@ app.get('/area-definitions/list', requireAuth, requirePermission('settings.manag
   } catch (error) {
     console.error('Area definitions load error:', error);
     res.status(500).json({ success: false, message: 'Unable to load areas' });
+  }
+});
+
+app.get('/area-options', requireAuth, async (req, res) => {
+  try {
+    const areas = await AreaDefinition.list({ includeInactive: false });
+    res.json({
+      success: true,
+      areas: areas
+        .filter((area) => area.city && area.name)
+        .map((area) => ({ id: area.id, city: area.city, area: area.name })),
+    });
+  } catch (error) {
+    console.error('Area options load error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load area options' });
   }
 });
 
@@ -4807,6 +5224,7 @@ app.post('/settings/google-maps/test-distance', requireAuth, requirePermission('
 
 app.get('/settings/roles', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
+    await syncRolesFromUsers();
     const [roles] = await pool.query(`
       SELECT r.id, r.name, r.slug, r.description, r.level, r.permissions,
              p.name AS parent_name,
@@ -5213,6 +5631,7 @@ app.delete('/brands/:id', requireAuth, requirePermission('settings.manage'), cat
 
 app.get('/roles/create', requireAuth, requirePermission('roles.manage'), async (req, res) => {
   try {
+    await syncRolesFromUsers();
     const [availableRoles] = await pool.query('SELECT id, name, level FROM roles ORDER BY level ASC, name ASC');
     res.render('role_form', {
       role: { level: 0, permissions: [] },
@@ -5246,6 +5665,7 @@ app.post('/roles/store', requireAuth, requirePermission('roles.manage'), async (
       'INSERT INTO roles (name, slug, description, parent_id, level, permissions) VALUES (?, ?, ?, ?, ?, ?)',
       [name, slug, description, parent_id || null, parseInt(level, 10) || 0, permissions]
     );
+    await forgetDeletedRoleSlug(slug);
 
     res.redirect('/roles?success=Role+created+successfully');
   } catch (error) {
@@ -5308,6 +5728,7 @@ app.post('/roles/update/:id', requireAuth, requirePermission('roles.manage'), as
       'UPDATE roles SET name = ?, slug = ?, description = ?, parent_id = ?, level = ?, permissions = ? WHERE id = ?',
       [name, slug, description, parent_id || null, parseInt(level, 10) || 0, permissions, req.params.id]
     );
+    await forgetDeletedRoleSlug(slug);
 
     res.redirect('/roles?success=Role+updated+successfully');
   } catch (error) {
@@ -5343,6 +5764,7 @@ app.post('/roles/delete/:id', requireAuth, requirePermission('roles.manage'), as
     await pool.query('DELETE FROM user_roles WHERE role_id = ?', [req.params.id]);
     await pool.query('UPDATE roles SET parent_id = NULL WHERE parent_id = ?', [req.params.id]);
     await pool.query('DELETE FROM roles WHERE id = ?', [req.params.id]);
+    await rememberDeletedRoleSlug(role[0].slug);
     res.redirect('/roles?success=Role+deleted+successfully');
   } catch (error) {
     console.error('Error deleting role:', error);
@@ -5417,6 +5839,13 @@ initDatabase()
     const server = app.listen(port, () => {
       console.log(`Server is running at http://localhost:${port}`);
     });
+
+    const deliveryOfferTimer = setInterval(() => {
+      Order.processExpiredDeliveryOffers().catch((error) => {
+        console.error('Delivery offer handoff error:', error);
+      });
+    }, 15000);
+    deliveryOfferTimer.unref();
 
     server.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {

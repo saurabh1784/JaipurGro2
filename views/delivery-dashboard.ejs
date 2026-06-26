@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Dashboard</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Delivery Dashboard / Dashboard</p>
+        <h1>In-house Delivery Orders</h1>
+      </div>
+      <button class="settings-save" type="button" id="refreshBtn">Refresh</button>
+    </header>
+
+    <section class="delivery-admin-shell">
+      <div class="delivery-filter-bar">
+        <input id="searchInput" type="search" placeholder="Search order, vendor, client, delivery person">
+        <select id="statusFilter">
+          <option value="">All statuses</option>
+          <option value="waiting">Waiting for delivery person</option>
+          <option value="assigned">Delivery person assigned</option>
+          <option value="accepted">Accepted</option>
+          <option value="rejected">Rejected</option>
+          <option value="pickup_pending">Pickup pending</option>
+          <option value="picked_up">Picked up</option>
+          <option value="out_for_delivery">Out for delivery</option>
+          <option value="delivered">Delivered</option>
+          <option value="cancelled">Cancelled</option>
+        </select>
+        <select id="cityFilter"><option value="">All cities</option></select>
+        <select id="personFilter"><option value="">All delivery persons</option></select>
+        <input id="dateFilter" type="date">
+        <button class="product-secondary-button" type="button" id="clearFilters">Clear</button>
+      </div>
+
+      <div class="delivery-summary-grid" id="summary"></div>
+
+      <div class="users-table-card">
+        <table class="users-table orders-table delivery-dashboard-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Vendor</th>
+              <th>Client</th>
+              <th>Pickup Location</th>
+              <th>Delivery Location</th>
+              <th>Distance</th>
+              <th>Order Value</th>
+              <th>Delivery Person</th>
+              <th>Status</th>
+              <th>OTP</th>
+              <th>OTP Attempts</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="ordersBody">
+            <tr><td colspan="12">Loading in-house delivery orders...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="users-pagination">
+        <button type="button" id="previous">Previous</button>
+        <span id="pageInfo">Page 1</span>
+        <button type="button" id="next">Next</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="user-modal" id="detailModal" aria-hidden="true">
+    <div class="user-modal-card order-detail-modal-card">
+      <div class="user-modal-header">
+        <h2>Delivery Order Details</h2>
+        <button type="button" onclick="closeDetailModal()">Close</button>
+      </div>
+      <div id="detailContent"><p>Loading...</p></div>
+    </div>
+  </div>
+
+  <script>
+    let orders = [];
+    let page = 1;
+    let totalPages = 1;
+    let filtersLoaded = false;
+    const el = (id) => document.getElementById(id);
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+    const money = (v) => `₹${Number(v || 0).toFixed(2)}`;
+    const debounce = (fn, ms = 300) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; };
+
+    function statusClass(status) {
+      return String(status || '').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    }
+
+    function distance(value) {
+      return value === null || value === undefined ? '-' : `${Number(value).toFixed(2)} km`;
+    }
+
+    function params(nextPage = page) {
+      const q = new URLSearchParams({
+        page: String(nextPage),
+        limit: '20',
+        search: el('searchInput').value.trim(),
+        status: el('statusFilter').value,
+        city: el('cityFilter').value,
+        delivery_person_id: el('personFilter').value,
+        date: el('dateFilter').value,
+      });
+      return q;
+    }
+
+    function populateFilters(data) {
+      if (filtersLoaded) return;
+      const citySelect = el('cityFilter');
+      const currentCity = citySelect.value;
+      citySelect.innerHTML = '<option value="">All cities</option>' + (data.filters?.cities || []).map(city => `<option value="${esc(city)}">${esc(city)}</option>`).join('');
+      citySelect.value = currentCity;
+
+      const personSelect = el('personFilter');
+      const currentPerson = personSelect.value;
+      personSelect.innerHTML = '<option value="">All delivery persons</option>' + (data.filters?.deliveryPersons || []).map(person => `<option value="${Number(person.id)}">#DP-${Number(person.id)} · ${esc(person.name)}</option>`).join('');
+      personSelect.value = currentPerson;
+      filtersLoaded = true;
+    }
+
+    function renderSummary() {
+      const counts = orders.reduce((acc, order) => {
+        const key = order.order_status || 'Unknown';
+        acc[key] = (acc[key] || 0) + 1;
+        return acc;
+      }, {});
+      const assigned = orders.filter(o => o.delivery_person_assigned).length;
+      const value = orders.reduce((sum, o) => sum + Number(o.order_value || 0), 0);
+      el('summary').innerHTML = `
+        <article><span>Orders on page</span><strong>${orders.length}</strong></article>
+        <article><span>Assigned</span><strong>${assigned}</strong></article>
+        <article><span>Waiting</span><strong>${counts['Waiting for delivery person'] || 0}</strong></article>
+        <article><span>Out for delivery</span><strong>${counts['Out for delivery'] || 0}</strong></article>
+        <article><span>Order value</span><strong>${money(value)}</strong></article>
+      `;
+    }
+
+    function renderOrders() {
+      const body = el('ordersBody');
+      if (!orders.length) {
+        body.innerHTML = '<tr><td colspan="12">No in-house delivery orders match these filters.</td></tr>';
+        renderSummary();
+        return;
+      }
+      body.innerHTML = orders.map(order => `
+        <tr>
+          <td><strong>${esc(order.order_number)}</strong><br><small>#${Number(order.id)}</small></td>
+          <td>${esc(order.vendor_name)}</td>
+          <td>${esc(order.client_name)}</td>
+          <td class="delivery-location-cell">${esc(order.pickup_location)}</td>
+          <td class="delivery-location-cell">${esc(order.delivery_location)}</td>
+          <td>${distance(order.distance_km)}</td>
+          <td>${money(order.order_value)}</td>
+          <td>${order.delivery_person_id ? `#DP-${Number(order.delivery_person_id)}<br><strong>${esc(order.delivery_person_name)}</strong>${!order.delivery_person_assigned ? '<br><small>Awaiting response</small>' : ''}` : 'Not assigned'}</td>
+          <td><span class="badge ${statusClass(order.order_status)}">${esc(order.order_status)}</span></td>
+          <td>${['out_for_delivery', 'delivered'].includes(String(order.delivery_status || '').toLowerCase()) ? `<strong>${esc(order.delivery_otp || '-')}</strong>` : '-'}</td>
+          <td>${['out_for_delivery', 'delivered'].includes(String(order.delivery_status || '').toLowerCase()) ? `<strong>${Number(order.delivery_otp_attempts || 0)}/${Number(order.delivery_otp_max_attempts || 8)}</strong><br><small>${order.delivery_otp_locked ? 'Locked — admin support required' : `${Number(order.delivery_otp_remaining_attempts ?? 8)} remaining`}</small>` : '-'}</td>
+          <td>
+            <button class="product-secondary-button" type="button" onclick="viewOrder(${Number(order.id)})">View</button>
+            ${resendButton(order)}
+            ${order.delivery_otp_locked && String(order.delivery_status || '').toLowerCase() === 'out_for_delivery' ? `<button class="settings-save delivery-manual-verify-button" type="button" onclick="manualVerifyDelivery(${Number(order.id)})">Manual Complete</button>` : ''}
+          </td>
+        </tr>
+      `).join('');
+      renderSummary();
+      updateResendButtons();
+    }
+
+    function resendButton(order) {
+      if (!['Waiting for delivery person', 'Rejected'].includes(order.order_status) || !order.resend_available_at) return '';
+      return `<button class="settings-save delivery-resend-button" id="resend-${Number(order.id)}" type="button" data-available-at="${esc(order.resend_available_at)}" onclick="resendDelivery(${Number(order.id)})">Resend</button>`;
+    }
+
+    function updateResendButtons() {
+      document.querySelectorAll('.delivery-resend-button').forEach(button => {
+        const remaining = Math.max(Math.ceil((new Date(button.dataset.availableAt).getTime() - Date.now()) / 1000), 0);
+        button.disabled = remaining > 0;
+        button.textContent = remaining > 0
+          ? `Resend in ${Math.floor(remaining / 60)}:${String(remaining % 60).padStart(2, '0')}`
+          : 'Resend';
+      });
+    }
+
+    async function resendDelivery(orderId) {
+      const button = el(`resend-${orderId}`);
+      if (button) button.disabled = true;
+      try {
+        const response = await fetch(`/api/orders/admin/${orderId}/resend-delivery-offer`, {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to resend delivery');
+        alert(data.message);
+        await load(page);
+      } catch (error) {
+        alert(error.message);
+        await load(page);
+      }
+    }
+
+    async function manualVerifyDelivery(orderId) {
+      if (!confirm('Manually verify and complete this locked delivery? The delivery charge will be credited to the delivery person.')) return;
+      try {
+        const response = await fetch(`/api/orders/admin/${orderId}/manual-verify-delivery`, {
+          method: 'POST',
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to manually verify delivery');
+        alert(data.message);
+        closeDetailModal();
+        await load(page);
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    async function load(nextPage = 1) {
+      try {
+        const response = await fetch(`/api/orders/admin/delivery-dashboard?${params(nextPage)}`, { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load delivery dashboard');
+        populateFilters(data);
+        orders = data.orders || [];
+        page = data.pagination?.page || 1;
+        totalPages = data.pagination?.totalPages || 1;
+        renderOrders();
+        el('pageInfo').textContent = `Page ${page} of ${totalPages}`;
+        el('previous').disabled = page <= 1;
+        el('next').disabled = page >= totalPages;
+      } catch (error) {
+        el('ordersBody').innerHTML = `<tr><td colspan="10">${esc(error.message)}</td></tr>`;
+      }
+    }
+
+    function timeline(history = []) {
+      if (!history.length) return '<p>No progress history yet.</p>';
+      return `<ol class="order-timeline">${history.map(item => `<li><strong>${esc(item.new_status_label || item.new_status)}</strong><span>${new Date(item.created_at).toLocaleString()}</span><small>${esc(item.changed_by_name || 'System')} ${item.note ? `· ${esc(item.note)}` : ''}</small></li>`).join('')}</ol>`;
+    }
+
+    async function viewOrder(orderId) {
+      el('detailContent').innerHTML = '<p>Loading...</p>';
+      el('detailModal').style.display = 'flex';
+      el('detailModal').setAttribute('aria-hidden', 'false');
+      try {
+        const response = await fetch(`/api/orders/admin/${orderId}`, { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load order details');
+        const order = data.order;
+        const dashboardOrder = orders.find(item => Number(item.id) === Number(orderId)) || {};
+        el('detailContent').innerHTML = `
+          <div class="delivery-detail-grid">
+            <article>
+              <h3>#${esc(order.order_number || order.id)}</h3>
+              <p><strong>Vendor:</strong> ${esc(order.vendor_business_name || order.vendor_name || '-')}</p>
+              <p><strong>Client:</strong> ${esc(order.client_name || '-')} ${order.client_phone ? `(${esc(order.client_phone)})` : ''}</p>
+              <p><strong>Pickup:</strong> ${esc(dashboardOrder.pickup_location || order.vendor_address || '-')}</p>
+              <p><strong>Delivery:</strong> ${esc(dashboardOrder.delivery_location || order.shipping_address || order.client_address || '-')}</p>
+              <p><strong>Distance:</strong> ${distance(dashboardOrder.distance_km)}</p>
+              <p><strong>Order Value:</strong> ${money(order.total_amount)}</p>
+            </article>
+            <article>
+              <h3>Delivery Progress</h3>
+              <p><strong>Status:</strong> ${esc(dashboardOrder.order_status || order.delivery_status || order.status)}</p>
+              <p><strong>Delivery Person:</strong> ${dashboardOrder.delivery_person_id ? `#DP-${Number(dashboardOrder.delivery_person_id)} · ${esc(dashboardOrder.delivery_person_name)}${!dashboardOrder.delivery_person_assigned ? ' (awaiting response)' : ''}` : esc(order.delivery_partner_name || 'Not assigned')}</p>
+              <p><strong>Delivery Status:</strong> ${esc(order.delivery_status || '-')}</p>
+              <p><strong>Order Status:</strong> ${esc(order.status_label || order.status || '-')}</p>
+              <p><strong>Assigned:</strong> ${order.assigned_at ? new Date(order.assigned_at).toLocaleString() : '-'}</p>
+              <p><strong>Delivered:</strong> ${order.delivered_at ? new Date(order.delivered_at).toLocaleString() : '-'}</p>
+              <p><strong>Delivery OTP:</strong> ${['out_for_delivery', 'delivered'].includes(String(order.delivery_status || '').toLowerCase()) ? esc(order.delivery_otp || '-') : 'Available when out for delivery'}</p>
+              <p><strong>OTP Attempts:</strong> ${Number(order.delivery_otp_attempts || 0)}/${Number(order.delivery_otp_max_attempts || 8)} ${order.delivery_otp_locked ? '— Locked; admin support required' : `(${Number(order.delivery_otp_remaining_attempts ?? 8)} remaining)`}</p>
+            </article>
+          </div>
+          <h3>Items</h3>
+          <table class="users-table">
+            <thead><tr><th>Product</th><th>Qty</th><th>Unit</th><th>Total</th></tr></thead>
+            <tbody>${(data.items || []).map(item => `<tr><td>${esc(item.product_name)}</td><td>${esc(item.quantity)}</td><td>${money(item.unit_price)}</td><td>${money(item.line_total)}</td></tr>`).join('') || '<tr><td colspan="4">No items found</td></tr>'}</tbody>
+          </table>
+          <h3>Progress Timeline</h3>
+          ${timeline(data.history || [])}
+        `;
+      } catch (error) {
+        el('detailContent').innerHTML = `<p>${esc(error.message)}</p>`;
+      }
+    }
+
+    function closeDetailModal() {
+      el('detailModal').style.display = 'none';
+      el('detailModal').setAttribute('aria-hidden', 'true');
+    }
+
+    el('refreshBtn').onclick = () => load(page);
+    el('previous').onclick = () => load(page - 1);
+    el('next').onclick = () => load(page + 1);
+    el('clearFilters').onclick = () => {
+      ['searchInput', 'statusFilter', 'cityFilter', 'personFilter', 'dateFilter'].forEach(id => el(id).value = '');
+      load(1);
+    };
+    el('searchInput').addEventListener('input', debounce(() => load(1)));
+    ['statusFilter', 'cityFilter', 'personFilter', 'dateFilter'].forEach(id => el(id).addEventListener('change', () => load(1)));
+    setInterval(updateResendButtons, 1000);
+    load(1);
+  </script>
+</body>
+</html>

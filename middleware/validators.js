@@ -1,6 +1,6 @@
-const rolesAllowedForSignup = ['Vendor', 'Client', 'staff'];
+const rolesAllowedForSignup = ['Vendor', 'Client', 'staff', 'deliveryPerson'];
 const allApiRoles = ['Admin', 'Vendor', 'Client'];
-const editableUserRoles = ['Admin', 'Vendor', 'Client', 'superadmin', 'admin', 'manager', 'staff'];
+const editableUserRoles = ['Admin', 'Vendor', 'Client', 'superadmin', 'admin', 'manager', 'staff', 'deliveryPerson', 'staff-l1', 'staff-l2', 'staff-l3', 'support-staff', 'accountant'];
 const statuses = ['active', 'inactive'];
 
 function isEmail(value) {
@@ -19,14 +19,15 @@ function validateSignup(body) {
   if (!email || !isEmail(email)) errors.push('Valid email is required');
   if (!phone || !isPhone(phone)) errors.push('Valid phone is required');
   if (!password || String(password).length < 6) errors.push('Password must be at least 6 characters');
-  if (!rolesAllowedForSignup.includes(role)) errors.push('Signup role must be Vendor, Client, or staff');
+  if (!rolesAllowedForSignup.includes(role)) errors.push('Signup role must be Vendor, Client, staff, or deliveryPerson');
 
   return errors;
 }
 
 function validateLogin(body) {
   const errors = [];
-  if (!body.email || !isEmail(body.email)) errors.push('Valid email is required');
+  const identifier = String(body.identifier || body.email || body.phone || '').trim();
+  if (!identifier) errors.push('Email, phone, or login ID is required');
   if (!body.password) errors.push('Password is required');
   return errors;
 }

@@ -89,6 +89,7 @@
               <th>Business</th>
               <th>Phone</th>
               <th>Location</th>
+              <th>Area</th>
               <th>Main Categories</th>
               <th>Services</th>
               <th>Status</th>
@@ -96,7 +97,7 @@
             </tr>
           </thead>
           <tbody id="vendorsTableBody">
-            <tr><td colspan="9">Loading vendors...</td></tr>
+            <tr><td colspan="10">Loading vendors...</td></tr>
           </tbody>
         </table>
       </div>
@@ -160,6 +161,10 @@
           City
           <select id="vendorCity" required></select>
         </label>
+        <label>
+          Area
+          <select id="vendorArea" required><option value="">Select Area</option></select>
+        </label>
         <div class="vendor-category-field">
           Services
           <div id="vendorServices" class="vendor-category-checklist" role="group" aria-label="Vendor Services"></div>
@@ -191,6 +196,8 @@
     const locationOptions = <%- JSON.stringify(locationOptions) %>;
     const availableCategories = <%- JSON.stringify((categories || []).filter((category) => category.status === 'active')) %>;
     const availableServices = ['Home Delivery', 'Counter Pickup', 'Wholesale Supply', 'Express Delivery'];
+    let areaOptions = [];
+    let pendingVendorArea = '';
     let vendors = [];
     let currentPage = 1;
     let totalPages = 1;
@@ -257,6 +264,25 @@
       const citySelect = document.getElementById('vendorCity');
       citySelect.innerHTML = optionList(cities, 'Select City');
       if (selectedCity) citySelect.value = selectedCity;
+      updateAreaOptions();
+    }
+
+    function updateAreaOptions(selectedArea = pendingVendorArea) {
+      const city = document.getElementById('vendorCity').value.trim().toLowerCase();
+      const areas = areaOptions
+        .filter((item) => String(item.city || '').trim().toLowerCase() === city)
+        .map((item) => item.area);
+      const select = document.getElementById('vendorArea');
+      select.innerHTML = optionList(areas, areas.length ? 'Select Area' : 'No defined areas for this city');
+      select.disabled = !areas.length;
+      if (selectedArea) select.value = selectedArea;
+    }
+
+    async function loadAreaOptions() {
+      const response = await fetch('/area-options', { headers: { Accept: 'application/json' } });
+      const data = await response.json();
+      areaOptions = data.success ? data.areas || [] : [];
+      updateAreaOptions();
     }
 
     function renderLocationOptions() {
@@ -399,7 +425,7 @@
       const response = await fetch(`/vendors?${params.toString()}`, { headers: { Accept: 'application/json' } });
       const data = await response.json();
       if (!data.success) {
-        tableBody.innerHTML = `<tr><td colspan="9">${escapeHtml(data.message || 'Unable to load vendors')}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="10">${escapeHtml(data.message || 'Unable to load vendors')}</td></tr>`;
         return;
       }
       vendors = data.vendors || [];
@@ -410,7 +436,7 @@
 
     function renderVendors() {
       if (!vendors.length) {
-        tableBody.innerHTML = '<tr><td colspan="9">No vendors found</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="10">No vendors found</td></tr>';
       } else {
         tableBody.innerHTML = vendors.map((vendor) => `
           <tr>
@@ -422,6 +448,7 @@
             <td>${escapeHtml(vendor.business_name)}</td>
             <td>${escapeHtml(vendor.phone)}</td>
             <td>${escapeHtml(vendorLocation(vendor))}</td>
+            <td>${escapeHtml(vendor.area || '-')}</td>
             <td class="vendor-services-cell">${escapeHtml(categoriesText(vendor.categories) || '-')}</td>
             <td class="vendor-services-cell">${escapeHtml(servicesText(vendor.services) || '-')}</td>
             <td><span class="user-status-pill ${vendor.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(vendor.status)}</span></td>
@@ -429,6 +456,7 @@
               <div class="user-actions">
                 <button type="button" onclick="toggleVendorStatus(${vendor.id})">${vendor.status === 'active' ? 'Deactivate' : 'Active'}</button>
                 <button type="button" onclick="openEditVendor(${vendor.id})">Edit</button>
+                <button type="button" onclick="changeVendorArea(${vendor.id})">Change Area</button>
                 <button type="button" onclick="askDeleteVendor(${vendor.id})">Delete</button>
               </div>
             </td>
@@ -450,6 +478,7 @@
     }
 
     function resetVendorForm() {
+      pendingVendorArea = '';
       document.getElementById('vendorForm').reset();
       document.getElementById('vendorId').value = '';
       document.getElementById('vendorPassword').required = true;
@@ -465,6 +494,11 @@
       openVendorModal();
     }
 
+    function changeVendorArea(id) {
+      openEditVendor(id);
+      setTimeout(() => document.getElementById('vendorArea').focus(), 0);
+    }
+
     function openEditVendor(id) {
       const vendor = vendors.find((item) => item.id === id);
       if (!vendor) return;
@@ -478,8 +512,10 @@
       document.getElementById('vendorStatus').value = vendor.status;
       document.getElementById('gstNumber').value = vendor.gst_number || '';
       document.getElementById('vendorCountry').value = vendor.country || '';
+      pendingVendorArea = vendor.area || '';
       updateStateOptions(vendor.state || '');
       updateCityOptions(vendor.city || '');
+      updateAreaOptions(vendor.area || '');
       renderServiceOptions(vendor.services || []);
       renderCategoryOptions(vendor.category_ids || []);
       document.getElementById('vendorAddress').value = vendor.address || '';
@@ -538,6 +574,7 @@
         country: document.getElementById('vendorCountry').value,
         state: document.getElementById('vendorState').value,
         city: document.getElementById('vendorCity').value,
+        area: document.getElementById('vendorArea').value,
         services: selectedServices(),
         category_ids: selectedCategoryIds(),
         address: document.getElementById('vendorAddress').value,
@@ -563,6 +600,7 @@
     document.getElementById('refreshCategoryRequests').addEventListener('click', loadCategoryRequests);
     document.getElementById('vendorCountry').addEventListener('change', () => updateStateOptions());
     document.getElementById('vendorState').addEventListener('change', () => updateCityOptions());
+    document.getElementById('vendorCity').addEventListener('change', () => { pendingVendorArea = ''; updateAreaOptions(); });
     document.getElementById('deleteVendorYes').addEventListener('click', deleteVendor);
     document.getElementById('deleteVendorNo').addEventListener('click', () => {
       pendingDeleteId = null;
@@ -592,6 +630,7 @@
     nextPage.addEventListener('click', () => loadVendors(currentPage + 1));
 
     renderLocationOptions();
+    loadAreaOptions();
     renderCategoryOptions();
     renderFilterOptions();
     loadCategoryRequests();

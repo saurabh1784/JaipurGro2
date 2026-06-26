@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title><%= person.name %> - Delivery Profile</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb"><a href="/delivery-persons">Delivery Persons</a> / #DP-<%= person.id %></p>
+        <h1><%= person.name %></h1>
+      </div>
+      <a class="settings-save" href="/delivery-persons">Back to Management</a>
+    </header>
+
+    <section class="delivery-profile-shell">
+      <div class="delivery-profile-hero">
+        <div class="delivery-avatar large"><%= person.name.charAt(0).toUpperCase() %></div>
+        <div>
+          <h2><%= person.name %></h2>
+          <p>#DP-<%= person.id %> · <%= person.login_id %> · <%= person.phone %></p>
+        </div>
+        <b class="delivery-status <%= person.status %>"><%= person.status %></b>
+      </div>
+
+      <div class="delivery-summary-grid">
+        <article><span>Delivered</span><strong><%= person.total_orders_delivered %></strong></article>
+        <article><span>Accepted</span><strong><%= person.total_accepted_orders %></strong></article>
+        <article><span>Rejected / Unaccepted</span><strong><%= person.total_rejected_orders + person.total_unaccepted_orders %></strong></article>
+        <article><span>OTP conflicts / Failed</span><strong><%= person.otp_conflict_count + person.failed_delivery_attempts %></strong></article>
+        <article><span>Wallet</span><strong>₹<%= person.wallet_balance.toFixed(2) %></strong></article>
+        <article><span>Customer Rating</span><strong>★ <%= Number(person.rating_summary.average_rating || 0).toFixed(1) %> (<%= person.rating_summary.review_count %>)</strong></article>
+      </div>
+
+      <div class="delivery-detail-grid">
+        <article>
+          <h3>Complete Information</h3>
+          <dl>
+            <div><dt>City</dt><dd><%= person.city || '-' %></dd></div>
+            <div><dt>Area</dt><dd><%= person.area || '*' %></dd></div>
+            <div><dt>Availability</dt><dd><%= person.is_available ? 'Available' : 'Unavailable' %></dd></div>
+            <div><dt>Address</dt><dd><%= person.address || '-' %></dd></div>
+            <div><dt>Address proof</dt><dd><%= [person.address_proof_type, person.address_proof_id].filter(Boolean).join(' · ') || '-' %></dd></div>
+            <div><dt>Vehicle</dt><dd><%= [person.vehicle_type, person.vehicle_number].filter(Boolean).join(' · ') || '-' %></dd></div>
+            <div><dt>Document notes</dt><dd><%= person.document_notes || '-' %></dd></div>
+            <% for (const category of person.rating_summary.categories || []) { %>
+              <div><dt><%= category.label %></dt><dd>★ <%= Number(category.average_rating || 0).toFixed(1) %></dd></div>
+            <% } %>
+          </dl>
+        </article>
+        <article>
+          <h3>Delivery Statistics</h3>
+          <div id="fullStats"></div>
+        </article>
+      </div>
+
+      <div class="delivery-tabs">
+        <button class="active" data-tab="orders">Order History</button>
+        <button data-tab="offers">Accepted / Rejected</button>
+        <button data-tab="wallet">Wallet History</button>
+        <button data-tab="activity">OTP Conflicts & Logs</button>
+      </div>
+      <div class="users-table-card" id="tabContent"><p>Loading history…</p></div>
+    </section>
+  </main>
+
+  <script>
+    const id = <%= person.id %>;
+    let data;
+    const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+    const dt = v => v ? new Date(v).toLocaleString() : '-';
+    const inr = v => `₹${Number(v || 0).toFixed(2)}`;
+
+    async function load() {
+      const r = await fetch(`/delivery-persons/${id}`, { headers: { Accept: 'application/json' } });
+      data = await r.json();
+      if (!data.success) {
+        document.getElementById('tabContent').textContent = data.message;
+        return;
+      }
+      document.getElementById('fullStats').innerHTML = `<dl>
+        <div><dt>Total accepted</dt><dd>${data.person.total_accepted_orders}</dd></div>
+        <div><dt>Total rejected</dt><dd>${data.person.total_rejected_orders}</dd></div>
+        <div><dt>Total unaccepted</dt><dd>${data.person.total_unaccepted_orders}</dd></div>
+        <div><dt>OTP conflicts</dt><dd>${data.person.otp_conflict_count}</dd></div>
+        <div><dt>Failed attempts</dt><dd>${data.person.failed_delivery_attempts}</dd></div>
+      </dl>`;
+      render('orders');
+    }
+
+    function table(headers, rows) {
+      return `<table class="users-table"><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}">No history found</td></tr>`}</tbody></table>`;
+    }
+
+    function render(tab) {
+      document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+      let html = '';
+      if (tab === 'orders') {
+        html = table(['Order','Client','Amount','Order Status','Delivery Status','Assigned','Delivered'], data.orders.map(o => `<tr><td>#${esc(o.order_number || o.id)}</td><td>${esc(o.client_name)}</td><td>${inr(o.total_amount)}</td><td>${esc(o.status)}</td><td>${esc(o.delivery_status)}</td><td>${dt(o.assigned_at)}</td><td>${dt(o.delivered_at)}</td></tr>`).join(''));
+      }
+      if (tab === 'offers') {
+        html = table(['Order','Pickup','Delivery','Decision','Response','Date'], (data.offers || []).map(o => `<tr><td>#${esc(o.order_number || o.order_id)}</td><td>${esc(o.pickup_area || '-')}</td><td>${esc(o.delivery_area || o.shipping_area || '-')}</td><td>${esc(o.status)}</td><td>${esc(o.response_note || '-')}</td><td>${dt(o.responded_at || o.created_at)}</td></tr>`).join(''));
+      }
+      if (tab === 'wallet') {
+        html = table(['Type','Amount','Before','After','Reference','Date'], data.walletTransactions.map(t => `<tr><td>${esc(t.type)}</td><td>${inr(t.amount)}</td><td>${inr(t.balance_before)}</td><td>${inr(t.balance_after)}</td><td>${esc(t.reference || t.note || '-')}</td><td>${dt(t.transaction_at || t.created_at)}</td></tr>`).join(''));
+      }
+      if (tab === 'activity') {
+        html = table(['Action','Details','Performed by','Date'], data.activity.map(a => `<tr><td>${esc(a.action).replaceAll('_',' ')}</td><td>${esc(a.description)}</td><td>${esc(a.actor_name || 'System')}</td><td>${dt(a.created_at)}</td></tr>`).join(''));
+      }
+      document.getElementById('tabContent').innerHTML = html;
+    }
+
+    document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => render(b.dataset.tab));
+    load();
+  </script>
+</body>
+</html>

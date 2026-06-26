@@ -1,9 +1,12 @@
 const crypto = require('crypto');
 const Order = require('../models/Order');
 const User = require('../models/User');
+const DeliveryPerson = require('../models/DeliveryPerson');
 const pool = require('../db');
 const { ensureInvoice } = require('../services/invoiceService');
-const AreaDefinition = require('../models/AreaDefinition');
+const { deliveryProfileImagePath } = require('../middleware/deliveryProfileImageUpload');
+const DeliveryType = require('../models/DeliveryType');
+const Rating = require('../models/Rating');
 
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
@@ -62,6 +65,61 @@ function isValidPublicInvoiceToken(order, token) {
 function publicInvoiceLink(req, order) {
   const origin = `${req.protocol}://${req.get('host')}`;
   return `${origin}/public/invoices/${order.id}/${encodeURIComponent(invoicePublicToken(order))}`;
+}
+
+function clientSafeOrder(order) {
+  if (!order) return order;
+  const clone = { ...order };
+  delete clone.pickup_otp;
+  if (String(clone.delivery_status || '').toLowerCase() !== 'out_for_delivery') {
+    delete clone.delivery_otp;
+  }
+  return clone;
+}
+
+function deliveryPartnerSafeOrder(order, financial) {
+  if (!order) return order;
+  const clone = { ...order };
+  delete clone.delivery_otp;
+  delete clone.pickup_otp;
+  delete clone.total_amount;
+  delete clone.subtotal_amount;
+  delete clone.discount_amount;
+  delete clone.savings_amount;
+  delete clone.delivery_charge;
+  delete clone.platform_fee;
+  delete clone.delivery_partner_earning;
+  delete clone.coupon_id;
+  delete clone.coupon_code;
+  delete clone.discount_id;
+  delete clone.discount_label;
+  clone.delivery_earning = financial.deliveryEarning;
+  if (clone.notification_payload && typeof clone.notification_payload === 'object') {
+    clone.notification_payload = { ...clone.notification_payload };
+    delete clone.notification_payload.delivery_charge;
+    delete clone.notification_payload.platform_fee;
+    delete clone.notification_payload.delivery_partner_earning;
+    clone.notification_payload.delivery_earning = financial.deliveryEarning;
+  }
+  return clone;
+}
+
+async function deliveryPartnerSafeOrders(orders) {
+  const rows = Array.isArray(orders) ? orders : [];
+  const financials = await Order.deliveryFinancials(rows.map((order) => order.delivery_charge));
+  return rows.map((order, index) => deliveryPartnerSafeOrder(order, financials[index]));
+}
+
+function deliveryPartnerSafeItems(items) {
+  return items.map((item) => {
+    const clone = { ...item };
+    delete clone.unit_price;
+    delete clone.line_total;
+    delete clone.tax_percentage;
+    delete clone.tax_amount;
+    delete clone.taxable_amount;
+    return clone;
+  });
 }
 
 // Admin/Staff - List all orders with filters
@@ -233,7 +291,7 @@ async function clientOrders(req, res) {
       const items = await Order.getOrderItems(order.id);
       const history = await Order.getStatusHistory(order.id);
       const orderWithInvoice = await attachInvoice(req, order, items);
-      ordersWithItems.push({ ...orderWithInvoice, items, history });
+      ordersWithItems.push(clientSafeOrder({ ...orderWithInvoice, items, history }));
     }
     return res.json({ success: true, orders: ordersWithItems });
   } catch (error) {
@@ -263,15 +321,133 @@ async function clientOrderDetail(req, res) {
     const items = await Order.getOrderItems(order.id);
     const history = await Order.getStatusHistory(order.id);
     const orderWithInvoice = await attachInvoice(req, order, items);
-    return res.json({ success: true, order: orderWithInvoice, items, history });
+    const ratingContext = await Rating.contextForOrder(order, currentUser.id);
+    return res.json({
+      success: true,
+      order: { ...clientSafeOrder(orderWithInvoice), rating_context: ratingContext },
+      items,
+      history,
+    });
   } catch (error) {
     console.error('Client order detail error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch order' });
   }
 }
 
+async function rateCompletedOrder(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!currentUser || String(currentUser.role || '').toLowerCase() !== 'client') {
+    return res.status(403).json({ success: false, message: 'Client access required' });
+  }
+  try {
+    const ratingContext = await Rating.saveForOrder({
+      orderId: Number(req.params.id),
+      clientId: currentUser.id,
+      vendorScores: req.body.vendor,
+      deliveryPersonScores: req.body.delivery_person,
+    });
+    return res.json({ success: true, message: 'Thank you for sharing your ratings', rating_context: ratingContext });
+  } catch (error) {
+    console.error('Order rating error:', error);
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save ratings' });
+  }
+}
+
 function isDeliveryPartnerUser(user) {
-  return user && String(user.role || '').toLowerCase() === 'staff';
+  return user && String(user.role || '').toLowerCase() === 'deliveryperson';
+}
+
+function canResendDeliveryOffer(user) {
+  if (!user || isDeliveryPartnerUser(user)) return false;
+  const role = String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '');
+  if (['admin', 'superadmin', 'staff', 'staffl1', 'staffl2', 'staffl3', 'supportstaff'].includes(role)) return true;
+  return Array.isArray(user.permissions)
+    && (user.permissions.includes('all') || user.permissions.includes('orders.manage'));
+}
+
+async function activeDeliveryPerson(user) {
+  if (!isDeliveryPartnerUser(user)) return false;
+  const freshUser = await User.findById(user.id);
+  if (freshUser && String(freshUser.status).toLowerCase() === 'active') {
+    await pool.query(
+      `INSERT INTO delivery_person_profiles (user_id, is_available, last_seen_at)
+       VALUES (?, 1, CURRENT_TIMESTAMP)
+       ON CONFLICT (user_id) DO UPDATE SET
+         last_seen_at = CURRENT_TIMESTAMP,
+         updated_at = CURRENT_TIMESTAMP`,
+      [user.id]
+    );
+  }
+  return Boolean(freshUser && String(freshUser.status).toLowerCase() === 'active');
+}
+
+async function deliveryHeartbeat(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+  const latitude = Number(req.body.latitude);
+  const longitude = Number(req.body.longitude);
+  const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude)
+    && latitude >= -90 && latitude <= 90 && longitude >= -180 && longitude <= 180;
+  await pool.query(
+    `INSERT INTO delivery_person_profiles
+       (user_id, is_available, last_seen_at, current_latitude, current_longitude)
+     VALUES (?, 1, CURRENT_TIMESTAMP, ?, ?)
+     ON CONFLICT (user_id) DO UPDATE SET
+       last_seen_at = CURRENT_TIMESTAMP,
+       current_latitude = CASE WHEN ? = 1 THEN EXCLUDED.current_latitude ELSE delivery_person_profiles.current_latitude END,
+       current_longitude = CASE WHEN ? = 1 THEN EXCLUDED.current_longitude ELSE delivery_person_profiles.current_longitude END,
+       updated_at = CURRENT_TIMESTAMP`,
+    [
+      currentUser.id,
+      hasCoordinates ? latitude : null,
+      hasCoordinates ? longitude : null,
+      hasCoordinates ? 1 : 0,
+      hasCoordinates ? 1 : 0,
+    ]
+  );
+  return res.json({ success: true, online: true });
+}
+
+async function updateDeliveryAvailability(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+
+  const value = req.body.is_available ?? req.body.available ?? req.body.availability_status;
+  const normalized = String(value).trim().toLowerCase();
+  if (![true, false].includes(value) && !['1', '0', 'true', 'false', 'available', 'unavailable', 'online', 'offline'].includes(normalized)) {
+    return res.status(422).json({ success: false, message: 'A valid availability status is required' });
+  }
+  const isAvailable = value === true || ['1', 'true', 'available', 'online'].includes(normalized);
+
+  try {
+    await pool.query(
+      `INSERT INTO delivery_person_profiles (user_id, is_available, last_seen_at)
+       VALUES (?, ?, CURRENT_TIMESTAMP)
+       ON CONFLICT (user_id) DO UPDATE SET
+         is_available = EXCLUDED.is_available,
+         last_seen_at = CURRENT_TIMESTAMP,
+         updated_at = CURRENT_TIMESTAMP`,
+      [currentUser.id, isAvailable ? 1 : 0]
+    );
+    await DeliveryPerson.log({
+      deliveryPersonId: currentUser.id,
+      actorId: currentUser.id,
+      action: isAvailable ? 'availability_online' : 'availability_offline',
+      description: `Delivery partner went ${isAvailable ? 'online' : 'offline'} from the app`,
+    }).catch(() => {});
+    return res.json({
+      success: true,
+      is_available: isAvailable,
+      message: isAvailable ? 'You are now online' : 'You are now offline',
+    });
+  } catch (error) {
+    console.error('Delivery availability update error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to update availability' });
+  }
 }
 
 async function deliveryProfile(req, res) {
@@ -281,6 +457,15 @@ async function deliveryProfile(req, res) {
   }
 
   try {
+    const [profileRows] = await pool.query(
+      `SELECT city, area, address, address_proof_id, address_proof_type, profile_image_path,
+              vehicle_type, vehicle_number, document_notes, is_available,
+              current_latitude, current_longitude
+       FROM delivery_person_profiles
+       WHERE user_id = ?
+       LIMIT 1`,
+      [currentUser.id]
+    );
     const [areas] = await pool.query(
       `SELECT city, COALESCE(NULLIF(TRIM(area), ''), '*') AS area, is_active
        FROM delivery_partner_settings
@@ -291,8 +476,10 @@ async function deliveryProfile(req, res) {
     return res.json({
       success: true,
       user: User.publicUser(currentUser),
+      profile: profileRows[0] || null,
       service_areas: areas,
       service_enabled: areas.length > 0,
+      rating_summary: await Rating.summary('delivery_person', currentUser.id),
     });
   } catch (error) {
     console.error('Delivery profile error:', error);
@@ -300,10 +487,114 @@ async function deliveryProfile(req, res) {
   }
 }
 
+async function uploadDeliveryProfileImage(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+
+  const imagePath = deliveryProfileImagePath(req.file);
+  if (!imagePath) {
+    return res.status(422).json({ success: false, message: 'Profile picture is required' });
+  }
+
+  try {
+    await pool.query(
+      `INSERT INTO delivery_person_profiles (user_id, profile_image_path)
+       VALUES (?, ?)
+       ON CONFLICT (user_id) DO UPDATE SET profile_image_path = EXCLUDED.profile_image_path, updated_at = CURRENT_TIMESTAMP`,
+      [currentUser.id, imagePath]
+    );
+    await DeliveryPerson.log({
+      deliveryPersonId: currentUser.id,
+      actorId: currentUser.id,
+      action: 'profile_picture_updated',
+      description: 'Delivery partner updated profile picture from app',
+    }).catch(() => {});
+    return res.json({ success: true, message: 'Profile picture updated', profile_image_path: imagePath });
+  } catch (error) {
+    console.error('Delivery profile image upload error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to upload profile picture' });
+  }
+}
+
+async function updateDeliveryProfile(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+
+  const name = String(req.body.name || '').trim();
+  const city = String(req.body.city || '').trim();
+  const area = String(req.body.area || '*').trim() || '*';
+  const address = String(req.body.address || '').trim();
+  const addressProofType = String(req.body.address_proof_type || '').trim();
+  const addressProofId = String(req.body.address_proof_id || '').trim();
+  const documentNotes = String(req.body.document_notes || '').trim();
+  const availability = String(req.body.availability_status || '').trim().toLowerCase();
+  const isAvailable = availability === 'unavailable' || availability === 'false' ? 0 : 1;
+
+  if (name.length < 2) {
+    return res.status(422).json({ success: false, message: 'Name is required' });
+  }
+  if (!city) {
+    return res.status(422).json({ success: false, message: 'City is required' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    await connection.query('UPDATE users SET name = ? WHERE id = ? AND LOWER(role) = ?', [name, currentUser.id, 'deliveryperson']);
+    await connection.query(
+      `INSERT INTO delivery_person_profiles
+        (user_id, city, area, address, address_proof_id, address_proof_type, document_notes, is_available)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (user_id) DO UPDATE SET
+         city = EXCLUDED.city,
+         area = EXCLUDED.area,
+         address = EXCLUDED.address,
+         address_proof_id = EXCLUDED.address_proof_id,
+         address_proof_type = EXCLUDED.address_proof_type,
+         document_notes = EXCLUDED.document_notes,
+         is_available = EXCLUDED.is_available,
+         updated_at = CURRENT_TIMESTAMP`,
+      [currentUser.id, city, area, address || null, addressProofId || null, addressProofType || null, documentNotes || null, isAvailable]
+    );
+    await connection.query('DELETE FROM delivery_partner_settings WHERE user_id = ?', [currentUser.id]);
+    await connection.query(
+      'INSERT INTO delivery_partner_settings (user_id, city, area, is_active) VALUES (?, ?, ?, ?)',
+      [currentUser.id, city, area, isAvailable]
+    );
+    await DeliveryPerson.log({
+      deliveryPersonId: currentUser.id,
+      actorId: currentUser.id,
+      action: 'profile_self_updated',
+      description: 'Delivery partner updated profile from app',
+    }, connection).catch(() => {});
+    await connection.commit();
+
+    const updatedUser = await User.findById(currentUser.id);
+    return res.json({
+      success: true,
+      message: 'Profile updated successfully',
+      user: User.publicUser(updatedUser),
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Delivery profile update error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to update profile' });
+  } finally {
+    connection.release();
+  }
+}
+
 async function deliveryOrders(req, res) {
   const currentUser = req.authUser || req.session.user;
   if (!isDeliveryPartnerUser(currentUser)) {
     return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+  if (!(await activeDeliveryPerson(currentUser))) {
+    return res.status(403).json({ success: false, message: 'Your delivery account is blocked. Contact an administrator.' });
   }
 
   try {
@@ -315,7 +606,8 @@ async function deliveryOrders(req, res) {
       deliveryStatus: req.query.delivery_status,
       deliveryPartnerId: currentUser.id,
     });
-    return res.json({ success: true, orders: result.orders, pagination: result.pagination });
+    const orders = await deliveryPartnerSafeOrders(result.orders);
+    return res.json({ success: true, orders, pagination: result.pagination });
   } catch (error) {
     console.error('Delivery orders error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch delivery orders' });
@@ -326,6 +618,10 @@ async function ensureAssignedDeliveryOrder(req, res) {
   const currentUser = req.authUser || req.session.user;
   if (!isDeliveryPartnerUser(currentUser)) {
     res.status(403).json({ success: false, message: 'Delivery partner access required' });
+    return null;
+  }
+  if (!(await activeDeliveryPerson(currentUser))) {
+    res.status(403).json({ success: false, message: 'Your delivery account is blocked and cannot accept or update orders.' });
     return null;
   }
 
@@ -350,10 +646,11 @@ async function deliveryOrderDetail(req, res) {
 
     const items = await Order.getOrderItems(order.id);
     const history = await Order.getStatusHistory(order.id);
+    const [safeOrder] = await deliveryPartnerSafeOrders([order]);
     return res.json({
       success: true,
-      order,
-      items,
+      order: safeOrder,
+      items: deliveryPartnerSafeItems(items),
       history,
       next_statuses: Order.getAllowedNextStatusesForOrder(order, 'staff'),
     });
@@ -368,16 +665,54 @@ async function deliveryUpdateStatus(req, res) {
     const order = await ensureAssignedDeliveryOrder(req, res);
     if (!order) return;
 
+    const requestedStatus = String(req.body.status || '').toLowerCase() === 'picked_up'
+      ? 'on_the_way'
+      : req.body.status;
     const result = await Order.updateStatus({
       orderId: Number(req.params.id),
       actorUser: req.authUser || req.session.user,
-      newStatus: req.body.status,
-      note: req.body.note || 'Updated from delivery partner app',
+      newStatus: requestedStatus,
+      note: req.body.note || (requestedStatus === 'on_the_way'
+        ? 'Order picked up; delivery tracking started'
+        : 'Updated from delivery partner app'),
     });
     return res.json({ success: true, message: `Order status changed to ${result.statusLabel}`, ...result });
   } catch (error) {
     console.error('Delivery order status update error:', error);
     return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update delivery order status' });
+  }
+}
+
+async function clientDeliveryTracking(req, res) {
+  try {
+    const currentUser = req.authUser || req.session.user;
+    if (!currentUser || String(currentUser.role || '').toLowerCase() !== 'client') {
+      return res.status(403).json({ success: false, message: 'Client access required' });
+    }
+    const tracking = await Order.getDeliveryTracking(Number(req.params.id));
+    if (!tracking) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (Number(tracking.client_id) !== Number(currentUser.id)) {
+      return res.status(403).json({ success: false, message: 'Access denied' });
+    }
+    delete tracking.client_id;
+    return res.json({ success: true, tracking });
+  } catch (error) {
+    console.error('Client delivery tracking error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load delivery tracking' });
+  }
+}
+
+async function deliveryPartnerTracking(req, res) {
+  try {
+    const order = await ensureAssignedDeliveryOrder(req, res);
+    if (!order) return;
+    const tracking = await Order.getDeliveryTracking(Number(req.params.id));
+    if (!tracking) return res.status(404).json({ success: false, message: 'Order not found' });
+    delete tracking.client_id;
+    return res.json({ success: true, tracking });
+  } catch (error) {
+    console.error('Delivery partner tracking error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load delivery route' });
   }
 }
 
@@ -391,11 +726,122 @@ async function deliveryVerifyOtp(req, res) {
       return res.status(422).json({ success: false, message: 'Enter a valid 4 to 6 digit OTP' });
     }
 
-    const result = await Order.verifyOTP(req.params.id, otp);
+    const currentUser = req.authUser || req.session.user;
+    const result = await Order.verifyOTP(req.params.id, otp, { actorUser: currentUser });
+    if (!result.verified) {
+      await DeliveryPerson.log({
+        deliveryPersonId: currentUser.id,
+        actorId: currentUser.id,
+        action: 'otp_conflict',
+        description: `Incorrect delivery OTP for order #${req.params.id} (attempt ${result.otpAttempts}/${result.maxAttempts})`,
+        metadata: { order_id: Number(req.params.id), attempts: result.otpAttempts, remaining_attempts: result.remainingAttempts, locked: result.otpLocked },
+      }).catch(() => {});
+      return res.status(result.otpLocked ? 423 : 400).json({
+        success: false,
+        message: result.otpLocked
+          ? 'OTP attempt limit reached. Contact admin support for manual verification'
+          : `OTP incorrect. ${result.remainingAttempts} attempt${result.remainingAttempts === 1 ? '' : 's'} remaining`,
+        ...result,
+      });
+    }
     return res.json({ success: true, message: 'Delivery OTP verified', ...result });
   } catch (error) {
+    const currentUser = req.authUser || req.session.user;
+    if (currentUser && currentUser.id && /otp/i.test(String(error.message || ''))) {
+      await DeliveryPerson.log({ deliveryPersonId: currentUser.id, actorId: currentUser.id, action: 'otp_conflict', description: `OTP conflict on order #${req.params.id}` }).catch(() => {});
+    }
     console.error('Delivery OTP verify error:', error);
-    return res.status(400).json({ success: false, message: error.message || 'Unable to verify OTP' });
+    return res.status(error.status || 400).json({
+      success: false,
+      message: error.message || 'Unable to verify OTP',
+      otpLocked: Boolean(error.otpLocked),
+      otpAttempts: error.attempts,
+      remainingAttempts: error.remainingAttempts,
+    });
+  }
+}
+
+async function deliveryOffers(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+  if (!(await activeDeliveryPerson(currentUser))) {
+    return res.status(403).json({ success: false, message: 'Your delivery account is blocked. Contact an administrator.' });
+  }
+
+  try {
+    await Order.ensureWaitingOfferForPerson(currentUser.id);
+    await Order.refreshDeliveryOffersForPerson(currentUser.id);
+    const offers = await Order.listDeliveryOffers(currentUser.id);
+    const safeOffers = await deliveryPartnerSafeOrders(offers);
+    return res.json({ success: true, offers: safeOffers });
+  } catch (error) {
+    console.error('Delivery offers error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch delivery offers' });
+  }
+}
+
+async function deliveryOfferDecision(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!isDeliveryPartnerUser(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+  if (!(await activeDeliveryPerson(currentUser))) {
+    return res.status(403).json({ success: false, message: 'Your delivery account is blocked. Contact an administrator.' });
+  }
+
+  try {
+    const result = await Order.decideDeliveryOffer({
+      orderId: Number(req.params.id),
+      deliveryPersonId: currentUser.id,
+      decision: req.params.decision,
+      note: req.body.note,
+    });
+    let nextOffer = null;
+    if (result.status === 'rejected') {
+      nextOffer = await Order.createAutoDeliveryOffer(Number(req.params.id), currentUser)
+        .catch((error) => ({ pending: true, message: error.message }));
+    }
+    return res.json({ success: true, message: result.status === 'accepted' ? 'Delivery order accepted' : 'Delivery order rejected; finding the next available person', ...result, nextOffer });
+  } catch (error) {
+    console.error('Delivery offer decision error:', error);
+    return res.status(error.status || 400).json({ success: false, message: error.message || 'Unable to update delivery offer' });
+  }
+}
+
+async function verifyPickupOtp(req, res) {
+  const otp = String(req.body.otp || '').trim();
+  if (!/^\d{4,6}$/.test(otp)) {
+    return res.status(422).json({ success: false, message: 'Enter a valid 4 to 6 digit pickup OTP' });
+  }
+
+  try {
+    const result = await Order.verifyPickupOTP(Number(req.params.id), otp, req.authUser || req.session.user);
+    return res.json({ success: true, message: 'Pickup OTP verified. Order marked picked up.', ...result });
+  } catch (error) {
+    const order = await Order.findById(req.params.id).catch(() => null);
+    if (order && order.delivery_partner_id && /otp/i.test(String(error.message || ''))) {
+      await DeliveryPerson.log({ deliveryPersonId: order.delivery_partner_id, actorId: (req.authUser || req.session.user || {}).id || null, action: 'otp_conflict', description: `Pickup OTP conflict on order #${req.params.id}` }).catch(() => {});
+    }
+    console.error('Pickup OTP verify error:', error);
+    return res.status(400).json({ success: false, message: error.message || 'Unable to verify pickup OTP' });
+  }
+}
+
+async function deliveryActivity(req, res) {
+  try {
+    const order = await ensureAssignedDeliveryOrder(req, res);
+    if (!order) return;
+    const currentUser = req.authUser || req.session.user;
+    const action = String(req.body.action || '').trim().toLowerCase();
+    const allowed = ['order_accepted', 'order_rejected', 'order_unaccepted', 'delivery_failed'];
+    if (!allowed.includes(action)) return res.status(422).json({ success: false, message: 'Invalid delivery activity' });
+    if (action === 'order_accepted' && order.delivery_status === 'assigned') await Order.markReadyToDeliver(order.id);
+    await DeliveryPerson.log({ deliveryPersonId: currentUser.id, actorId: currentUser.id, action, description: String(req.body.note || action.replaceAll('_', ' ')), metadata: { order_id: Number(order.id) } });
+    return res.json({ success: true, message: 'Delivery activity recorded' });
+  } catch (error) {
+    return res.status(error.status || 400).json({ success: false, message: error.message || 'Unable to record delivery activity' });
   }
 }
 
@@ -404,11 +850,43 @@ async function deliveryMarkDelivered(req, res) {
     const order = await ensureAssignedDeliveryOrder(req, res);
     if (!order) return;
 
-    const result = await Order.markDelivered(req.params.id);
-    return res.json({ success: true, message: 'Order marked delivered', ...result });
+    const otp = String(req.body.otp || '').trim();
+    if (!/^\d{4,6}$/.test(otp)) {
+      return res.status(422).json({ success: false, message: 'Customer delivery OTP is required to mark delivered' });
+    }
+    const result = await Order.verifyOTP(req.params.id, otp, { actorUser: req.authUser || req.session.user });
+    if (!result.verified) {
+      return res.status(result.otpLocked ? 423 : 400).json({
+        success: false,
+        message: result.otpLocked
+          ? 'OTP attempt limit reached. Contact admin support for manual verification'
+          : `OTP incorrect. ${result.remainingAttempts} attempt${result.remainingAttempts === 1 ? '' : 's'} remaining`,
+        ...result,
+      });
+    }
+    return res.json({ success: true, message: 'Customer OTP verified. Order marked delivered', ...result });
   } catch (error) {
     console.error('Delivery delivered error:', error);
-    return res.status(400).json({ success: false, message: error.message || 'Unable to mark order delivered' });
+    return res.status(error.status || 400).json({ success: false, message: error.message || 'Unable to mark order delivered' });
+  }
+}
+
+async function manualVerifyDelivery(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!canResendDeliveryOffer(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Admin or staff access is required for manual delivery verification' });
+  }
+  try {
+    const order = await Order.findById(req.params.id);
+    if (!order) return res.status(404).json({ success: false, message: 'Order not found' });
+    if (!order.delivery_otp_locked) {
+      return res.status(409).json({ success: false, message: 'Manual verification is available only after all 8 OTP attempts are used' });
+    }
+    const result = await Order.verifyOTP(req.params.id, '', { manualVerification: true, actorUser: currentUser });
+    return res.json({ success: true, message: 'Delivery manually verified and completed', ...result });
+  } catch (error) {
+    console.error('Manual delivery verification error:', error);
+    return res.status(error.status || 400).json({ success: false, message: error.message || 'Unable to manually verify delivery' });
   }
 }
 
@@ -420,7 +898,12 @@ async function updateVendorStatus(req, res) {
       newStatus: req.body.status,
       note: req.body.note,
     });
-    return res.json({ success: true, message: `Order status changed to ${result.statusLabel}`, ...result });
+    let autoDelivery = null;
+    if (String(req.body.status || '').toLowerCase() === 'accepted') {
+      autoDelivery = await Order.createAutoDeliveryOffer(Number(req.params.id), req.authUser || req.session.user)
+        .catch((error) => ({ skipped: true, message: error.message }));
+    }
+    return res.json({ success: true, message: `Order status changed to ${result.statusLabel}`, ...result, autoDelivery });
   } catch (error) {
     console.error('Vendor order status update error:', error);
     return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update order status' });
@@ -507,11 +990,12 @@ async function getDeliveryPartners(req, res) {
     const area = String(req.query.area || req.query.pincode || '').trim();
     const latitude = Number(req.query.latitude ?? req.query.lat);
     const longitude = Number(req.query.longitude ?? req.query.lng);
-    const ownDelivery = await AreaDefinition.isOwnDeliveryActiveForLocation({
+    const ownDelivery = await DeliveryType.isTypeAvailable('delivered_by_vendor', {
       latitude,
       longitude,
       city,
       area,
+      vendorId: req.query.vendor_id || req.query.vendorId,
     });
     const matchedCity = ownDelivery.area && ownDelivery.area.city ? ownDelivery.area.city : city;
     const matchedArea = ownDelivery.area && ownDelivery.area.name ? ownDelivery.area.name : area;
@@ -527,7 +1011,7 @@ async function getDeliveryPartners(req, res) {
               COALESCE(MIN(dps.area), '*') AS area
        FROM users u
        INNER JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
-       WHERE LOWER(u.role) = 'staff'
+       WHERE LOWER(u.role) IN ('staff', 'deliveryperson')
          AND LOWER(u.status) = 'active'
          AND u.is_deleted = 0
          ${cityFilter}
@@ -535,17 +1019,24 @@ async function getDeliveryPartners(req, res) {
        ORDER BY u.name`,
       params
     );
+    const deliveryRatings = await Rating.summaries('delivery_person', rows.map((row) => row.id));
+    const ratedRows = rows.map((row) => ({
+      ...row,
+      rating_summary: deliveryRatings.get(Number(row.id)),
+    }));
+    const ownVendorId = Number(req.query.vendor_id || req.query.vendorId || 0);
     const partners = ownDelivery.active
       ? [{
         id: 'own_delivery',
-        name: 'Own Delivery',
+        name: 'Delivered by Vendor',
         email: '',
         phone: '',
         city: ownDelivery.area ? ownDelivery.area.city : matchedCity,
         area: ownDelivery.area ? ownDelivery.area.name : matchedArea,
         is_own_delivery: true,
-      }, ...rows]
-      : rows;
+        rating_summary: ownVendorId ? await Rating.summary('vendor', ownVendorId) : null,
+      }, ...ratedRows]
+      : ratedRows;
     return res.json({
       success: true,
       partners,
@@ -578,12 +1069,63 @@ async function dashboardStats(req, res) {
   }
 }
 
+async function deliveryDashboardPage(req, res) {
+  return res.render('delivery-dashboard', {
+    user: req.session.user,
+    shell: res.locals.shell,
+  });
+}
+
+async function deliveryDashboardOrders(req, res) {
+  try {
+    const result = await Order.listInHouseDeliveryDashboard({
+      page: req.query.page,
+      limit: req.query.limit,
+      search: req.query.search,
+      status: req.query.status,
+      city: req.query.city,
+      deliveryPersonId: req.query.delivery_person_id,
+      date: req.query.date,
+    });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Delivery dashboard orders error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load delivery dashboard orders' });
+  }
+}
+
+async function resendDeliveryOffer(req, res) {
+  const currentUser = req.authUser || req.session.user;
+  if (!canResendDeliveryOffer(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Admin or staff access is required to resend deliveries' });
+  }
+  try {
+    const result = await Order.resendDeliveryOffer(
+      Number(req.params.id),
+      currentUser
+    );
+    return res.json({
+      success: true,
+      message: result.deliveryPersonName
+        ? `Delivery resent to ${result.deliveryPersonName}`
+        : (result.message || 'Delivery resend requested; waiting for an available delivery person'),
+      ...result,
+    });
+  } catch (error) {
+    console.error('Resend delivery offer error:', error);
+    if (error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter));
+    return res.status(error.status || 400).json({ success: false, message: error.message || 'Unable to resend delivery' });
+  }
+}
+
 module.exports = {
   index,
   show,
   assignDelivery,
   readyToDeliver,
   updateVendorStatus,
+  deliveryHeartbeat,
+  updateDeliveryAvailability,
   updateAdminStatus,
   adminInvoice,
   vendorInvoice,
@@ -593,12 +1135,25 @@ module.exports = {
   vendorOrderDetail,
   clientOrders,
   clientOrderDetail,
+  rateCompletedOrder,
   deliveryProfile,
+  updateDeliveryProfile,
+  uploadDeliveryProfileImage,
   deliveryOrders,
   deliveryOrderDetail,
   deliveryUpdateStatus,
   deliveryVerifyOtp,
+  deliveryOffers,
+  deliveryOfferDecision,
+  verifyPickupOtp,
   deliveryMarkDelivered,
+  deliveryActivity,
   getDeliveryPartners,
   dashboardStats,
+  deliveryDashboardPage,
+  deliveryDashboardOrders,
+  resendDeliveryOffer,
+  manualVerifyDelivery,
+  clientDeliveryTracking,
+  deliveryPartnerTracking,
 };

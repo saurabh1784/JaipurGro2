@@ -28,7 +28,7 @@ async function findByEmail(email) {
 
 async function findByEmailOrPhoneIdentifier(identifier) {
   const { rows } = await pool.query(
-    'SELECT * FROM users WHERE (email = $1 OR phone = $2) AND is_deleted = 0 LIMIT 1',
+    'SELECT * FROM users WHERE (LOWER(email) = LOWER($1) OR phone = $2) AND is_deleted = 0 LIMIT 1',
     [identifier, identifier]
   );
   return rows[0] || null;

@@ -1,0 +1,389 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delivery Area Management</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .delivery-type-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; }
+    .delivery-type-tab { border: 0; border-radius: 999px; padding: 10px 16px; cursor: pointer; background: #e8eef8; color: #334155; font-weight: 800; }
+    .delivery-type-tab.active { background: #2563eb; color: #fff; }
+    .delivery-type-panel { display: none; }
+    .delivery-type-panel.active { display: block; }
+    .delivery-type-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; align-items: end; }
+    .delivery-type-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 14px; margin: 18px 0; }
+    .delivery-type-card { border: 1px solid #dbe5f2; border-radius: 18px; padding: 16px; background: #fff; box-shadow: 0 12px 26px rgba(15, 23, 42, 0.06); }
+    .delivery-type-card h3 { margin: 0 0 6px; font-size: 16px; }
+    .delivery-type-card small { color: #64748b; display: block; min-height: 36px; }
+    .delivery-type-toggle { display: flex; align-items: center; gap: 10px; margin-top: 12px; font-weight: 800; }
+    .delivery-type-toggle input { width: 18px; height: 18px; }
+    .priority-pill { display: inline-flex; align-items: center; border-radius: 999px; padding: 4px 9px; background: #eff6ff; color: #1d4ed8; font-size: 12px; font-weight: 800; }
+    .delivery-type-result { display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 12px; margin-top: 16px; }
+    .delivery-type-result-card { border-radius: 16px; padding: 14px; background: #f8fafc; border: 1px solid #e2e8f0; }
+    .delivery-type-result-card.enabled { background: #ecfdf5; border-color: #86efac; }
+    .delivery-type-result-card.disabled { background: #fff1f2; border-color: #fecdd3; }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Delivery Dashboard / Delivery Area Management</p>
+        <h1>Delivery Area Management</h1>
+      </div>
+      <div class="topbar-actions">
+        <button class="settings-save" type="button" onclick="loadAll()">Refresh</button>
+      </div>
+    </header>
+
+    <section class="settings-shell">
+      <div class="panel-header blue-header">
+        <h2>Manage Delivery Types by Area</h2>
+        <p>Assign one or more delivery types to every mapped area. Orders automatically use the first available type by priority.</p>
+      </div>
+
+      <div class="delivery-type-tabs" role="tablist">
+        <button class="delivery-type-tab active" type="button" data-tab="assign">Delivery Areas</button>
+        <button class="delivery-type-tab" type="button" data-tab="test">Test Available Options</button>
+      </div>
+
+      <div id="message" class="commission-message"></div>
+
+      <div class="delivery-type-panel active" id="panel-assign">
+        <form id="assignForm">
+          <div class="delivery-type-grid">
+            <label>
+              City
+              <input id="assignCity" type="text" list="cityOptions" required placeholder="Select or type city" />
+            </label>
+            <label>
+              Area
+              <select id="assignArea" required>
+                <option value="*">All areas in selected city</option>
+              </select>
+            </label>
+          </div>
+
+          <div class="delivery-type-card-grid" id="typeCards"></div>
+
+          <button class="settings-save" type="submit">Save Delivery Types</button>
+        </form>
+
+        <div class="catalog-table-card" style="margin-top: 22px;">
+          <table class="catalog-table">
+            <thead>
+              <tr><th>Area Name</th><th>Assigned Delivery Types</th><th>Priority Order</th><th>Status</th><th>Actions</th></tr>
+            </thead>
+            <tbody id="settingsBody">
+              <tr><td colspan="5">Loading delivery areas...</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <div class="delivery-type-panel" id="panel-test">
+        <form id="testForm" class="delivery-type-grid">
+          <label>
+            City
+            <input id="testCity" type="text" list="cityOptions" required placeholder="Customer city" />
+          </label>
+          <label>
+            Area
+            <input id="testArea" type="text" placeholder="Customer area" />
+          </label>
+          <label>
+            Vendor ID
+            <input id="testVendorId" type="number" min="1" placeholder="Optional vendor user ID" />
+          </label>
+          <button class="settings-save" type="submit">Check Options</button>
+        </form>
+        <div id="testResult" class="delivery-type-result"></div>
+      </div>
+    </section>
+  </main>
+
+  <datalist id="cityOptions">
+    <% (cityOptions || []).forEach((city) => { %>
+      <option value="<%= city %>"></option>
+    <% }) %>
+  </datalist>
+
+  <script>
+    const priorityText = {
+      in_house_delivery: 'Highest priority',
+      delivery_partner: 'Second priority',
+      counter_pickup: 'Third priority',
+      delivered_by_vendor: 'Fourth priority',
+    };
+    const descriptions = {
+      in_house_delivery: 'System sends auto offers to nearest in-house delivery person.',
+      delivery_partner: 'Admin/staff can assign an available delivery partner manually.',
+      counter_pickup: 'Client Self Pickup flow can be enabled area-wise for future checkout support.',
+      delivered_by_vendor: 'Vendor Delivery is used only when the vendor enables its delivery service.',
+    };
+    let deliveryTypes = [];
+    let settings = [];
+    let areas = [];
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+      }[char]));
+    }
+
+    function setMessage(text, good = true) {
+      const box = document.getElementById('message');
+      box.textContent = text || '';
+      box.style.color = good ? '#166534' : '#b91c1c';
+    }
+
+    function currentAreaSettings(city, area) {
+      const cityValue = String(city || '').trim().toLowerCase();
+      const areaValue = String(area || '*').trim().toLowerCase();
+      const map = {};
+      settings
+        .filter((row) => String(row.city || '').trim().toLowerCase() === cityValue && String(row.area || '*').trim().toLowerCase() === areaValue)
+        .forEach((row) => { map[row.delivery_type] = row; });
+      return map;
+    }
+
+    function renderTypeCards() {
+      const city = document.getElementById('assignCity').value;
+      const area = document.getElementById('assignArea').value || '*';
+      const existing = currentAreaSettings(city, area);
+      const cards = deliveryTypes.map((type) => {
+        const row = existing[type.slug];
+        const assigned = Boolean(row);
+        const enabled = row ? Boolean(row.is_enabled) : true;
+        const active = row ? Boolean(row.is_active) : true;
+        const priority = row ? Number(row.priority || type.priority) : type.priority;
+        return `
+          <article class="delivery-type-card">
+            <span class="priority-pill">Default priority ${type.priority}</span>
+            <h3>${escapeHtml(type.label)}</h3>
+            <small>${escapeHtml(descriptions[type.slug] || priorityText[type.slug] || '')}</small>
+            <label class="delivery-type-toggle">
+              <input type="checkbox" data-assigned="${escapeHtml(type.slug)}" ${assigned ? 'checked' : ''} /> Assigned to area
+            </label>
+            <label>Priority<input type="number" min="1" max="99" data-priority="${escapeHtml(type.slug)}" value="${priority}" /></label>
+            <label class="delivery-type-toggle"><input type="checkbox" data-enabled="${escapeHtml(type.slug)}" ${enabled ? 'checked' : ''} /> Enabled</label>
+            <label class="delivery-type-toggle"><input type="checkbox" data-active="${escapeHtml(type.slug)}" ${active ? 'checked' : ''} /> Active</label>
+          </article>`;
+      }).join('');
+      document.getElementById('typeCards').innerHTML = cards || '<p>No delivery types found.</p>';
+    }
+
+    function renderAreas() {
+      const city = document.getElementById('assignCity').value.trim().toLowerCase();
+      const areaSelect = document.getElementById('assignArea');
+      const cityAreas = areas.filter((area) => String(area.city || '').trim().toLowerCase() === city);
+      areaSelect.innerHTML = '<option value="*">All areas in selected city</option>' + cityAreas
+        .map((area) => `<option value="${escapeHtml(area.name)}">${escapeHtml(area.name)}</option>`)
+        .join('');
+      renderTypeCards();
+    }
+
+    function renderSettings() {
+      const body = document.getElementById('settingsBody');
+      const areaRows = areas.map((area) => ({ city: area.city, area: area.name, areaActive: Boolean(area.is_active) }));
+      settings.filter((row) => row.area === '*').forEach((row) => {
+        if (!areaRows.some((area) => area.city === row.city && area.area === '*')) areaRows.push({ city: row.city, area: '*', areaActive: true });
+      });
+      if (!areaRows.length) {
+        body.innerHTML = '<tr><td colspan="5">No delivery areas are defined yet.</td></tr>';
+        return;
+      }
+      areaRows.sort((a, b) => `${a.city} ${a.area}`.localeCompare(`${b.city} ${b.area}`));
+      body.innerHTML = areaRows.map((area) => {
+        const assigned = settings
+          .filter((row) => String(row.city).toLowerCase() === String(area.city).toLowerCase() && String(row.area || '*').toLowerCase() === String(area.area || '*').toLowerCase())
+          .sort((a, b) => Number(a.priority) - Number(b.priority));
+        const assignedText = assigned.length ? assigned.map((row) => `${escapeHtml(row.label)} (${row.is_enabled ? 'Enabled' : 'Disabled'})`).join('<br>') : '<em>None assigned</em>';
+        const priorityOrder = assigned.length ? assigned.map((row) => `#${escapeHtml(row.priority)} ${escapeHtml(row.label)}`).join(' → ') : '-';
+        const deleteButtons = assigned.map((row) => `<button class="delete-button" type="button" onclick="removeOneSetting('${encodeURIComponent(area.city)}','${encodeURIComponent(area.area)}','${encodeURIComponent(row.delivery_type)}')">Delete ${escapeHtml(row.label)}</button>`).join(' ');
+        const enabledCount = assigned.filter((row) => row.is_enabled && row.is_active).length;
+        return `<tr>
+          <td><strong>${escapeHtml(area.area === '*' ? 'All Areas' : area.area)}</strong><br><small>${escapeHtml(area.city)}</small></td>
+          <td>${assignedText}</td><td>${priorityOrder}</td>
+          <td><span class="badge ${area.areaActive && enabledCount ? 'active' : 'inactive'}">${!area.areaActive ? 'Area Inactive' : `${enabledCount} Active`}</span></td>
+          <td><button class="product-secondary-button" type="button" onclick="editSetting('${encodeURIComponent(area.city)}','${encodeURIComponent(area.area)}')">Add / Edit Types</button> ${deleteButtons}</td>
+        </tr>`;
+      }).join('');
+    }
+
+    async function loadSettings() {
+      const response = await fetch('/delivery-types/settings', { headers: { Accept: 'application/json' } });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load delivery type settings');
+      deliveryTypes = data.types || [];
+      settings = data.settings || [];
+      renderTypeCards();
+      renderSettings();
+    }
+
+    async function loadAreas() {
+      const response = await fetch('/area-definitions/list', { headers: { Accept: 'application/json' } });
+      const data = await response.json();
+      if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load areas');
+      areas = data.areas || [];
+      renderAreas();
+      renderSettings();
+    }
+
+    async function loadAll() {
+      try {
+        setMessage('');
+        await Promise.all([loadSettings(), loadAreas()]);
+      } catch (error) {
+        setMessage(error.message, false);
+      }
+    }
+
+    function decoded(value) {
+      try {
+        return decodeURIComponent(value || '');
+      } catch {
+        return value || '';
+      }
+    }
+
+    function editSetting(city, area) {
+      city = decoded(city);
+      area = decoded(area);
+      document.getElementById('assignCity').value = city || '';
+      renderAreas();
+      document.getElementById('assignArea').value = area || '*';
+      renderTypeCards();
+      document.querySelector('[data-tab="assign"]').click();
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+      setMessage(`Editing delivery types for ${city || '-'} / ${area || '*'}.`);
+    }
+
+    async function removeOneSetting(city, area, deliveryType) {
+      city = decoded(city);
+      area = decoded(area);
+      deliveryType = decoded(deliveryType);
+      if (!confirm(`Remove ${deliveryType} from ${city} / ${area || '*'}?`)) return;
+      try {
+        const params = new URLSearchParams({ city, area: area || '*', delivery_type: deliveryType });
+        const response = await fetch(`/delivery-types/settings?${params.toString()}`, {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to remove delivery type');
+        await loadSettings();
+        setMessage(data.message || 'Delivery type removed.');
+      } catch (error) {
+        setMessage(error.message, false);
+      }
+    }
+
+    async function removeAreaSettings(city, area) {
+      city = decoded(city);
+      area = decoded(area);
+      if (!confirm(`Remove all delivery type settings for ${city} / ${area || '*'}?`)) return;
+      try {
+        const params = new URLSearchParams({ city, area: area || '*' });
+        const response = await fetch(`/delivery-types/settings/area?${params.toString()}`, {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to clear area settings');
+        await loadSettings();
+        renderTypeCards();
+        setMessage(data.message || 'Area settings removed.');
+      } catch (error) {
+        setMessage(error.message, false);
+      }
+    }
+
+    document.querySelectorAll('.delivery-type-tab').forEach((button) => {
+      button.addEventListener('click', () => {
+        document.querySelectorAll('.delivery-type-tab').forEach((tab) => tab.classList.toggle('active', tab === button));
+        document.querySelectorAll('.delivery-type-panel').forEach((panel) => panel.classList.remove('active'));
+        document.getElementById(`panel-${button.dataset.tab}`).classList.add('active');
+      });
+    });
+
+    document.getElementById('assignCity').addEventListener('input', renderAreas);
+    document.getElementById('assignArea').addEventListener('change', renderTypeCards);
+
+    document.getElementById('assignForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const city = document.getElementById('assignCity').value.trim();
+      const area = document.getElementById('assignArea').value || '*';
+      if (!city) {
+        setMessage('Select or type a city first.', false);
+        return;
+      }
+      if (!deliveryTypes.length) {
+        setMessage('Delivery types are still loading. Click Refresh and try again.', false);
+        return;
+      }
+      const types = {};
+      document.querySelectorAll('#typeCards input[data-assigned]:checked').forEach((input) => {
+        const slug = input.dataset.assigned;
+        types[slug] = {
+          enabled: document.querySelector(`#typeCards input[data-enabled="${slug}"]`).checked,
+          active: document.querySelector(`#typeCards input[data-active="${slug}"]`).checked,
+          priority: Number(document.querySelector(`#typeCards input[data-priority="${slug}"]`).value),
+        };
+      });
+      try {
+        const response = await fetch('/delivery-types/settings/area', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ city, area, types, replace: true }),
+        });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to save delivery types');
+        settings = data.settings || [];
+        await loadSettings();
+        setMessage('Delivery types saved successfully.');
+      } catch (error) {
+        setMessage(error.message, false);
+      }
+    });
+
+    document.getElementById('testForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const params = new URLSearchParams({
+        city: document.getElementById('testCity').value.trim(),
+        area: document.getElementById('testArea').value.trim(),
+      });
+      const vendorId = document.getElementById('testVendorId').value.trim();
+      if (vendorId) params.set('vendor_id', vendorId);
+      try {
+        const response = await fetch(`/api/delivery-types/options?${params.toString()}`, { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to test delivery types');
+        document.getElementById('testResult').innerHTML = (data.delivery_types || []).map((type) => `
+          <article class="delivery-type-result-card ${type.enabled ? 'enabled' : 'disabled'}">
+            <strong>${escapeHtml(type.label)}</strong>
+            <p>Priority ${escapeHtml(type.priority)} - ${type.enabled ? 'Available' : 'Hidden'}</p>
+            <small>${type.enabled ? 'Can be selected in workflow.' : escapeHtml(type.disabled_reason || 'Not available')}</small>
+          </article>
+        `).join('') + `
+          <article class="delivery-type-result-card enabled">
+            <strong>Selected by Priority</strong>
+            <p>${escapeHtml((data.selected_delivery_type || {}).label || data.selected_type || '-')}</p>
+            <small>Resolved city/area: ${escapeHtml(data.city || '-')}, ${escapeHtml(data.area || '*')}</small>
+          </article>`;
+      } catch (error) {
+        document.getElementById('testResult').innerHTML = `<p class="commission-message" style="color:#b91c1c">${escapeHtml(error.message)}</p>`;
+      }
+    });
+
+    loadAll();
+  </script>
+</body>
+</html>

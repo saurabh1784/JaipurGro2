@@ -10,6 +10,13 @@ function roundMoney(value) {
   return Number(Math.max(0, toNumber(value)).toFixed(2));
 }
 
+function coordinateAddress(latitude, longitude) {
+  const lat = Number(latitude);
+  const lng = Number(longitude);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return '';
+  return `${lat},${lng}`;
+}
+
 function normalizeRule(row) {
   if (!row) return null;
   return {
@@ -260,7 +267,17 @@ async function matchingRule(city, totalWeightKg, connection = pool) {
   return normalizeRule(rows[0]);
 }
 
-async function calculateCharge({ city, origin, destination, items = [], totalWeightKg }, connection = pool) {
+async function calculateCharge({
+  city,
+  origin,
+  destination,
+  originLatitude,
+  originLongitude,
+  destinationLatitude,
+  destinationLongitude,
+  items = [],
+  totalWeightKg,
+}, connection = pool) {
   const weightKg = roundMoney(totalWeightKg === undefined ? items.reduce((sum, item) => sum + itemWeightKg(item), 0) : totalWeightKg);
   const rule = await matchingRule(city, weightKg, connection);
   if (!rule) {
@@ -274,7 +291,9 @@ async function calculateCharge({ city, origin, destination, items = [], totalWei
     };
   }
 
-  const distance = await googleDistanceKm(origin, destination);
+  const distanceOrigin = coordinateAddress(originLatitude, originLongitude) || origin;
+  const distanceDestination = coordinateAddress(destinationLatitude, destinationLongitude) || destination;
+  const distance = await googleDistanceKm(distanceOrigin, distanceDestination);
   const charge = roundMoney(
     rule.base_delivery_price
       + (distance.distanceKm * rule.price_per_km)

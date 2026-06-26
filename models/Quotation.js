@@ -1,5 +1,9 @@
 const pool = require('../db');
 const Promotion = require('./Promotion');
+const DeliveryType = require('./DeliveryType');
+const Rating = require('./Rating');
+const DeliveryCharge = require('../services/deliveryChargeService');
+const OrderWalletSettlement = require('../services/orderWalletSettlementService');
 const { insertClientOrderWithOrderNumber } = require('../utils/orderNumber');
 
 function cleanWeightUnit(value) {
@@ -604,7 +608,14 @@ async function listForClient(clientId) {
     [clientId]
   );
 
-  return cheapestClientResponses(normalizeRows(rows));
+  // Return every submitted bid so clients can compare price and vendor ratings,
+  // rather than silently reducing the list to the cheapest response.
+  const quotations = normalizeRows(rows);
+  const ratingSummaries = await Rating.summaries('vendor', quotations.map((quotation) => quotation.vendor_id));
+  return quotations.map((quotation) => ({
+    ...quotation,
+    vendor_rating: ratingSummaries.get(Number(quotation.vendor_id)),
+  }));
 }
 
 async function decideClientResponse({ recipientId, clientId, decision, couponCode = '' }) {
@@ -638,6 +649,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     const recipient = recipientRows[0];
     const [items] = await connection.query(
       `SELECT qvri.*, qri.product_id, vp.id AS vendor_product_id, vp.quantity AS stock, vp.status AS vendor_product_status,
+              p.weight_kg,
               CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
               COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
        FROM quotation_vendor_response_items qvri
@@ -688,7 +700,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       userId: clientId,
     }, connection);
     const discountAmount = Number(promotion.discountAmount || 0);
-    const totalAmount = Math.max(subtotalAmount - discountAmount, 0);
+    const itemPayable = Math.max(subtotalAmount - discountAmount, 0);
     const savingsAmount = Math.max(quotationAppTotal - subtotalAmount, 0) + discountAmount;
 
     // Get client details for denormalization
@@ -701,18 +713,47 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     const shippingName = client.name || null;
     const shippingPhone = client.phone || null;
     const shippingAddress = clientAddress || null;
+    const deliveryOptions = await DeliveryType.availableForLocation({
+      city: client.city || '',
+      area: client.city || '',
+      vendorId: recipient.vendor_id,
+    }, connection);
+    const [vendorRows] = await connection.query(
+      `SELECT vp.address, vp.city, vp.state, vp.country, vp.pickup_latitude, vp.pickup_longitude
+       FROM vendor_profiles vp WHERE vp.user_id = ? LIMIT 1`,
+      [recipient.vendor_id]
+    );
+    const vendor = vendorRows[0] || {};
+    const delivery = await DeliveryCharge.calculateCharge({
+      city: client.city || vendor.city || '',
+      origin: [vendor.address, vendor.city, vendor.state, vendor.country].filter(Boolean).join(', '),
+      destination: clientAddress,
+      originLatitude: vendor.pickup_latitude,
+      originLongitude: vendor.pickup_longitude,
+      items: purchasableItems.map((item) => ({
+        product_name: item.product_name,
+        weight_kg: Number(item.weight_kg || 0),
+        quantity: Number(item.quantity || 0),
+      })),
+    }, connection);
+    const deliveryCharge = deliveryOptions.selected_type === 'counter_pickup'
+      ? 0
+      : Number(delivery.delivery_charge || 0);
+    const totalAmount = Number((itemPayable + deliveryCharge).toFixed(2));
+    await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
 
     const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
       connection,
       `INSERT INTO client_orders 
-       (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country) 
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         recipient.vendor_id,
         subtotalAmount,
         discountAmount,
         savingsAmount,
+        deliveryCharge,
         promotion.coupon ? promotion.coupon.id : null,
         promotion.code || null,
         promotion.discount ? promotion.discount.id : null,
@@ -721,6 +762,8 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
         totalAmount,
         'pending',
         'pending',
+        deliveryOptions.selected_method,
+        deliveryOptions.selected_type,
         client.name,
         client.phone,
         clientAddress,
@@ -773,6 +816,12 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
         [item.quantity, item.vendor_product_id]
       );
     }
+
+    await OrderWalletSettlement.settleOrderPlacement({
+      orderId,
+      actorId: clientId,
+      connection,
+    });
 
     await connection.query(
       "UPDATE quotation_vendor_recipients SET status = 'accepted', decided_at = CURRENT_TIMESTAMP WHERE id = ?",
