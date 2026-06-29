@@ -228,18 +228,24 @@
       try {
         const order = orderOrCity && typeof orderOrCity === 'object' ? orderOrCity : null;
         const city = order ? (order.shipping_city || order.client_city || order.vendor_city || '') : orderOrCity;
-        const params = new URLSearchParams();
-        if (city) params.set('city', city);
-        if (order && order.shipping_area) params.set('area', order.shipping_area);
-        if (order && order.shipping_pincode && !order.shipping_area) params.set('pincode', order.shipping_pincode);
-        if (order && order.shipping_latitude !== null && order.shipping_latitude !== undefined) params.set('latitude', order.shipping_latitude);
-        if (order && order.shipping_longitude !== null && order.shipping_longitude !== undefined) params.set('longitude', order.shipping_longitude);
-        const query = params.toString() ? `?${params}` : '';
-        const res = await fetch(`/api/orders/admin/partners/list${query}`, { headers: { 'Accept': 'application/json' } });
+        let url;
+        if (order && order.id) {
+          url = `/api/orders/admin/${Number(order.id)}/free-delivery-partners`;
+        } else {
+          const params = new URLSearchParams();
+          if (city) params.set('city', city);
+          if (order && order.shipping_area) params.set('area', order.shipping_area);
+          if (order && order.shipping_pincode && !order.shipping_area) params.set('pincode', order.shipping_pincode);
+          if (order && order.shipping_latitude !== null && order.shipping_latitude !== undefined) params.set('latitude', order.shipping_latitude);
+          if (order && order.shipping_longitude !== null && order.shipping_longitude !== undefined) params.set('longitude', order.shipping_longitude);
+          const query = params.toString() ? `?${params}` : '';
+          url = `/api/orders/admin/partners/list${query}`;
+        }
+        const res = await fetch(url, { headers: { 'Accept': 'application/json' } });
         const data = await res.json();
         if (data.success) {
           deliveryPartners = data.partners;
-          if (city && allowFallback && !deliveryPartners.length) {
+          if (!order && city && allowFallback && !deliveryPartners.length) {
             await loadPartners('', false);
             return;
           }
@@ -255,7 +261,7 @@
           if (!deliveryPartners.length) {
             const opt = document.createElement('option');
             opt.value = '';
-            opt.textContent = city ? `No partner active in ${city}` : 'No active delivery partners';
+            opt.textContent = order ? 'No free delivery partners' : (city ? `No partner active in ${city}` : 'No active delivery partners');
             select.appendChild(opt);
           }
           select.disabled = !deliveryPartners.length;

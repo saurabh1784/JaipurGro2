@@ -2,6 +2,7 @@ const pool = require('../db');
 const Promotion = require('./Promotion');
 const DeliveryType = require('./DeliveryType');
 const Rating = require('./Rating');
+const Order = require('./Order');
 const DeliveryCharge = require('../services/deliveryChargeService');
 const OrderWalletSettlement = require('../services/orderWalletSettlementService');
 const { insertClientOrderWithOrderNumber } = require('../utils/orderNumber');
@@ -142,6 +143,41 @@ function cheapestClientResponses(quotations) {
     }
   }
   return [...byRequest.values()];
+}
+
+function isDistanceAddressResolutionError(error) {
+  const status = String(error && error.googleDiagnostic && error.googleDiagnostic.status || '').toUpperCase();
+  const message = String(error && error.message || '').toUpperCase();
+  return ['INVALID_REQUEST', 'NOT_FOUND', 'ZERO_RESULTS'].includes(status)
+    || message.includes('ZERO_RESULTS')
+    || message.includes('NOT_FOUND')
+    || message.includes('INVALID_REQUEST');
+}
+
+async function quotationDeliveryCharge(payload, connection) {
+  try {
+    return await DeliveryCharge.calculateCharge(payload, connection);
+  } catch (error) {
+    if (!isDistanceAddressResolutionError(error)) {
+      throw error;
+    }
+    console.warn('[quotation] Delivery charge distance fallback:', {
+      status: error.googleDiagnostic && error.googleDiagnostic.status,
+      message: error.message,
+      origin: payload.origin,
+      destination: payload.destination,
+    });
+    return {
+      applicable: false,
+      delivery_charge: 0,
+      distance_km: 0,
+      total_weight_kg: payload.items.reduce((sum, item) => (
+        sum + Number(item.weight_kg || 0) * Math.max(1, Number(item.quantity || 1))
+      ), 0),
+      rule: null,
+      distance_source: 'quotation_address_resolution_fallback',
+    };
+  }
 }
 
 async function createForCityVendors({ clientId, items }) {
@@ -723,7 +759,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       [recipient.vendor_id]
     );
     const vendor = vendorRows[0] || {};
-    const delivery = await DeliveryCharge.calculateCharge({
+    const delivery = await quotationDeliveryCharge({
       city: client.city || vendor.city || '',
       origin: [vendor.address, vendor.city, vendor.state, vendor.country].filter(Boolean).join(', '),
       destination: clientAddress,
@@ -836,7 +872,21 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     );
 
     await connection.commit();
-    return { status: 'accepted', orderId, orderNumber, vendorId: recipient.vendor_id, totalAmount };
+
+    let deliveryOffer = null;
+    try {
+      deliveryOffer = await Order.createAutoDeliveryOffer(orderId, {
+        id: clientId,
+        role: 'Client',
+      });
+    } catch (deliveryError) {
+      console.warn('[quotation] Auto delivery offer failed:', {
+        orderId,
+        message: deliveryError.message,
+      });
+    }
+
+    return { status: 'accepted', orderId, orderNumber, vendorId: recipient.vendor_id, totalAmount, deliveryOffer };
   } catch (error) {
     await connection.rollback();
     throw error;

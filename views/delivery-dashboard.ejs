@@ -83,8 +83,31 @@
     </div>
   </div>
 
+  <div class="user-modal" id="assignModal" aria-hidden="true">
+    <div class="user-modal-card order-detail-modal-card">
+      <div class="user-modal-header">
+        <h2>Assign Delivery Partner</h2>
+        <button type="button" onclick="closeAssignModal()">Close</button>
+      </div>
+      <div id="assignContent"><p>Loading free delivery partners...</p></div>
+    </div>
+  </div>
+
+  <div class="user-modal" id="rejectionModal" aria-hidden="true">
+    <div class="user-modal-card order-detail-modal-card">
+      <div class="user-modal-header">
+        <h2>Rejected Orders</h2>
+        <button type="button" onclick="closeRejectionModal()">Close</button>
+      </div>
+      <div id="rejectionContent"><p>Loading...</p></div>
+    </div>
+  </div>
+
   <script>
     let orders = [];
+    let assignOrderId = null;
+    let selectedPartnerId = null;
+    let rejectionPartnerId = null;
     let page = 1;
     let totalPages = 1;
     let filtersLoaded = false;
@@ -92,6 +115,26 @@
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
     const money = (v) => `₹${Number(v || 0).toFixed(2)}`;
     const debounce = (fn, ms = 300) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; };
+
+    async function fetchJson(url, options = {}) {
+      const response = await fetch(url, options);
+      const contentType = response.headers.get('content-type') || '';
+      if (!contentType.includes('application/json')) {
+        const text = await response.text();
+        const error = new Error(response.status === 404
+          ? 'Delivery partner assignment endpoint was not found. Restart the JaipurGro2 server and try again.'
+          : (text || `Request failed with status ${response.status}`));
+        error.status = response.status;
+        throw error;
+      }
+      const data = await response.json();
+      if (!response.ok || !data.success) {
+        const error = new Error(data.message || `Request failed with status ${response.status}`);
+        error.status = response.status;
+        throw error;
+      }
+      return data;
+    }
 
     function statusClass(status) {
       return String(status || '').toLowerCase().replace(/[^a-z0-9]+/g, '_');
@@ -161,12 +204,13 @@
           <td class="delivery-location-cell">${esc(order.delivery_location)}</td>
           <td>${distance(order.distance_km)}</td>
           <td>${money(order.order_value)}</td>
-          <td>${order.delivery_person_id ? `#DP-${Number(order.delivery_person_id)}<br><strong>${esc(order.delivery_person_name)}</strong>${!order.delivery_person_assigned ? '<br><small>Awaiting response</small>' : ''}` : 'Not assigned'}</td>
+          <td>${order.delivery_person_id ? `#DP-${Number(order.delivery_person_id)}<br><strong>${esc(order.delivery_person_name)}</strong>${!order.delivery_person_assigned ? `<br><small>${order.order_status === 'Rejected' ? 'Rejected this order' : 'Awaiting response'}</small>` : ''}` : 'Not assigned'}</td>
           <td><span class="badge ${statusClass(order.order_status)}">${esc(order.order_status)}</span></td>
           <td>${['out_for_delivery', 'delivered'].includes(String(order.delivery_status || '').toLowerCase()) ? `<strong>${esc(order.delivery_otp || '-')}</strong>` : '-'}</td>
           <td>${['out_for_delivery', 'delivered'].includes(String(order.delivery_status || '').toLowerCase()) ? `<strong>${Number(order.delivery_otp_attempts || 0)}/${Number(order.delivery_otp_max_attempts || 8)}</strong><br><small>${order.delivery_otp_locked ? 'Locked — admin support required' : `${Number(order.delivery_otp_remaining_attempts ?? 8)} remaining`}</small>` : '-'}</td>
           <td>
             <button class="product-secondary-button" type="button" onclick="viewOrder(${Number(order.id)})">View</button>
+            ${!order.delivery_person_assigned && !['out_for_delivery', 'delivered'].includes(String(order.delivery_status || '').toLowerCase()) ? `<button class="settings-save delivery-assign-button" type="button" onclick="openAssignModal(${Number(order.id)})">Assign</button>` : ''}
             ${resendButton(order)}
             ${order.delivery_otp_locked && String(order.delivery_status || '').toLowerCase() === 'out_for_delivery' ? `<button class="settings-save delivery-manual-verify-button" type="button" onclick="manualVerifyDelivery(${Number(order.id)})">Manual Complete</button>` : ''}
           </td>
@@ -226,6 +270,195 @@
       }
     }
 
+    function partnerDistance(partner) {
+      return partner.distance_km === null || partner.distance_km === undefined ? 'Distance not available' : `${Number(partner.distance_km).toFixed(2)} km away`;
+    }
+
+    function partnerLastSeen(partner) {
+      return partner.last_seen_at ? `Last seen ${new Date(partner.last_seen_at).toLocaleString()}` : 'Last seen not available';
+    }
+
+    function renderAssignablePartners(data) {
+      const partners = data.partners || [];
+      if (!partners.length) {
+        el('assignContent').innerHTML = `
+          <div class="delivery-assign-empty">
+            <h3>No Free delivery partners found</h3>
+            <p>There are no online free delivery partners available right now.</p>
+          </div>
+        `;
+        return;
+      }
+
+      el('assignContent').innerHTML = `
+        <div class="delivery-assign-summary">
+          <p><strong>Pickup:</strong> ${esc(data.pickup?.location || '-')}</p>
+          <p><strong>Free partners:</strong> ${partners.length}</p>
+        </div>
+        <div class="delivery-partner-options">
+          ${partners.map((partner, index) => `
+            <button class="delivery-partner-option" type="button" data-partner-id="${Number(partner.id)}" onclick="selectPartner(${Number(partner.id)})">
+              <span class="delivery-partner-rank">${index + 1}</span>
+              <span>
+                <strong>${esc(partner.name)}</strong>
+                <small>#DP-${Number(partner.id)} ${partner.phone ? `· ${esc(partner.phone)}` : ''}</small>
+                <small>${esc(partner.city || '-')}${partner.area ? ` · ${esc(partner.area)}` : ''}</small>
+                <small>
+                  <span class="product-secondary-button" role="button" tabindex="0" onclick="event.stopPropagation(); openRejectionModal(${Number(partner.id)})" onkeydown="if (event.key === 'Enter' || event.key === ' ') { event.preventDefault(); event.stopPropagation(); openRejectionModal(${Number(partner.id)}); }">
+                    ${Number(partner.rejected_count_7d || 0)} rejected in 7 days
+                  </span>
+                </small>
+              </span>
+              <span class="delivery-partner-distance">${esc(partnerDistance(partner))}</span>
+              <small>${esc(partnerLastSeen(partner))}</small>
+            </button>
+          `).join('')}
+        </div>
+        <div class="delivery-assign-actions">
+          <button class="product-secondary-button" type="button" onclick="closeAssignModal()">Cancel</button>
+          <button class="settings-save" type="button" id="confirmAssignBtn" onclick="assignSelectedPartner()" disabled>Assign Partner</button>
+        </div>
+      `;
+    }
+
+    async function openRejectionModal(partnerId) {
+      rejectionPartnerId = partnerId;
+      el('rejectionContent').innerHTML = '<p>Loading rejected orders...</p>';
+      el('rejectionModal').style.display = 'flex';
+      el('rejectionModal').setAttribute('aria-hidden', 'false');
+      try {
+        const data = await fetchJson(`/api/orders/admin/delivery-partners/${Number(partnerId)}/rejections`, { headers: { Accept: 'application/json' } });
+        renderRejectionDetails(data);
+      } catch (error) {
+        el('rejectionContent').innerHTML = `<p>${esc(error.message)}</p>`;
+      }
+    }
+
+    function closeRejectionModal() {
+      rejectionPartnerId = null;
+      el('rejectionModal').style.display = 'none';
+      el('rejectionModal').setAttribute('aria-hidden', 'true');
+    }
+
+    function renderRejectionDetails(data) {
+      const partner = data.partner || {};
+      const rejectedOrders = data.rejected_orders || [];
+      const isBlocked = Boolean(partner.is_blocked);
+      el('rejectionContent').innerHTML = `
+        <div class="delivery-detail-grid">
+          <article>
+            <h3>${esc(partner.name || 'Delivery Partner')}</h3>
+            <p><strong>Delivery Partner ID:</strong> #DP-${Number(partner.id || 0)}</p>
+            <p><strong>Phone:</strong> ${esc(partner.phone || '-')}</p>
+            <p><strong>Total Rejected Orders (last 7 days):</strong> ${Number(data.total_rejected_orders_7d || 0)}</p>
+          </article>
+          <article>
+            <h3>Block Status</h3>
+            <p><strong>Status:</strong> <span class="badge ${isBlocked ? 'cancelled' : 'delivered'}">${isBlocked ? 'Blocked' : 'Active'}</span></p>
+            <button class="settings-save" type="button" onclick="togglePartnerBlock(${Number(partner.id || 0)}, ${isBlocked ? 'false' : 'true'})">
+              ${isBlocked ? 'Unblock' : 'Block'}
+            </button>
+          </article>
+        </div>
+        <h3>Rejected Orders</h3>
+        <table class="users-table">
+          <thead><tr><th>Order ID</th><th>Customer</th><th>Date</th><th>Reason</th></tr></thead>
+          <tbody>
+            ${rejectedOrders.length ? rejectedOrders.map(order => `
+              <tr>
+                <td>${esc(order.order_number || (order.order_id ? `#${order.order_id}` : '-'))}</td>
+                <td>${esc(order.customer_name || '-')}</td>
+                <td>${order.date ? new Date(order.date).toLocaleString() : '-'}</td>
+                <td>${esc(order.reason || '-')}</td>
+              </tr>
+            `).join('') : '<tr><td colspan="4">No rejected orders in the last 7 days.</td></tr>'}
+          </tbody>
+        </table>
+      `;
+    }
+
+    async function togglePartnerBlock(partnerId, shouldBlock) {
+      const action = shouldBlock ? 'block' : 'unblock';
+      if (!confirm(`${shouldBlock ? 'Block' : 'Unblock'} delivery partner #DP-${Number(partnerId)}?`)) return;
+      try {
+        const data = await fetchJson(`/api/orders/admin/delivery-partners/${Number(partnerId)}/block-status`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ action }),
+        });
+        renderRejectionDetails(data);
+        await load(page);
+        if (assignOrderId) {
+          const currentOrderId = assignOrderId;
+          closeAssignModal();
+          await openAssignModal(currentOrderId);
+        }
+      } catch (error) {
+        alert(error.message);
+      }
+    }
+
+    function selectPartner(partnerId) {
+      selectedPartnerId = partnerId;
+      document.querySelectorAll('.delivery-partner-option').forEach(button => {
+        button.classList.toggle('selected', Number(button.dataset.partnerId) === Number(partnerId));
+      });
+      const confirmButton = el('confirmAssignBtn');
+      if (confirmButton) confirmButton.disabled = false;
+    }
+
+    async function openAssignModal(orderId) {
+      assignOrderId = orderId;
+      selectedPartnerId = null;
+      el('assignContent').innerHTML = '<p>Loading free delivery partners...</p>';
+      el('assignModal').style.display = 'flex';
+      el('assignModal').setAttribute('aria-hidden', 'false');
+      try {
+        let data;
+        try {
+          data = await fetchJson(`/api/orders/admin/${orderId}/free-delivery-partners`, { headers: { Accept: 'application/json' } });
+        } catch (error) {
+          if (error.status !== 404) throw error;
+          data = await fetchJson(`/orders/admin/${orderId}/free-delivery-partners`, { headers: { Accept: 'application/json' } });
+        }
+        renderAssignablePartners(data);
+      } catch (error) {
+        el('assignContent').innerHTML = `<p>${esc(error.message)}</p>`;
+      }
+    }
+
+    function closeAssignModal() {
+      assignOrderId = null;
+      selectedPartnerId = null;
+      el('assignModal').style.display = 'none';
+      el('assignModal').setAttribute('aria-hidden', 'true');
+    }
+
+    async function assignSelectedPartner() {
+      if (!assignOrderId || !selectedPartnerId) return;
+      const button = el('confirmAssignBtn');
+      if (button) {
+        button.disabled = true;
+        button.textContent = 'Assigning...';
+      }
+      try {
+        await fetchJson(`/api/orders/admin/${assignOrderId}/assign-delivery`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ partner_id: selectedPartnerId }),
+        });
+        closeAssignModal();
+        closeDetailModal();
+        await load(page);
+      } catch (error) {
+        alert(error.message);
+        if (button) {
+          button.disabled = false;
+          button.textContent = 'Assign Partner';
+        }
+      }
+    }
+
     async function load(nextPage = 1) {
       try {
         const response = await fetch(`/api/orders/admin/delivery-dashboard?${params(nextPage)}`, { headers: { Accept: 'application/json' } });
@@ -273,7 +506,7 @@
             <article>
               <h3>Delivery Progress</h3>
               <p><strong>Status:</strong> ${esc(dashboardOrder.order_status || order.delivery_status || order.status)}</p>
-              <p><strong>Delivery Person:</strong> ${dashboardOrder.delivery_person_id ? `#DP-${Number(dashboardOrder.delivery_person_id)} · ${esc(dashboardOrder.delivery_person_name)}${!dashboardOrder.delivery_person_assigned ? ' (awaiting response)' : ''}` : esc(order.delivery_partner_name || 'Not assigned')}</p>
+              <p><strong>Delivery Person:</strong> ${dashboardOrder.delivery_person_id ? `#DP-${Number(dashboardOrder.delivery_person_id)} · ${esc(dashboardOrder.delivery_person_name)}${!dashboardOrder.delivery_person_assigned ? (dashboardOrder.order_status === 'Rejected' ? ' (rejected this order)' : ' (awaiting response)') : ''}` : esc(order.delivery_partner_name || 'Not assigned')}</p>
               <p><strong>Delivery Status:</strong> ${esc(order.delivery_status || '-')}</p>
               <p><strong>Order Status:</strong> ${esc(order.status_label || order.status || '-')}</p>
               <p><strong>Assigned:</strong> ${order.assigned_at ? new Date(order.assigned_at).toLocaleString() : '-'}</p>

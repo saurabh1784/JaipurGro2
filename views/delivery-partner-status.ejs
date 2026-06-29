@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Delivery Partner Status</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Delivery Dashboard / Partner Status</p>
+        <h1>Delivery Partner Status</h1>
+      </div>
+      <button class="settings-save" type="button" id="refreshBtn">Refresh</button>
+    </header>
+
+    <section class="delivery-admin-shell">
+      <div class="delivery-filter-bar">
+        <input id="searchInput" type="search" placeholder="Search delivery partner, phone, email">
+        <select id="statusFilter">
+          <option value="">All statuses</option>
+          <option value="Free">Free</option>
+          <option value="On Order">On Order</option>
+          <option value="On Ride">On Ride</option>
+          <option value="Offline">Offline</option>
+        </select>
+        <button class="product-secondary-button" type="button" id="clearFilters">Clear</button>
+      </div>
+
+      <div class="delivery-summary-grid" id="summary"></div>
+
+      <div class="users-table-card">
+        <table class="users-table orders-table delivery-dashboard-table delivery-status-table">
+          <thead>
+            <tr>
+              <th>Delivery Partner Name</th>
+              <th>Current Status</th>
+              <th>Current Order ID</th>
+              <th>Customer Name</th>
+              <th>Pickup Location</th>
+              <th>Delivery Location</th>
+              <th>Last Status Update Time</th>
+            </tr>
+          </thead>
+          <tbody id="statusBody">
+            <tr><td colspan="7">Loading delivery partner statuses...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let partners = [];
+    const el = (id) => document.getElementById(id);
+    const esc = (value) => String(value ?? '').replace(/[&<>"']/g, (char) => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+    const debounce = (fn, ms = 300) => { let t; return (...args) => { clearTimeout(t); t = setTimeout(() => fn(...args), ms); }; };
+
+    function statusClass(status) {
+      return String(status || '').toLowerCase().replace(/[^a-z0-9]+/g, '_');
+    }
+
+    function statusTime(value) {
+      return value ? new Date(value).toLocaleString() : '-';
+    }
+
+    function renderSummary(summary = {}) {
+      const counts = {
+        Free: Number(summary.Free || 0),
+        'On Order': Number(summary['On Order'] || 0),
+        'On Ride': Number(summary['On Ride'] || 0),
+        Offline: Number(summary.Offline || 0),
+      };
+      el('summary').innerHTML = `
+        <article><span>Total partners</span><strong>${partners.length}</strong></article>
+        <article><span>Free</span><strong>${counts.Free}</strong></article>
+        <article><span>On order</span><strong>${counts['On Order']}</strong></article>
+        <article><span>On ride</span><strong>${counts['On Ride']}</strong></article>
+        <article><span>Offline</span><strong>${counts.Offline}</strong></article>
+      `;
+    }
+
+    function renderRows() {
+      const body = el('statusBody');
+      if (!partners.length) {
+        body.innerHTML = '<tr><td colspan="7">No delivery partners match these filters.</td></tr>';
+        return;
+      }
+
+      body.innerHTML = partners.map((partner) => {
+        const order = partner.current_order_id
+          ? `<strong>${esc(partner.current_order_number || partner.current_order_id)}</strong><br><small>#${Number(partner.current_order_id)}</small>`
+          : '-';
+        return `
+          <tr>
+            <td><strong>${esc(partner.delivery_partner_name)}</strong><br><small>#DP-${Number(partner.delivery_partner_id)}</small></td>
+            <td><span class="badge ${statusClass(partner.current_status)}">${esc(partner.current_status)}</span></td>
+            <td>${order}</td>
+            <td>${esc(partner.customer_name || '-')}</td>
+            <td class="delivery-location-cell">${esc(partner.pickup_location || '-')}</td>
+            <td class="delivery-location-cell">${esc(partner.delivery_location || '-')}</td>
+            <td>${statusTime(partner.last_status_update_time)}</td>
+          </tr>
+        `;
+      }).join('');
+    }
+
+    function params() {
+      const q = new URLSearchParams({
+        search: el('searchInput').value.trim(),
+        status: el('statusFilter').value,
+      });
+      return q;
+    }
+
+    async function load() {
+      try {
+        const response = await fetch(`/api/orders/admin/delivery-partner-status?${params()}`, { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load delivery partner statuses');
+        partners = data.partners || [];
+        renderSummary(data.summary || {});
+        renderRows();
+      } catch (error) {
+        el('statusBody').innerHTML = `<tr><td colspan="7">${esc(error.message)}</td></tr>`;
+        renderSummary({});
+      }
+    }
+
+    el('refreshBtn').onclick = load;
+    el('clearFilters').onclick = () => {
+      el('searchInput').value = '';
+      el('statusFilter').value = '';
+      load();
+    };
+    el('searchInput').addEventListener('input', debounce(load));
+    el('statusFilter').addEventListener('change', load);
+    load();
+  </script>
+</body>
+</html>

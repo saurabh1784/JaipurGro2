@@ -193,6 +193,16 @@ async function assignDelivery(req, res) {
   }
 }
 
+async function freeDeliveryPartnersForOrder(req, res) {
+  try {
+    const result = await Order.listFreeDeliveryPartnersForOrder(Number(req.params.id));
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Free delivery partners error:', error);
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to fetch free delivery partners' });
+  }
+}
+
 // Admin/Staff - Mark order as ready to deliver
 async function readyToDeliver(req, res) {
   try {
@@ -798,12 +808,7 @@ async function deliveryOfferDecision(req, res) {
       decision: req.params.decision,
       note: req.body.note,
     });
-    let nextOffer = null;
-    if (result.status === 'rejected') {
-      nextOffer = await Order.createAutoDeliveryOffer(Number(req.params.id), currentUser)
-        .catch((error) => ({ pending: true, message: error.message }));
-    }
-    return res.json({ success: true, message: result.status === 'accepted' ? 'Delivery order accepted' : 'Delivery order rejected; finding the next available person', ...result, nextOffer });
+    return res.json({ success: true, message: result.status === 'accepted' ? 'Delivery order accepted' : 'Delivery order rejected; order is now unassigned', ...result });
   } catch (error) {
     console.error('Delivery offer decision error:', error);
     return res.status(error.status || 400).json({ success: false, message: error.message || 'Unable to update delivery offer' });
@@ -838,6 +843,10 @@ async function deliveryActivity(req, res) {
     const allowed = ['order_accepted', 'order_rejected', 'order_unaccepted', 'delivery_failed'];
     if (!allowed.includes(action)) return res.status(422).json({ success: false, message: 'Invalid delivery activity' });
     if (action === 'order_accepted' && order.delivery_status === 'assigned') await Order.markReadyToDeliver(order.id);
+    if (action === 'order_rejected') {
+      const result = await Order.rejectAssignedDeliveryOrder(Number(order.id), Number(currentUser.id), String(req.body.note || '').trim());
+      return res.json({ success: true, message: 'Delivery order rejected; order is now unassigned', ...result });
+    }
     await DeliveryPerson.log({ deliveryPersonId: currentUser.id, actorId: currentUser.id, action, description: String(req.body.note || action.replaceAll('_', ' ')), metadata: { order_id: Number(order.id) } });
     return res.json({ success: true, message: 'Delivery activity recorded' });
   } catch (error) {
@@ -999,25 +1008,33 @@ async function getDeliveryPartners(req, res) {
     });
     const matchedCity = ownDelivery.area && ownDelivery.area.city ? ownDelivery.area.city : city;
     const matchedArea = ownDelivery.area && ownDelivery.area.name ? ownDelivery.area.name : area;
-    const params = matchedCity ? [matchedCity, matchedCity, matchedArea || '*'] : [];
-    const cityFilter = matchedCity
-      ? `AND LOWER(TRIM(dps.city)) = LOWER(TRIM(?))
-         AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(?)))`
-      : '';
 
     const [rows] = await pool.query(
       `SELECT u.id, u.name, u.email, u.phone,
-              ${matchedCity ? "COALESCE(MIN(CASE WHEN LOWER(TRIM(dps.city)) = LOWER(TRIM(?)) THEN dps.city END), MIN(dps.city), '') AS city" : "COALESCE(MIN(dps.city), '') AS city"},
-              COALESCE(MIN(dps.area), '*') AS area
+              COALESCE(MIN(dps.city), dpp.city, '') AS city,
+              COALESCE(MIN(dps.area), dpp.area, '*') AS area
        FROM users u
-       INNER JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
-       WHERE LOWER(u.role) IN ('staff', 'deliveryperson')
+       INNER JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+       LEFT JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
+       WHERE LOWER(u.role) = 'deliveryperson'
          AND LOWER(u.status) = 'active'
          AND u.is_deleted = 0
-         ${cityFilter}
-       GROUP BY u.id, u.name, u.email, u.phone
+         AND COALESCE(dpp.is_available, 1) = 1
+         AND NOT EXISTS (
+           SELECT 1 FROM client_orders busy
+           WHERE busy.delivery_partner_id = u.id
+             AND busy.delivery_status IN ('assigned', 'ready_to_deliver', 'out_for_delivery')
+             AND LOWER(COALESCE(busy.status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'canceled')
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM delivery_order_offers open_offer
+           WHERE open_offer.delivery_person_id = u.id
+             AND open_offer.status = 'pending'
+             AND open_offer.expires_at > CURRENT_TIMESTAMP
+         )
+       GROUP BY u.id, u.name, u.email, u.phone, dpp.city, dpp.area
        ORDER BY u.name`,
-      params
+      []
     );
     const deliveryRatings = await Rating.summaries('delivery_person', rows.map((row) => row.id));
     const ratedRows = rows.map((row) => ({
@@ -1094,6 +1111,56 @@ async function deliveryDashboardOrders(req, res) {
   }
 }
 
+async function deliveryPartnerStatusPage(req, res) {
+  return res.render('delivery-partner-status', {
+    user: req.session.user,
+    shell: res.locals.shell,
+  });
+}
+
+async function deliveryPartnerStatuses(req, res) {
+  try {
+    const result = await Order.listDeliveryPartnerStatuses({
+      search: req.query.search,
+      status: req.query.status,
+    });
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Delivery partner status error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load delivery partner statuses' });
+  }
+}
+
+async function deliveryPartnerRejectionDetails(req, res) {
+  try {
+    const result = await Order.getDeliveryPartnerRejectionDetails(Number(req.params.partnerId));
+    return res.json({ success: true, ...result });
+  } catch (error) {
+    console.error('Delivery partner rejection details error:', error);
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to load rejection details' });
+  }
+}
+
+async function setDeliveryPartnerBlockStatus(req, res) {
+  try {
+    const action = String(req.body.action || req.body.status || '').trim().toLowerCase();
+    const blocked = action === 'block' || action === 'blocked';
+    const unblocked = action === 'unblock' || action === 'active';
+    if (!blocked && !unblocked) {
+      return res.status(422).json({ success: false, message: 'Action must be block or unblock' });
+    }
+    const result = await Order.setDeliveryPartnerBlockStatus(Number(req.params.partnerId), blocked, req.authUser || req.session.user);
+    return res.json({
+      success: true,
+      message: blocked ? 'Delivery partner blocked' : 'Delivery partner unblocked',
+      ...result,
+    });
+  } catch (error) {
+    console.error('Delivery partner block status error:', error);
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update delivery partner status' });
+  }
+}
+
 async function resendDeliveryOffer(req, res) {
   const currentUser = req.authUser || req.session.user;
   if (!canResendDeliveryOffer(currentUser)) {
@@ -1122,6 +1189,7 @@ module.exports = {
   index,
   show,
   assignDelivery,
+  freeDeliveryPartnersForOrder,
   readyToDeliver,
   updateVendorStatus,
   deliveryHeartbeat,
@@ -1152,6 +1220,10 @@ module.exports = {
   dashboardStats,
   deliveryDashboardPage,
   deliveryDashboardOrders,
+  deliveryPartnerStatusPage,
+  deliveryPartnerStatuses,
+  deliveryPartnerRejectionDetails,
+  setDeliveryPartnerBlockStatus,
   resendDeliveryOffer,
   manualVerifyDelivery,
   clientDeliveryTracking,

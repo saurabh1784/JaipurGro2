@@ -170,6 +170,11 @@ async function testDistance(origin, destination) {
   return googleDistanceKm(origin, destination);
 }
 
+function isAddressResolutionDistanceError(error) {
+  const status = error && error.googleDiagnostic && error.googleDiagnostic.status;
+  return ['INVALID_REQUEST', 'NOT_FOUND', 'ZERO_RESULTS'].includes(status);
+}
+
 async function listRules() {
   const [rows] = await pool.query(
     `SELECT *
@@ -293,7 +298,25 @@ async function calculateCharge({
 
   const distanceOrigin = coordinateAddress(originLatitude, originLongitude) || origin;
   const distanceDestination = coordinateAddress(destinationLatitude, destinationLongitude) || destination;
-  const distance = await googleDistanceKm(distanceOrigin, distanceDestination);
+  let distance;
+  try {
+    distance = await googleDistanceKm(distanceOrigin, distanceDestination);
+  } catch (error) {
+    if (!isAddressResolutionDistanceError(error)) {
+      throw error;
+    }
+    distance = {
+      distanceKm: 0,
+      source: 'address_resolution_fallback',
+      diagnostics: [
+        {
+          ...(error.googleDiagnostic || {}),
+          ok: false,
+          action: 'Delivery charge used the base/weight rule because Google could not resolve the pickup or delivery address.',
+        },
+      ],
+    };
+  }
   const charge = roundMoney(
     rule.base_delivery_price
       + (distance.distanceKm * rule.price_per_km)

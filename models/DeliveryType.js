@@ -99,8 +99,8 @@ async function hasActiveDeliveryPartner({ city = '', area = '' } = {}, connectio
      FROM delivery_partner_settings dps
      INNER JOIN users u ON u.id = dps.user_id
      WHERE dps.is_active = 1
-       AND LOWER(TRIM(dps.city)) = LOWER(TRIM(?))
-       AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(?)))
+       AND LOWER(TRIM(dps.city)) = LOWER(TRIM(CAST(? AS TEXT)))
+       AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(CAST(? AS TEXT))))
        AND LOWER(u.status) = 'active'
        AND u.is_deleted = 0
        AND LOWER(u.role) = 'deliveryperson'
@@ -119,9 +119,9 @@ async function areaSettings({ city = '', area = '' } = {}, connection = pool) {
     `SELECT delivery_type, is_enabled, is_active, priority, area
      FROM delivery_type_area_settings
      WHERE is_active = 1
-       AND LOWER(TRIM(city)) = LOWER(TRIM(?))
-       AND (TRIM(COALESCE(area, '*')) = '*' OR LOWER(TRIM(area)) = LOWER(TRIM(?)))
-     ORDER BY CASE WHEN LOWER(TRIM(area)) = LOWER(TRIM(?)) THEN 0 ELSE 1 END`,
+       AND LOWER(TRIM(city)) = LOWER(TRIM(CAST(? AS TEXT)))
+       AND (TRIM(COALESCE(area, '*')) = '*' OR LOWER(TRIM(area)) = LOWER(TRIM(CAST(? AS TEXT))))
+     ORDER BY CASE WHEN LOWER(TRIM(area)) = LOWER(TRIM(CAST(? AS TEXT))) THEN 0 ELSE 1 END`,
     [cityValue, areaValue, areaValue]
   );
   const map = new Map();

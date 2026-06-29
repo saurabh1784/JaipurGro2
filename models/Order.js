@@ -104,6 +104,7 @@ async function findNearbyBatchPartner(order, connection) {
        AND LOWER(COALESCE(busy.status, '')) NOT IN ('picked_up', 'on_the_way', 'delivered', 'completed', 'cancelled', 'canceled')
        AND busy.shipping_latitude IS NOT NULL
        AND busy.shipping_longitude IS NOT NULL
+       AND COALESCE(p.is_available, 1) = 1
        AND u.is_deleted = 0
        AND LOWER(u.status) = 'active'
        AND ${deliveryRoleSql('u')}
@@ -627,15 +628,9 @@ async function deliveryFinancials(deliveryCharges, connection = pool) {
 async function releaseDeliveryPersonIfIdle(connection, deliveryPersonId) {
   await connection.query(
     `UPDATE delivery_person_profiles
-     SET is_available = CASE WHEN EXISTS (
-           SELECT 1
-           FROM client_orders active_order
-           WHERE active_order.delivery_partner_id = ?
-             AND active_order.delivery_status IN ('assigned', 'ready_to_deliver', 'out_for_delivery')
-         ) THEN 0 ELSE 1 END,
-         updated_at = CURRENT_TIMESTAMP
+     SET updated_at = CURRENT_TIMESTAMP
      WHERE user_id = ?`,
-    [deliveryPersonId, deliveryPersonId]
+    [deliveryPersonId]
   );
 }
 
@@ -777,6 +772,7 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
              delivery_otp = ?,
              pickup_otp = COALESCE(pickup_otp, ?),
              delivery_charge = ?,
+             auto_delivery_offer_id = NULL,
              otp_set_by = ?,
              otp_set_at = CURRENT_TIMESTAMP,
              delivery_status = CASE WHEN delivery_status = 'ready_to_deliver' THEN delivery_status ELSE 'assigned' END,
@@ -814,56 +810,45 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
       return { orderId, partnerId: 'own_delivery', otp, deliveryCharge: assignedDeliveryCharge, otpSetBy: actorUser ? actorUser.id : null };
     }
 
-    const mappedDeliveryArea = await AreaDefinition.findMatchingArea({
-      latitude: order.shipping_latitude,
-      longitude: order.shipping_longitude,
-      city: order.shipping_city,
-      area: order.shipping_area || order.shipping_pincode,
-    }, connection);
-    const mappedDeliveryCity = mappedDeliveryArea && mappedDeliveryArea.city ? mappedDeliveryArea.city : null;
-    const mappedDeliveryAreaName = mappedDeliveryArea && mappedDeliveryArea.name ? mappedDeliveryArea.name : null;
-    const partnerDelivery = await DeliveryType.isTypeAvailable('delivery_partner', {
-      latitude: order.shipping_latitude,
-      longitude: order.shipping_longitude,
-      city: mappedDeliveryCity || order.shipping_city,
-      area: mappedDeliveryAreaName || order.shipping_area || order.shipping_pincode,
-      vendorId: order.vendor_id,
-    }, connection);
-    if (!partnerDelivery.active) {
-      throw new Error('Delivery Partner is not active for this order area');
-    }
-
-    // Verify partner exists, is a delivery user, and is enabled for the order city/area.
+    // Admin/staff manual assignment can use any active, available, free delivery partner.
     const [partnerRows] = await connection.query(
       `SELECT u.id, u.name, u.role
        FROM users u
-       INNER JOIN client_orders o ON o.id = ?
-       LEFT JOIN (
-         SELECT coi.order_id, MIN(vpi.vendor_id) AS vendor_id
-         FROM client_order_items coi
-         INNER JOIN vendor_products vpi ON vpi.id = coi.vendor_product_id
-         GROUP BY coi.order_id
-       ) item_vendor ON item_vendor.order_id = o.id
-       LEFT JOIN client_profiles cp ON cp.user_id = o.user_id
-       LEFT JOIN vendor_profiles vp ON vp.user_id = COALESCE(o.vendor_id, item_vendor.vendor_id)
-       LEFT JOIN delivery_partner_settings dps
-         ON dps.user_id = u.id
-        AND dps.is_active = 1
-        AND LOWER(TRIM(dps.city)) = LOWER(COALESCE(NULLIF(TRIM(?), ''), NULLIF(TRIM(o.shipping_city), ''), NULLIF(TRIM(cp.city), ''), NULLIF(TRIM(vp.city), '')))
-        AND (
-          TRIM(COALESCE(dps.area, '*')) = '*'
-          OR LOWER(TRIM(dps.area)) = LOWER(COALESCE(NULLIF(TRIM(?), ''), NULLIF(TRIM(o.shipping_area), ''), NULLIF(TRIM(o.shipping_pincode), ''), NULLIF(TRIM(o.shipping_address), '')))
-        )
+       INNER JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
        WHERE u.id = ?
          AND LOWER(u.status) = 'active'
          AND u.is_deleted = 0
          AND ${deliveryRoleSql('u')}
-         AND dps.id IS NOT NULL
+         AND COALESCE(dpp.is_available, 1) = 1
+         AND NOT EXISTS (
+           SELECT 1 FROM client_orders busy
+           WHERE busy.delivery_partner_id = u.id
+             AND busy.delivery_status IN ('assigned', 'ready_to_deliver', 'out_for_delivery')
+             AND LOWER(COALESCE(busy.status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'canceled')
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM delivery_order_offers open_offer
+           WHERE open_offer.delivery_person_id = u.id
+             AND open_offer.status = 'pending'
+             AND open_offer.expires_at > CURRENT_TIMESTAMP
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM delivery_order_offers rejected_offer
+           WHERE rejected_offer.order_id = ?
+             AND rejected_offer.delivery_person_id = u.id
+             AND rejected_offer.status = 'rejected'
+         )
+         AND NOT EXISTS (
+           SELECT 1 FROM delivery_person_activity_logs rejected_log
+           WHERE rejected_log.delivery_person_id = u.id
+             AND rejected_log.action = 'order_rejected'
+             AND rejected_log.metadata->>'order_id' = CAST(? AS TEXT)
+         )
        LIMIT 1`,
-      [orderId, mappedDeliveryCity, mappedDeliveryAreaName, partnerId]
+      [partnerId, orderId, orderId]
     );
     if (!partnerRows.length) {
-      throw new Error('Delivery partner service is not active for this order area');
+      throw new Error('Delivery partner is not active, available, or free');
     }
 
     // Update order
@@ -875,6 +860,7 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
            delivery_otp = ?,
            pickup_otp = COALESCE(pickup_otp, ?),
            delivery_charge = ?,
+           auto_delivery_offer_id = NULL,
            otp_set_by = ?,
            otp_set_at = CURRENT_TIMESTAMP,
            delivery_status = CASE WHEN delivery_status = 'ready_to_deliver' THEN delivery_status ELSE 'assigned' END,
@@ -882,6 +868,15 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [partnerId, otp, generateOtp(), assignedDeliveryCharge, actorUser ? actorUser.id : null, orderId]
+    );
+    await connection.query(
+      `UPDATE delivery_order_offers
+       SET status = 'expired',
+           response_note = COALESCE(response_note, 'Superseded by manual admin assignment'),
+           responded_at = COALESCE(responded_at, CURRENT_TIMESTAMP),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE order_id = ? AND status = 'pending'`,
+      [orderId]
     );
 
     await connection.query(
@@ -894,6 +889,17 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
         actorUser ? actorUser.id : null,
         actorUser ? actorUser.role : null,
         `OTP set, delivery charge ${assignedDeliveryCharge}, and delivery partner #${partnerId} assigned`,
+      ]
+    );
+
+    await connection.query(
+      `INSERT INTO user_notifications (user_id, title, message, link)
+       VALUES (?, ?, ?, ?)`,
+      [
+        partnerId,
+        `Delivery assigned for order #${orderDisplayNumber(order)}`,
+        `Admin assigned order #${orderDisplayNumber(order)} to you. Please proceed with pickup.`,
+        '/api/orders/delivery',
       ]
     );
 
@@ -916,6 +922,118 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
   } finally {
     connection.release();
   }
+}
+
+async function listFreeDeliveryPartnersForOrder(orderId) {
+  const [orderRows] = await pool.query(
+    `SELECT o.id, o.vendor_id, o.shipping_city, o.shipping_area, o.shipping_pincode,
+            o.shipping_latitude, o.shipping_longitude,
+            vp.address AS vendor_address, vp.city AS vendor_city, vp.area AS vendor_area,
+            vp.pickup_latitude, vp.pickup_longitude
+     FROM client_orders o
+     LEFT JOIN vendor_profiles vp ON vp.user_id = o.vendor_id
+     WHERE o.id = ?
+     LIMIT 1`,
+    [orderId]
+  );
+  if (!orderRows.length) {
+    const error = new Error('Order not found');
+    error.status = 404;
+    throw error;
+  }
+
+  const order = orderRows[0];
+  const pickupLatitude = order.pickup_latitude === null || order.pickup_latitude === undefined ? null : Number(order.pickup_latitude);
+  const pickupLongitude = order.pickup_longitude === null || order.pickup_longitude === undefined ? null : Number(order.pickup_longitude);
+
+  const [rows] = await pool.query(
+    `SELECT u.id, u.name, u.email, u.phone,
+            dpp.current_latitude, dpp.current_longitude, dpp.last_seen_at,
+            COALESCE(MIN(dps.city), dpp.city, '') AS city,
+            COALESCE(MIN(dps.area), dpp.area, '*') AS area,
+            COALESCE(recent_rejections.rejected_count_7d, 0) AS rejected_count_7d,
+            CASE
+              WHEN CAST(? AS DECIMAL) IS NOT NULL AND CAST(? AS DECIMAL) IS NOT NULL
+               AND dpp.current_latitude IS NOT NULL AND dpp.current_longitude IS NOT NULL
+              THEN ROUND((SQRT(
+                POWER(CAST(dpp.current_latitude AS DECIMAL) - CAST(? AS DECIMAL), 2)
+                + POWER((CAST(dpp.current_longitude AS DECIMAL) - CAST(? AS DECIMAL)) * COS(RADIANS(CAST(? AS DECIMAL))), 2)
+              ) * 111)::numeric, 2)
+              ELSE NULL
+            END AS distance_km
+     FROM users u
+     INNER JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+     LEFT JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
+     LEFT JOIN (
+       SELECT delivery_person_id, COUNT(*) AS rejected_count_7d
+       FROM delivery_person_activity_logs
+       WHERE action = 'order_rejected'
+         AND created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+       GROUP BY delivery_person_id
+     ) recent_rejections ON recent_rejections.delivery_person_id = u.id
+     WHERE u.is_deleted = 0
+       AND LOWER(u.status) = 'active'
+       AND ${deliveryRoleSql('u')}
+       AND COALESCE(dpp.is_available, 1) = 1
+       AND NOT EXISTS (
+         SELECT 1 FROM client_orders busy
+         WHERE busy.delivery_partner_id = u.id
+           AND busy.delivery_status IN ('assigned', 'ready_to_deliver', 'out_for_delivery')
+           AND LOWER(COALESCE(busy.status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'canceled')
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM delivery_order_offers open_offer
+         WHERE open_offer.delivery_person_id = u.id
+           AND open_offer.status = 'pending'
+           AND open_offer.expires_at > CURRENT_TIMESTAMP
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM delivery_order_offers rejected_offer
+         WHERE rejected_offer.order_id = ?
+           AND rejected_offer.delivery_person_id = u.id
+           AND rejected_offer.status = 'rejected'
+       )
+       AND NOT EXISTS (
+         SELECT 1 FROM delivery_person_activity_logs rejected_log
+         WHERE rejected_log.delivery_person_id = u.id
+           AND rejected_log.action = 'order_rejected'
+           AND rejected_log.metadata->>'order_id' = CAST(? AS TEXT)
+       )
+     GROUP BY u.id, u.name, u.email, u.phone, dpp.city, dpp.area, dpp.current_latitude, dpp.current_longitude, dpp.last_seen_at, recent_rejections.rejected_count_7d
+     ORDER BY distance_km ASC NULLS LAST, u.name ASC`,
+    [
+      pickupLatitude,
+      pickupLongitude,
+      pickupLatitude,
+      pickupLongitude,
+      pickupLatitude,
+      orderId,
+      orderId,
+    ]
+  );
+
+  return {
+    orderId: Number(orderId),
+    pickup: {
+      location: [order.vendor_address, order.vendor_city].filter(Boolean).join(', ') || '-',
+      latitude: pickupLatitude,
+      longitude: pickupLongitude,
+    },
+    partners: rows.map((row) => ({
+      id: Number(row.id),
+      name: row.name || '',
+      email: row.email || '',
+      phone: row.phone || '',
+      city: row.city || '',
+      area: row.area || '*',
+      current_latitude: row.current_latitude === null || row.current_latitude === undefined ? null : Number(row.current_latitude),
+      current_longitude: row.current_longitude === null || row.current_longitude === undefined ? null : Number(row.current_longitude),
+      distance_km: row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km),
+      last_seen_at: row.last_seen_at,
+      rejected_count_7d: Number(row.rejected_count_7d || 0),
+      current_status: 'Free',
+    })),
+  };
 }
 
 async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) {
@@ -979,8 +1097,8 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
       throw new Error('Auto in-house delivery is not active for this order city/area');
     }
 
-    const matchedCity = order.vendor_city || (ownDelivery.area && ownDelivery.area.city) || order.shipping_city;
-    const matchedArea = order.vendor_area || (ownDelivery.area && ownDelivery.area.name) || order.shipping_area || order.shipping_pincode || '*';
+    const matchedCity = (ownDelivery.area && ownDelivery.area.city) || order.shipping_city || order.vendor_city;
+    const matchedArea = (ownDelivery.area && ownDelivery.area.name) || order.shipping_area || order.shipping_pincode || order.vendor_area || '*';
     const retryAttemptedDeliveryPeople = Boolean(options.retryAttemptedDeliveryPeople);
     const debugDeliveryPersonName = String(process.env.DEBUG_DELIVERY_PERSON_NAME || '').trim();
     const nearbyBatchPartner = await findNearbyBatchPartner(order, connection);
@@ -996,12 +1114,24 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
            AND ${deliveryRoleSql('u')}
            AND COALESCE(p.is_available, 1) = 1
            AND p.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '45 seconds'
-           AND LOWER(TRIM(u.name)) = LOWER(TRIM(?))
-           AND LOWER(TRIM(dps.city)) = LOWER(TRIM(?))
-           AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(?)))
+           AND LOWER(TRIM(u.name)) = LOWER(TRIM(CAST(? AS TEXT)))
+           AND LOWER(TRIM(dps.city)) = LOWER(TRIM(CAST(? AS TEXT)))
+           AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(CAST(? AS TEXT))))
+           AND NOT EXISTS (
+             SELECT 1 FROM delivery_order_offers rejected_offer
+             WHERE rejected_offer.order_id = ?
+               AND rejected_offer.delivery_person_id = u.id
+               AND rejected_offer.status = 'rejected'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM delivery_person_activity_logs rejected_log
+             WHERE rejected_log.delivery_person_id = u.id
+               AND rejected_log.action = 'order_rejected'
+               AND rejected_log.metadata->>'order_id' = CAST(? AS TEXT)
+           )
          ORDER BY u.id ASC
          LIMIT 1`,
-        [debugDeliveryPersonName, matchedCity, matchedArea]
+        [debugDeliveryPersonName, matchedCity, matchedArea, orderId, orderId]
       );
       partnerRows = debugRows;
     }
@@ -1023,8 +1153,8 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
            AND ${deliveryRoleSql('u')}
            AND COALESCE(p.is_available, 1) = 1
            AND p.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '45 seconds'
-           AND LOWER(TRIM(dps.city)) = LOWER(TRIM(?))
-           AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(?)))
+           AND LOWER(TRIM(dps.city)) = LOWER(TRIM(CAST(? AS TEXT)))
+           AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(CAST(? AS TEXT))))
            AND NOT EXISTS (
              SELECT 1 FROM client_orders busy
              WHERE busy.delivery_partner_id = u.id
@@ -1035,6 +1165,18 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
              WHERE open_offer.delivery_person_id = u.id
                AND open_offer.status = 'pending'
                AND open_offer.expires_at > CURRENT_TIMESTAMP
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM delivery_order_offers rejected_offer
+             WHERE rejected_offer.order_id = ?
+               AND rejected_offer.delivery_person_id = u.id
+               AND rejected_offer.status = 'rejected'
+           )
+           AND NOT EXISTS (
+             SELECT 1 FROM delivery_person_activity_logs rejected_log
+             WHERE rejected_log.delivery_person_id = u.id
+               AND rejected_log.action = 'order_rejected'
+               AND rejected_log.metadata->>'order_id' = CAST(? AS TEXT)
            )
            AND (? = 1 OR NOT EXISTS (
              SELECT 1 FROM delivery_order_offers attempted_offer
@@ -1050,6 +1192,8 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
           order.vendor_latitude,
           matchedCity,
           matchedArea,
+          orderId,
+          orderId,
           retryAttemptedDeliveryPeople ? 1 : 0,
           orderId,
         ]
@@ -1066,7 +1210,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
         [waitingDeliveryCharge, orderId]
       );
       await connection.commit();
-      return { orderId, pending: true, message: 'Waiting for an online available delivery person in the vendor area' };
+      return { orderId, pending: true, message: 'Waiting for an online available delivery person in the delivery area' };
     }
     const partner = partnerRows[0];
     const pickupOtp = order.pickup_otp || generateOtp();
@@ -1278,20 +1422,27 @@ async function ensureWaitingOfferForPerson(deliveryPersonId) {
        LEFT JOIN users v ON v.id = o.vendor_id
        LEFT JOIN vendor_profiles vprof ON vprof.user_id = o.vendor_id
        WHERE o.delivery_partner_id IS NULL
-         AND o.delivery_status = 'offer_pending'
+         AND (
+           o.delivery_status = 'offer_pending'
+           OR (
+             o.delivery_status = 'pending'
+             AND o.order_type = 'quotation'
+             AND o.delivery_type = 'in_house_delivery'
+           )
+         )
          AND LOWER(COALESCE(o.status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'canceled')
          AND EXISTS (
            SELECT 1
            FROM delivery_partner_settings dps
            WHERE dps.user_id = ?
              AND dps.is_active = 1
-             AND LOWER(TRIM(dps.city)) = LOWER(COALESCE(NULLIF(TRIM(vprof.city), ''), NULLIF(TRIM(o.shipping_city), '')))
+             AND LOWER(TRIM(dps.city)) = LOWER(COALESCE(NULLIF(TRIM(o.shipping_city), ''), NULLIF(TRIM(vprof.city), '')))
              AND (
                TRIM(COALESCE(dps.area, '*')) = '*'
-               OR LOWER(TRIM(dps.area)) = LOWER(NULLIF(TRIM(vprof.area), ''))
                OR LOWER(TRIM(dps.area)) = LOWER(NULLIF(TRIM(o.shipping_area), ''))
                OR LOWER(TRIM(dps.area)) = LOWER(NULLIF(TRIM(o.shipping_pincode), ''))
                OR LOWER(TRIM(dps.area)) = LOWER(NULLIF(TRIM(o.shipping_city), ''))
+               OR LOWER(TRIM(dps.area)) = LOWER(NULLIF(TRIM(vprof.area), ''))
              )
          )
        ORDER BY o.updated_at DESC, o.id DESC
@@ -1380,7 +1531,9 @@ async function ensureWaitingOfferForPerson(deliveryPersonId) {
 
     await connection.query(
       `UPDATE client_orders
-       SET auto_delivery_offer_id = ?, updated_at = CURRENT_TIMESTAMP
+       SET auto_delivery_offer_id = ?,
+           delivery_status = 'offer_pending',
+           updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [offerId, order.id]
     );
@@ -1465,9 +1618,23 @@ async function decideDeliveryOffer({ orderId, deliveryPersonId, decision, note =
     if (action === 'reject') {
       await connection.query(`UPDATE delivery_order_offers SET status = 'rejected', response_note = ?, responded_at = CURRENT_TIMESTAMP WHERE id = ?`, [note || null, offer.id]);
       await connection.query(
+        `UPDATE client_orders
+         SET delivery_partner_id = NULL,
+             delivery_status = 'pending',
+             assigned_at = NULL,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [orderId]
+      );
+      await connection.query(
         `INSERT INTO delivery_person_activity_logs (delivery_person_id, actor_id, action, description, metadata)
          VALUES (?, ?, 'order_rejected', ?, ?)`,
         [deliveryPersonId, deliveryPersonId, note || `Rejected delivery offer for order #${orderDisplayNumber(offer)}`, JSON.stringify({ order_id: Number(orderId), offer_id: Number(offer.id) })]
+      );
+      await connection.query(
+        `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
+         VALUES (?, ?, 'pending', ?, 'deliveryPerson', ?)`,
+        [orderId, offer.delivery_status, deliveryPersonId, note || `Delivery partner #${deliveryPersonId} rejected the order`]
       );
       await connection.commit();
       return { orderId, status: 'rejected' };
@@ -1492,10 +1659,6 @@ async function decideDeliveryOffer({ orderId, deliveryPersonId, decision, note =
       [deliveryPersonId, orderId]
     );
     await connection.query(
-      `UPDATE delivery_person_profiles SET is_available = 0, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
-      [deliveryPersonId]
-    );
-    await connection.query(
       `INSERT INTO delivery_person_activity_logs (delivery_person_id, actor_id, action, description, metadata)
        VALUES (?, ?, 'order_accepted', ?, ?)`,
       [deliveryPersonId, deliveryPersonId, `Accepted delivery offer for order #${orderDisplayNumber(offer)}`, JSON.stringify({ order_id: Number(orderId), offer_id: Number(offer.id) })]
@@ -1507,6 +1670,68 @@ async function decideDeliveryOffer({ orderId, deliveryPersonId, decision, note =
     );
     await connection.commit();
     return { orderId, status: 'accepted', deliveryPartnerId: deliveryPersonId };
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function rejectAssignedDeliveryOrder(orderId, deliveryPersonId, note = '') {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [orderRows] = await connection.query(
+      `SELECT id, order_number, delivery_status, delivery_partner_id
+       FROM client_orders
+       WHERE id = ? FOR UPDATE`,
+      [orderId]
+    );
+    if (!orderRows.length) {
+      const error = new Error('Order not found');
+      error.status = 404;
+      throw error;
+    }
+    const order = orderRows[0];
+    if (Number(order.delivery_partner_id) !== Number(deliveryPersonId)) {
+      const error = new Error('This order is not assigned to this delivery partner');
+      error.status = 403;
+      throw error;
+    }
+    if (['out_for_delivery', 'delivered'].includes(String(order.delivery_status || '').toLowerCase())) {
+      const error = new Error('This order can no longer be rejected by the delivery partner');
+      error.status = 409;
+      throw error;
+    }
+
+    await connection.query(
+      `UPDATE client_orders
+       SET delivery_partner_id = NULL,
+           delivery_status = 'pending',
+           assigned_at = NULL,
+           auto_delivery_offer_id = NULL,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE id = ?`,
+      [orderId]
+    );
+    await connection.query(
+      `INSERT INTO delivery_person_activity_logs (delivery_person_id, actor_id, action, description, metadata)
+       VALUES (?, ?, 'order_rejected', ?, ?)`,
+      [
+        deliveryPersonId,
+        deliveryPersonId,
+        note || `Rejected assigned order #${orderDisplayNumber(order)}`,
+        JSON.stringify({ order_id: Number(orderId), rejected_assigned_order: true }),
+      ]
+    );
+    await connection.query(
+      `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
+       VALUES (?, ?, 'pending', ?, 'deliveryPerson', ?)`,
+      [orderId, order.delivery_status, deliveryPersonId, note || `Delivery partner #${deliveryPersonId} rejected the assigned order`]
+    );
+    await connection.commit();
+    return { orderId: Number(orderId), status: 'rejected', deliveryStatus: 'pending' };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -2033,9 +2258,10 @@ function deliveryProgressLabel(row) {
   if (deliveryStatus === 'out_for_delivery') return 'Out for delivery';
   if (orderStatus === 'picked_up') return 'Picked up';
   if (deliveryStatus === 'ready_to_deliver') return 'Pickup pending';
+  if (row.delivery_partner_id) return 'Delivery person assigned';
+  if (!row.delivery_partner_id && row.latest_rejection_at) return 'Rejected';
   if (offerStatus === 'rejected') return 'Rejected';
   if (offerStatus === 'accepted') return 'Accepted';
-  if (row.delivery_partner_id) return 'Delivery person assigned';
   return 'Waiting for delivery person';
 }
 
@@ -2046,7 +2272,8 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
   const where = [
     `(o.delivery_method IN ('in_house_auto', 'own_delivery')
       OR dof.id IS NOT NULL
-      OR dpp.user_id IS NOT NULL)`,
+      OR dpp.user_id IS NOT NULL
+      OR latest_rejection.delivery_person_id IS NOT NULL)`,
   ];
   const params = [];
 
@@ -2073,7 +2300,9 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
       where.push(`o.delivery_partner_id IS NULL AND COALESCE(dof.status, 'pending') = 'pending' AND o.delivery_status NOT IN ('delivered', 'cancelled')`);
     } else if (value === 'assigned') {
       where.push(`o.delivery_partner_id IS NOT NULL AND o.delivery_status = 'assigned'`);
-    } else if (['accepted', 'rejected'].includes(value)) {
+    } else if (value === 'rejected') {
+      where.push(`(dof.status = 'rejected' OR latest_rejection.created_at IS NOT NULL)`);
+    } else if (value === 'accepted') {
       where.push(`dof.status = ?`);
       params.push(value);
     } else if (value === 'pickup_pending') {
@@ -2098,6 +2327,15 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
     LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = o.delivery_partner_id
     LEFT JOIN delivery_order_offers dof ON dof.id = o.auto_delivery_offer_id
     LEFT JOIN users offer_dp ON offer_dp.id = dof.delivery_person_id
+    LEFT JOIN LATERAL (
+      SELECT l.delivery_person_id, l.description, l.created_at
+      FROM delivery_person_activity_logs l
+      WHERE l.action = 'order_rejected'
+        AND l.metadata->>'order_id' = CAST(o.id AS TEXT)
+      ORDER BY l.created_at DESC, l.id DESC
+      LIMIT 1
+    ) latest_rejection ON TRUE
+    LEFT JOIN users rejection_dp ON rejection_dp.id = latest_rejection.delivery_person_id
     LEFT JOIN area_definitions ad ON LOWER(TRIM(ad.city)) = LOWER(TRIM(o.shipping_city))
       AND LOWER(TRIM(ad.name)) = LOWER(TRIM(o.shipping_area))
   `;
@@ -2112,10 +2350,13 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
             o.assigned_at, o.ready_at, o.delivered_at, o.created_at, o.updated_at,
             v.name AS vendor_name, vp.business_name AS vendor_business_name, vp.address AS vendor_address,
             vp.city AS vendor_city,
-            COALESCE(dp.name, offer_dp.name) AS delivery_person_name,
-            COALESCE(dp.email, offer_dp.email) AS delivery_person_login,
-            COALESCE(dp.phone, offer_dp.phone) AS delivery_person_phone,
+            COALESCE(dp.name, offer_dp.name, rejection_dp.name) AS delivery_person_name,
+            COALESCE(dp.email, offer_dp.email, rejection_dp.email) AS delivery_person_login,
+            COALESCE(dp.phone, offer_dp.phone, rejection_dp.phone) AS delivery_person_phone,
             dof.delivery_person_id AS offered_delivery_person_id,
+            latest_rejection.delivery_person_id AS latest_rejected_delivery_person_id,
+            latest_rejection.description AS latest_rejection_reason,
+            latest_rejection.created_at AS latest_rejection_at,
             dof.status AS offer_status, dof.pickup_area, dof.delivery_area,
             dof.expires_at AS offer_expires_at, dof.responded_at AS offer_responded_at,
             dof.created_at AS offer_created_at, dof.updated_at AS offer_updated_at,
@@ -2141,7 +2382,7 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
     delivery_location: row.delivery_area || [row.shipping_address, row.shipping_area, row.shipping_city, row.shipping_pincode].filter(Boolean).join(', ') || '-',
     distance_km: row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km),
     order_value: Number(row.total_amount || 0),
-    delivery_person_id: row.delivery_partner_id || row.offered_delivery_person_id || null,
+    delivery_person_id: row.delivery_partner_id || row.offered_delivery_person_id || row.latest_rejected_delivery_person_id || null,
     delivery_person_assigned: Boolean(row.delivery_partner_id),
     delivery_person_name: row.delivery_person_name || '',
     delivery_person_phone: row.delivery_person_phone || '',
@@ -2149,6 +2390,9 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
     raw_status: row.status,
     delivery_status: row.delivery_status,
     offer_status: row.offer_status || '',
+    latest_rejected_delivery_person_id: row.latest_rejected_delivery_person_id || null,
+    latest_rejection_reason: row.latest_rejection_reason || '',
+    latest_rejection_at: row.latest_rejection_at || null,
     delivery_otp: row.delivery_otp || '',
     delivery_otp_attempts: Number(row.delivery_otp_attempts || 0),
     delivery_otp_max_attempts: DELIVERY_OTP_MAX_ATTEMPTS,
@@ -2195,6 +2439,239 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
   };
 }
 
+async function listDeliveryPartnerStatuses({ search = '', status = '' } = {}) {
+  const where = ["u.is_deleted = 0", "LOWER(u.role) = 'deliveryperson'"];
+  const params = [];
+  const normalizedStatus = String(status || '').trim().toLowerCase();
+  if (search) {
+    const term = `%${String(search).trim()}%`;
+    params.push(term, term, term);
+    where.push(`(u.name ILIKE ? OR u.email ILIKE ? OR u.phone ILIKE ?)`);
+  }
+
+  const statusSql = `
+    CASE
+      WHEN active_order.delivery_status = 'out_for_delivery' THEN 'On Ride'
+      WHEN active_order.id IS NOT NULL THEN 'On Order'
+      WHEN LOWER(COALESCE(u.status, '')) <> 'active' OR COALESCE(dpp.is_available, 1) = 0 THEN 'Offline'
+      ELSE 'Free'
+    END`;
+
+  if (['free', 'on order', 'on_order', 'on ride', 'on_ride', 'offline'].includes(normalizedStatus)) {
+    params.push(normalizedStatus.replace('_', ' '));
+    where.push(`LOWER(${statusSql}) = LOWER(?)`);
+  }
+
+  const [rows] = await pool.query(
+    `WITH active_orders AS (
+       SELECT o.id, o.order_number, o.delivery_partner_id, o.client_name, o.shipping_name,
+              o.shipping_address, o.shipping_area, o.shipping_city, o.shipping_pincode,
+              o.delivery_status, o.status, o.assigned_at, o.ready_at, o.status_updated_at, o.updated_at,
+              v.name AS vendor_name, vp.business_name AS vendor_business_name,
+              vp.address AS vendor_address, vp.city AS vendor_city,
+              ROW_NUMBER() OVER (
+                PARTITION BY o.delivery_partner_id
+                ORDER BY
+                  CASE WHEN o.delivery_status = 'out_for_delivery' THEN 1 ELSE 2 END,
+                  COALESCE(o.status_updated_at, o.ready_at, o.assigned_at, o.updated_at) DESC,
+                  o.id DESC
+              ) AS rn
+       FROM client_orders o
+       LEFT JOIN users v ON v.id = o.vendor_id
+       LEFT JOIN vendor_profiles vp ON vp.user_id = o.vendor_id
+       WHERE o.delivery_partner_id IS NOT NULL
+         AND o.delivery_status IN ('assigned', 'ready_to_deliver', 'out_for_delivery')
+         AND LOWER(COALESCE(o.status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'canceled')
+     )
+     SELECT u.id AS delivery_partner_id, u.name AS delivery_partner_name,
+            ${statusSql} AS current_status,
+            active_order.id AS current_order_id,
+            active_order.order_number AS current_order_number,
+            COALESCE(NULLIF(TRIM(active_order.shipping_name), ''), active_order.client_name, '') AS customer_name,
+            COALESCE(
+              NULLIF(TRIM(CONCAT_WS(', ', NULLIF(active_order.vendor_business_name, ''), NULLIF(active_order.vendor_address, ''), NULLIF(active_order.vendor_city, ''))), ''),
+              NULLIF(TRIM(CONCAT_WS(', ', NULLIF(active_order.vendor_name, ''), NULLIF(active_order.vendor_city, ''))), ''),
+              '-'
+            ) AS pickup_location,
+            COALESCE(
+              NULLIF(TRIM(CONCAT_WS(', ', NULLIF(active_order.shipping_address, ''), NULLIF(active_order.shipping_area, ''), NULLIF(active_order.shipping_city, ''), NULLIF(active_order.shipping_pincode, ''))), ''),
+              '-'
+            ) AS delivery_location,
+            COALESCE(
+              active_order.status_updated_at,
+              active_order.ready_at,
+              active_order.assigned_at,
+              active_order.updated_at,
+              dpp.updated_at,
+              dpp.last_seen_at,
+              u.updated_at
+            ) AS last_status_update_time
+     FROM users u
+     LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+     LEFT JOIN active_orders active_order ON active_order.delivery_partner_id = u.id AND active_order.rn = 1
+     WHERE ${where.join(' AND ')}
+     ORDER BY
+       CASE ${statusSql}
+         WHEN 'On Ride' THEN 1
+         WHEN 'On Order' THEN 2
+         WHEN 'Free' THEN 3
+         ELSE 4
+       END,
+       u.name ASC`,
+    params
+  );
+
+  const partners = rows.map((row) => ({
+    delivery_partner_id: row.delivery_partner_id,
+    delivery_partner_name: row.delivery_partner_name || '',
+    current_status: row.current_status || 'Offline',
+    current_order_id: row.current_order_id || null,
+    current_order_number: row.current_order_number || (row.current_order_id ? orderDisplayNumber({ id: row.current_order_id }) : ''),
+    customer_name: row.customer_name || '',
+    pickup_location: row.current_order_id ? row.pickup_location || '-' : '',
+    delivery_location: row.current_order_id ? row.delivery_location || '-' : '',
+    last_status_update_time: row.last_status_update_time || null,
+  }));
+
+  return {
+    partners,
+    summary: partners.reduce((acc, partner) => {
+      acc[partner.current_status] = (acc[partner.current_status] || 0) + 1;
+      return acc;
+    }, { Free: 0, 'On Order': 0, 'On Ride': 0, Offline: 0 }),
+  };
+}
+
+async function getDeliveryPartnerRejectionDetails(deliveryPersonId) {
+  const id = Number(deliveryPersonId || 0);
+  if (!id) {
+    const error = new Error('Valid delivery partner is required');
+    error.status = 422;
+    throw error;
+  }
+
+  const [personRows] = await pool.query(
+    `SELECT u.id, u.name, u.phone, u.email, u.status,
+            COALESCE(dpp.is_available, 1) AS is_available
+     FROM users u
+     LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+     WHERE u.id = ?
+       AND u.is_deleted = 0
+       AND ${deliveryRoleSql('u')}
+     LIMIT 1`,
+    [id]
+  );
+  if (!personRows.length) {
+    const error = new Error('Delivery partner not found');
+    error.status = 404;
+    throw error;
+  }
+
+  const [rows] = await pool.query(
+    `SELECT l.id AS log_id, l.description, l.created_at,
+            COALESCE(NULLIF(l.metadata->>'order_id', ''), '0') AS order_id,
+            o.order_number, o.client_name,
+            dof.response_note
+     FROM delivery_person_activity_logs l
+     LEFT JOIN client_orders o ON CAST(o.id AS TEXT) = l.metadata->>'order_id'
+     LEFT JOIN LATERAL (
+       SELECT response_note
+       FROM delivery_order_offers dof
+       WHERE dof.order_id = o.id
+         AND dof.delivery_person_id = l.delivery_person_id
+         AND dof.status = 'rejected'
+       ORDER BY dof.responded_at DESC NULLS LAST, dof.id DESC
+       LIMIT 1
+     ) dof ON TRUE
+     WHERE l.delivery_person_id = ?
+       AND l.action = 'order_rejected'
+       AND l.created_at >= CURRENT_TIMESTAMP - INTERVAL '7 days'
+     ORDER BY l.created_at DESC, l.id DESC`,
+    [id]
+  );
+
+  const person = personRows[0];
+  return {
+    partner: {
+      id: Number(person.id),
+      name: person.name || '',
+      phone: person.phone || '',
+      email: person.email || '',
+      status: person.status || '',
+      is_blocked: String(person.status || '').toLowerCase() !== 'active',
+      is_available: Boolean(Number(person.is_available)),
+    },
+    total_rejected_orders_7d: rows.length,
+    rejected_orders: rows.map((row) => ({
+      order_id: Number(row.order_id || 0) || null,
+      order_number: row.order_number || (Number(row.order_id || 0) ? orderDisplayNumber({ id: row.order_id }) : ''),
+      customer_name: row.client_name || '',
+      date: row.created_at,
+      reason: row.response_note || row.description || '',
+    })),
+  };
+}
+
+async function setDeliveryPartnerBlockStatus(deliveryPersonId, blocked, actorUser = null) {
+  const id = Number(deliveryPersonId || 0);
+  if (!id) {
+    const error = new Error('Valid delivery partner is required');
+    error.status = 422;
+    throw error;
+  }
+  const status = blocked ? 'blocked' : 'active';
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const [personRows] = await connection.query(
+      `SELECT id FROM users
+       WHERE id = ?
+         AND is_deleted = 0
+         AND ${deliveryRoleSql('users')}
+       LIMIT 1`,
+      [id]
+    );
+    if (!personRows.length) {
+      const error = new Error('Delivery partner not found');
+      error.status = 404;
+      throw error;
+    }
+    await connection.query('UPDATE users SET status = ? WHERE id = ?', [status, id]);
+    await connection.query('UPDATE delivery_partner_settings SET is_active = ? WHERE user_id = ?', [blocked ? 0 : 1, id]);
+    await connection.query('UPDATE delivery_person_profiles SET is_available = ?, updated_at = CURRENT_TIMESTAMP WHERE user_id = ?', [blocked ? 0 : 1, id]);
+    if (blocked) {
+      await connection.query(
+        `UPDATE delivery_order_offers
+         SET status = 'expired',
+             response_note = COALESCE(response_note, 'Delivery partner blocked by admin'),
+             responded_at = COALESCE(responded_at, CURRENT_TIMESTAMP),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE delivery_person_id = ?
+           AND status = 'pending'`,
+        [id]
+      );
+    }
+    await connection.query(
+      `INSERT INTO delivery_person_activity_logs (delivery_person_id, actor_id, action, description, metadata)
+       VALUES (?, ?, ?, ?, ?)`,
+      [
+        id,
+        actorUser ? actorUser.id : null,
+        blocked ? 'account_blocked' : 'account_unblocked',
+        blocked ? 'Account blocked from delivery dashboard rejection popup' : 'Account unblocked from delivery dashboard rejection popup',
+        JSON.stringify({ source: 'delivery_dashboard_rejections' }),
+      ]
+    );
+    await connection.commit();
+    return getDeliveryPartnerRejectionDetails(id);
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
 module.exports = {
   listAll,
   listByVendor,
@@ -2202,11 +2679,13 @@ module.exports = {
   findById,
   getOrderItems,
   assignDeliveryPartner,
+  listFreeDeliveryPartnersForOrder,
   createAutoDeliveryOffer,
   ensureWaitingOfferForPerson,
   refreshDeliveryOffersForPerson,
   listDeliveryOffers,
   decideDeliveryOffer,
+  rejectAssignedDeliveryOrder,
   processExpiredDeliveryOffers,
   resendDeliveryOffer,
   verifyPickupOTP,
@@ -2215,6 +2694,9 @@ module.exports = {
   verifyOTP,
   getDeliveryTracking,
   listInHouseDeliveryDashboard,
+  listDeliveryPartnerStatuses,
+  getDeliveryPartnerRejectionDetails,
+  setDeliveryPartnerBlockStatus,
   deliveryFinancials,
   countByStatus,
   countByVendor,

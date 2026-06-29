@@ -2296,11 +2296,13 @@ function buildShell(user, activePath = '/dashboard') {
     navItem('Orders', '/orders/admin/dashboard', 'orders.manage', 'orders', activePath.startsWith('/orders/admin') && !activePath.startsWith('/orders/admin/delivery-dashboard')),
     navGroup('Delivery Dashboard', '/delivery-dashboard', 'orders.manage', 'delivery',
       activePath.startsWith('/delivery-dashboard')
+      || activePath.startsWith('/delivery-partner-status')
       || activePath.startsWith('/delivery-persons')
       || activePath.startsWith('/delivery-types')
       || activePath.startsWith('/delivery-charge-settings')
       || activePath.startsWith('/area-definitions'), [
       navItem('Dashboard', '/delivery-dashboard', 'orders.manage', 'dashboard', activePath.startsWith('/delivery-dashboard')),
+      navItem('Delivery Partner Status', '/delivery-partner-status', 'orders.manage', 'delivery', activePath.startsWith('/delivery-partner-status')),
       navItem('Delivery Persons', '/delivery-persons', 'orders.manage', 'delivery', activePath.startsWith('/delivery-persons')),
       navItem('Delivery Area Management', '/delivery-types', 'settings.manage', 'delivery', activePath.startsWith('/delivery-types')),
       navItem('Delivery Charge Settings', '/delivery-charge-settings', 'settings.manage', 'settings', activePath.startsWith('/delivery-charge-settings')),
@@ -3683,6 +3685,7 @@ app.use('/api/wallets', webOrJwtAuth, requireWalletAccess, walletRoutes);
 app.get('/admin-wallet-transactions', webOrJwtAuth, requireAdminWalletTransactions, walletController.adminTransactionsPage);
 app.get('/api/admin-wallet-transactions', webOrJwtAuth, requireAdminWalletTransactions, walletController.adminTransactions);
 app.get('/delivery-dashboard', requireAuth, requirePermission('orders.manage'), orderController.deliveryDashboardPage);
+app.get('/delivery-partner-status', requireAuth, requirePermission('orders.manage'), orderController.deliveryPartnerStatusPage);
 app.use('/delivery-persons', requireAuth, requirePermission('orders.manage'), deliveryPersonRoutes);
 app.get('/delivery-types', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   res.render('delivery-types', {
