@@ -484,13 +484,15 @@ async function deliveryProfile(req, res) {
        ORDER BY city, area`,
       [currentUser.id]
     );
+    const walletData = await Wallet.transactionsByUserId(currentUser.id, { limit: 50 });
     return res.json({
       success: true,
       user: User.publicUser(currentUser),
       profile: profileRows[0] || null,
       service_areas: areas,
       service_enabled: areas.length > 0,
-      wallet: await Wallet.findByUserId(currentUser.id),
+      wallet: walletData.wallet,
+      wallet_transactions: walletData.transactions,
       rating_summary: await Rating.summary('delivery_person', currentUser.id),
     });
   } catch (error) {
