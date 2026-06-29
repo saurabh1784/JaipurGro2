@@ -5142,6 +5142,251 @@ app.put('/settings/quotations', requireAuth, requirePermission('settings.manage'
   }
 });
 
+async function resolveAdminDebugCity(user) {
+  const directCity = String((user && (user.city || user.admin_city || user.profile_city)) || '').trim();
+  if (directCity) return directCity;
+
+  const [profileRows] = await pool.query(
+    `SELECT COALESCE(cp.city, vp.city, dpp.city) AS city
+     FROM users u
+     LEFT JOIN client_profiles cp ON cp.user_id = u.id
+     LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+     LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+     WHERE u.id = ?
+     LIMIT 1`,
+    [user && user.id]
+  ).catch(() => [[]]);
+  const profileCity = String((profileRows[0] && profileRows[0].city) || '').trim();
+  if (profileCity) return profileCity;
+
+  const [cityRows] = await pool.query(
+    `SELECT city
+     FROM delivery_partner_settings
+     WHERE city IS NOT NULL AND TRIM(city) <> ''
+     GROUP BY city
+     ORDER BY COUNT(*) DESC, city ASC
+     LIMIT 1`
+  );
+  return String((cityRows[0] && cityRows[0].city) || 'Jaipur').trim();
+}
+
+app.get('/settings/debug/delivery-partner-test/partners', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const filters = {
+      city: String(req.query.city || '').trim(),
+      area: String(req.query.area || '').trim(),
+      mobile: String(req.query.mobile || '').trim(),
+      email: String(req.query.email || '').trim(),
+      name: String(req.query.name || '').trim(),
+    };
+    const hasFilter = Object.values(filters).some(Boolean);
+    const adminCity = await resolveAdminDebugCity(req.session.user);
+    const where = ['u.is_deleted = 0', "LOWER(u.status) = 'active'", "LOWER(u.role) = 'deliveryperson'"];
+    const params = [];
+
+    if (!hasFilter && adminCity) {
+      where.push(`EXISTS (
+        SELECT 1 FROM delivery_partner_settings city_dps
+        WHERE city_dps.user_id = u.id
+          AND city_dps.is_active = 1
+          AND LOWER(TRIM(city_dps.city)) = LOWER(TRIM(CAST(? AS TEXT)))
+      )`);
+      params.push(adminCity);
+    }
+    if (filters.city) {
+      where.push(`EXISTS (
+        SELECT 1 FROM delivery_partner_settings city_filter
+        WHERE city_filter.user_id = u.id
+          AND city_filter.is_active = 1
+          AND LOWER(TRIM(city_filter.city)) = LOWER(TRIM(CAST(? AS TEXT)))
+      )`);
+      params.push(filters.city);
+    }
+    if (filters.area) {
+      where.push(`EXISTS (
+        SELECT 1 FROM delivery_partner_settings area_filter
+        WHERE area_filter.user_id = u.id
+          AND area_filter.is_active = 1
+          AND (LOWER(TRIM(area_filter.area)) = LOWER(TRIM(CAST(? AS TEXT))) OR TRIM(COALESCE(area_filter.area, '*')) = '*')
+      )`);
+      params.push(filters.area);
+    }
+    if (filters.mobile) {
+      where.push('u.phone ILIKE ?');
+      params.push(`%${filters.mobile}%`);
+    }
+    if (filters.email) {
+      where.push('u.email ILIKE ?');
+      params.push(`%${filters.email}%`);
+    }
+    if (filters.name) {
+      where.push('u.name ILIKE ?');
+      params.push(`%${filters.name}%`);
+    }
+
+    const [partners] = await pool.query(
+      `SELECT u.id, u.name, u.email, u.phone,
+              COALESCE(MIN(NULLIF(TRIM(dps.city), '')), dpp.city, '') AS city,
+              COALESCE(
+                STRING_AGG(DISTINCT COALESCE(NULLIF(TRIM(dps.area), ''), '*'), ', ' ORDER BY COALESCE(NULLIF(TRIM(dps.area), ''), '*')),
+                dpp.area,
+                '*'
+              ) AS area,
+              COALESCE(w.balance, 0) AS wallet_balance
+       FROM users u
+       LEFT JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
+       LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+       LEFT JOIN wallets w ON w.user_id = u.id
+       WHERE ${where.join(' AND ')}
+       GROUP BY u.id, u.name, u.email, u.phone, dpp.city, dpp.area, w.balance
+       ORDER BY u.name ASC, u.id ASC`,
+      params
+    );
+
+    res.json({
+      success: true,
+      admin_city: adminCity,
+      partners: partners.map((partner) => ({
+        id: Number(partner.id),
+        name: partner.name || '',
+        city: partner.city || adminCity,
+        area: partner.area || '*',
+        wallet_balance: Number(partner.wallet_balance || 0),
+      })),
+    });
+  } catch (error) {
+    console.error('Delivery partner debug list error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load delivery partners' });
+  }
+});
+
+app.post('/settings/debug/delivery-partner-test/:partnerId/send', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  const partnerId = Number(req.params.partnerId);
+  if (!partnerId) {
+    return res.status(422).json({ success: false, message: 'Valid delivery partner is required' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const adminCity = await resolveAdminDebugCity(req.session.user);
+    const [partnerRows] = await connection.query(
+      `SELECT u.id, u.name, u.phone,
+              COALESCE(NULLIF(TRIM(dps.city), ''), dpp.city, ?) AS city,
+              COALESCE(NULLIF(TRIM(dps.area), ''), dpp.area, '*') AS area
+       FROM users u
+       LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+       LEFT JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
+       WHERE u.id = ?
+         AND u.is_deleted = 0
+         AND LOWER(u.status) = 'active'
+         AND LOWER(u.role) = 'deliveryperson'
+       ORDER BY CASE WHEN COALESCE(NULLIF(TRIM(dps.area), ''), '*') = '*' THEN 1 ELSE 0 END, dps.id ASC
+       LIMIT 1
+       FOR UPDATE`,
+      [adminCity, partnerId]
+    );
+    if (!partnerRows.length) {
+      const error = new Error('Active delivery partner not found');
+      error.status = 404;
+      throw error;
+    }
+
+    const partner = partnerRows[0];
+    const city = String(partner.city || adminCity || 'Jaipur').trim();
+    const area = String(partner.area || '*').trim() || '*';
+    const actor = req.session.user;
+    const pickupOtp = String(Math.floor(100000 + Math.random() * 900000));
+    const deliveryOtp = String(Math.floor(100000 + Math.random() * 900000));
+    const pickupAddress = `Debug pickup hub, ${city}`;
+    const deliveryAddress = `Debug delivery address, ${area === '*' ? city : area}, ${city}`;
+    const deliveryCharge = 0;
+    const notificationPayload = {
+      test_delivery: true,
+      vendor_name: 'Debug Test Vendor',
+      vendor_phone: '',
+      vendor_address: pickupAddress,
+      client_name: 'Debug Test Customer',
+      client_phone: '',
+      client_address: deliveryAddress,
+      pickup_area: city,
+      delivery_area: area,
+      delivery_charge: deliveryCharge,
+      platform_fee: 0,
+      delivery_partner_earning: deliveryCharge,
+      approx_total_weight_kg: 0,
+    };
+
+    const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
+      connection,
+      `INSERT INTO client_orders
+       (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, delivery_otp, pickup_otp, otp_set_by, otp_set_at, created_at)
+       VALUES (?, ?, NULL, 0, 0, 0, ?, 'debug_test', 0, 'pending', 'offer_pending', 'in_house_auto', 'in_house_delivery', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+      [
+        actor.id,
+        deliveryCharge,
+        'Debug Test Customer',
+        partner.phone || '',
+        deliveryAddress,
+        'Debug Test Customer',
+        partner.phone || '',
+        deliveryAddress,
+        area,
+        city,
+        'Rajasthan',
+        'India',
+        '',
+        deliveryOtp,
+        pickupOtp,
+        actor.id,
+      ]
+    );
+    const orderId = Number(orderResult.insertId || (orderResult.rows && orderResult.rows[0] && orderResult.rows[0].id));
+    notificationPayload.order_id = orderId;
+    notificationPayload.order_number = orderNumber;
+
+    const [offerResult] = await connection.query(
+      `INSERT INTO delivery_order_offers
+       (order_id, delivery_person_id, status, pickup_area, delivery_area, delivery_charge, platform_fee, delivery_partner_earning, notification_payload, expires_at)
+       VALUES (?, ?, 'pending', ?, ?, ?, 0, ?, ?, CURRENT_TIMESTAMP + INTERVAL '30 minutes')`,
+      [orderId, partner.id, pickupAddress, deliveryAddress, deliveryCharge, deliveryCharge, JSON.stringify(notificationPayload)]
+    );
+    const offerId = Number(offerResult.insertId || (offerResult.rows && offerResult.rows[0] && offerResult.rows[0].id));
+
+    await connection.query('UPDATE client_orders SET auto_delivery_offer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?', [offerId || null, orderId]);
+    await connection.query(
+      `INSERT INTO user_notifications (user_id, title, message, link)
+       VALUES (?, ?, ?, ?)`,
+      [
+        partner.id,
+        `Test delivery #${orderNumber}`,
+        `Debug test delivery request from ${actor.name || 'admin'} for ${deliveryAddress}.`,
+        '/api/orders/delivery/offers',
+      ]
+    );
+    await connection.query(
+      `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
+       VALUES (?, NULL, 'offer_pending', ?, ?, ?)`,
+      [orderId, actor.id, actor.role || 'admin', `Debug test delivery offer sent to delivery partner #${partner.id}`]
+    );
+
+    await connection.commit();
+    res.json({
+      success: true,
+      message: `Test delivery sent to ${partner.name}`,
+      order_id: orderId,
+      order_number: orderNumber,
+      offer_id: offerId,
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Delivery partner debug send error:', error);
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to send test delivery' });
+  } finally {
+    connection.release();
+  }
+});
+
 app.put('/settings/invoice', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
     const enabledColumns = Array.isArray(req.body.enabledProductColumns)

@@ -101,6 +101,11 @@
           <h2>Debug Tools</h2>
           <p>Maintenance actions for testing and rebuilding the application database.</p>
         </div>
+        <div class="debug-subtabs" role="tablist" aria-label="Debug tabs">
+          <button class="debug-subtab active" type="button" data-debug-tab="maintenance">Maintenance</button>
+          <button class="debug-subtab" type="button" data-debug-tab="delivery-partner-test">Delivery Partner Test</button>
+        </div>
+        <div class="debug-tool-panel active" id="debug-maintenance">
         <% if (maintenance) { %>
           <% const backupList = Array.isArray(databaseBackups) ? databaseBackups : []; %>
           <section class="maintenance-panel" aria-label="Admin maintenance">
@@ -159,6 +164,35 @@
         <% if (!maintenance) { %>
           <div class="system-alert">Only admin users can run debug maintenance actions.</div>
         <% } %>
+        </div>
+        <div class="debug-tool-panel" id="debug-delivery-partner-test">
+          <form class="debug-filter-form" id="deliveryPartnerTestFilterForm">
+            <label>
+              City
+              <input id="deliveryPartnerTestCity" type="text" placeholder="Admin city by default" />
+            </label>
+            <label>
+              Area
+              <input id="deliveryPartnerTestArea" type="text" placeholder="Area" />
+            </label>
+            <label>
+              Mobile Number
+              <input id="deliveryPartnerTestMobile" type="search" placeholder="Mobile" />
+            </label>
+            <label>
+              Email
+              <input id="deliveryPartnerTestEmail" type="search" placeholder="Email" />
+            </label>
+            <label>
+              Name
+              <input id="deliveryPartnerTestName" type="search" placeholder="Name" />
+            </label>
+            <button class="settings-save" type="submit">Search</button>
+            <button class="reject-button" type="button" id="deliveryPartnerTestClear">Clear</button>
+          </form>
+          <p class="commission-message" id="deliveryPartnerTestMessage"></p>
+          <div class="debug-delivery-list" id="deliveryPartnerTestList"></div>
+        </div>
       </section>
 
       <form class="settings-panel" id="invoice" aria-labelledby="invoice-tab">
@@ -760,6 +794,96 @@
         document.getElementById(tab.dataset.tab).classList.add('active');
       });
     });
+
+    document.querySelectorAll('.debug-subtab').forEach((tab) => {
+      tab.addEventListener('click', () => {
+        document.querySelectorAll('.debug-subtab').forEach((item) => item.classList.remove('active'));
+        document.querySelectorAll('.debug-tool-panel').forEach((panel) => panel.classList.remove('active'));
+        tab.classList.add('active');
+        document.getElementById(`debug-${tab.dataset.debugTab}`).classList.add('active');
+        if (tab.dataset.debugTab === 'delivery-partner-test') {
+          loadDeliveryPartnerTestPartners();
+        }
+      });
+    });
+
+    function deliveryPartnerTestFilters() {
+      return {
+        city: document.getElementById('deliveryPartnerTestCity').value.trim(),
+        area: document.getElementById('deliveryPartnerTestArea').value.trim(),
+        mobile: document.getElementById('deliveryPartnerTestMobile').value.trim(),
+        email: document.getElementById('deliveryPartnerTestEmail').value.trim(),
+        name: document.getElementById('deliveryPartnerTestName').value.trim(),
+      };
+    }
+
+    function deliveryPartnerTestQuery() {
+      const params = new URLSearchParams();
+      Object.entries(deliveryPartnerTestFilters()).forEach(([key, value]) => {
+        if (value) params.set(key, value);
+      });
+      return params.toString();
+    }
+
+    function renderDeliveryPartnerTestPartners(partners, adminCity) {
+      const list = document.getElementById('deliveryPartnerTestList');
+      if (!partners.length) {
+        list.innerHTML = '<div class="debug-empty-state">No delivery partners found.</div>';
+        return;
+      }
+      list.innerHTML = partners.map((partner) => `
+        <div class="debug-delivery-row">
+          <div>
+            <span>Name</span>
+            <strong>${escapeCatalog(partner.name || '-')}</strong>
+          </div>
+          <div>
+            <span>City</span>
+            <strong>${escapeCatalog(partner.city || adminCity || '-')}</strong>
+          </div>
+          <div>
+            <span>Area</span>
+            <strong>${escapeCatalog(partner.area || '*')}</strong>
+          </div>
+          <div>
+            <span>Wallet Balance</span>
+            <strong>INR ${Number(partner.wallet_balance || 0).toFixed(2)}</strong>
+          </div>
+          <button class="settings-save" type="button" onclick="sendTestDelivery(${Number(partner.id)})">Send Test Delivery</button>
+        </div>
+      `).join('');
+    }
+
+    async function loadDeliveryPartnerTestPartners() {
+      const message = document.getElementById('deliveryPartnerTestMessage');
+      message.textContent = 'Loading delivery partners...';
+      try {
+        const query = deliveryPartnerTestQuery();
+        const response = await fetch(`/settings/debug/delivery-partner-test/partners${query ? `?${query}` : ''}`);
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to load delivery partners');
+        renderDeliveryPartnerTestPartners(data.partners || [], data.admin_city || '');
+        message.textContent = query
+          ? `${(data.partners || []).length} delivery partner(s) found.`
+          : `${(data.partners || []).length} delivery partner(s) from ${data.admin_city || 'admin city'}.`;
+      } catch (error) {
+        document.getElementById('deliveryPartnerTestList').innerHTML = '';
+        message.textContent = error.message;
+      }
+    }
+
+    async function sendTestDelivery(partnerId) {
+      const message = document.getElementById('deliveryPartnerTestMessage');
+      message.textContent = 'Sending test delivery...';
+      try {
+        const response = await fetch(`/settings/debug/delivery-partner-test/${partnerId}/send`, { method: 'POST' });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to send test delivery');
+        message.textContent = `${data.message}. Order #${data.order_number}`;
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
 
     async function saveQuotationSettings() {
       const message = document.getElementById('quotationSettingsMessage');
@@ -2049,6 +2173,14 @@
     document.getElementById('commissionPreviewAmount').addEventListener('input', renderCommissionSettings);
     document.getElementById('roleSettingsSelect').addEventListener('change', renderRoleSettings);
     document.getElementById('googleMapsForm').addEventListener('submit', saveGoogleMapSettings);
+    document.getElementById('deliveryPartnerTestFilterForm').addEventListener('submit', (event) => {
+      event.preventDefault();
+      loadDeliveryPartnerTestPartners();
+    });
+    document.getElementById('deliveryPartnerTestClear').addEventListener('click', () => {
+      document.getElementById('deliveryPartnerTestFilterForm').reset();
+      loadDeliveryPartnerTestPartners();
+    });
     document.getElementById('deliveryCityInput').addEventListener('change', () => populateDeliveryAreaSelect('deliveryAreaInput'));
     document.getElementById('deliveryPartnerCity').addEventListener('change', () => populateDeliveryAreaSelect('deliveryPartnerArea'));
 
@@ -2162,6 +2294,93 @@
       cursor: pointer;
       font-weight: 900;
     }
+    .debug-subtabs {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-top: 18px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .debug-subtab {
+      border: 0;
+      border-bottom: 3px solid transparent;
+      padding: 10px 12px;
+      background: transparent;
+      color: #475569;
+      cursor: pointer;
+      font-weight: 900;
+    }
+    .debug-subtab.active {
+      border-color: #dc2626;
+      color: #991b1b;
+    }
+    .debug-tool-panel {
+      display: none;
+    }
+    .debug-tool-panel.active {
+      display: block;
+    }
+    .debug-filter-form {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(130px, 1fr)) auto auto;
+      gap: 12px;
+      align-items: end;
+      margin-top: 18px;
+      padding: 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .debug-filter-form label {
+      display: grid;
+      gap: 6px;
+      color: #334155;
+      font-weight: 800;
+      font-size: 0.85rem;
+    }
+    .debug-filter-form input {
+      min-height: 40px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 8px 10px;
+      color: #0f172a;
+    }
+    .debug-delivery-list {
+      display: grid;
+      gap: 10px;
+      margin-top: 14px;
+    }
+    .debug-delivery-row {
+      display: grid;
+      grid-template-columns: minmax(170px, 1.2fr) minmax(120px, 0.8fr) minmax(140px, 1fr) minmax(130px, 0.8fr) auto;
+      gap: 12px;
+      align-items: center;
+      padding: 14px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+    }
+    .debug-delivery-row span {
+      display: block;
+      color: #64748b;
+      font-size: 0.75rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+    .debug-delivery-row strong {
+      display: block;
+      margin-top: 4px;
+      color: #0f172a;
+      overflow-wrap: anywhere;
+    }
+    .debug-empty-state {
+      padding: 16px;
+      border: 1px dashed #cbd5e1;
+      border-radius: 8px;
+      color: #64748b;
+      font-weight: 800;
+      background: #f8fafc;
+    }
     .theme-dark .maintenance-panel {
       background: #332114;
       border-color: #7c2d12;
@@ -2188,6 +2407,34 @@
     .theme-dark .database-backup-row span,
     .theme-dark .database-backup-row small {
       color: #fed7aa;
+    }
+    .theme-dark .debug-subtabs {
+      border-color: #303b4b;
+    }
+    .theme-dark .debug-subtab {
+      color: #cbd5e1;
+    }
+    .theme-dark .debug-subtab.active {
+      color: #fecaca;
+    }
+    .theme-dark .debug-filter-form,
+    .theme-dark .debug-delivery-row {
+      background: #111827;
+      border-color: #303b4b;
+    }
+    .theme-dark .debug-filter-form label,
+    .theme-dark .debug-delivery-row strong {
+      color: #f8fafc;
+    }
+    .theme-dark .debug-filter-form input {
+      background: #18202d;
+      border-color: #303b4b;
+      color: #f8fafc;
+    }
+    .theme-dark .debug-empty-state {
+      background: #111827;
+      border-color: #303b4b;
+      color: #cbd5e1;
     }
     .settings-section-title {
       margin-bottom: 10px;
@@ -2406,6 +2653,10 @@
       .maintenance-actions {
         grid-template-columns: 1fr;
         min-width: 0;
+      }
+      .debug-filter-form,
+      .debug-delivery-row {
+        grid-template-columns: 1fr;
       }
       .invoice-column-grid {
         grid-template-columns: 1fr;
