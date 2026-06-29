@@ -45,6 +45,7 @@ const ADMIN_TRANSITIONS = {
 };
 
 const DELIVERY_TRANSITIONS = {
+  pending: ['on_the_way'],
   accepted: ['on_the_way'],
   processing: ['on_the_way'],
   ready_for_pickup: ['on_the_way'],
