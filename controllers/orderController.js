@@ -2,6 +2,7 @@ const crypto = require('crypto');
 const Order = require('../models/Order');
 const User = require('../models/User');
 const DeliveryPerson = require('../models/DeliveryPerson');
+const Wallet = require('../models/Wallet');
 const pool = require('../db');
 const { ensureInvoice } = require('../services/invoiceService');
 const { deliveryProfileImagePath } = require('../middleware/deliveryProfileImageUpload');
@@ -489,6 +490,7 @@ async function deliveryProfile(req, res) {
       profile: profileRows[0] || null,
       service_areas: areas,
       service_enabled: areas.length > 0,
+      wallet: await Wallet.findByUserId(currentUser.id),
       rating_summary: await Rating.summary('delivery_person', currentUser.id),
     });
   } catch (error) {

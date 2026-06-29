@@ -132,15 +132,37 @@ async function settleOrderPlacement({ orderId, actorId, connection }) {
 
 async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, connection }) {
   const [rows] = await connection.query(
-    `SELECT id, order_number, delivery_partner_id, delivery_charge
-     FROM client_orders WHERE id = ? FOR UPDATE`,
+    `SELECT o.id, o.order_number, o.status, o.delivery_status, o.delivery_partner_id,
+            o.delivery_wallet_settled_at, o.delivery_earning AS settled_delivery_earning,
+            COALESCE(accepted_offer.delivery_partner_earning, o.delivery_charge, 0) AS payable_delivery_earning
+     FROM client_orders o
+     LEFT JOIN delivery_order_offers accepted_offer
+       ON accepted_offer.order_id = o.id
+      AND accepted_offer.delivery_person_id = o.delivery_partner_id
+      AND accepted_offer.status = 'accepted'
+     WHERE o.id = ?
+     ORDER BY accepted_offer.id DESC
+     LIMIT 1
+     FOR UPDATE OF o`,
     [orderId]
   );
   if (!rows.length) throw new Error('Order not found for delivery settlement');
   const order = rows[0];
+  const orderDelivered = ['delivered', 'completed'].includes(String(order.status || '').toLowerCase())
+    || String(order.delivery_status || '').toLowerCase() === 'delivered';
+  if (!orderDelivered) {
+    return { deliveryPersonId: deliveryPersonId || order.delivery_partner_id || null, deliveryEarning: 0, skipped: 'not_delivered' };
+  }
+  if (order.delivery_wallet_settled_at) {
+    return {
+      deliveryPersonId: deliveryPersonId || order.delivery_partner_id || null,
+      deliveryEarning: money(order.settled_delivery_earning),
+      skipped: 'already_settled',
+    };
+  }
   const partnerId = Number(deliveryPersonId || order.delivery_partner_id || 0);
-  const deliveryCharge = money(order.delivery_charge);
-  if (!partnerId || deliveryCharge <= 0) {
+  const deliveryEarning = money(order.payable_delivery_earning);
+  if (!partnerId || deliveryEarning <= 0) {
     return { deliveryPersonId: partnerId || null, deliveryEarning: 0 };
   }
   const displayOrder = order.order_number || order.id;
@@ -148,7 +170,7 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
     userId: partnerId,
     orderId: order.id,
     type: 'credit',
-    amount: deliveryCharge,
+    amount: deliveryEarning,
     component: 'delivery_person_earning',
     ledgerKey: `ORDER:${order.id}:DELIVERY_PERSON:EARNING`,
     reference: `ORDER_${order.id}`,
@@ -159,9 +181,9 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
   await connection.query(
     `UPDATE client_orders SET delivery_earning = ?, delivery_wallet_settled_at = CURRENT_TIMESTAMP,
      updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
-    [deliveryCharge, order.id]
+    [deliveryEarning, order.id]
   );
-  return { deliveryPersonId: partnerId, deliveryEarning: deliveryCharge };
+  return { deliveryPersonId: partnerId, deliveryEarning };
 }
 
 module.exports = {

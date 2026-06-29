@@ -5231,17 +5231,20 @@ app.get('/settings/debug/delivery-partner-test/partners', requireAuth, requirePe
                 STRING_AGG(DISTINCT COALESCE(NULLIF(TRIM(dps.area), ''), '*'), ', ' ORDER BY COALESCE(NULLIF(TRIM(dps.area), ''), '*')),
                 dpp.area,
                 '*'
-              ) AS area,
-              COALESCE(w.balance, 0) AS wallet_balance
+              ) AS area
        FROM users u
        LEFT JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
        LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
-       LEFT JOIN wallets w ON w.user_id = u.id
        WHERE ${where.join(' AND ')}
-       GROUP BY u.id, u.name, u.email, u.phone, dpp.city, dpp.area, w.balance
+       GROUP BY u.id, u.name, u.email, u.phone, dpp.city, dpp.area
        ORDER BY u.name ASC, u.id ASC`,
       params
     );
+    const walletBalances = new Map();
+    for (const partner of partners) {
+      const wallet = await Wallet.findByUserId(partner.id);
+      walletBalances.set(Number(partner.id), wallet ? Number(wallet.balance || 0) : 0);
+    }
 
     res.json({
       success: true,
@@ -5251,7 +5254,7 @@ app.get('/settings/debug/delivery-partner-test/partners', requireAuth, requirePe
         name: partner.name || '',
         city: partner.city || adminCity,
         area: partner.area || '*',
-        wallet_balance: Number(partner.wallet_balance || 0),
+        wallet_balance: walletBalances.get(Number(partner.id)) || 0,
       })),
     });
   } catch (error) {
@@ -5283,7 +5286,7 @@ app.post('/settings/debug/delivery-partner-test/:partnerId/send', requireAuth, r
          AND LOWER(u.role) = 'deliveryperson'
        ORDER BY CASE WHEN COALESCE(NULLIF(TRIM(dps.area), ''), '*') = '*' THEN 1 ELSE 0 END, dps.id ASC
        LIMIT 1
-       FOR UPDATE`,
+       FOR UPDATE OF u`,
       [adminCity, partnerId]
     );
     if (!partnerRows.length) {
