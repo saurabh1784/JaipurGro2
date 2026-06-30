@@ -1,4 +1,5 @@
 const CommissionSetting = require('../models/CommissionSetting');
+const LocationCommissionSetting = require('../models/LocationCommissionSetting');
 
 function responsePayload(settings) {
   const rows = Array.isArray(settings) ? settings : [];
@@ -14,8 +15,11 @@ function responsePayload(settings) {
 
 async function list(req, res) {
   try {
-    const settings = await CommissionSetting.list();
-    res.json({ success: true, ...responsePayload(settings) });
+    const [settings, locationSettings] = await Promise.all([
+      CommissionSetting.list(),
+      LocationCommissionSetting.listPayload(),
+    ]);
+    res.json({ success: true, ...responsePayload(settings), location_commissions: locationSettings });
   } catch (error) {
     console.error('Commission settings list error:', error);
     res.status(500).json({ success: false, message: 'Unable to load commission settings' });
@@ -24,6 +28,15 @@ async function list(req, res) {
 
 async function update(req, res) {
   try {
+    if (Array.isArray(req.body.location_commissions)) {
+      const locationSettings = await LocationCommissionSetting.saveMany(req.body.location_commissions);
+      return res.json({
+        success: true,
+        message: 'Location commission settings updated successfully',
+        location_commissions: locationSettings,
+      });
+    }
+
     const updatedSettings = await CommissionSetting.update({
       order_commission_percentage: req.body.order_commission_percentage,
       delivery_commission_percentage: req.body.delivery_commission_percentage,
@@ -38,6 +51,23 @@ async function update(req, res) {
     res.status(error.status || 500).json({
       success: false,
       message: error.status ? error.message : 'Unable to update commission settings',
+    });
+  }
+}
+
+async function removeLocation(req, res) {
+  try {
+    await LocationCommissionSetting.remove(req.params.id);
+    res.json({
+      success: true,
+      message: 'Location commission setting removed',
+      location_commissions: await LocationCommissionSetting.listPayload(),
+    });
+  } catch (error) {
+    console.error('Location commission delete error:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to remove location commission setting',
     });
   }
 }
@@ -60,4 +90,4 @@ function calculate(req, res) {
   });
 }
 
-module.exports = { list, update, calculate };
+module.exports = { list, update, calculate, removeLocation };

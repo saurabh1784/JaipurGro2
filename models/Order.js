@@ -727,14 +727,22 @@ async function updateStatus({ orderId, actorUser, newStatus, note = '' }) {
         [generateOtp(), actorUser ? actorUser.id : null, orderId]
       );
     }
-    if (deliveryStatus === 'delivered' && order.delivery_partner_id) {
-      await OrderWalletSettlement.settleDeliveryCompletion({
-        orderId,
-        deliveryPersonId: order.delivery_partner_id,
-        actorId: actorUser ? actorUser.id : order.delivery_partner_id,
-        connection,
-      });
-      await releaseDeliveryPersonIfIdle(connection, order.delivery_partner_id);
+    if (deliveryStatus === 'delivered') {
+      if (order.delivery_partner_id) {
+        await OrderWalletSettlement.settleDeliveryCompletion({
+          orderId,
+          deliveryPersonId: order.delivery_partner_id,
+          actorId: actorUser ? actorUser.id : order.delivery_partner_id,
+          connection,
+        });
+        await releaseDeliveryPersonIfIdle(connection, order.delivery_partner_id);
+      } else {
+        await OrderWalletSettlement.settleOrderCompletion({
+          orderId,
+          actorId: actorUser ? actorUser.id : null,
+          connection,
+        });
+      }
     }
 
     await connection.query(
@@ -2243,6 +2251,12 @@ async function markDelivered(orderId) {
         connection,
       });
       await releaseDeliveryPersonIfIdle(connection, rows[0].delivery_partner_id);
+    } else {
+      await OrderWalletSettlement.settleOrderCompletion({
+        orderId,
+        actorId: null,
+        connection,
+      });
     }
     await connection.commit();
     return { orderId, status: 'completed', deliveryStatus: 'delivered' };

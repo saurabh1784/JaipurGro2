@@ -45,6 +45,7 @@ const Quotation = require('./models/Quotation');
 const DeliveryPerson = require('./models/DeliveryPerson');
 const Catalog = require('./models/Catalog');
 const CommissionSetting = require('./models/CommissionSetting');
+const LocationCommissionSetting = require('./models/LocationCommissionSetting');
 const ProductSearch = require('./models/ProductSearch');
 const Promotion = require('./models/Promotion');
 const SupportTicket = require('./models/SupportTicket');
@@ -1955,6 +1956,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('area_definitions', 'delivery_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER platform_fee');
   await addColumnIfMissing('area_definitions', 'order_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
   await addColumnIfMissing('area_definitions', 'delivery_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER order_commission_percentage');
+  await LocationCommissionSetting.ensureTable(pool);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_type_area_settings (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -3946,11 +3948,24 @@ async function resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryO
     ? 0
     : money(areaPricing.delivery_charge !== null ? areaPricing.delivery_charge : delivery.delivery_charge);
   const platformFee = money(areaPricing.platform_fee);
-  const orderCommissionPercentage = money(areaPricing.order_commission_percentage);
-  const deliveryCommissionPercentage = money(areaPricing.delivery_commission_percentage);
+  const locationCommission = await LocationCommissionSetting.resolveForLocation({
+    city: addressSnapshot.shippingCity || areaPricing.city || vendorOrder.city || '',
+    area: addressSnapshot.shippingArea || areaPricing.area_name || addressSnapshot.shippingPincode || '',
+  }, connection);
+  const orderCommissionPercentage = money(
+    locationCommission
+      ? locationCommission.order_commission_percentage
+      : areaPricing.order_commission_percentage
+  );
+  const deliveryCommissionPercentage = money(
+    locationCommission
+      ? locationCommission.delivery_commission_percentage
+      : areaPricing.delivery_commission_percentage
+  );
 
   return {
     areaPricing,
+    locationCommission,
     delivery,
     platformFee,
     deliveryCharge,
@@ -4310,6 +4325,8 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
         area_definition_id: pricing.areaPricing.area_definition_id,
         area_name: pricing.areaPricing.area_name,
         city: pricing.areaPricing.city,
+        commission_area: pricing.locationCommission ? pricing.locationCommission.area : null,
+        commission_source: pricing.locationCommission ? (pricing.locationCommission.area === '*' ? 'city' : 'area') : 'area_definition',
         order_commission_percentage: pricing.orderCommissionPercentage,
         delivery_commission_percentage: pricing.deliveryCommissionPercentage,
       },
@@ -4594,6 +4611,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
               city: pricing.areaPricing.city,
               platform_fee: platformFee,
               delivery_charge: deliveryCharge,
+              commission_area: pricing.locationCommission ? pricing.locationCommission.area : null,
+              commission_source: pricing.locationCommission ? (pricing.locationCommission.area === '*' ? 'city' : 'area') : 'area_definition',
               order_commission_percentage: pricing.orderCommissionPercentage,
               delivery_commission_percentage: pricing.deliveryCommissionPercentage,
             }),
@@ -5986,6 +6005,7 @@ app.delete('/settings/delivery-partners/:id', requireAuth, requirePermission('se
 app.get('/settings/catalog-tree', requireAuth, requirePermission('settings.manage'), catalogController.tree);
 app.get('/settings/commissions', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.list);
 app.put('/settings/commissions', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.update);
+app.delete('/settings/commissions/location/:id', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.removeLocation);
 app.post('/settings/commissions/calculate', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.calculate);
 app.post('/settings/categories', requireAuth, requirePermission('settings.manage'), catalogController.createCategory);
 app.get('/settings/categories', requireAuth, requirePermission('settings.manage'), catalogController.listCategories);

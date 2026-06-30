@@ -624,7 +624,7 @@
         <section class="settings-panel" id="commissions" aria-labelledby="commissions-tab">
           <div class="panel-header commission-header">
             <h2>Commission Settings</h2>
-            <p>Configure platform deductions for order totals and delivery charges.</p>
+            <p>Configure platform deductions by customer city and mapped area.</p>
           </div>
 
           <div class="commission-toolbar commission-settings-toolbar">
@@ -636,35 +636,46 @@
               Delivery Charge Preview
               <input id="deliveryCommissionPreviewAmount" type="number" min="0" step="0.01" value="50" />
             </label>
-            <button class="settings-save" type="button" onclick="saveCommissionSettings()">Save Commission</button>
+            <button class="settings-save" type="button" onclick="saveCommissionSettings()">Save All Commissions</button>
           </div>
 
           <div class="settings-grid commission-settings-grid">
             <label>
-              Order Commission (%)
-              <input id="orderCommissionPercentage" type="number" min="0" max="100" step="0.01" value="0" />
-              <small class="commission-subtext">Applied to the total order amount.</small>
+              City
+              <input id="commissionCityInput" type="text" list="commissionCityOptions" placeholder="Jaipur" />
             </label>
             <label>
-              Delivery Commission (%)
-              <input id="deliveryCommissionPercentage" type="number" min="0" max="100" step="0.01" value="0" />
-              <small class="commission-subtext">Applied only to the delivery charge.</small>
+              Area
+              <select id="commissionAreaInput"></select>
+              <small class="commission-subtext">Use City Default for city-wise commission.</small>
             </label>
+            <label>
+              Platform Fees / Order Commission (%)
+              <input id="commissionOrderInput" type="number" min="0" max="100" step="0.01" value="0" />
+            </label>
+            <label>
+              Delivery Charge Commission (%)
+              <input id="commissionDeliveryInput" type="number" min="0" max="100" step="0.01" value="0" />
+            </label>
+            <button class="settings-save" type="button" onclick="addCommissionSetting()">Add / Update Row</button>
           </div>
+          <datalist id="commissionCityOptions"></datalist>
 
           <div class="catalog-table-card commission-table-card">
             <table class="catalog-table commission-table">
               <thead>
                 <tr>
-                  <th>Commission</th>
-                  <th>Base Amount</th>
-                  <th>Deducted</th>
-                  <th>Net Earning</th>
-                  <th>Platform/Admin Earning</th>
+                  <th>City</th>
+                  <th>Area</th>
+                  <th>Platform Fees / Order Commission</th>
+                  <th>Delivery Charge Commission</th>
+                  <th>Preview</th>
+                  <th>Status</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
               <tbody id="commissionPreviewBody">
-                <tr><td colspan="5">Loading commission settings...</td></tr>
+                <tr><td colspan="7">Loading commission settings...</td></tr>
               </tbody>
             </table>
           </div>
@@ -1452,6 +1463,8 @@
     }
 
     let commissionSettings = [];
+    let commissionCities = [];
+    let commissionAreas = [];
     let deliveryPartnerSettings = [];
     let deliveryCities = [];
     let deliveryAreas = [];
@@ -1761,17 +1774,137 @@
     async function loadCommissionSettings() {
       const body = document.getElementById('commissionPreviewBody');
       if (!body) return;
-      body.innerHTML = '<tr><td colspan="5">Loading commission settings...</td></tr>';
+      body.innerHTML = '<tr><td colspan="7">Loading commission settings...</td></tr>';
       try {
         const response = await fetch('/settings/commissions');
         const data = await response.json();
         if (!data.success) throw new Error(data.message || 'Unable to load commission settings');
-        commissionSettings = data.settings || [];
-        document.getElementById('orderCommissionPercentage').value = Number(data.order_commission_percentage || 0);
-        document.getElementById('deliveryCommissionPercentage').value = Number(data.delivery_commission_percentage || 0);
+        const locationPayload = data.location_commissions || {};
+        commissionSettings = locationPayload.settings || [];
+        commissionCities = locationPayload.cities || [];
+        commissionAreas = locationPayload.areas || [];
+        renderCommissionCityOptions();
+        renderCommissionAreaOptions();
         renderCommissionSettings();
       } catch (error) {
-        body.innerHTML = `<tr><td colspan="5">${escapeCatalog(error.message)}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="7">${escapeCatalog(error.message)}</td></tr>`;
+      }
+    }
+
+    function commissionKey(row) {
+      return `${String(row.city || '').trim().toLowerCase()}::${String(row.area || '*').trim().toLowerCase() || '*'}`;
+    }
+
+    function commissionAreaLabel(area) {
+      return area === '*' ? 'City Default' : area;
+    }
+
+    function renderCommissionCityOptions() {
+      const datalist = document.getElementById('commissionCityOptions');
+      if (!datalist) return;
+      const citySet = new Set(commissionCities);
+      commissionSettings.forEach((row) => {
+        if (row.city) citySet.add(row.city);
+      });
+      datalist.innerHTML = Array.from(citySet)
+        .sort((a, b) => a.localeCompare(b))
+        .map((city) => `<option value="${escapeCatalog(city)}"></option>`)
+        .join('');
+    }
+
+    function renderCommissionAreaOptions() {
+      const select = document.getElementById('commissionAreaInput');
+      if (!select) return;
+      const city = document.getElementById('commissionCityInput').value.trim();
+      const cityAreas = commissionAreas
+        .filter((area) => !city || String(area.city || '').toLowerCase() === city.toLowerCase())
+        .sort((a, b) => String(a.area || '').localeCompare(String(b.area || '')));
+      const options = ['<option value="*">City Default</option>']
+        .concat(cityAreas.map((area) => `<option value="${escapeCatalog(area.area)}">${escapeCatalog(area.area)}</option>`));
+      select.innerHTML = options.join('');
+    }
+
+    function addCommissionSetting() {
+      const cityInput = document.getElementById('commissionCityInput');
+      const areaInput = document.getElementById('commissionAreaInput');
+      const orderInput = document.getElementById('commissionOrderInput');
+      const deliveryInput = document.getElementById('commissionDeliveryInput');
+      const city = cityInput.value.trim();
+      const area = areaInput.value.trim() || '*';
+      const orderPercent = Number(orderInput.value || 0);
+      const deliveryPercent = Number(deliveryInput.value || 0);
+      const message = document.getElementById('commissionMessage');
+
+      if (!city) {
+        message.textContent = 'Choose a city before adding a commission row.';
+        return;
+      }
+      if (orderPercent < 0 || orderPercent > 100 || deliveryPercent < 0 || deliveryPercent > 100) {
+        message.textContent = 'Commission percentages must be between 0 and 100.';
+        return;
+      }
+
+      const next = {
+        city,
+        area,
+        order_commission_percentage: orderPercent,
+        delivery_commission_percentage: deliveryPercent,
+        is_active: true,
+      };
+      const existingIndex = commissionSettings.findIndex((row) => commissionKey(row) === commissionKey(next));
+      if (existingIndex >= 0) {
+        commissionSettings[existingIndex] = { ...commissionSettings[existingIndex], ...next };
+      } else {
+        commissionSettings.push(next);
+      }
+      renderCommissionCityOptions();
+      renderCommissionSettings();
+      message.textContent = `${commissionAreaLabel(area)} commission staged for ${city}. Click Save All Commissions to apply.`;
+    }
+
+    function editCommissionSetting(index) {
+      const row = commissionSettings[index];
+      if (!row) return;
+      document.getElementById('commissionCityInput').value = row.city || '';
+      renderCommissionAreaOptions();
+      document.getElementById('commissionAreaInput').value = row.area || '*';
+      document.getElementById('commissionOrderInput').value = Number(row.order_commission_percentage || 0);
+      document.getElementById('commissionDeliveryInput').value = Number(row.delivery_commission_percentage || 0);
+      document.getElementById('commissionMessage').textContent = 'Edit the values, then click Add / Update Row.';
+    }
+
+    function toggleCommissionSetting(index) {
+      const row = commissionSettings[index];
+      if (!row) return;
+      row.is_active = !row.is_active;
+      renderCommissionSettings();
+    }
+
+    async function deleteCommissionSetting(index) {
+      const row = commissionSettings[index];
+      if (!row) return;
+      if (!confirm(`Remove commission for ${row.city} / ${commissionAreaLabel(row.area || '*')}?`)) return;
+      if (!row.id) {
+        commissionSettings.splice(index, 1);
+        renderCommissionSettings();
+        return;
+      }
+      const message = document.getElementById('commissionMessage');
+      message.textContent = 'Removing commission setting...';
+      try {
+        const response = await fetch(`/settings/commissions/location/${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to remove commission setting');
+        const locationPayload = data.location_commissions || {};
+        commissionSettings = locationPayload.settings || [];
+        commissionCities = locationPayload.cities || commissionCities;
+        commissionAreas = locationPayload.areas || commissionAreas;
+        renderCommissionCityOptions();
+        renderCommissionAreaOptions();
+        renderCommissionSettings();
+        message.textContent = data.message;
+      } catch (error) {
+        message.textContent = error.message;
       }
     }
 
@@ -1780,33 +1913,41 @@
       if (!body) return;
       const orderAmount = Number(document.getElementById('commissionPreviewAmount').value || 0);
       const deliveryCharge = Number(document.getElementById('deliveryCommissionPreviewAmount').value || 0);
-      const orderPercent = Number(document.getElementById('orderCommissionPercentage').value || 0);
-      const deliveryPercent = Number(document.getElementById('deliveryCommissionPercentage').value || 0);
-      const orderCommission = Number(Math.max((orderAmount * orderPercent) / 100, 0).toFixed(2));
-      const deliveryCommission = Number(Math.max((deliveryCharge * deliveryPercent) / 100, 0).toFixed(2));
-      const deliveryNet = Number(Math.max(deliveryCharge - deliveryCommission, 0).toFixed(2));
-      body.innerHTML = `
-        <tr>
-          <td>
-            <strong>Order Commission</strong>
-            <span class="commission-subtext">Total order amount</span>
-          </td>
-          <td>${orderAmount.toFixed(2)}</td>
-          <td>${orderCommission.toFixed(2)}</td>
-          <td>${Math.max(orderAmount - orderCommission, 0).toFixed(2)}</td>
-          <td>${orderCommission.toFixed(2)}</td>
-        </tr>
-        <tr>
-          <td>
-            <strong>Delivery Commission</strong>
-            <span class="commission-subtext">Delivery charge only</span>
-          </td>
-          <td>${deliveryCharge.toFixed(2)}</td>
-          <td>${deliveryCommission.toFixed(2)}</td>
-          <td>${deliveryNet.toFixed(2)}</td>
-          <td>${deliveryCommission.toFixed(2)}</td>
-        </tr>
-      `;
+      if (!commissionSettings.length) {
+        body.innerHTML = '<tr><td colspan="7">No city or area commission settings yet.</td></tr>';
+        return;
+      }
+      body.innerHTML = commissionSettings
+        .map((row, index) => {
+          const orderPercent = Number(row.order_commission_percentage || 0);
+          const deliveryPercent = Number(row.delivery_commission_percentage || 0);
+          const orderCommission = Number(Math.max((orderAmount * orderPercent) / 100, 0).toFixed(2));
+          const deliveryCommission = Number(Math.max((deliveryCharge * deliveryPercent) / 100, 0).toFixed(2));
+          const active = row.is_active !== false;
+          return `
+            <tr class="${active ? '' : 'commission-row-inactive'}">
+              <td><strong>${escapeCatalog(row.city)}</strong></td>
+              <td>${escapeCatalog(commissionAreaLabel(row.area || '*'))}</td>
+              <td>
+                <input class="commission-inline-input" type="number" min="0" max="100" step="0.01" value="${orderPercent}" onchange="commissionSettings[${index}].order_commission_percentage = Number(this.value || 0); renderCommissionSettings();" />
+              </td>
+              <td>
+                <input class="commission-inline-input" type="number" min="0" max="100" step="0.01" value="${deliveryPercent}" onchange="commissionSettings[${index}].delivery_commission_percentage = Number(this.value || 0); renderCommissionSettings();" />
+              </td>
+              <td>
+                <strong>Order ${orderCommission.toFixed(2)}</strong>
+                <span class="commission-subtext">Delivery ${deliveryCommission.toFixed(2)} / Partner ${(Math.max(deliveryCharge - deliveryCommission, 0)).toFixed(2)}</span>
+              </td>
+              <td>${active ? 'Active' : 'Inactive'}</td>
+              <td>
+                <button class="product-secondary-button area-row-button" type="button" onclick="editCommissionSetting(${index})">Edit</button>
+                <button class="product-secondary-button area-row-button" type="button" onclick="toggleCommissionSetting(${index})">${active ? 'Disable' : 'Enable'}</button>
+                <button class="danger-action-button area-row-button" type="button" onclick="deleteCommissionSetting(${index})">Delete</button>
+              </td>
+            </tr>
+          `;
+        })
+        .join('');
     }
 
     async function saveCommissionSettings() {
@@ -1817,16 +1958,16 @@
         const response = await fetch('/settings/commissions', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            order_commission_percentage: Number(document.getElementById('orderCommissionPercentage').value || 0),
-            delivery_commission_percentage: Number(document.getElementById('deliveryCommissionPercentage').value || 0),
-          }),
+          body: JSON.stringify({ location_commissions: commissionSettings }),
         });
         const data = await response.json();
         if (!data.success) throw new Error(data.message || 'Unable to save commission settings');
-        commissionSettings = data.settings || [];
-        document.getElementById('orderCommissionPercentage').value = Number(data.order_commission_percentage || 0);
-        document.getElementById('deliveryCommissionPercentage').value = Number(data.delivery_commission_percentage || 0);
+        const locationPayload = data.location_commissions || {};
+        commissionSettings = locationPayload.settings || [];
+        commissionCities = locationPayload.cities || commissionCities;
+        commissionAreas = locationPayload.areas || commissionAreas;
+        renderCommissionCityOptions();
+        renderCommissionAreaOptions();
         message.textContent = data.message;
         renderCommissionSettings();
       } catch (error) {
@@ -2131,11 +2272,20 @@
     [
       'commissionPreviewAmount',
       'deliveryCommissionPreviewAmount',
-      'orderCommissionPercentage',
-      'deliveryCommissionPercentage',
+      'commissionOrderInput',
+      'commissionDeliveryInput',
     ].forEach((id) => {
       const input = document.getElementById(id);
       if (input) input.addEventListener('input', renderCommissionSettings);
+    });
+    document.getElementById('commissionCityInput')?.addEventListener('input', renderCommissionAreaOptions);
+    document.getElementById('commissionAreaInput')?.addEventListener('change', () => {
+      const city = document.getElementById('commissionCityInput').value.trim();
+      const area = document.getElementById('commissionAreaInput').value.trim() || '*';
+      const existing = commissionSettings.find((row) => commissionKey(row) === commissionKey({ city, area }));
+      if (!existing) return;
+      document.getElementById('commissionOrderInput').value = Number(existing.order_commission_percentage || 0);
+      document.getElementById('commissionDeliveryInput').value = Number(existing.delivery_commission_percentage || 0);
     });
     document.getElementById('roleSettingsSelect').addEventListener('change', renderRoleSettings);
     document.getElementById('googleMapsForm').addEventListener('submit', saveGoogleMapSettings);
@@ -2462,6 +2612,19 @@
       background: #fff;
       font-weight: 700;
       color: #334155;
+    }
+    .commission-inline-input {
+      width: 92px;
+      min-height: 36px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      padding: 7px 8px;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .commission-row-inactive {
+      opacity: 0.62;
+      background: #f8fafc;
     }
     .delivery-partner-toolbar {
       display: flex;

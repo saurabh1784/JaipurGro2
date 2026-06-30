@@ -55,7 +55,39 @@ async function settleOrderPlacement({ orderId, actorId, connection }) {
   );
   if (!rows.length) throw new Error('Order not found for wallet settlement');
   const order = rows[0];
-  if (!order.vendor_id) throw new Error('Order vendor is required for wallet settlement');
+
+  const totalPaid = money(order.total_amount);
+  const deliveryCharge = Math.min(money(order.delivery_charge), totalPaid);
+  const platformFee = Math.min(money(order.platform_fee), totalPaid);
+  const displayOrder = order.order_number || order.id;
+
+  await Wallet.applyLedgerEntry({
+    userId: order.user_id,
+    orderId: order.id,
+    type: 'debit',
+    amount: totalPaid,
+    component: 'client_order_payment',
+    ledgerKey: `ORDER:${order.id}:CLIENT:PAYMENT`,
+    reference: `ORDER_${order.id}`,
+    note: `Payment for order #${displayOrder}, including delivery charge INR ${deliveryCharge.toFixed(2)}`,
+    createdBy: actorId || order.user_id,
+    connection,
+  });
+
+  return { totalPaid, deliveryCharge, platformFee };
+}
+
+async function settleOrderCompletion({ orderId, actorId, connection }) {
+  const [rows] = await connection.query(
+    `SELECT id, order_number, user_id, vendor_id, total_amount, subtotal_amount,
+            discount_amount, delivery_charge, platform_fee, order_commission_amount,
+            area_pricing_snapshot, wallet_settled_at, platform_charge, vendor_earning
+     FROM client_orders WHERE id = ? FOR UPDATE`,
+    [orderId]
+  );
+  if (!rows.length) throw new Error('Order not found for completion settlement');
+  const order = rows[0];
+  if (!order.vendor_id) throw new Error('Order vendor is required for completion settlement');
 
   const totalPaid = money(order.total_amount);
   const deliveryCharge = Math.min(money(order.delivery_charge), totalPaid);
@@ -72,18 +104,18 @@ async function settleOrderPlacement({ orderId, actorId, connection }) {
   const admin = await platformAdmin(connection);
   const displayOrder = order.order_number || order.id;
 
-  await Wallet.applyLedgerEntry({
-    userId: order.user_id,
-    orderId: order.id,
-    type: 'debit',
-    amount: totalPaid,
-    component: 'client_order_payment',
-    ledgerKey: `ORDER:${order.id}:CLIENT:PAYMENT`,
-    reference: `ORDER_${order.id}`,
-    note: `Payment for order #${displayOrder}, including delivery charge INR ${deliveryCharge.toFixed(2)}`,
-    createdBy: actorId || order.user_id,
-    connection,
-  });
+  if (order.wallet_settled_at) {
+    return {
+      totalPaid,
+      deliveryCharge,
+      platformFee,
+      vendorGross,
+      orderCommission: money(order.platform_charge || orderCommission),
+      vendorEarning: money(order.vendor_earning || vendorEarning),
+      adminUserId: admin.id,
+      skipped: 'already_settled',
+    };
+  }
 
   await Wallet.applyLedgerEntry({
     userId: admin.id,
@@ -167,10 +199,12 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
   if (!orderDelivered) {
     return { deliveryPersonId: deliveryPersonId || order.delivery_partner_id || null, deliveryEarning: 0, skipped: 'not_delivered' };
   }
+  const orderSettlement = await settleOrderCompletion({ orderId, actorId, connection });
   if (order.delivery_wallet_settled_at) {
     return {
       deliveryPersonId: deliveryPersonId || order.delivery_partner_id || null,
       deliveryEarning: money(order.settled_delivery_earning),
+      orderSettlement,
       skipped: 'already_settled',
     };
   }
@@ -185,7 +219,7 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
   );
   const deliveryEarning = money(deliveryCharge - deliveryCommission);
   if (!partnerId || deliveryCharge <= 0) {
-    return { deliveryPersonId: partnerId || null, deliveryEarning: 0 };
+    return { deliveryPersonId: partnerId || null, deliveryEarning: 0, orderSettlement };
   }
   const admin = await platformAdmin(connection);
   const displayOrder = order.order_number || order.id;
@@ -224,11 +258,12 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
      updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     [deliveryEarning, order.id]
   );
-  return { deliveryPersonId: partnerId, deliveryCharge, deliveryCommission, deliveryEarning, adminUserId: admin.id };
+  return { deliveryPersonId: partnerId, deliveryCharge, deliveryCommission, deliveryEarning, adminUserId: admin.id, orderSettlement };
 }
 
 module.exports = {
   assertSufficientBalance,
+  settleOrderCompletion,
   settleOrderPlacement,
   settleDeliveryCompletion,
 };

@@ -25,11 +25,24 @@ async function candidateOrders() {
   const [rows] = await db.query(`
     SELECT o.id, o.order_number, o.user_id, o.vendor_id, o.delivery_partner_id,
            o.total_amount, o.delivery_charge, o.status, o.delivery_status,
-           o.wallet_settled_at, o.delivery_wallet_settled_at
+           o.wallet_settled_at, o.delivery_wallet_settled_at,
+           client_tx.id AS client_payment_tx_id,
+           vendor_tx.id AS vendor_earning_tx_id,
+           platform_tx.id AS platform_fee_tx_id,
+           order_commission_tx.id AS order_commission_tx_id,
+           delivery_tx.id AS delivery_earning_tx_id,
+           delivery_commission_tx.id AS delivery_commission_tx_id
     FROM client_orders o
-    WHERE o.wallet_settled_at IS NULL
+    LEFT JOIN wallet_transactions client_tx ON client_tx.order_id = o.id AND client_tx.component = 'client_order_payment'
+    LEFT JOIN wallet_transactions vendor_tx ON vendor_tx.order_id = o.id AND vendor_tx.component = 'vendor_order_earning'
+    LEFT JOIN wallet_transactions platform_tx ON platform_tx.order_id = o.id AND platform_tx.component = 'admin_platform_fee'
+    LEFT JOIN wallet_transactions order_commission_tx ON order_commission_tx.order_id = o.id AND order_commission_tx.component = 'admin_order_commission'
+    LEFT JOIN wallet_transactions delivery_tx ON delivery_tx.order_id = o.id AND delivery_tx.component = 'delivery_person_earning'
+    LEFT JOIN wallet_transactions delivery_commission_tx ON delivery_commission_tx.order_id = o.id AND delivery_commission_tx.component = 'admin_delivery_commission'
+    WHERE client_tx.id IS NULL
        OR ((o.status IN ('delivered', 'completed') OR o.delivery_status = 'delivered')
-           AND o.delivery_partner_id IS NOT NULL AND o.delivery_wallet_settled_at IS NULL)
+           AND (vendor_tx.id IS NULL OR platform_tx.id IS NULL OR order_commission_tx.id IS NULL
+             OR (o.delivery_partner_id IS NOT NULL AND (delivery_tx.id IS NULL OR delivery_commission_tx.id IS NULL))))
     ORDER BY o.id
   `);
   return rows;
@@ -39,8 +52,8 @@ async function reconcileOrder(order) {
   const connection = await db.getConnection();
   try {
     await connection.beginTransaction();
-    const result = { orderId: Number(order.id), placement: null, delivery: null };
-    if (!order.wallet_settled_at) {
+    const result = { orderId: Number(order.id), placement: null, completion: null, delivery: null };
+    if (!order.client_payment_tx_id) {
       result.placement = await Settlement.settleOrderPlacement({
         orderId: order.id,
         actorId: order.user_id,
@@ -49,13 +62,22 @@ async function reconcileOrder(order) {
     }
     const completed = ['delivered', 'completed'].includes(String(order.status || '').toLowerCase())
       || String(order.delivery_status || '').toLowerCase() === 'delivered';
-    if (completed && order.delivery_partner_id && !order.delivery_wallet_settled_at) {
-      result.delivery = await Settlement.settleDeliveryCompletion({
-        orderId: order.id,
-        deliveryPersonId: order.delivery_partner_id,
-        actorId: order.delivery_partner_id,
-        connection,
-      });
+    if (completed) {
+      if (!order.vendor_earning_tx_id || !order.platform_fee_tx_id || !order.order_commission_tx_id) {
+        result.completion = await Settlement.settleOrderCompletion({
+          orderId: order.id,
+          actorId: order.delivery_partner_id || order.user_id,
+          connection,
+        });
+      }
+      if (order.delivery_partner_id && (!order.delivery_earning_tx_id || !order.delivery_commission_tx_id)) {
+        result.delivery = await Settlement.settleDeliveryCompletion({
+          orderId: order.id,
+          deliveryPersonId: order.delivery_partner_id,
+          actorId: order.delivery_partner_id,
+          connection,
+        });
+      }
     }
     await connection.commit();
     return { ...result, status: 'reconciled' };
