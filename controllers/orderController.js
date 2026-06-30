@@ -81,6 +81,10 @@ function clientSafeOrder(order) {
 function deliveryPartnerSafeOrder(order, financial) {
   if (!order) return order;
   const clone = { ...order };
+  const assignedEarning = Number(order.delivery_partner_earning || order.delivery_earning || order.delivery_charge || 0);
+  const calculatedEarning = Number(financial && financial.deliveryEarning || 0);
+  const deliveryEarning = calculatedEarning > 0 ? calculatedEarning : assignedEarning;
+  const rawNotificationPayload = clone.notification_payload;
   delete clone.delivery_otp;
   delete clone.pickup_otp;
   delete clone.total_amount;
@@ -94,13 +98,25 @@ function deliveryPartnerSafeOrder(order, financial) {
   delete clone.coupon_code;
   delete clone.discount_id;
   delete clone.discount_label;
-  clone.delivery_earning = financial.deliveryEarning;
+  clone.delivery_earning = deliveryEarning;
+  if (rawNotificationPayload) {
+    let notificationPayload = rawNotificationPayload;
+    if (typeof rawNotificationPayload === 'string') {
+      try {
+        notificationPayload = JSON.parse(rawNotificationPayload);
+      } catch (_) {
+        notificationPayload = null;
+      }
+    }
+    if (notificationPayload && typeof notificationPayload === 'object' && !Array.isArray(notificationPayload)) {
+      clone.notification_payload = { ...notificationPayload };
+    }
+  }
   if (clone.notification_payload && typeof clone.notification_payload === 'object') {
-    clone.notification_payload = { ...clone.notification_payload };
     delete clone.notification_payload.delivery_charge;
     delete clone.notification_payload.platform_fee;
     delete clone.notification_payload.delivery_partner_earning;
-    clone.notification_payload.delivery_earning = financial.deliveryEarning;
+    clone.notification_payload.delivery_earning = deliveryEarning;
   }
   return clone;
 }

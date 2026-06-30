@@ -210,7 +210,9 @@ function normalizeOrder(row, includeItems = false) {
     delivery_method: row.delivery_method || 'partner',
     delivery_type: row.delivery_type || DeliveryType.typeForMethod(row.delivery_method || 'partner'),
     delivery_partner_id: row.delivery_partner_id || null,
-    delivery_partner_name: row.delivery_method === 'own_delivery' ? 'Own Delivery' : row.delivery_partner_name || '',
+    external_delivery_provider_id: row.external_delivery_provider_id || null,
+    external_delivery_provider_name: row.external_delivery_provider_name || '',
+    delivery_partner_name: row.external_delivery_provider_name || (row.delivery_method === 'own_delivery' ? 'Own Delivery' : row.delivery_partner_name || ''),
     delivery_otp: row.delivery_otp || '',
     delivery_otp_attempts: Number(row.delivery_otp_attempts || 0),
     delivery_otp_max_attempts: DELIVERY_OTP_MAX_ATTEMPTS,
@@ -607,6 +609,18 @@ function effectiveDeliveryCharge(value) {
   return money(value);
 }
 
+function externalProviderToken(id) {
+  return -Math.abs(Number(id) || 0);
+}
+
+function externalProviderId(value) {
+  const text = String(value || '').trim().toLowerCase();
+  const numeric = Number(text);
+  if (Number.isFinite(numeric) && numeric < 0) return Math.abs(numeric);
+  if (!text.startsWith('external:')) return 0;
+  return Number(text.slice('external:'.length)) || 0;
+}
+
 function deliveryOfferExpirySql() {
   return `CURRENT_TIMESTAMP + INTERVAL '${DELIVERY_OFFER_EXPIRY_MINUTES} minutes'`;
 }
@@ -745,7 +759,7 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
     const order = orderRows[0];
     const assignedDeliveryCharge = order.wallet_settled_at
       ? money(order.delivery_charge)
-      : effectiveDeliveryCharge(deliveryCharge);
+      : effectiveDeliveryCharge(Number(deliveryCharge || order.delivery_charge || 0));
     const assignableDeliveryStatuses = ['pending', 'assigned', 'ready_to_deliver'];
     const deliveryStatus = String(order.delivery_status || 'pending').toLowerCase();
     const orderStatus = String(order.status || '').toLowerCase();
@@ -768,6 +782,8 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
       await connection.query(
         `UPDATE client_orders
          SET delivery_partner_id = NULL,
+             external_delivery_provider_id = NULL,
+             external_delivery_provider_name = NULL,
              delivery_method = 'own_delivery',
              delivery_type = 'delivered_by_vendor',
              delivery_otp = ?,
@@ -809,6 +825,100 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
 
       await connection.commit();
       return { orderId, partnerId: 'own_delivery', otp, deliveryCharge: assignedDeliveryCharge, otpSetBy: actorUser ? actorUser.id : null };
+    }
+
+    const selectedExternalProviderId = externalProviderId(partnerId);
+    if (selectedExternalProviderId) {
+      const [providerRows] = await connection.query(
+        `SELECT id, name, slug, phone, email, city, area
+         FROM external_delivery_providers
+         WHERE id = ?
+           AND is_active = 1
+           AND (TRIM(COALESCE(city, '*')) = '*' OR LOWER(TRIM(city)) = LOWER(TRIM(CAST(? AS TEXT))))
+           AND (
+             TRIM(COALESCE(area, '*')) = '*'
+             OR LOWER(TRIM(area)) = LOWER(TRIM(CAST(? AS TEXT)))
+             OR LOWER(TRIM(area)) = LOWER(TRIM(CAST(? AS TEXT)))
+           )
+         LIMIT 1`,
+        [
+          selectedExternalProviderId,
+          order.shipping_city || '',
+          order.shipping_area || '',
+          order.shipping_pincode || '',
+        ]
+      );
+      if (!providerRows.length) {
+        const error = new Error('External delivery provider is not active for this order area');
+        error.status = 422;
+        throw error;
+      }
+      const provider = providerRows[0];
+
+      await connection.query(
+        `UPDATE client_orders
+         SET delivery_partner_id = NULL,
+             external_delivery_provider_id = ?,
+             external_delivery_provider_name = ?,
+             delivery_method = 'external_provider',
+             delivery_type = 'delivery_partner',
+             delivery_otp = ?,
+             pickup_otp = COALESCE(pickup_otp, ?),
+             delivery_charge = ?,
+             auto_delivery_offer_id = NULL,
+             otp_set_by = ?,
+             otp_set_at = CURRENT_TIMESTAMP,
+             delivery_status = CASE WHEN delivery_status = 'ready_to_deliver' THEN delivery_status ELSE 'assigned' END,
+             assigned_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ?`,
+        [provider.id, provider.name, otp, generateOtp(), assignedDeliveryCharge, actorUser ? actorUser.id : null, orderId]
+      );
+
+      await connection.query(
+        `UPDATE delivery_order_offers
+         SET status = 'expired',
+             response_note = COALESCE(response_note, 'Superseded by manual external provider assignment'),
+             responded_at = COALESCE(responded_at, CURRENT_TIMESTAMP),
+             updated_at = CURRENT_TIMESTAMP
+         WHERE order_id = ? AND status = 'pending'`,
+        [orderId]
+      );
+
+      await connection.query(
+        `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
+         VALUES (?, ?, ?, ?, ?, ?)`,
+        [
+          orderId,
+          order.delivery_status,
+          'assigned',
+          actorUser ? actorUser.id : null,
+          actorUser ? actorUser.role : null,
+          `OTP set, delivery charge ${assignedDeliveryCharge}, and external delivery provider ${provider.name} assigned`,
+        ]
+      );
+
+      await connection.query(
+        `INSERT INTO user_notifications (user_id, title, message, link)
+         VALUES (?, ?, ?, ?)`,
+        [
+          order.user_id,
+          `Order #${orderDisplayNumber(order)} delivery assigned`,
+          `${provider.name} has been assigned for order #${orderDisplayNumber(order)}.`,
+          '/orders/client',
+        ]
+      );
+
+      await connection.commit();
+      return {
+        orderId,
+        partnerId: externalProviderToken(provider.id),
+        externalProviderId: Number(provider.id),
+        externalProviderName: provider.name,
+        otp,
+        deliveryCharge: assignedDeliveryCharge,
+        otpSetBy: actorUser ? actorUser.id : null,
+      };
     }
 
     // Admin/staff manual assignment can use any active, available, free delivery partner.
@@ -856,6 +966,8 @@ async function assignDeliveryPartner(orderId, partnerId, otp, deliveryCharge = 0
     await connection.query(
       `UPDATE client_orders
        SET delivery_partner_id = ?,
+           external_delivery_provider_id = NULL,
+           external_delivery_provider_name = NULL,
            delivery_method = 'partner',
            delivery_type = 'delivery_partner',
            delivery_otp = ?,
@@ -1013,6 +1125,26 @@ async function listFreeDeliveryPartnersForOrder(orderId) {
     ]
   );
 
+  const [externalRows] = await pool.query(
+    `SELECT id, name, slug, phone, email, city, area
+     FROM external_delivery_providers
+     WHERE is_active = 1
+       AND (TRIM(COALESCE(city, '*')) = '*' OR LOWER(TRIM(city)) = LOWER(TRIM(CAST(? AS TEXT))))
+       AND (
+         TRIM(COALESCE(area, '*')) = '*'
+         OR LOWER(TRIM(area)) = LOWER(TRIM(CAST(? AS TEXT)))
+         OR LOWER(TRIM(area)) = LOWER(TRIM(CAST(? AS TEXT)))
+       )
+     ORDER BY CASE WHEN TRIM(COALESCE(city, '*')) = '*' THEN 1 ELSE 0 END,
+              CASE WHEN TRIM(COALESCE(area, '*')) = '*' THEN 1 ELSE 0 END,
+              name ASC`,
+    [
+      order.shipping_city || '',
+      order.shipping_area || '',
+      order.shipping_pincode || '',
+    ]
+  );
+
   return {
     orderId: Number(orderId),
     pickup: {
@@ -1020,8 +1152,10 @@ async function listFreeDeliveryPartnersForOrder(orderId) {
       latitude: pickupLatitude,
       longitude: pickupLongitude,
     },
-    partners: rows.map((row) => ({
+    partners: [
+      ...rows.map((row) => ({
       id: Number(row.id),
+      type: 'internal',
       name: row.name || '',
       email: row.email || '',
       phone: row.phone || '',
@@ -1034,6 +1168,24 @@ async function listFreeDeliveryPartnersForOrder(orderId) {
       rejected_count_7d: Number(row.rejected_count_7d || 0),
       current_status: 'Free',
     })),
+      ...externalRows.map((row) => ({
+        id: externalProviderToken(row.id),
+        provider_id: Number(row.id),
+        type: 'external',
+        name: row.name || '',
+        slug: row.slug || '',
+        email: row.email || '',
+        phone: row.phone || '',
+        city: row.city || '*',
+        area: row.area || '*',
+        current_latitude: null,
+        current_longitude: null,
+        distance_km: null,
+        last_seen_at: null,
+        rejected_count_7d: 0,
+        current_status: 'External Provider',
+      })),
+    ],
   };
 }
 
@@ -2259,6 +2411,7 @@ function deliveryProgressLabel(row) {
   if (deliveryStatus === 'out_for_delivery') return 'Out for delivery';
   if (orderStatus === 'picked_up') return 'Picked up';
   if (deliveryStatus === 'ready_to_deliver') return 'Pickup pending';
+  if (row.external_delivery_provider_id) return 'Delivery partner assigned';
   if (row.delivery_partner_id) return 'Delivery person assigned';
   if (!row.delivery_partner_id && row.latest_rejection_at) return 'Rejected';
   if (offerStatus === 'rejected') return 'Rejected';
@@ -2272,6 +2425,7 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
   const offset = (currentPage - 1) * pageSize;
   const where = [
     `(o.delivery_method IN ('in_house_auto', 'own_delivery')
+      OR o.external_delivery_provider_id IS NOT NULL
       OR dof.id IS NOT NULL
       OR dpp.user_id IS NOT NULL
       OR latest_rejection.delivery_person_id IS NOT NULL)`,
@@ -2298,9 +2452,9 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
   if (status) {
     const value = String(status).trim().toLowerCase();
     if (value === 'waiting') {
-      where.push(`o.delivery_partner_id IS NULL AND COALESCE(dof.status, 'pending') = 'pending' AND o.delivery_status NOT IN ('delivered', 'cancelled')`);
+      where.push(`o.delivery_partner_id IS NULL AND o.external_delivery_provider_id IS NULL AND COALESCE(dof.status, 'pending') = 'pending' AND o.delivery_status NOT IN ('delivered', 'cancelled')`);
     } else if (value === 'assigned') {
-      where.push(`o.delivery_partner_id IS NOT NULL AND o.delivery_status = 'assigned'`);
+      where.push(`(o.delivery_partner_id IS NOT NULL OR o.external_delivery_provider_id IS NOT NULL) AND o.delivery_status = 'assigned'`);
     } else if (value === 'rejected') {
       where.push(`(dof.status = 'rejected' OR latest_rejection.created_at IS NOT NULL)`);
     } else if (value === 'accepted') {
@@ -2344,7 +2498,8 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
   const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${baseFrom} ${whereSql}`, params);
   const [rows] = await pool.query(
     `SELECT o.id, o.order_number, o.total_amount, o.status, o.delivery_status, o.delivery_method,
-            o.delivery_partner_id, o.client_name, o.client_phone, o.shipping_address, o.shipping_area,
+            o.delivery_partner_id, o.external_delivery_provider_id, o.external_delivery_provider_name,
+            o.client_name, o.client_phone, o.shipping_address, o.shipping_area,
             o.shipping_city, o.shipping_pincode, o.shipping_latitude, o.shipping_longitude,
             o.delivery_otp, COALESCE(o.delivery_otp_attempts, 0) AS delivery_otp_attempts,
             o.delivery_otp_locked_at, o.delivery_otp_verified_at,
@@ -2384,8 +2539,11 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
     distance_km: row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km),
     order_value: Number(row.total_amount || 0),
     delivery_person_id: row.delivery_partner_id || row.offered_delivery_person_id || row.latest_rejected_delivery_person_id || null,
-    delivery_person_assigned: Boolean(row.delivery_partner_id),
-    delivery_person_name: row.delivery_person_name || '',
+    external_delivery_provider_id: row.external_delivery_provider_id || null,
+    external_delivery_provider_name: row.external_delivery_provider_name || '',
+    delivery_person_assigned: Boolean(row.delivery_partner_id || row.external_delivery_provider_id),
+    delivery_person_name: row.external_delivery_provider_name || row.delivery_person_name || '',
+    delivery_provider_type: row.external_delivery_provider_id ? 'external' : 'internal',
     delivery_person_phone: row.delivery_person_phone || '',
     order_status: deliveryProgressLabel(row),
     raw_status: row.status,
@@ -2399,7 +2557,7 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
     delivery_otp_max_attempts: DELIVERY_OTP_MAX_ATTEMPTS,
     delivery_otp_remaining_attempts: Math.max(DELIVERY_OTP_MAX_ATTEMPTS - Number(row.delivery_otp_attempts || 0), 0),
     delivery_otp_locked: Boolean(row.delivery_otp_locked_at) || Number(row.delivery_otp_attempts || 0) >= DELIVERY_OTP_MAX_ATTEMPTS,
-    resend_available_at: !row.delivery_partner_id
+    resend_available_at: !row.delivery_partner_id && !row.external_delivery_provider_id
       ? new Date(new Date(row.offer_updated_at || row.offer_created_at || row.updated_at || row.created_at).getTime() + (2 * 60 * 1000)).toISOString()
       : null,
     assigned_at: row.assigned_at,

@@ -1485,6 +1485,8 @@ async function initDatabase(options = {}) {
    await addColumnIfMissing('client_orders', 'vendor_id', 'INT UNSIGNED DEFAULT NULL AFTER user_id');
   await addColumnIfMissing('client_orders', 'delivery_status', "VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER status");
   await addColumnIfMissing('client_orders', 'delivery_partner_id', 'INT UNSIGNED DEFAULT NULL AFTER delivery_status');
+  await addColumnIfMissing('client_orders', 'external_delivery_provider_id', 'INT UNSIGNED DEFAULT NULL AFTER delivery_partner_id');
+  await addColumnIfMissing('client_orders', 'external_delivery_provider_name', 'VARCHAR(120) DEFAULT NULL AFTER external_delivery_provider_id');
   await addColumnIfMissing('client_orders', 'delivery_otp', 'VARCHAR(10) DEFAULT NULL AFTER delivery_partner_id');
   await addColumnIfMissing('client_orders', 'delivery_otp_attempts', 'INT NOT NULL DEFAULT 0 AFTER delivery_otp');
   await addColumnIfMissing('client_orders', 'delivery_otp_locked_at', 'TIMESTAMP NULL DEFAULT NULL AFTER delivery_otp_attempts');
@@ -1764,6 +1766,36 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('delivery_partner_settings', 'area', "VARCHAR(120) NOT NULL DEFAULT '*' AFTER city");
   await pool.query('ALTER TABLE delivery_partner_settings DROP CONSTRAINT IF EXISTS uniq_delivery_partner_city');
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uniq_delivery_partner_city_area ON delivery_partner_settings (user_id, city, area)');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS external_delivery_providers (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      name VARCHAR(120) NOT NULL,
+      slug VARCHAR(80) NOT NULL,
+      phone VARCHAR(40) DEFAULT NULL,
+      email VARCHAR(160) DEFAULT NULL,
+      city VARCHAR(120) NOT NULL DEFAULT '*',
+      area VARCHAR(150) NOT NULL DEFAULT '*',
+      is_active TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_external_delivery_provider_area (slug, city, area),
+      KEY idx_external_delivery_provider_area (city, area, is_active)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('external_delivery_providers', 'phone', 'VARCHAR(40) DEFAULT NULL AFTER slug');
+  await addColumnIfMissing('external_delivery_providers', 'email', 'VARCHAR(160) DEFAULT NULL AFTER phone');
+  await addColumnIfMissing('external_delivery_providers', 'city', "VARCHAR(120) NOT NULL DEFAULT '*' AFTER email");
+  await addColumnIfMissing('external_delivery_providers', 'area', "VARCHAR(150) NOT NULL DEFAULT '*' AFTER city");
+  await addColumnIfMissing('external_delivery_providers', 'is_active', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER area');
+  await pool.query(`
+    INSERT INTO external_delivery_providers (name, slug, city, area, is_active)
+    VALUES
+      ('Porter', 'porter', '*', '*', 1),
+      ('Wahaak', 'wahaak', '*', '*', 1)
+    ON CONFLICT (slug, city, area) DO NOTHING
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_person_profiles (
