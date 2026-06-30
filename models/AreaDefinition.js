@@ -28,11 +28,19 @@ function normalizeArea(row) {
     polygon,
     center_lat: row.center_lat === null || row.center_lat === undefined ? null : Number(row.center_lat),
     center_lng: row.center_lng === null || row.center_lng === undefined ? null : Number(row.center_lng),
+    platform_fee: Number(row.platform_fee || 0),
+    delivery_charge: Number(row.delivery_charge || 0),
+    order_commission_percentage: Number(row.order_commission_percentage || 0),
+    delivery_commission_percentage: Number(row.delivery_commission_percentage || 0),
     own_delivery_active: Boolean(row.own_delivery_active),
     is_active: Boolean(row.is_active),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
+}
+
+function money(value) {
+  return Number(Math.max(Number(value || 0), 0).toFixed(2));
 }
 
 function pointInPolygon(point, polygon) {
@@ -110,6 +118,10 @@ async function save(payload) {
   const polygon = parsePolygon(payload.polygon).map(normalizePoint).filter(Boolean);
   const ownDeliveryActive = payload.own_delivery_active || payload.ownDeliveryActive ? 1 : 0;
   const isActive = payload.is_active === undefined || payload.is_active || payload.isActive ? 1 : 0;
+  const platformFee = money(payload.platform_fee);
+  const deliveryCharge = money(payload.delivery_charge);
+  const orderCommissionPercentage = Math.min(money(payload.order_commission_percentage), 100);
+  const deliveryCommissionPercentage = Math.min(money(payload.delivery_commission_percentage), 100);
 
   if (name.length < 2) {
     const error = new Error('Area name is required');
@@ -133,9 +145,23 @@ async function save(payload) {
     const [result] = await pool.query(
       `UPDATE area_definitions
        SET name = ?, city = ?, polygon = ?, center_lat = ?, center_lng = ?,
+           platform_fee = ?, delivery_charge = ?, order_commission_percentage = ?, delivery_commission_percentage = ?,
            own_delivery_active = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [name, city || null, JSON.stringify(polygon), centerLat, centerLng, ownDeliveryActive, isActive, id]
+      [
+        name,
+        city || null,
+        JSON.stringify(polygon),
+        centerLat,
+        centerLng,
+        platformFee,
+        deliveryCharge,
+        orderCommissionPercentage,
+        deliveryCommissionPercentage,
+        ownDeliveryActive,
+        isActive,
+        id,
+      ]
     );
     if (result.affectedRows === 0) {
       const error = new Error('Area not found');
@@ -147,11 +173,37 @@ async function save(payload) {
 
   const [result] = await pool.query(
     `INSERT INTO area_definitions
-     (name, city, polygon, center_lat, center_lng, own_delivery_active, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?)`,
-    [name, city || null, JSON.stringify(polygon), centerLat, centerLng, ownDeliveryActive, isActive]
+     (name, city, polygon, center_lat, center_lng, platform_fee, delivery_charge, order_commission_percentage, delivery_commission_percentage, own_delivery_active, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      name,
+      city || null,
+      JSON.stringify(polygon),
+      centerLat,
+      centerLng,
+      platformFee,
+      deliveryCharge,
+      orderCommissionPercentage,
+      deliveryCommissionPercentage,
+      ownDeliveryActive,
+      isActive,
+    ]
   );
   return result.insertId;
+}
+
+async function pricingForLocation(location = {}, connection = pool) {
+  const area = await findMatchingArea(location, connection);
+  return {
+    area,
+    area_definition_id: area ? area.id : null,
+    area_name: area ? area.name : String(location.area || ''),
+    city: area ? area.city : String(location.city || ''),
+    platform_fee: area ? money(area.platform_fee) : 0,
+    delivery_charge: area ? money(area.delivery_charge) : null,
+    order_commission_percentage: area ? money(area.order_commission_percentage) : null,
+    delivery_commission_percentage: area ? money(area.delivery_commission_percentage) : null,
+  };
 }
 
 async function remove(id) {
@@ -174,6 +226,7 @@ module.exports = {
   list,
   normalizeArea,
   pointInPolygon,
+  pricingForLocation,
   remove,
   save,
 };

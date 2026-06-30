@@ -3,6 +3,7 @@ const Promotion = require('./Promotion');
 const DeliveryType = require('./DeliveryType');
 const Rating = require('./Rating');
 const Order = require('./Order');
+const AreaDefinition = require('./AreaDefinition');
 const DeliveryCharge = require('../services/deliveryChargeService');
 const OrderWalletSettlement = require('../services/orderWalletSettlementService');
 const { insertClientOrderWithOrderNumber } = require('../utils/orderNumber');
@@ -22,6 +23,10 @@ function formatWeightLabel(value, unit) {
   const amount = Number(value || 0);
   if (!amount) return 'Not set';
   return `${Number(amount.toFixed(3))} ${cleanWeightUnit(unit)}`;
+}
+
+function money(value) {
+  return Number(Math.max(Number(value || 0), 0).toFixed(2));
 }
 
 async function quotationSubmissionMinutes(connection = pool) {
@@ -654,11 +659,39 @@ async function listForClient(clientId) {
   // Return every quotation recipient row so clients can see sent, seen,
   // submitted, accepted, and rejected quotations in their history.
   const quotations = normalizeRows(rows);
+  const [clientRows] = await pool.query(
+    'SELECT city, area FROM client_profiles WHERE user_id = ? LIMIT 1',
+    [clientId]
+  );
+  const clientLocation = clientRows[0] || {};
+  const pricingCache = new Map();
+  async function displayPricingFor(quotation) {
+    const key = `${String(quotation.client_city || clientLocation.city || '').toLowerCase()}::${String(clientLocation.area || '').toLowerCase()}`;
+    if (!pricingCache.has(key)) {
+      pricingCache.set(key, await AreaDefinition.pricingForLocation({
+        city: quotation.client_city || clientLocation.city || '',
+        area: clientLocation.area || '',
+      }));
+    }
+    return pricingCache.get(key);
+  }
   const ratingSummaries = await Rating.summaries('vendor', quotations.map((quotation) => quotation.vendor_id));
-  return quotations.map((quotation) => ({
-    ...quotation,
-    vendor_rating: ratingSummaries.get(Number(quotation.vendor_id)),
-  }));
+  const decorated = [];
+  for (const quotation of quotations) {
+    const pricing = await displayPricingFor(quotation);
+    const quoteFees = ['submitted', 'accepted'].includes(quotation.recipient_status)
+      ? money(pricing.platform_fee) + money(pricing.delivery_charge)
+      : 0;
+    decorated.push({
+      ...quotation,
+      response_total: money(Number(quotation.response_total || 0) + quoteFees),
+      platform_fee: money(pricing.platform_fee),
+      delivery_charge: money(pricing.delivery_charge),
+      area_name: pricing.area_name,
+      vendor_rating: ratingSummaries.get(Number(quotation.vendor_id)),
+    });
+  }
+  return decorated;
 }
 
 async function decideClientResponse({ recipientId, clientId, decision, couponCode = '' }) {
@@ -748,7 +781,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
 
     // Get client details for denormalization
     const [clientRows] = await connection.query(
-      'SELECT u.name, u.phone, cp.address, cp.country, cp.state, cp.city FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
+      'SELECT u.name, u.phone, cp.address, cp.area, cp.country, cp.state, cp.city FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
       [clientId]
     );
     const client = clientRows[0];
@@ -779,17 +812,24 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
         quantity: Number(item.quantity || 0),
       })),
     }, connection);
+    const areaPricing = await AreaDefinition.pricingForLocation({
+      city: client.city || vendor.city || '',
+      area: client.area || client.city || '',
+    }, connection);
     const deliveryCharge = deliveryOptions.selected_type === 'counter_pickup'
       ? 0
-      : Number(delivery.delivery_charge || 0);
-    const totalAmount = Number((itemPayable + deliveryCharge).toFixed(2));
+      : money(areaPricing.delivery_charge !== null ? areaPricing.delivery_charge : delivery.delivery_charge);
+    const platformFee = money(areaPricing.platform_fee);
+    const orderCommissionAmount = money((itemPayable * money(areaPricing.order_commission_percentage)) / 100);
+    const deliveryCommissionAmount = money((deliveryCharge * money(areaPricing.delivery_commission_percentage)) / 100);
+    const totalAmount = Number((itemPayable + deliveryCharge + platformFee).toFixed(2));
     await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
 
     const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
       connection,
       `INSERT INTO client_orders 
-       (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         recipient.vendor_id,
@@ -797,6 +837,20 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
         discountAmount,
         savingsAmount,
         deliveryCharge,
+        platformFee,
+        orderCommissionAmount,
+        deliveryCommissionAmount,
+        orderCommissionAmount,
+        areaPricing.area_definition_id,
+        JSON.stringify({
+          area_definition_id: areaPricing.area_definition_id,
+          area_name: areaPricing.area_name,
+          city: areaPricing.city,
+          platform_fee: platformFee,
+          delivery_charge: deliveryCharge,
+          order_commission_percentage: money(areaPricing.order_commission_percentage),
+          delivery_commission_percentage: money(areaPricing.delivery_commission_percentage),
+        }),
         promotion.coupon ? promotion.coupon.id : null,
         promotion.code || null,
         promotion.discount ? promotion.discount.id : null,

@@ -15,19 +15,25 @@ async function run() {
            ARRAY_REMOVE(ARRAY[
              CASE WHEN client_tx.id IS NULL THEN 'client_order_payment' END,
              CASE WHEN vendor_tx.id IS NULL THEN 'vendor_order_earning' END,
-             CASE WHEN admin_tx.id IS NULL THEN 'admin_platform_charge' END,
+             CASE WHEN platform_fee_tx.id IS NULL THEN 'admin_platform_fee' END,
+             CASE WHEN order_commission_tx.id IS NULL THEN 'admin_order_commission' END,
              CASE WHEN (o.status IN ('delivered', 'completed') OR o.delivery_status = 'delivered')
                         AND o.delivery_partner_id IS NOT NULL AND delivery_tx.id IS NULL
                   THEN 'delivery_person_earning' END
+             CASE WHEN (o.status IN ('delivered', 'completed') OR o.delivery_status = 'delivered')
+                        AND o.delivery_partner_id IS NOT NULL AND delivery_commission_tx.id IS NULL
+                  THEN 'admin_delivery_commission' END
            ], NULL) AS missing_components
     FROM client_orders o
     LEFT JOIN wallet_transactions client_tx ON client_tx.order_id = o.id AND client_tx.component = 'client_order_payment'
     LEFT JOIN wallet_transactions vendor_tx ON vendor_tx.order_id = o.id AND vendor_tx.component = 'vendor_order_earning'
-    LEFT JOIN wallet_transactions admin_tx ON admin_tx.order_id = o.id AND admin_tx.component = 'admin_platform_charge'
+    LEFT JOIN wallet_transactions platform_fee_tx ON platform_fee_tx.order_id = o.id AND platform_fee_tx.component = 'admin_platform_fee'
+    LEFT JOIN wallet_transactions order_commission_tx ON order_commission_tx.order_id = o.id AND order_commission_tx.component = 'admin_order_commission'
+    LEFT JOIN wallet_transactions delivery_commission_tx ON delivery_commission_tx.order_id = o.id AND delivery_commission_tx.component = 'admin_delivery_commission'
     LEFT JOIN wallet_transactions delivery_tx ON delivery_tx.order_id = o.id AND delivery_tx.component = 'delivery_person_earning'
-    WHERE client_tx.id IS NULL OR vendor_tx.id IS NULL OR admin_tx.id IS NULL
+    WHERE client_tx.id IS NULL OR vendor_tx.id IS NULL OR platform_fee_tx.id IS NULL OR order_commission_tx.id IS NULL
        OR ((o.status IN ('delivered', 'completed') OR o.delivery_status = 'delivered')
-           AND o.delivery_partner_id IS NOT NULL AND delivery_tx.id IS NULL)
+           AND o.delivery_partner_id IS NOT NULL AND (delivery_tx.id IS NULL OR delivery_commission_tx.id IS NULL))
     ORDER BY o.id DESC
   `);
   const [duplicateRows] = await db.query(`
@@ -46,19 +52,22 @@ async function run() {
   const [conservationRows] = await db.query(`
     SELECT o.id, o.order_number, o.total_amount, o.delivery_charge,
            COALESCE(client_tx.amount, 0) AS client_debit,
-           COALESCE(admin_tx.amount, 0) AS admin_credit,
+           COALESCE(platform_fee_tx.amount, 0) + COALESCE(order_commission_tx.amount, 0) AS admin_credit,
            COALESCE(vendor_tx.amount, 0) AS vendor_credit,
+           COALESCE(delivery_commission_tx.amount, 0) AS delivery_commission_credit,
            COALESCE(delivery_tx.amount, 0) AS delivery_credit
     FROM client_orders o
     LEFT JOIN wallet_transactions client_tx ON client_tx.order_id = o.id AND client_tx.component = 'client_order_payment'
-    LEFT JOIN wallet_transactions admin_tx ON admin_tx.order_id = o.id AND admin_tx.component = 'admin_platform_charge'
+    LEFT JOIN wallet_transactions platform_fee_tx ON platform_fee_tx.order_id = o.id AND platform_fee_tx.component = 'admin_platform_fee'
+    LEFT JOIN wallet_transactions order_commission_tx ON order_commission_tx.order_id = o.id AND order_commission_tx.component = 'admin_order_commission'
+    LEFT JOIN wallet_transactions delivery_commission_tx ON delivery_commission_tx.order_id = o.id AND delivery_commission_tx.component = 'admin_delivery_commission'
     LEFT JOIN wallet_transactions vendor_tx ON vendor_tx.order_id = o.id AND vendor_tx.component = 'vendor_order_earning'
     LEFT JOIN wallet_transactions delivery_tx ON delivery_tx.order_id = o.id AND delivery_tx.component = 'delivery_person_earning'
     WHERE o.wallet_settled_at IS NOT NULL
       AND (
         ABS(COALESCE(client_tx.amount, 0) - o.total_amount) > 0.009
-        OR ABS((COALESCE(admin_tx.amount, 0) + COALESCE(vendor_tx.amount, 0)) - (o.total_amount - o.delivery_charge)) > 0.009
-        OR (o.delivery_wallet_settled_at IS NOT NULL AND ABS(COALESCE(delivery_tx.amount, 0) - o.delivery_charge) > 0.009)
+        OR ABS((COALESCE(platform_fee_tx.amount, 0) + COALESCE(order_commission_tx.amount, 0) + COALESCE(vendor_tx.amount, 0)) - (o.total_amount - o.delivery_charge)) > 0.009
+        OR (o.delivery_wallet_settled_at IS NOT NULL AND ABS((COALESCE(delivery_tx.amount, 0) + COALESCE(delivery_commission_tx.amount, 0)) - o.delivery_charge) > 0.009)
       )
   `);
   console.log(JSON.stringify({

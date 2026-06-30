@@ -37,6 +37,22 @@
             <input id="ownDeliveryActive" type="checkbox" />
             <span>Own Delivery active for this area</span>
           </label>
+          <label>
+            Platform Fee
+            <input id="areaPlatformFee" type="number" min="0" step="0.01" value="0" />
+          </label>
+          <label>
+            Delivery Charge
+            <input id="areaDeliveryCharge" type="number" min="0" step="0.01" value="0" />
+          </label>
+          <label>
+            Order Commission (%)
+            <input id="areaOrderCommission" type="number" min="0" max="100" step="0.01" value="0" />
+          </label>
+          <label>
+            Delivery Commission (%)
+            <input id="areaDeliveryCommission" type="number" min="0" max="100" step="0.01" value="0" />
+          </label>
           <label class="settings-wide area-toggle-row">
             <input id="areaActive" type="checkbox" checked />
             <span>Area active</span>
@@ -68,13 +84,14 @@
             <thead>
               <tr>
                 <th>Area</th>
+                <th>Pricing</th>
                 <th>Own Delivery</th>
                 <th>Status</th>
                 <th></th>
               </tr>
             </thead>
             <tbody id="areasBody">
-              <tr><td colspan="4">Loading areas...</td></tr>
+              <tr><td colspan="5">Loading areas...</td></tr>
             </tbody>
           </table>
         </div>
@@ -122,6 +139,10 @@
         .replace(/>/g, '&gt;')
         .replace(/"/g, '&quot;')
         .replace(/'/g, '&#39;');
+    }
+
+    function money(value) {
+      return Number(value || 0).toFixed(2);
     }
 
     function setStatus(message, isError = false) {
@@ -474,6 +495,10 @@
       document.getElementById('areaName').value = '';
       document.getElementById('areaCity').value = currentCity;
       document.getElementById('ownDeliveryActive').checked = false;
+      document.getElementById('areaPlatformFee').value = '0';
+      document.getElementById('areaDeliveryCharge').value = '0';
+      document.getElementById('areaOrderCommission').value = '0';
+      document.getElementById('areaDeliveryCommission').value = '0';
       document.getElementById('areaActive').checked = true;
       manualMarkingMode = false;
       const markingButton = document.getElementById('toggleMarking');
@@ -549,12 +574,16 @@
       const cityAreas = visibleAreas();
       if (!cityAreas.length) {
         const cityName = document.getElementById('areaCity').value.trim();
-        body.innerHTML = `<tr><td colspan="4">No mapped areas${cityName ? ` for ${escapeHtml(cityName)}` : ''} yet.</td></tr>`;
+      body.innerHTML = `<tr><td colspan="5">No mapped areas${cityName ? ` for ${escapeHtml(cityName)}` : ''} yet.</td></tr>`;
         return;
       }
       body.innerHTML = cityAreas.map((area) => `
         <tr>
           <td><strong>${escapeHtml(area.name)}</strong><br><small>${escapeHtml(area.city || 'Any city')}</small></td>
+          <td>
+            <strong>PF ${money(area.platform_fee || 0)} / Delivery ${money(area.delivery_charge || 0)}</strong>
+            <br><small>Order ${Number(area.order_commission_percentage || 0).toFixed(2)}% / Delivery ${Number(area.delivery_commission_percentage || 0).toFixed(2)}%</small>
+          </td>
           <td>${area.own_delivery_active ? 'Active' : 'Off'}</td>
           <td>${area.is_active ? 'Active' : 'Inactive'}</td>
           <td>
@@ -733,6 +762,10 @@
       document.getElementById('areaName').value = area.name;
       document.getElementById('areaCity').value = area.city || '';
       document.getElementById('ownDeliveryActive').checked = Boolean(area.own_delivery_active);
+      document.getElementById('areaPlatformFee').value = Number(area.platform_fee || 0);
+      document.getElementById('areaDeliveryCharge').value = Number(area.delivery_charge || 0);
+      document.getElementById('areaOrderCommission').value = Number(area.order_commission_percentage || 0);
+      document.getElementById('areaDeliveryCommission').value = Number(area.delivery_commission_percentage || 0);
       document.getElementById('areaActive').checked = Boolean(area.is_active);
       drawPath(area.polygon || []);
       refreshVisibleAreas();
@@ -743,6 +776,10 @@
         name: document.getElementById('areaName').value.trim(),
         city: document.getElementById('areaCity').value.trim(),
         polygon: selectedPath,
+        platform_fee: Number(document.getElementById('areaPlatformFee').value || 0),
+        delivery_charge: Number(document.getElementById('areaDeliveryCharge').value || 0),
+        order_commission_percentage: Number(document.getElementById('areaOrderCommission').value || 0),
+        delivery_commission_percentage: Number(document.getElementById('areaDeliveryCommission').value || 0),
         own_delivery_active: document.getElementById('ownDeliveryActive').checked,
         is_active: document.getElementById('areaActive').checked,
       };

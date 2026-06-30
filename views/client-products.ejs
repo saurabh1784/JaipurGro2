@@ -575,6 +575,7 @@
           </div>
           <div class="payment-line"><span>Item subtotal</span><strong>${money(preview.subtotal_amount)}</strong></div>
           <div class="payment-line"><span>Discount</span><strong>- ${money(preview.discount_amount)}</strong></div>
+          <div class="payment-line"><span>Platform fee</span><strong>${money(preview.platform_fee || 0)}</strong></div>
           <div class="payment-line"><span>Delivery charges</span><strong>${money(preview.delivery_charge)}</strong></div>
           <div class="payment-line payment-total"><span>Payable amount</span><strong>${money(preview.total_amount)}</strong></div>
           ${vendors.length ? `

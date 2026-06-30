@@ -1532,6 +1532,11 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_orders', 'discount_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER subtotal_amount');
   await addColumnIfMissing('client_orders', 'savings_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER discount_amount');
   await addColumnIfMissing('client_orders', 'delivery_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER savings_amount');
+  await addColumnIfMissing('client_orders', 'platform_fee', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
+  await addColumnIfMissing('client_orders', 'order_commission_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER platform_fee');
+  await addColumnIfMissing('client_orders', 'delivery_commission_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER order_commission_amount');
+  await addColumnIfMissing('client_orders', 'area_definition_id', 'INT UNSIGNED DEFAULT NULL AFTER shipping_longitude');
+  await addColumnIfMissing('client_orders', 'area_pricing_snapshot', 'JSON DEFAULT NULL AFTER area_definition_id');
   await addColumnIfMissing('client_orders', 'platform_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
   await addColumnIfMissing('client_orders', 'vendor_earning', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER platform_charge');
   await addColumnIfMissing('client_orders', 'delivery_earning', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER vendor_earning');
@@ -1933,6 +1938,10 @@ async function initDatabase(options = {}) {
       polygon JSON NOT NULL,
       center_lat DECIMAL(10,7) DEFAULT NULL,
       center_lng DECIMAL(10,7) DEFAULT NULL,
+      platform_fee DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      delivery_charge DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      order_commission_percentage DECIMAL(7,2) NOT NULL DEFAULT 0.00,
+      delivery_commission_percentage DECIMAL(7,2) NOT NULL DEFAULT 0.00,
       own_delivery_active TINYINT(1) NOT NULL DEFAULT 0,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -1942,6 +1951,10 @@ async function initDatabase(options = {}) {
       KEY idx_area_definitions_own_delivery (own_delivery_active, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await addColumnIfMissing('area_definitions', 'platform_fee', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER center_lng');
+  await addColumnIfMissing('area_definitions', 'delivery_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER platform_fee');
+  await addColumnIfMissing('area_definitions', 'order_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
+  await addColumnIfMissing('area_definitions', 'delivery_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER order_commission_percentage');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_type_area_settings (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -3902,6 +3915,50 @@ function buildShippingSnapshot(client, selectedAddress) {
   };
 }
 
+function money(value) {
+  return Number(Math.max(Number(value || 0), 0).toFixed(2));
+}
+
+async function resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection }) {
+  const areaPricing = await AreaDefinition.pricingForLocation({
+    city: addressSnapshot.shippingCity || vendorOrder.city || '',
+    area: addressSnapshot.shippingArea || addressSnapshot.shippingPincode || '',
+    latitude: addressSnapshot.shippingLatitude,
+    longitude: addressSnapshot.shippingLongitude,
+  }, connection);
+
+  const delivery = await DeliveryCharge.calculateCharge({
+    city: vendorOrder.city,
+    origin: vendorOrder.origin,
+    destination: vendorOrder.destination,
+    originLatitude: vendorOrder.originLatitude,
+    originLongitude: vendorOrder.originLongitude,
+    destinationLatitude: vendorOrder.destinationLatitude,
+    destinationLongitude: vendorOrder.destinationLongitude,
+    items: vendorOrder.items.map((orderItem) => ({
+      product_name: orderItem.productName,
+      weight_kg: orderItem.weightKg,
+      quantity: orderItem.quantity,
+    })),
+  }, connection);
+
+  const deliveryCharge = deliveryOptions.selected_type === 'counter_pickup'
+    ? 0
+    : money(areaPricing.delivery_charge !== null ? areaPricing.delivery_charge : delivery.delivery_charge);
+  const platformFee = money(areaPricing.platform_fee);
+  const orderCommissionPercentage = money(areaPricing.order_commission_percentage);
+  const deliveryCommissionPercentage = money(areaPricing.delivery_commission_percentage);
+
+  return {
+    areaPricing,
+    delivery,
+    platformFee,
+    deliveryCharge,
+    orderCommissionPercentage,
+    deliveryCommissionPercentage,
+  };
+}
+
 app.get('/api/client/delivery-addresses', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   const [rows] = await pool.query(
     'SELECT * FROM client_delivery_addresses WHERE user_id = ? ORDER BY is_default DESC, created_at DESC, id DESC',
@@ -4218,24 +4275,11 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
       vendorId,
       requestedType: deliveryType,
     }, connection);
-    const delivery = await DeliveryCharge.calculateCharge({
-      city: vendorOrder.city,
-      origin: vendorOrder.origin,
-      destination: vendorOrder.destination,
-      originLatitude: vendorOrder.originLatitude,
-      originLongitude: vendorOrder.originLongitude,
-      destinationLatitude: vendorOrder.destinationLatitude,
-      destinationLongitude: vendorOrder.destinationLongitude,
-      items: vendorOrder.items.map((orderItem) => ({
-        product_name: orderItem.productName,
-        weight_kg: orderItem.weightKg,
-        quantity: orderItem.quantity,
-      })),
-    }, connection);
-    const vendorDeliveryCharge = deliveryOptions.selected_type === 'counter_pickup'
-      ? 0
-      : Number(delivery.delivery_charge || 0);
-    const vendorTotal = Math.max(vendorOrder.subtotal - vendorDiscount, 0) + vendorDeliveryCharge;
+    const pricing = await resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection });
+    const vendorDeliveryCharge = pricing.deliveryCharge;
+    const vendorPlatformFee = pricing.platformFee;
+    const itemPayable = Math.max(vendorOrder.subtotal - vendorDiscount, 0);
+    const vendorTotal = itemPayable + vendorDeliveryCharge + vendorPlatformFee;
     discountAmount += vendorDiscount;
     deliveryCharge += vendorDeliveryCharge;
     totalAmount += vendorTotal;
@@ -4253,14 +4297,22 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
       vendor_rating: await Rating.summary('vendor', vendorId, connection),
       subtotal_amount: Number(vendorOrder.subtotal.toFixed(2)),
       discount_amount: Number(vendorDiscount.toFixed(2)),
+      platform_fee: Number(vendorPlatformFee.toFixed(2)),
       delivery_charge: Number(vendorDeliveryCharge.toFixed(2)),
       delivery_type: deliveryOptions.selected_type,
       delivery_method: deliveryOptions.selected_method,
       delivery_types: deliveryOptions.delivery_types,
       total_amount: Number(vendorTotal.toFixed(2)),
-      distance_km: delivery.distance_km,
-      total_weight_kg: delivery.total_weight_kg,
-      rule: delivery.rule,
+      distance_km: pricing.delivery.distance_km,
+      total_weight_kg: pricing.delivery.total_weight_kg,
+      rule: pricing.delivery.rule,
+      area_pricing: {
+        area_definition_id: pricing.areaPricing.area_definition_id,
+        area_name: pricing.areaPricing.area_name,
+        city: pricing.areaPricing.city,
+        order_commission_percentage: pricing.orderCommissionPercentage,
+        delivery_commission_percentage: pricing.deliveryCommissionPercentage,
+      },
     });
   }
 
@@ -4269,6 +4321,7 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
     discount_amount: Number(discountAmount.toFixed(2)),
     savings_amount: Number(discountAmount.toFixed(2)),
     delivery_charge: Number(deliveryCharge.toFixed(2)),
+    platform_fee: Number(vendorBreakdown.reduce((sum, vendor) => sum + Number(vendor.platform_fee || 0), 0).toFixed(2)),
     total_amount: Number(totalAmount.toFixed(2)),
     address: {
       id: addressSnapshot.shippingAddressId,
@@ -4483,25 +4536,24 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           vendorId,
           requestedType: requestedDeliveryType,
         }, connection);
-        const delivery = await DeliveryCharge.calculateCharge({
-          city: vendorOrder.city,
-          origin: vendorOrder.origin,
-          destination: vendorOrder.destination,
-          originLatitude: vendorOrder.originLatitude,
-          originLongitude: vendorOrder.originLongitude,
-          destinationLatitude: vendorOrder.destinationLatitude,
-          destinationLongitude: vendorOrder.destinationLongitude,
-          items: vendorOrder.items.map((orderItem) => ({
-            product_name: orderItem.productName,
-            weight_kg: orderItem.weightKg,
-            quantity: orderItem.quantity,
-          })),
-        }, connection);
-        const deliveryCharge = deliveryOptions.selected_type === 'counter_pickup'
-          ? 0
-          : Number(delivery.delivery_charge || 0);
-        const vendorTotal = Math.max(vendorSubtotal - vendorDiscount, 0) + deliveryCharge;
-        vendorPromotions.set(vendorId, { promotion, vendorDiscount, vendorTotal, deliveryCharge, delivery, deliveryOptions });
+        const pricing = await resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection });
+        const deliveryCharge = pricing.deliveryCharge;
+        const platformFee = pricing.platformFee;
+        const itemPayable = Math.max(vendorSubtotal - vendorDiscount, 0);
+        const orderCommissionAmount = money((itemPayable * pricing.orderCommissionPercentage) / 100);
+        const deliveryCommissionAmount = money((deliveryCharge * pricing.deliveryCommissionPercentage) / 100);
+        const vendorTotal = itemPayable + deliveryCharge + platformFee;
+        vendorPromotions.set(vendorId, {
+          promotion,
+          vendorDiscount,
+          vendorTotal,
+          deliveryCharge,
+          platformFee,
+          orderCommissionAmount,
+          deliveryCommissionAmount,
+          pricing,
+          deliveryOptions,
+        });
         totalAmount += vendorTotal;
       }
 
@@ -4514,12 +4566,16 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const vendorDiscount = vendorPromotion.vendorDiscount;
         const vendorTotal = vendorPromotion.vendorTotal;
         const deliveryCharge = vendorPromotion.deliveryCharge;
+        const platformFee = vendorPromotion.platformFee;
+        const orderCommissionAmount = vendorPromotion.orderCommissionAmount;
+        const deliveryCommissionAmount = vendorPromotion.deliveryCommissionAmount;
+        const pricing = vendorPromotion.pricing;
         const deliveryOptions = vendorPromotion.deliveryOptions;
         const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
           connection,
           `INSERT INTO client_orders
-           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
             vendorId,
@@ -4527,6 +4583,20 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             vendorDiscount,
             vendorDiscount,
             deliveryCharge,
+            platformFee,
+            orderCommissionAmount,
+            deliveryCommissionAmount,
+            orderCommissionAmount,
+            pricing.areaPricing.area_definition_id,
+            JSON.stringify({
+              area_definition_id: pricing.areaPricing.area_definition_id,
+              area_name: pricing.areaPricing.area_name,
+              city: pricing.areaPricing.city,
+              platform_fee: platformFee,
+              delivery_charge: deliveryCharge,
+              order_commission_percentage: pricing.orderCommissionPercentage,
+              delivery_commission_percentage: pricing.deliveryCommissionPercentage,
+            }),
             promotion.coupon ? promotion.coupon.id : null,
             promotion.code || null,
             promotion.discount ? promotion.discount.id : null,

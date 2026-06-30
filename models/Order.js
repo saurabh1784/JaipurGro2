@@ -191,7 +191,10 @@ function normalizeOrder(row, includeItems = false) {
     discount_amount: Number(row.discount_amount || 0),
     savings_amount: Number(row.savings_amount || row.discount_amount || 0),
     delivery_charge: Number(row.delivery_charge || 0),
+    platform_fee: Number(row.platform_fee || 0),
     platform_charge: Number(row.platform_charge || 0),
+    order_commission_amount: Number(row.order_commission_amount || row.platform_charge || 0),
+    delivery_commission_amount: Number(row.delivery_commission_amount || 0),
     vendor_earning: Number(row.vendor_earning || 0),
     delivery_earning: Number(row.delivery_earning || 0),
     wallet_settled_at: row.wallet_settled_at,
@@ -611,6 +614,12 @@ function effectiveDeliveryCharge(value) {
   if (amount > 0) return amount;
   const fallback = Number(process.env.DEFAULT_DELIVERY_BASE_PRICE || 30);
   return money(fallback);
+}
+
+function deliveryCommissionForOrder(order, deliveryCharge) {
+  const stored = Number(order && order.delivery_commission_amount || 0);
+  if (stored > 0) return Math.min(money(stored), money(deliveryCharge));
+  return null;
 }
 
 function externalProviderToken(id) {
@@ -1203,7 +1212,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
 
     const [orderRows] = await connection.query(
       `SELECT o.id, o.order_number, o.user_id, o.status, o.delivery_status, o.delivery_partner_id,
-              o.client_name, o.client_phone, o.client_address, o.delivery_charge, o.total_amount,
+              o.client_name, o.client_phone, o.client_address, o.delivery_charge, o.delivery_commission_amount, o.total_amount,
               o.shipping_city, o.shipping_area, o.shipping_pincode, o.shipping_latitude, o.shipping_longitude,
               o.shipping_name, o.shipping_phone, o.shipping_address,
               COALESCE(o.delivery_otp, '') AS delivery_otp, COALESCE(o.pickup_otp, '') AS pickup_otp,
@@ -1376,7 +1385,8 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
     const pickupOtp = order.pickup_otp || generateOtp();
     const deliveryOtp = order.delivery_otp || generateOtp();
     const grossDeliveryCharge = effectiveDeliveryCharge(order.delivery_charge);
-    const platformFee = Math.min(await deliveryPlatformFee(grossDeliveryCharge, connection), grossDeliveryCharge);
+    const platformFee = deliveryCommissionForOrder(order, grossDeliveryCharge)
+      ?? Math.min(await deliveryPlatformFee(grossDeliveryCharge, connection), grossDeliveryCharge);
     const deliveryPartnerEarning = money(grossDeliveryCharge - platformFee);
     const pickupAddress = [order.vendor_address, order.vendor_city].filter(Boolean).join(', ') || order.vendor_city || 'Pickup location';
     const deliveryAddress = [order.shipping_address || order.client_address, order.shipping_area, order.shipping_city, order.shipping_pincode].filter(Boolean).join(', ') || matchedArea || 'Delivery area';
@@ -1564,7 +1574,7 @@ async function ensureWaitingOfferForPerson(deliveryPersonId) {
 
     const [orderRows] = await connection.query(
       `SELECT o.id, o.order_number, o.user_id, o.status, o.delivery_status, o.delivery_partner_id,
-              o.client_name, o.client_phone, o.client_address, o.delivery_charge, o.total_amount,
+              o.client_name, o.client_phone, o.client_address, o.delivery_charge, o.delivery_commission_amount, o.total_amount,
               o.shipping_city, o.shipping_area, o.shipping_pincode, o.shipping_latitude, o.shipping_longitude,
               o.shipping_name, o.shipping_phone, o.shipping_address,
               COALESCE(o.delivery_otp, '') AS delivery_otp, COALESCE(o.pickup_otp, '') AS pickup_otp,
@@ -1619,7 +1629,8 @@ async function ensureWaitingOfferForPerson(deliveryPersonId) {
     const pickupOtp = order.pickup_otp || generateOtp();
     const deliveryOtp = order.delivery_otp || generateOtp();
     const grossDeliveryCharge = effectiveDeliveryCharge(order.delivery_charge);
-    const platformFee = Math.min(await deliveryPlatformFee(grossDeliveryCharge, connection), grossDeliveryCharge);
+    const platformFee = deliveryCommissionForOrder(order, grossDeliveryCharge)
+      ?? Math.min(await deliveryPlatformFee(grossDeliveryCharge, connection), grossDeliveryCharge);
     const deliveryPartnerEarning = money(grossDeliveryCharge - platformFee);
     const pickupAddress = [order.vendor_address, order.vendor_city].filter(Boolean).join(', ') || order.vendor_city || 'Pickup location';
     const deliveryAddress = [order.shipping_address || order.client_address, order.shipping_area, order.shipping_city, order.shipping_pincode].filter(Boolean).join(', ') || order.shipping_area || 'Delivery area';
@@ -1963,7 +1974,7 @@ async function resendDeliveryOffer(orderId, actorUser = null) {
 
     const [orderRows] = await connection.query(
       `SELECT id, order_number, status, delivery_status, delivery_partner_id, auto_delivery_offer_id,
-              created_at, updated_at
+              delivery_charge, delivery_commission_amount, created_at, updated_at
        FROM client_orders
        WHERE id = ?
        FOR UPDATE`,
@@ -2087,7 +2098,8 @@ async function resendDeliveryOffer(orderId, actorUser = null) {
     }
 
     const grossDeliveryCharge = effectiveDeliveryCharge(order.delivery_charge);
-    const platformFee = Math.min(await deliveryPlatformFee(grossDeliveryCharge, connection), grossDeliveryCharge);
+    const platformFee = deliveryCommissionForOrder(order, grossDeliveryCharge)
+      ?? Math.min(await deliveryPlatformFee(grossDeliveryCharge, connection), grossDeliveryCharge);
     const deliveryPartnerEarning = money(grossDeliveryCharge - platformFee);
 
     await connection.query(
@@ -2531,7 +2543,11 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
             latest_rejection.created_at AS latest_rejection_at,
             dof.status AS offer_status, dof.pickup_area, dof.delivery_area,
             COALESCE(dof.delivery_charge, o.delivery_charge, 0) AS dashboard_delivery_charge,
-            COALESCE(dof.delivery_partner_earning, o.delivery_earning, dof.delivery_charge, o.delivery_charge, 0) AS dashboard_delivery_earning,
+            CASE
+              WHEN o.delivery_wallet_settled_at IS NOT NULL THEN COALESCE(o.delivery_earning, 0)
+              WHEN COALESCE(o.delivery_commission_amount, 0) > 0 THEN GREATEST(COALESCE(dof.delivery_charge, o.delivery_charge, 0) - COALESCE(o.delivery_commission_amount, 0), 0)
+              ELSE COALESCE(dof.delivery_partner_earning, o.delivery_earning, dof.delivery_charge, o.delivery_charge, 0)
+            END AS dashboard_delivery_earning,
             dof.expires_at AS offer_expires_at, dof.responded_at AS offer_responded_at,
             dof.created_at AS offer_created_at, dof.updated_at AS offer_updated_at,
             CASE

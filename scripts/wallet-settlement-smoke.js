@@ -38,7 +38,7 @@ async function run() {
     });
     assert.strictEqual(placement.totalPaid, 550);
     assert.strictEqual(placement.deliveryCharge, 50);
-    assert.strictEqual(Number((placement.portalCharge + placement.vendorEarning).toFixed(2)), 500);
+    assert.strictEqual(Number((placement.platformFee + placement.orderCommission + placement.vendorEarning).toFixed(2)), 500);
 
     const [placementRows] = await connection.query(
       'SELECT component, amount FROM wallet_transactions WHERE order_id = ? ORDER BY component',
@@ -46,7 +46,7 @@ async function run() {
     );
     assert.deepStrictEqual(
       placementRows.map((row) => row.component).sort(),
-      ['admin_platform_charge', 'client_order_payment', 'vendor_order_earning']
+      ['admin_order_commission', 'admin_platform_fee', 'client_order_payment', 'vendor_order_earning']
     );
 
     await Settlement.settleOrderPlacement({ orderId, actorId: clientId, connection });
@@ -54,7 +54,7 @@ async function run() {
       'SELECT COUNT(*) AS total FROM wallet_transactions WHERE order_id = ?',
       [orderId]
     );
-    assert.strictEqual(Number(idempotentRows[0].total), 3);
+    assert.strictEqual(Number(idempotentRows[0].total), 4);
 
     const delivery = await Settlement.settleDeliveryCompletion({
       orderId,
@@ -67,7 +67,7 @@ async function run() {
       'SELECT component, amount FROM wallet_transactions WHERE order_id = ? ORDER BY component',
       [orderId]
     );
-    assert.strictEqual(allRows.length, 4);
+    assert.strictEqual(allRows.length, 6);
     const credits = allRows
       .filter((row) => row.component !== 'client_order_payment')
       .reduce((sum, row) => sum + Number(row.amount), 0);
