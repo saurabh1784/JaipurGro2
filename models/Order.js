@@ -1250,6 +1250,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
     if (order.delivery_partner_id) {
       throw new Error('Order already has a delivery partner');
     }
+    const autoAssignFirstAvailable = Boolean(options.autoAssignFirstAvailable);
     const [liveOffers] = await connection.query(
       `SELECT id FROM delivery_order_offers
        WHERE order_id = ? AND status = 'pending' AND expires_at > CURRENT_TIMESTAMP
@@ -1257,32 +1258,63 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
       [orderId]
     );
     if (liveOffers.length) {
-      throw new Error('A delivery offer is already awaiting response');
+      if (!autoAssignFirstAvailable) {
+        throw new Error('A delivery offer is already awaiting response');
+      }
+      await connection.query(
+        `UPDATE delivery_order_offers
+         SET status = 'expired',
+             response_note = COALESCE(response_note, 'Superseded by ready-for-pickup automatic assignment'),
+             responded_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE order_id = ? AND status = 'pending'`,
+        [orderId]
+      );
     }
     if (['delivered', 'completed'].includes(String(order.status || '').toLowerCase())) {
       throw new Error('Delivered orders cannot be auto assigned');
     }
 
-    const ownDelivery = await DeliveryType.isTypeAvailable('in_house_delivery', {
+    const inHouseDelivery = await DeliveryType.isTypeAvailable('in_house_delivery', {
       latitude: order.shipping_latitude,
       longitude: order.shipping_longitude,
       city: order.shipping_city,
       area: order.shipping_area || order.shipping_pincode,
       vendorId: order.vendor_id,
     }, connection);
-    if (!ownDelivery.active) {
-      throw new Error('Auto in-house delivery is not active for this order city/area');
+    const partnerDelivery = inHouseDelivery.active
+      ? null
+      : await DeliveryType.isTypeAvailable('delivery_partner', {
+          latitude: order.shipping_latitude,
+          longitude: order.shipping_longitude,
+          city: order.shipping_city,
+          area: order.shipping_area || order.shipping_pincode,
+          vendorId: order.vendor_id,
+        }, connection);
+    const selectedDeliveryType = inHouseDelivery.active
+      ? 'in_house_delivery'
+      : (partnerDelivery && partnerDelivery.active ? 'delivery_partner' : '');
+    const selectedDeliveryMethod = selectedDeliveryType === 'in_house_delivery' ? 'in_house_auto' : 'partner';
+    const selectedAvailability = selectedDeliveryType === 'in_house_delivery' ? inHouseDelivery : partnerDelivery;
+    if (!selectedDeliveryType) {
+      throw new Error('No automatic delivery type is active for this order city/area');
     }
 
-    const matchedCity = (ownDelivery.area && ownDelivery.area.city) || order.shipping_city || order.vendor_city;
-    const matchedArea = (ownDelivery.area && ownDelivery.area.name) || order.shipping_area || order.shipping_pincode || order.vendor_area || '*';
+    const matchedAreaDefinition = selectedAvailability && selectedAvailability.matched_area;
+    const matchedCity = (matchedAreaDefinition && matchedAreaDefinition.city) || selectedAvailability.city || order.shipping_city || order.vendor_city;
+    const matchedArea = (matchedAreaDefinition && matchedAreaDefinition.name) || selectedAvailability.area || order.shipping_area || order.shipping_pincode || order.vendor_area || '*';
     const retryAttemptedDeliveryPeople = Boolean(options.retryAttemptedDeliveryPeople);
     const debugDeliveryPersonName = String(process.env.DEBUG_DELIVERY_PERSON_NAME || '').trim();
-    const nearbyBatchPartner = await findNearbyBatchPartner(order, connection);
+    const nearbyBatchPartner = autoAssignFirstAvailable ? null : await findNearbyBatchPartner(order, connection);
     let partnerRows = nearbyBatchPartner ? [nearbyBatchPartner] : [];
     if (!partnerRows.length && debugDeliveryPersonName) {
       const [debugRows] = await connection.query(
-        `SELECT u.id, u.name, u.phone, p.area, 0 AS distance_score
+        `SELECT u.id, u.name, u.phone, p.area, 0 AS distance_score,
+                CASE
+                  WHEN LOWER(TRIM(dps.area)) = LOWER(TRIM(CAST(? AS TEXT))) THEN 0
+                  WHEN TRIM(COALESCE(dps.area, '*')) = '*' THEN 1
+                  ELSE 2
+                END AS area_match_rank
          FROM users u
          INNER JOIN delivery_person_profiles p ON p.user_id = u.id
          INNER JOIN delivery_partner_settings dps ON dps.user_id = u.id AND dps.is_active = 1
@@ -1290,7 +1322,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
            AND LOWER(u.status) = 'active'
            AND ${deliveryRoleSql('u')}
            AND COALESCE(p.is_available, 1) = 1
-           AND p.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '45 seconds'
+           AND (? = 1 OR p.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '45 seconds')
            AND LOWER(TRIM(u.name)) = LOWER(TRIM(CAST(? AS TEXT)))
            AND LOWER(TRIM(dps.city)) = LOWER(TRIM(CAST(? AS TEXT)))
            AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(CAST(? AS TEXT))))
@@ -1306,15 +1338,20 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
                AND rejected_log.action = 'order_rejected'
                AND rejected_log.metadata->>'order_id' = CAST(? AS TEXT)
            )
-         ORDER BY u.id ASC
+         ORDER BY area_match_rank ASC, u.id ASC
          LIMIT 1`,
-        [debugDeliveryPersonName, matchedCity, matchedArea, orderId, orderId]
+        [matchedArea, autoAssignFirstAvailable ? 1 : 0, debugDeliveryPersonName, matchedCity, matchedArea, orderId, orderId]
       );
       partnerRows = debugRows;
     }
     if (!partnerRows.length) {
       [partnerRows] = await connection.query(
         `SELECT u.id, u.name, u.phone, p.area,
+                CASE
+                  WHEN LOWER(TRIM(dps.area)) = LOWER(TRIM(CAST(? AS TEXT))) THEN 0
+                  WHEN TRIM(COALESCE(dps.area, '*')) = '*' THEN 1
+                  ELSE 2
+                END AS area_match_rank,
                 CASE
                   WHEN p.current_latitude IS NOT NULL AND p.current_longitude IS NOT NULL
                    AND CAST(? AS DECIMAL) IS NOT NULL AND CAST(? AS DECIMAL) IS NOT NULL
@@ -1329,7 +1366,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
            AND LOWER(u.status) = 'active'
            AND ${deliveryRoleSql('u')}
            AND COALESCE(p.is_available, 1) = 1
-           AND p.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '45 seconds'
+           AND (? = 1 OR p.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '45 seconds')
            AND LOWER(TRIM(dps.city)) = LOWER(TRIM(CAST(? AS TEXT)))
            AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(CAST(? AS TEXT))))
            AND NOT EXISTS (
@@ -1359,14 +1396,16 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
              SELECT 1 FROM delivery_order_offers attempted_offer
              WHERE attempted_offer.order_id = ? AND attempted_offer.delivery_person_id = u.id
            ))
-         ORDER BY distance_score ASC, u.id ASC
+         ORDER BY area_match_rank ASC, distance_score ASC, u.id ASC
          LIMIT 1`,
         [
+          matchedArea,
           order.vendor_latitude,
           order.vendor_longitude,
           order.vendor_latitude,
           order.vendor_longitude,
           order.vendor_latitude,
+          autoAssignFirstAvailable ? 1 : 0,
           matchedCity,
           matchedArea,
           orderId,
@@ -1380,14 +1419,14 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
       const waitingDeliveryCharge = effectiveDeliveryCharge(order.delivery_charge);
       await connection.query(
         `UPDATE client_orders
-         SET delivery_method = 'in_house_auto', delivery_type = 'in_house_delivery',
+         SET delivery_method = ?, delivery_type = ?,
              delivery_status = 'offer_pending',
              delivery_charge = ?
          WHERE id = ? AND delivery_partner_id IS NULL`,
-        [waitingDeliveryCharge, orderId]
+        [selectedDeliveryMethod, selectedDeliveryType, waitingDeliveryCharge, orderId]
       );
       await connection.commit();
-      return { orderId, pending: true, message: 'Waiting for an online available delivery person in the delivery area' };
+      return { orderId, pending: true, deliveryType: selectedDeliveryType, message: 'Waiting for an available delivery person in the delivery area' };
     }
     const partner = partnerRows[0];
     const pickupOtp = order.pickup_otp || generateOtp();
@@ -1424,8 +1463,8 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
       await connection.query(
         `UPDATE client_orders
          SET delivery_partner_id = ?,
-             delivery_method = 'in_house_auto',
-             delivery_type = 'in_house_delivery',
+             delivery_method = ?,
+             delivery_type = ?,
              delivery_otp = ?,
              pickup_otp = ?,
              delivery_charge = ?,
@@ -1435,7 +1474,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
              otp_set_at = CURRENT_TIMESTAMP,
              updated_at = CURRENT_TIMESTAMP
          WHERE id = ? AND delivery_partner_id IS NULL`,
-        [partner.id, deliveryOtp, pickupOtp, grossDeliveryCharge, actorUser ? actorUser.id : null, orderId]
+        [partner.id, selectedDeliveryMethod, selectedDeliveryType, deliveryOtp, pickupOtp, grossDeliveryCharge, actorUser ? actorUser.id : null, orderId]
       );
       const [offerResult] = await connection.query(
         `INSERT INTO delivery_order_offers
@@ -1485,10 +1524,65 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
       };
     }
 
+    if (autoAssignFirstAvailable) {
+      const assignmentNote = `${selectedDeliveryType === 'in_house_delivery' ? 'In-house' : 'Delivery partner'} automatically assigned when vendor marked Ready for Pickup`;
+      await connection.query(
+        `UPDATE client_orders
+         SET delivery_partner_id = ?,
+             delivery_method = ?,
+             delivery_type = ?,
+             delivery_otp = ?,
+             pickup_otp = ?,
+             delivery_charge = ?,
+             delivery_status = 'assigned',
+             assigned_at = CURRENT_TIMESTAMP,
+             otp_set_by = ?,
+             otp_set_at = CURRENT_TIMESTAMP,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE id = ? AND delivery_partner_id IS NULL`,
+        [partner.id, selectedDeliveryMethod, selectedDeliveryType, deliveryOtp, pickupOtp, grossDeliveryCharge, actorUser ? actorUser.id : null, orderId]
+      );
+      const [offerResult] = await connection.query(
+        `INSERT INTO delivery_order_offers
+         (order_id, delivery_person_id, status, pickup_area, delivery_area, delivery_charge, platform_fee, delivery_partner_earning, notification_payload, response_note, responded_at, expires_at)
+         VALUES (?, ?, 'accepted', ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP, ${deliveryOfferExpirySql()})`,
+        [orderId, partner.id, pickupAddress, deliveryAddress, grossDeliveryCharge, platformFee, deliveryPartnerEarning, JSON.stringify(notificationPayload), assignmentNote]
+      );
+      await connection.query(
+        `UPDATE client_orders SET auto_delivery_offer_id = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [offerResult.insertId, orderId]
+      );
+      await connection.query(
+        `INSERT INTO user_notifications (user_id, title, message, link)
+         VALUES (?, ?, ?, ?)`,
+        [
+          partner.id,
+          `Delivery #${orderDisplayNumber(order)} automatically assigned`,
+          `Pickup: ${pickupAddress} | Delivery: ${deliveryAddress} | Delivery earning: INR ${deliveryPartnerEarning.toFixed(2)}`,
+          '/api/orders/delivery',
+        ]
+      );
+      await connection.query(
+        `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
+         VALUES (?, ?, 'assigned', ?, ?, ?)`,
+        [orderId, order.delivery_status, actorUser ? actorUser.id : null, actorUser ? actorUser.role : 'system', assignmentNote]
+      );
+      await connection.commit();
+      return {
+        orderId,
+        offerId: offerResult.insertId,
+        deliveryPersonId: partner.id,
+        deliveryPersonName: partner.name,
+        automaticallyAssigned: true,
+        deliveryType: selectedDeliveryType,
+        notification: notificationPayload,
+      };
+    }
+
     await connection.query(
       `UPDATE client_orders
-       SET delivery_method = 'in_house_auto',
-           delivery_type = 'in_house_delivery',
+       SET delivery_method = ?,
+           delivery_type = ?,
            delivery_otp = ?,
            pickup_otp = ?,
            delivery_charge = ?,
@@ -1497,7 +1591,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
            otp_set_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [deliveryOtp, pickupOtp, grossDeliveryCharge, actorUser ? actorUser.id : null, orderId]
+      [selectedDeliveryMethod, selectedDeliveryType, deliveryOtp, pickupOtp, grossDeliveryCharge, actorUser ? actorUser.id : null, orderId]
     );
 
     const [offerResult] = await connection.query(

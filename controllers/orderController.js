@@ -274,7 +274,10 @@ async function readyToDeliver(req, res) {
       newStatus: 'ready_for_pickup',
       note: 'Marked ready from admin order panel',
     });
-    return res.json({ success: true, message: 'Order marked as ready to deliver', ...result });
+    const autoDelivery = await Order.createAutoDeliveryOffer(Number(req.params.id), req.authUser || req.session.user, {
+      autoAssignFirstAvailable: true,
+    }).catch((error) => ({ skipped: true, message: error.message }));
+    return res.json({ success: true, message: 'Order marked as ready to deliver', ...result, autoDelivery });
   } catch (error) {
     console.error('Ready to deliver error:', error);
     return res.status(400).json({ success: false, message: error.message });
@@ -970,6 +973,7 @@ async function manualVerifyDelivery(req, res) {
 
 async function updateVendorStatus(req, res) {
   try {
+    const requestedStatus = String(req.body.status || '').toLowerCase();
     const result = await Order.updateStatus({
       orderId: Number(req.params.id),
       actorUser: req.authUser || req.session.user,
@@ -977,8 +981,10 @@ async function updateVendorStatus(req, res) {
       note: req.body.note,
     });
     let autoDelivery = null;
-    if (String(req.body.status || '').toLowerCase() === 'accepted') {
-      autoDelivery = await Order.createAutoDeliveryOffer(Number(req.params.id), req.authUser || req.session.user)
+    if (requestedStatus === 'ready_for_pickup') {
+      autoDelivery = await Order.createAutoDeliveryOffer(Number(req.params.id), req.authUser || req.session.user, {
+        autoAssignFirstAvailable: true,
+      })
         .catch((error) => ({ skipped: true, message: error.message }));
     }
     return res.json({ success: true, message: `Order status changed to ${result.statusLabel}`, ...result, autoDelivery });
@@ -990,13 +996,19 @@ async function updateVendorStatus(req, res) {
 
 async function updateAdminStatus(req, res) {
   try {
+    const requestedStatus = String(req.body.status || '').toLowerCase();
     const result = await Order.updateStatus({
       orderId: Number(req.params.id),
       actorUser: req.authUser || req.session.user,
       newStatus: req.body.status,
       note: req.body.note,
     });
-    return res.json({ success: true, message: `Order status changed to ${result.statusLabel}`, ...result });
+    const autoDelivery = requestedStatus === 'ready_for_pickup'
+      ? await Order.createAutoDeliveryOffer(Number(req.params.id), req.authUser || req.session.user, {
+          autoAssignFirstAvailable: true,
+        }).catch((error) => ({ skipped: true, message: error.message }))
+      : null;
+    return res.json({ success: true, message: `Order status changed to ${result.statusLabel}`, ...result, autoDelivery });
   } catch (error) {
     console.error('Admin order status update error:', error);
     return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update order status' });
