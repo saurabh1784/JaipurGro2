@@ -78,12 +78,15 @@ function clientSafeOrder(order) {
   return clone;
 }
 
-function deliveryPartnerSafeOrder(order, financial) {
+function deliveryPartnerSafeOrder(order, financial, offerFinancial) {
   if (!order) return order;
   const clone = { ...order };
-  const assignedEarning = Number(order.delivery_partner_earning || order.delivery_earning || order.delivery_charge || 0);
+  const offerDeliveryCharge = Number(offerFinancial && offerFinancial.delivery_charge || 0);
+  const offerDeliveryEarning = Number(offerFinancial && offerFinancial.delivery_partner_earning || 0);
+  const deliveryCharge = Number(order.delivery_charge || offerDeliveryCharge || (financial && financial.deliveryCharge) || 0);
+  const assignedEarning = Number(order.delivery_partner_earning || order.delivery_earning || offerDeliveryEarning || deliveryCharge || 0);
   const calculatedEarning = Number(financial && financial.deliveryEarning || 0);
-  const deliveryEarning = calculatedEarning > 0 ? calculatedEarning : assignedEarning;
+  const deliveryEarning = assignedEarning > 0 ? assignedEarning : calculatedEarning;
   const rawNotificationPayload = clone.notification_payload;
   delete clone.delivery_otp;
   delete clone.pickup_otp;
@@ -91,13 +94,13 @@ function deliveryPartnerSafeOrder(order, financial) {
   delete clone.subtotal_amount;
   delete clone.discount_amount;
   delete clone.savings_amount;
-  delete clone.delivery_charge;
   delete clone.platform_fee;
   delete clone.delivery_partner_earning;
   delete clone.coupon_id;
   delete clone.coupon_code;
   delete clone.discount_id;
   delete clone.discount_label;
+  clone.delivery_charge = deliveryCharge;
   clone.delivery_earning = deliveryEarning;
   if (rawNotificationPayload) {
     let notificationPayload = rawNotificationPayload;
@@ -113,9 +116,9 @@ function deliveryPartnerSafeOrder(order, financial) {
     }
   }
   if (clone.notification_payload && typeof clone.notification_payload === 'object') {
-    delete clone.notification_payload.delivery_charge;
     delete clone.notification_payload.platform_fee;
     delete clone.notification_payload.delivery_partner_earning;
+    clone.notification_payload.delivery_charge = deliveryCharge;
     clone.notification_payload.delivery_earning = deliveryEarning;
   }
   return clone;
@@ -124,7 +127,47 @@ function deliveryPartnerSafeOrder(order, financial) {
 async function deliveryPartnerSafeOrders(orders) {
   const rows = Array.isArray(orders) ? orders : [];
   const financials = await Order.deliveryFinancials(rows.map((order) => order.delivery_charge));
-  return rows.map((order, index) => deliveryPartnerSafeOrder(order, financials[index]));
+  const offerFinancials = await deliveryPartnerOfferFinancials(rows);
+  return rows.map((order, index) => deliveryPartnerSafeOrder(order, financials[index], offerFinancials.get(Number(order.id))));
+}
+
+async function deliveryPartnerOfferFinancials(orders) {
+  const ids = [...new Set((orders || []).map((order) => Number(order && order.id)).filter((id) => id > 0))];
+  const result = new Map();
+  if (!ids.length) return result;
+
+  const placeholders = ids.map(() => '?').join(', ');
+  const [rows] = await pool.query(
+    `SELECT order_id, delivery_charge, delivery_partner_earning
+     FROM (
+       SELECT dof.order_id,
+              dof.delivery_charge,
+              dof.delivery_partner_earning,
+              ROW_NUMBER() OVER (
+                PARTITION BY dof.order_id
+                ORDER BY
+                  CASE dof.status
+                    WHEN 'accepted' THEN 0
+                    WHEN 'assigned' THEN 1
+                    WHEN 'pending' THEN 2
+                    ELSE 3
+                  END,
+                  dof.id DESC
+              ) AS rn
+       FROM delivery_order_offers dof
+       WHERE dof.order_id IN (${placeholders})
+         AND dof.status IN ('accepted', 'assigned', 'pending')
+     ) ranked
+     WHERE rn = 1`,
+    ids
+  );
+  for (const row of rows) {
+    result.set(Number(row.order_id), {
+      delivery_charge: Number(row.delivery_charge || 0),
+      delivery_partner_earning: Number(row.delivery_partner_earning || 0),
+    });
+  }
+  return result;
 }
 
 function deliveryPartnerSafeItems(items) {
@@ -637,6 +680,10 @@ async function deliveryOrders(req, res) {
       deliveryPartnerId: currentUser.id,
     });
     const orders = await deliveryPartnerSafeOrders(result.orders);
+    for (const order of orders) {
+      const items = await Order.getOrderItems(order.id);
+      order.items = deliveryPartnerSafeItems(items);
+    }
     return res.json({ success: true, orders, pagination: result.pagination });
   } catch (error) {
     console.error('Delivery orders error:', error);

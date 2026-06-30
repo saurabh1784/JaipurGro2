@@ -1805,11 +1805,20 @@ async function decideDeliveryOffer({ orderId, deliveryPersonId, decision, note =
        SET delivery_partner_id = ?,
            delivery_method = 'in_house_auto',
            delivery_type = 'in_house_delivery',
+           delivery_charge = CASE WHEN COALESCE(delivery_charge, 0) > 0 THEN delivery_charge ELSE ? END,
+           delivery_earning = CASE WHEN COALESCE(delivery_earning, 0) > 0 THEN delivery_earning ELSE ? END,
+           auto_delivery_offer_id = ?,
            delivery_status = 'assigned',
            assigned_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND delivery_partner_id IS NULL`,
-      [deliveryPersonId, orderId]
+      [
+        deliveryPersonId,
+        Number(offer.delivery_charge || 0),
+        Number(offer.delivery_partner_earning || offer.delivery_charge || 0),
+        offer.id,
+        orderId,
+      ]
     );
     await connection.query(
       `INSERT INTO delivery_person_activity_logs (delivery_person_id, actor_id, action, description, metadata)
