@@ -82,11 +82,10 @@ function deliveryPartnerSafeOrder(order, financial, offerFinancial) {
   if (!order) return order;
   const clone = { ...order };
   const offerDeliveryCharge = Number(offerFinancial && offerFinancial.delivery_charge || 0);
-  const offerDeliveryEarning = Number(offerFinancial && offerFinancial.delivery_partner_earning || 0);
   const deliveryCharge = Number(order.delivery_charge || offerDeliveryCharge || (financial && financial.deliveryCharge) || 0);
-  const assignedEarning = Number(order.delivery_partner_earning || order.delivery_earning || offerDeliveryEarning || deliveryCharge || 0);
+  const settledEarning = order.delivery_wallet_settled_at ? Number(order.delivery_earning || 0) : 0;
   const calculatedEarning = Number(financial && financial.deliveryEarning || 0);
-  const deliveryEarning = assignedEarning > 0 ? assignedEarning : calculatedEarning;
+  const deliveryEarning = settledEarning > 0 ? settledEarning : calculatedEarning;
   const rawNotificationPayload = clone.notification_payload;
   delete clone.delivery_otp;
   delete clone.pickup_otp;

@@ -1,6 +1,7 @@
 const pool = require('../db');
 const AreaDefinition = require('./AreaDefinition');
 const DeliveryType = require('./DeliveryType');
+const CommissionSetting = require('./CommissionSetting');
 const OrderWalletSettlement = require('../services/orderWalletSettlementService');
 const DELIVERY_OTP_MAX_ATTEMPTS = 8;
 const DELIVERY_OFFER_EXPIRY_MINUTES = Math.max(1, Number(process.env.DELIVERY_OFFER_EXPIRY_MINUTES || 30));
@@ -629,16 +630,19 @@ function deliveryOfferExpirySql() {
 }
 
 async function deliveryPlatformFee(deliveryCharge, connection = pool) {
-  return 0;
+  const setting = await CommissionSetting.getDeliveryCommission(connection);
+  return Math.min(CommissionSetting.calculateAmount(setting, deliveryCharge), money(deliveryCharge));
 }
 
 async function deliveryFinancials(deliveryCharges, connection = pool) {
+  const setting = await CommissionSetting.getDeliveryCommission(connection);
   return deliveryCharges.map((value) => {
     const deliveryCharge = effectiveDeliveryCharge(value);
+    const platformFee = Math.min(CommissionSetting.calculateAmount(setting, deliveryCharge), deliveryCharge);
     return {
       deliveryCharge,
-      platformFee: 0,
-      deliveryEarning: deliveryCharge,
+      platformFee,
+      deliveryEarning: money(deliveryCharge - platformFee),
     };
   });
 }

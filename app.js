@@ -538,6 +538,19 @@ function requireAdminMaintenance(req, res, next) {
   return res.redirect('/settings?error=Only%20admin%20users%20can%20run%20maintenance%20actions');
 }
 
+function requireAdminCommission(req, res, next) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  if (isSuperAdminUser(currentUser) || ['admin', 'superadmin'].includes(String(currentUser && currentUser.role || '').toLowerCase())) {
+    return next();
+  }
+
+  if (requestWantsJson(req)) {
+    return res.status(403).json({ success: false, message: 'Only Admin and Super Admin users can manage commission settings' });
+  }
+
+  return res.redirect('/settings?error=Only%20Admin%20and%20Super%20Admin%20users%20can%20manage%20commission%20settings');
+}
+
 function requireAdminWalletTransactions(req, res, next) {
   const currentUser = req.authUser || (req.session && req.session.user);
   if (walletController.isAdminWalletUser(currentUser)) {
@@ -5100,6 +5113,7 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
   const quotationSubmissionMinutes = Number(await settingValue('quotation_submission_minutes', '1440')) || 1440;
   const invoiceSettings = await getInvoiceSettings();
   const canRunMaintenance = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
+  const canManageCommissions = canRunMaintenance;
   let databaseBackups = [];
   if (canRunMaintenance) {
     try {
@@ -5111,6 +5125,7 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
   res.render('settings', {
     user: req.session.user,
     permissionLabels,
+    canManageCommissions,
     maintenance: canRunMaintenance ? await getAdminMaintenanceStats() : null,
     databaseBackups,
     error: req.query.error || null,
@@ -5899,9 +5914,9 @@ app.delete('/settings/delivery-partners/:id', requireAuth, requirePermission('se
 });
 
 app.get('/settings/catalog-tree', requireAuth, requirePermission('settings.manage'), catalogController.tree);
-app.get('/settings/commissions', requireAuth, requirePermission('settings.manage'), commissionController.list);
-app.put('/settings/commissions', requireAuth, requirePermission('settings.manage'), commissionController.update);
-app.post('/settings/commissions/calculate', requireAuth, requirePermission('settings.manage'), commissionController.calculate);
+app.get('/settings/commissions', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.list);
+app.put('/settings/commissions', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.update);
+app.post('/settings/commissions/calculate', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.calculate);
 app.post('/settings/categories', requireAuth, requirePermission('settings.manage'), catalogController.createCategory);
 app.get('/settings/categories', requireAuth, requirePermission('settings.manage'), catalogController.listCategories);
 app.put('/settings/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.updateCategory);

@@ -46,7 +46,9 @@
         <button class="settings-tab" type="button" data-tab="google-maps">Google Maps</button>
         <button class="settings-tab" type="button" data-tab="locations">Locations</button>
         <button class="settings-tab" type="button" data-tab="catalog">Catalog</button>
-        <button class="settings-tab" type="button" data-tab="commissions">Commission</button>
+        <% if (canManageCommissions) { %>
+          <button class="settings-tab" type="button" data-tab="commissions">Commission</button>
+        <% } %>
         <button class="settings-tab" type="button" data-tab="delivery-partners">Delivery Partners</button>
         <button class="settings-tab" type="button" data-tab="role-permissions">Role Permissions</button>
         <button class="settings-tab" type="button" data-tab="security">Security</button>
@@ -618,49 +620,57 @@
         </div>
       </section>
 
-      <section class="settings-panel" id="commissions" aria-labelledby="commissions-tab">
-        <div class="panel-header commission-header">
-          <h2>Role Commission Settings</h2>
-          <p>Set commission rules for roles involved in wallet, order, and refund transactions.</p>
-        </div>
+      <% if (canManageCommissions) { %>
+        <section class="settings-panel" id="commissions" aria-labelledby="commissions-tab">
+          <div class="panel-header commission-header">
+            <h2>Commission Settings</h2>
+            <p>Configure platform deductions for order totals and delivery charges.</p>
+          </div>
 
-        <div class="commission-toolbar">
-          <label>
-            Transaction
-            <select id="commissionTransactionFilter">
-              <option value="wallet_credit">Wallet Credit</option>
-              <option value="wallet_debit">Wallet Debit</option>
-              <option value="order_payment">Order Payment</option>
-              <option value="refund">Refund</option>
-            </select>
-          </label>
-          <label>
-            Preview Amount
-            <input id="commissionPreviewAmount" type="number" min="0" step="0.01" value="1000" />
-          </label>
-          <button class="settings-save" type="button" onclick="saveCommissionSettings()">Save Commission</button>
-        </div>
+          <div class="commission-toolbar commission-settings-toolbar">
+            <label>
+              Order Amount Preview
+              <input id="commissionPreviewAmount" type="number" min="0" step="0.01" value="1000" />
+            </label>
+            <label>
+              Delivery Charge Preview
+              <input id="deliveryCommissionPreviewAmount" type="number" min="0" step="0.01" value="50" />
+            </label>
+            <button class="settings-save" type="button" onclick="saveCommissionSettings()">Save Commission</button>
+          </div>
 
-        <div class="catalog-table-card commission-table-card">
-          <table class="catalog-table commission-table">
-            <thead>
-              <tr>
-                <th>Role</th>
-                <th>Enabled</th>
-                <th>Type</th>
-                <th>Value</th>
-                <th>Minimum</th>
-                <th>Maximum</th>
-                <th>Preview</th>
-              </tr>
-            </thead>
-            <tbody id="commissionTableBody">
-              <tr><td colspan="7">Loading commission settings...</td></tr>
-            </tbody>
-          </table>
-        </div>
-        <p class="commission-message" id="commissionMessage"></p>
-      </section>
+          <div class="settings-grid commission-settings-grid">
+            <label>
+              Order Commission (%)
+              <input id="orderCommissionPercentage" type="number" min="0" max="100" step="0.01" value="0" />
+              <small class="commission-subtext">Applied to the total order amount.</small>
+            </label>
+            <label>
+              Delivery Commission (%)
+              <input id="deliveryCommissionPercentage" type="number" min="0" max="100" step="0.01" value="0" />
+              <small class="commission-subtext">Applied only to the delivery charge.</small>
+            </label>
+          </div>
+
+          <div class="catalog-table-card commission-table-card">
+            <table class="catalog-table commission-table">
+              <thead>
+                <tr>
+                  <th>Commission</th>
+                  <th>Base Amount</th>
+                  <th>Deducted</th>
+                  <th>Net Earning</th>
+                  <th>Platform/Admin Earning</th>
+                </tr>
+              </thead>
+              <tbody id="commissionPreviewBody">
+                <tr><td colspan="5">Loading commission settings...</td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="commission-message" id="commissionMessage"></p>
+        </section>
+      <% } %>
 
       <section class="settings-panel" id="delivery-partners" aria-labelledby="delivery-partners-tab">
         <div class="panel-header blue-header">
@@ -1748,126 +1758,75 @@
       }
     }
 
-    function commissionLabel(value) {
-      return {
-        wallet_credit: 'Wallet Credit',
-        wallet_debit: 'Wallet Debit',
-        order_payment: 'Order Payment',
-        refund: 'Refund',
-      }[value] || value;
-    }
-
     async function loadCommissionSettings() {
-      const body = document.getElementById('commissionTableBody');
-      body.innerHTML = '<tr><td colspan="7">Loading commission settings...</td></tr>';
+      const body = document.getElementById('commissionPreviewBody');
+      if (!body) return;
+      body.innerHTML = '<tr><td colspan="5">Loading commission settings...</td></tr>';
       try {
         const response = await fetch('/settings/commissions');
         const data = await response.json();
         if (!data.success) throw new Error(data.message || 'Unable to load commission settings');
         commissionSettings = data.settings || [];
+        document.getElementById('orderCommissionPercentage').value = Number(data.order_commission_percentage || 0);
+        document.getElementById('deliveryCommissionPercentage').value = Number(data.delivery_commission_percentage || 0);
         renderCommissionSettings();
       } catch (error) {
-        body.innerHTML = `<tr><td colspan="7">${escapeCatalog(error.message)}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="5">${escapeCatalog(error.message)}</td></tr>`;
       }
-    }
-
-    function activeCommissionRows() {
-      const transactionType = document.getElementById('commissionTransactionFilter').value;
-      return commissionSettings.filter((item) => item.transaction_type === transactionType);
-    }
-
-    function calculateCommissionPreview(setting) {
-      const amount = Number(document.getElementById('commissionPreviewAmount').value || 0);
-      if (!setting.is_active || amount <= 0) return { commission: 0, net: amount };
-      let commission = setting.commission_type === 'percentage'
-        ? (amount * Number(setting.commission_value || 0)) / 100
-        : Number(setting.commission_value || 0);
-      commission = Math.max(commission, Number(setting.min_commission || 0));
-      if (setting.max_commission !== null && setting.max_commission !== undefined && setting.max_commission !== '') {
-        commission = Math.min(commission, Number(setting.max_commission));
-      }
-      commission = Number(Math.max(commission, 0).toFixed(2));
-      const net = setting.transaction_type === 'wallet_debit'
-        ? amount + commission
-        : Math.max(amount - commission, 0);
-      return { commission, net: Number(net.toFixed(2)) };
     }
 
     function renderCommissionSettings() {
-      const rows = activeCommissionRows();
-      const body = document.getElementById('commissionTableBody');
-      const transactionLabel = commissionLabel(document.getElementById('commissionTransactionFilter').value);
-      if (rows.length === 0) {
-        body.innerHTML = '<tr><td colspan="7">No commission settings found</td></tr>';
-        return;
-      }
-
-      body.innerHTML = rows.map((setting) => {
-        const preview = calculateCommissionPreview(setting);
-        return `
-          <tr data-commission-id="${setting.id}" data-transaction-type="${setting.transaction_type}">
-            <td>
-              <strong>${escapeCatalog(setting.role_name)}</strong>
-              <span class="commission-subtext">${transactionLabel}</span>
-            </td>
-            <td>
-              <label class="settings-toggle commission-toggle">
-                <input class="commission-active" type="checkbox" ${setting.is_active ? 'checked' : ''} />
-              </label>
-            </td>
-            <td>
-              <select class="commission-type">
-                <option value="percentage" ${setting.commission_type === 'percentage' ? 'selected' : ''}>Percentage</option>
-                <option value="fixed" ${setting.commission_type === 'fixed' ? 'selected' : ''}>Fixed</option>
-              </select>
-            </td>
-            <td><input class="commission-value" type="number" min="0" step="0.01" value="${setting.commission_value}" /></td>
-            <td><input class="commission-min" type="number" min="0" step="0.01" value="${setting.min_commission}" /></td>
-            <td><input class="commission-max" type="number" min="0" step="0.01" value="${setting.max_commission === null ? '' : setting.max_commission}" placeholder="No cap" /></td>
-            <td class="commission-preview-cell">
-              <strong>Fee ${preview.commission.toFixed(2)}</strong>
-              <span class="commission-subtext">Net ${preview.net.toFixed(2)}</span>
-            </td>
-          </tr>
-        `;
-      }).join('');
-
-      body.querySelectorAll('input, select').forEach((input) => {
-        input.addEventListener('input', syncCommissionRow);
-        input.addEventListener('change', syncCommissionRow);
-      });
-    }
-
-    function syncCommissionRow(event) {
-      const row = event.target.closest('tr');
-      const id = Number(row.dataset.commissionId);
-      const setting = commissionSettings.find((item) => item.id === id);
-      if (!setting) return;
-      setting.is_active = row.querySelector('.commission-active').checked;
-      setting.commission_type = row.querySelector('.commission-type').value;
-      setting.commission_value = Number(row.querySelector('.commission-value').value || 0);
-      setting.min_commission = Number(row.querySelector('.commission-min').value || 0);
-      setting.max_commission = row.querySelector('.commission-max').value;
-      const preview = calculateCommissionPreview(setting);
-      row.querySelector('.commission-preview-cell').innerHTML = `
-        <strong>Fee ${preview.commission.toFixed(2)}</strong>
-        <span class="commission-subtext">Net ${preview.net.toFixed(2)}</span>
+      const body = document.getElementById('commissionPreviewBody');
+      if (!body) return;
+      const orderAmount = Number(document.getElementById('commissionPreviewAmount').value || 0);
+      const deliveryCharge = Number(document.getElementById('deliveryCommissionPreviewAmount').value || 0);
+      const orderPercent = Number(document.getElementById('orderCommissionPercentage').value || 0);
+      const deliveryPercent = Number(document.getElementById('deliveryCommissionPercentage').value || 0);
+      const orderCommission = Number(Math.max((orderAmount * orderPercent) / 100, 0).toFixed(2));
+      const deliveryCommission = Number(Math.max((deliveryCharge * deliveryPercent) / 100, 0).toFixed(2));
+      const deliveryNet = Number(Math.max(deliveryCharge - deliveryCommission, 0).toFixed(2));
+      body.innerHTML = `
+        <tr>
+          <td>
+            <strong>Order Commission</strong>
+            <span class="commission-subtext">Total order amount</span>
+          </td>
+          <td>${orderAmount.toFixed(2)}</td>
+          <td>${orderCommission.toFixed(2)}</td>
+          <td>${Math.max(orderAmount - orderCommission, 0).toFixed(2)}</td>
+          <td>${orderCommission.toFixed(2)}</td>
+        </tr>
+        <tr>
+          <td>
+            <strong>Delivery Commission</strong>
+            <span class="commission-subtext">Delivery charge only</span>
+          </td>
+          <td>${deliveryCharge.toFixed(2)}</td>
+          <td>${deliveryCommission.toFixed(2)}</td>
+          <td>${deliveryNet.toFixed(2)}</td>
+          <td>${deliveryCommission.toFixed(2)}</td>
+        </tr>
       `;
     }
 
     async function saveCommissionSettings() {
       const message = document.getElementById('commissionMessage');
-      const rows = activeCommissionRows();
+      if (!message) return;
       message.textContent = 'Saving commission settings...';
       try {
         const response = await fetch('/settings/commissions', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ settings: rows }),
+          body: JSON.stringify({
+            order_commission_percentage: Number(document.getElementById('orderCommissionPercentage').value || 0),
+            delivery_commission_percentage: Number(document.getElementById('deliveryCommissionPercentage').value || 0),
+          }),
         });
         const data = await response.json();
         if (!data.success) throw new Error(data.message || 'Unable to save commission settings');
         commissionSettings = data.settings || [];
+        document.getElementById('orderCommissionPercentage').value = Number(data.order_commission_percentage || 0);
+        document.getElementById('deliveryCommissionPercentage').value = Number(data.delivery_commission_percentage || 0);
         message.textContent = data.message;
         renderCommissionSettings();
       } catch (error) {
@@ -2169,8 +2128,15 @@
       }
     });
 
-    document.getElementById('commissionTransactionFilter').addEventListener('change', renderCommissionSettings);
-    document.getElementById('commissionPreviewAmount').addEventListener('input', renderCommissionSettings);
+    [
+      'commissionPreviewAmount',
+      'deliveryCommissionPreviewAmount',
+      'orderCommissionPercentage',
+      'deliveryCommissionPercentage',
+    ].forEach((id) => {
+      const input = document.getElementById(id);
+      if (input) input.addEventListener('input', renderCommissionSettings);
+    });
     document.getElementById('roleSettingsSelect').addEventListener('change', renderRoleSettings);
     document.getElementById('googleMapsForm').addEventListener('submit', saveGoogleMapSettings);
     document.getElementById('deliveryPartnerTestFilterForm').addEventListener('submit', (event) => {

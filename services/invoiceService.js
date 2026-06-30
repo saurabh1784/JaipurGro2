@@ -568,11 +568,16 @@ function buildPdfBuffer(order, items, options = {}) {
   );
   y = table.bottom - 18;
   const invoiceTotal = number(order.total_amount) || table.totals.total;
+  const deliveryCharge = number(order.delivery_charge);
+  const itemTotal = number(order.subtotal_amount) || Math.max(invoiceTotal - deliveryCharge, 0) || table.totals.total;
   const roundedTotal = Math.round(invoiceTotal);
   const roundOff = roundedTotal - invoiceTotal;
 
   drawText(lines, 'Item Total', LEFT, y, 8, { bold: true });
-  drawText(lines, amount(invoiceTotal), RIGHT, y, 8, { bold: true, align: 'right' });
+  drawText(lines, amount(itemTotal), RIGHT, y, 8, { bold: true, align: 'right' });
+  y -= 14;
+  drawText(lines, 'Delivery Charge', LEFT, y, 8, { bold: true });
+  drawText(lines, amount(deliveryCharge), RIGHT, y, 8, { bold: true, align: 'right' });
   y -= 14;
   drawText(lines, 'Round off to', LEFT, y, 8);
   drawText(lines, amount(roundOff), RIGHT, y, 8, { bold: true, align: 'right' });

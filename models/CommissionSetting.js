@@ -1,150 +1,146 @@
 const pool = require('../db');
 
-const transactionTypes = ['wallet_credit', 'wallet_debit', 'order_payment', 'refund'];
-const commissionTypes = ['percentage', 'fixed'];
+const commissionKinds = {
+  order: {
+    key: 'order_commission',
+    label: 'Order Commission',
+    basis: 'total_order_amount',
+  },
+  delivery: {
+    key: 'delivery_commission',
+    label: 'Delivery Commission',
+    basis: 'delivery_charge',
+  },
+};
+
+function money(value) {
+  return Number(Math.max(Number(value || 0), 0).toFixed(2));
+}
+
+function normalizePercent(value) {
+  const percent = Number(value || 0);
+  if (!Number.isFinite(percent) || percent < 0 || percent > 100) {
+    const error = new Error('Commission percentages must be between 0 and 100');
+    error.status = 422;
+    throw error;
+  }
+  return Number(percent.toFixed(2));
+}
 
 function normalize(row) {
   if (!row) return null;
   return {
     id: row.id,
-    role_slug: row.role_slug,
-    role_name: row.role_name,
-    transaction_type: row.transaction_type,
-    commission_type: row.commission_type,
-    commission_value: Number(row.commission_value || 0),
-    min_commission: Number(row.min_commission || 0),
-    max_commission: row.max_commission === null || row.max_commission === undefined ? null : Number(row.max_commission),
+    key: row.transaction_type,
+    label: row.role_name,
+    basis: row.role_slug === 'delivery' ? commissionKinds.delivery.basis : commissionKinds.order.basis,
+    percentage: Number(row.commission_value || 0),
     is_active: Boolean(row.is_active),
     updated_at: row.updated_at,
   };
 }
 
-function calculateAmount(setting, amount) {
+function calculatePercentageAmount(percentage, amount) {
   const numericAmount = Number(amount);
-  if (!setting || !setting.is_active || !Number.isFinite(numericAmount) || numericAmount <= 0) {
+  const percent = Number(percentage || 0);
+  if (!Number.isFinite(numericAmount) || numericAmount <= 0 || !Number.isFinite(percent) || percent <= 0) {
     return 0;
   }
-
-  let commission = setting.commission_type === 'percentage'
-    ? (numericAmount * Number(setting.commission_value || 0)) / 100
-    : Number(setting.commission_value || 0);
-
-  commission = Math.max(commission, Number(setting.min_commission || 0));
-  if (setting.max_commission !== null && setting.max_commission !== undefined && setting.max_commission !== '') {
-    commission = Math.min(commission, Number(setting.max_commission));
-  }
-
-  return Number(Math.max(commission, 0).toFixed(2));
+  return money((numericAmount * percent) / 100);
 }
 
-async function seedForRoles(connection = pool) {
-  const [roles] = await connection.query(`
-    SELECT name, slug FROM roles
-    UNION
-    SELECT role AS name, role AS slug FROM users WHERE role IS NOT NULL AND role != ''
-    ORDER BY name ASC
-  `);
-  for (const role of roles) {
-    for (const transactionType of transactionTypes) {
-      await connection.query(
-        `INSERT INTO commission_settings
-         (role_slug, role_name, transaction_type, commission_type, commission_value, min_commission, max_commission, is_active)
-         VALUES (?, ?, ?, 'percentage', 0.00, 0.00, NULL, 0)
-         ON CONFLICT (role_slug, transaction_type) DO UPDATE
-         SET role_name = EXCLUDED.role_name`,
-        [role.slug, role.name, transactionType]
-      );
-    }
-  }
+function calculateAmount(setting, amount) {
+  if (!setting || setting.is_active === false) return 0;
+  return calculatePercentageAmount(setting.percentage ?? setting.commission_value, amount);
 }
 
-async function list() {
-  await seedForRoles();
-  const [rows] = await pool.query(
+async function ensureDefaults(connection = pool) {
+  for (const kind of Object.values(commissionKinds)) {
+    await connection.query(
+      `INSERT INTO commission_settings
+       (role_slug, role_name, transaction_type, commission_type, commission_value, min_commission, max_commission, is_active)
+       VALUES (?, ?, ?, 'percentage', 0.00, 0.00, NULL, 1)
+       ON CONFLICT (role_slug, transaction_type) DO UPDATE
+       SET role_name = EXCLUDED.role_name,
+           commission_type = 'percentage',
+           min_commission = 0.00,
+           max_commission = NULL,
+           is_active = 1`,
+      [kind.key === commissionKinds.order.key ? 'order' : 'delivery', kind.label, kind.key]
+    );
+  }
+
+  await connection.query(
+    `DELETE FROM commission_settings
+     WHERE transaction_type NOT IN (?, ?)
+        OR role_slug NOT IN ('order', 'delivery')`,
+    [commissionKinds.order.key, commissionKinds.delivery.key]
+  );
+}
+
+async function list(connection = pool) {
+  await ensureDefaults(connection);
+  const [rows] = await connection.query(
     `SELECT *
      FROM commission_settings
+     WHERE transaction_type IN (?, ?)
      ORDER BY CASE transaction_type
-       WHEN 'wallet_credit' THEN 1
-       WHEN 'wallet_debit' THEN 2
-       WHEN 'order_payment' THEN 3
-       WHEN 'refund' THEN 4
-       ELSE 5
-     END, role_name ASC`
+       WHEN ? THEN 1
+       WHEN ? THEN 2
+       ELSE 3
+     END`,
+    [
+      commissionKinds.order.key,
+      commissionKinds.delivery.key,
+      commissionKinds.order.key,
+      commissionKinds.delivery.key,
+    ]
   );
   return rows.map(normalize);
 }
 
-async function findForRoleAndTransaction(roleSlug, transactionType, connection = pool) {
-  if (!roleSlug || !transactionTypes.includes(transactionType)) {
+async function findByKey(key, connection = pool) {
+  if (!Object.values(commissionKinds).some((kind) => kind.key === key)) {
     return null;
   }
-
+  await ensureDefaults(connection);
   const [rows] = await connection.query(
     `SELECT *
      FROM commission_settings
-     WHERE role_slug = ? AND transaction_type = ? AND is_active = 1
+     WHERE transaction_type = ?
      LIMIT 1`,
-    [roleSlug, transactionType]
+    [key]
   );
   return normalize(rows[0]);
 }
 
-async function updateMany(settings) {
+async function getOrderCommission(connection = pool) {
+  return findByKey(commissionKinds.order.key, connection);
+}
+
+async function getDeliveryCommission(connection = pool) {
+  return findByKey(commissionKinds.delivery.key, connection);
+}
+
+async function update(settings = {}) {
+  const orderPercentage = normalizePercent(settings.order_commission_percentage);
+  const deliveryPercentage = normalizePercent(settings.delivery_commission_percentage);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await seedForRoles(connection);
-
-    for (const item of settings) {
-      if (!item.id) continue;
-      if (!transactionTypes.includes(item.transaction_type)) {
-        const error = new Error('Invalid transaction type');
-        error.status = 422;
-        throw error;
-      }
-      if (!commissionTypes.includes(item.commission_type)) {
-        const error = new Error('Invalid commission type');
-        error.status = 422;
-        throw error;
-      }
-
-      const value = Number(item.commission_value);
-      const min = Number(item.min_commission || 0);
-      const max = item.max_commission === '' || item.max_commission === null || item.max_commission === undefined
-        ? null
-        : Number(item.max_commission);
-
-      if (!Number.isFinite(value) || value < 0 || !Number.isFinite(min) || min < 0 || (max !== null && (!Number.isFinite(max) || max < 0))) {
-        const error = new Error('Commission values must be valid positive numbers');
-        error.status = 422;
-        throw error;
-      }
-      if (max !== null && min > max) {
-        const error = new Error('Minimum commission cannot be greater than maximum commission');
-        error.status = 422;
-        throw error;
-      }
-
-      await connection.query(
-        `UPDATE commission_settings
-         SET commission_type = ?,
-             commission_value = ?,
-             min_commission = ?,
-             max_commission = ?,
-             is_active = ?
-         WHERE id = ? AND transaction_type = ?`,
-        [
-          item.commission_type,
-          value,
-          min,
-          max,
-          item.is_active ? 1 : 0,
-          item.id,
-          item.transaction_type,
-        ]
-      );
-    }
-
+    await ensureDefaults(connection);
+    await connection.query(
+      `UPDATE commission_settings
+       SET commission_value = ?, commission_type = 'percentage', min_commission = 0.00, max_commission = NULL, is_active = 1
+       WHERE transaction_type = ?`,
+      [orderPercentage, commissionKinds.order.key]
+    );
+    await connection.query(
+      `UPDATE commission_settings
+       SET commission_value = ?, commission_type = 'percentage', min_commission = 0.00, max_commission = NULL, is_active = 1
+       WHERE transaction_type = ?`,
+      [deliveryPercentage, commissionKinds.delivery.key]
+    );
     await connection.commit();
     return list();
   } catch (error) {
@@ -156,11 +152,13 @@ async function updateMany(settings) {
 }
 
 module.exports = {
-  transactionTypes,
-  commissionTypes,
+  commissionKinds,
   calculateAmount,
-  seedForRoles,
-  findForRoleAndTransaction,
+  calculatePercentageAmount,
+  ensureDefaults,
+  seedForRoles: ensureDefaults,
+  getOrderCommission,
+  getDeliveryCommission,
   list,
-  updateMany,
+  update,
 };

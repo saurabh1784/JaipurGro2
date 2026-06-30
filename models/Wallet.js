@@ -1,5 +1,4 @@
 const pool = require('../db');
-const CommissionSetting = require('./CommissionSetting');
 
 function normalizeWallet(row) {
   if (!row) return null;
@@ -354,18 +353,11 @@ async function adjustBalance({ userId, type, amount, note, reference, createdBy 
       throw error;
     }
 
-    const transactionType = type === 'credit' ? 'wallet_credit' : 'wallet_debit';
-    const [userRows] = await connection.query('SELECT role FROM users WHERE id = ? AND is_deleted = 0 LIMIT 1', [userId]);
-    const roleSlug = userRows[0] && userRows[0].role;
     const [actorRows] = createdBy
       ? await connection.query('SELECT name, email, role FROM users WHERE id = ? LIMIT 1', [createdBy])
       : [[]];
     const actor = actorRows[0] || {};
-    const commissionSetting = await CommissionSetting.findForRoleAndTransaction(roleSlug, transactionType, connection);
-    const commissionAmount = CommissionSetting.calculateAmount(commissionSetting, numericAmount);
-    const netAmount = type === 'credit'
-      ? Math.max(numericAmount - commissionAmount, 0)
-      : numericAmount + commissionAmount;
+    const netAmount = numericAmount;
     const balanceBefore = Number(wallet.balance || 0);
     const balanceAfter = type === 'credit' ? balanceBefore + netAmount : balanceBefore - netAmount;
     if (balanceAfter < 0) {
@@ -384,8 +376,8 @@ async function adjustBalance({ userId, type, amount, note, reference, createdBy 
         userId,
         type,
         numericAmount,
-        commissionSetting ? commissionSetting.id : null,
-        commissionAmount,
+        null,
+        0,
         Number(netAmount.toFixed(2)),
         balanceBefore,
         balanceAfter,

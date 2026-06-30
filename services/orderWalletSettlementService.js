@@ -27,15 +27,6 @@ async function platformAdmin(connection) {
   return rows[0];
 }
 
-async function platformCommissionSetting(connection) {
-  const candidates = ['superadmin', 'admin', 'Admin', 'Vendor', 'vendor', 'deliveryperson', 'deliveryPerson'];
-  for (const role of candidates) {
-    const setting = await CommissionSetting.findForRoleAndTransaction(role, 'order_payment', connection);
-    if (setting) return setting;
-  }
-  return null;
-}
-
 async function assertSufficientBalance(userId, requiredAmount, connection) {
   const wallet = await Wallet.lockForUser(userId, connection);
   if (wallet.status !== 'active') {
@@ -65,11 +56,8 @@ async function settleOrderPlacement({ orderId, actorId, connection }) {
   const totalPaid = money(order.total_amount);
   const deliveryCharge = Math.min(money(order.delivery_charge), totalPaid);
   const vendorGross = money(totalPaid - deliveryCharge);
-  const setting = await platformCommissionSetting(connection);
-  const portalCharge = Math.min(
-    money(CommissionSetting.calculateAmount(setting, totalPaid)),
-    vendorGross
-  );
+  const setting = await CommissionSetting.getOrderCommission(connection);
+  const portalCharge = Math.min(money(CommissionSetting.calculateAmount(setting, totalPaid)), vendorGross);
   const vendorEarning = money(vendorGross - portalCharge);
   const admin = await platformAdmin(connection);
   const displayOrder = order.order_number || order.id;
@@ -95,7 +83,7 @@ async function settleOrderPlacement({ orderId, actorId, connection }) {
     component: 'admin_platform_charge',
     ledgerKey: `ORDER:${order.id}:ADMIN:PLATFORM_CHARGE`,
     reference: `ORDER_${order.id}`,
-    note: `Portal charge for order #${displayOrder}`,
+    note: `Order commission for order #${displayOrder}`,
     createdBy: actorId || order.user_id,
     commissionSettingId: setting ? setting.id : null,
     commissionAmount: portalCharge,
@@ -111,7 +99,7 @@ async function settleOrderPlacement({ orderId, actorId, connection }) {
     component: 'vendor_order_earning',
     ledgerKey: `ORDER:${order.id}:VENDOR:EARNING`,
     reference: `ORDER_${order.id}`,
-    note: `Vendor earning for order #${displayOrder} after portal charge INR ${portalCharge.toFixed(2)}`,
+    note: `Vendor earning for order #${displayOrder} after order commission INR ${portalCharge.toFixed(2)}`,
     createdBy: actorId || order.user_id,
     commissionSettingId: setting ? setting.id : null,
     commissionAmount: portalCharge,
@@ -134,7 +122,8 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
   const [rows] = await connection.query(
     `SELECT o.id, o.order_number, o.status, o.delivery_status, o.delivery_partner_id,
             o.delivery_wallet_settled_at, o.delivery_earning AS settled_delivery_earning,
-            COALESCE(accepted_offer.delivery_partner_earning, o.delivery_charge, 0) AS payable_delivery_earning
+            COALESCE(accepted_offer.delivery_charge, o.delivery_charge, 0) AS gross_delivery_charge,
+            COALESCE(accepted_offer.delivery_partner_earning, o.delivery_charge, 0) AS offered_delivery_earning
      FROM client_orders o
      LEFT JOIN delivery_order_offers accepted_offer
        ON accepted_offer.order_id = o.id
@@ -161,11 +150,30 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
     };
   }
   const partnerId = Number(deliveryPersonId || order.delivery_partner_id || 0);
-  const deliveryEarning = money(order.payable_delivery_earning);
-  if (!partnerId || deliveryEarning <= 0) {
+  const deliveryCharge = money(order.gross_delivery_charge);
+  const setting = await CommissionSetting.getDeliveryCommission(connection);
+  const deliveryCommission = Math.min(money(CommissionSetting.calculateAmount(setting, deliveryCharge)), deliveryCharge);
+  const deliveryEarning = money(deliveryCharge - deliveryCommission);
+  if (!partnerId || deliveryCharge <= 0) {
     return { deliveryPersonId: partnerId || null, deliveryEarning: 0 };
   }
+  const admin = await platformAdmin(connection);
   const displayOrder = order.order_number || order.id;
+  await Wallet.applyLedgerEntry({
+    userId: admin.id,
+    orderId: order.id,
+    type: 'credit',
+    amount: deliveryCommission,
+    component: 'admin_delivery_commission',
+    ledgerKey: `ORDER:${order.id}:ADMIN:DELIVERY_COMMISSION`,
+    reference: `ORDER_${order.id}`,
+    note: `Delivery commission for order #${displayOrder}`,
+    createdBy: actorId || partnerId,
+    commissionSettingId: setting ? setting.id : null,
+    commissionAmount: deliveryCommission,
+    allowZero: true,
+    connection,
+  });
   await Wallet.applyLedgerEntry({
     userId: partnerId,
     orderId: order.id,
@@ -174,8 +182,11 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
     component: 'delivery_person_earning',
     ledgerKey: `ORDER:${order.id}:DELIVERY_PERSON:EARNING`,
     reference: `ORDER_${order.id}`,
-    note: `Delivery earning for completed order #${displayOrder}`,
+    note: `Delivery earning for completed order #${displayOrder} after delivery commission INR ${deliveryCommission.toFixed(2)}`,
     createdBy: actorId || partnerId,
+    commissionSettingId: setting ? setting.id : null,
+    commissionAmount: deliveryCommission,
+    allowZero: true,
     connection,
   });
   await connection.query(
@@ -183,7 +194,7 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
      updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
     [deliveryEarning, order.id]
   );
-  return { deliveryPersonId: partnerId, deliveryEarning };
+  return { deliveryPersonId: partnerId, deliveryCharge, deliveryCommission, deliveryEarning, adminUserId: admin.id };
 }
 
 module.exports = {
