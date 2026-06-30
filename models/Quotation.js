@@ -168,8 +168,16 @@ async function quotationDeliveryCharge(payload, connection) {
       destination: payload.destination,
     });
     return {
-      applicable: false,
-      delivery_charge: 0,
+      applicable: true,
+      delivery_charge: Number(
+        (
+          Number(process.env.DEFAULT_DELIVERY_BASE_PRICE || 30) +
+          (payload.items.reduce((sum, item) => (
+            sum + Number(item.weight_kg || 0) * Math.max(1, Number(item.quantity || 1))
+          ), 0) * Number(process.env.DEFAULT_DELIVERY_PRICE_PER_KG || 10)) +
+          Number(process.env.DEFAULT_DELIVERY_ADDITIONAL_CHARGE || 0)
+        ).toFixed(2)
+      ),
       distance_km: 0,
       total_weight_kg: payload.items.reduce((sum, item) => (
         sum + Number(item.weight_kg || 0) * Math.max(1, Number(item.quantity || 1))

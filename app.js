@@ -1985,6 +1985,16 @@ async function initDatabase(options = {}) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await pool.query(`
+    INSERT INTO delivery_charge_rules
+      (city, rule_name, min_weight_kg, max_weight_kg, base_delivery_price, price_per_km, price_per_kg, additional_charge, is_active)
+    SELECT 'Jaipur', 'Default Jaipur delivery', 0, NULL, 30, 0, 10, 0, 1
+    WHERE NOT EXISTS (
+      SELECT 1 FROM delivery_charge_rules
+      WHERE is_active = 1
+        AND LOWER(TRIM(city)) = 'jaipur'
+    )
+  `);
+  await pool.query(`
     INSERT INTO order_status_history (order_id, old_status, new_status, changed_by_role, note, created_at)
     SELECT co.id, NULL, co.status, 'system', 'Initial status', COALESCE(co.created_at, CURRENT_TIMESTAMP)
     FROM client_orders co
@@ -5335,7 +5345,13 @@ app.post('/settings/debug/delivery-partner-test/:partnerId/send', requireAuth, r
     const deliveryOtp = String(Math.floor(100000 + Math.random() * 900000));
     const pickupAddress = `Debug pickup hub, ${city}`;
     const deliveryAddress = `Debug delivery address, ${area === '*' ? city : area}, ${city}`;
-    const deliveryCharge = 0;
+    const delivery = await DeliveryCharge.calculateCharge({
+      city,
+      origin: pickupAddress,
+      destination: deliveryAddress,
+      totalWeightKg: 1,
+    }, connection);
+    const deliveryCharge = Number(delivery.delivery_charge || 0);
     const notificationPayload = {
       test_delivery: true,
       vendor_name: 'Debug Test Vendor',
@@ -5349,7 +5365,7 @@ app.post('/settings/debug/delivery-partner-test/:partnerId/send', requireAuth, r
       delivery_charge: deliveryCharge,
       platform_fee: 0,
       delivery_partner_earning: deliveryCharge,
-      approx_total_weight_kg: 0,
+      approx_total_weight_kg: Number(delivery.total_weight_kg || 1),
     };
 
     const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(

@@ -52,6 +52,8 @@
               <th>Delivery Location</th>
               <th>Distance</th>
               <th>Order Value</th>
+              <th>Delivery Charge</th>
+              <th>Delivery Earning</th>
               <th>Delivery Person</th>
               <th>Status</th>
               <th>OTP</th>
@@ -60,7 +62,7 @@
             </tr>
           </thead>
           <tbody id="ordersBody">
-            <tr><td colspan="12">Loading in-house delivery orders...</td></tr>
+            <tr><td colspan="14">Loading in-house delivery orders...</td></tr>
           </tbody>
         </table>
       </div>
@@ -191,7 +193,7 @@
     function renderOrders() {
       const body = el('ordersBody');
       if (!orders.length) {
-        body.innerHTML = '<tr><td colspan="12">No in-house delivery orders match these filters.</td></tr>';
+        body.innerHTML = '<tr><td colspan="14">No in-house delivery orders match these filters.</td></tr>';
         renderSummary();
         return;
       }
@@ -204,6 +206,8 @@
           <td class="delivery-location-cell">${esc(order.delivery_location)}</td>
           <td>${distance(order.distance_km)}</td>
           <td>${money(order.order_value)}</td>
+          <td>${money(order.delivery_charge)}</td>
+          <td><strong>${money(order.delivery_earning)}</strong></td>
           <td>${deliveryProviderCell(order)}</td>
           <td><span class="badge ${statusClass(order.order_status)}">${esc(order.order_status)}</span></td>
           <td>${['out_for_delivery', 'delivered'].includes(String(order.delivery_status || '').toLowerCase()) ? `<strong>${esc(order.delivery_otp || '-')}</strong>` : '-'}</td>
@@ -510,7 +514,7 @@
         el('previous').disabled = page <= 1;
         el('next').disabled = page >= totalPages;
       } catch (error) {
-        el('ordersBody').innerHTML = `<tr><td colspan="10">${esc(error.message)}</td></tr>`;
+        el('ordersBody').innerHTML = `<tr><td colspan="14">${esc(error.message)}</td></tr>`;
       }
     }
 
@@ -539,6 +543,8 @@
               <p><strong>Delivery:</strong> ${esc(dashboardOrder.delivery_location || order.shipping_address || order.client_address || '-')}</p>
               <p><strong>Distance:</strong> ${distance(dashboardOrder.distance_km)}</p>
               <p><strong>Order Value:</strong> ${money(order.total_amount)}</p>
+              <p><strong>Delivery Charge:</strong> ${money(dashboardOrder.delivery_charge ?? order.delivery_charge)}</p>
+              <p><strong>Delivery Earning:</strong> ${money(dashboardOrder.delivery_earning ?? order.delivery_earning ?? order.delivery_charge)}</p>
             </article>
             <article>
               <h3>Delivery Progress</h3>

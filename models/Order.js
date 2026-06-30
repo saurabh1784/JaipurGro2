@@ -606,7 +606,10 @@ function money(value) {
 }
 
 function effectiveDeliveryCharge(value) {
-  return money(value);
+  const amount = money(value);
+  if (amount > 0) return amount;
+  const fallback = Number(process.env.DEFAULT_DELIVERY_BASE_PRICE || 30);
+  return money(fallback);
 }
 
 function externalProviderToken(id) {
@@ -631,7 +634,7 @@ async function deliveryPlatformFee(deliveryCharge, connection = pool) {
 
 async function deliveryFinancials(deliveryCharges, connection = pool) {
   return deliveryCharges.map((value) => {
-    const deliveryCharge = money(value);
+    const deliveryCharge = effectiveDeliveryCharge(value);
     return {
       deliveryCharge,
       platformFee: 0,
@@ -2523,6 +2526,8 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
             latest_rejection.description AS latest_rejection_reason,
             latest_rejection.created_at AS latest_rejection_at,
             dof.status AS offer_status, dof.pickup_area, dof.delivery_area,
+            COALESCE(dof.delivery_charge, o.delivery_charge, 0) AS dashboard_delivery_charge,
+            COALESCE(dof.delivery_partner_earning, o.delivery_earning, dof.delivery_charge, o.delivery_charge, 0) AS dashboard_delivery_earning,
             dof.expires_at AS offer_expires_at, dof.responded_at AS offer_responded_at,
             dof.created_at AS offer_created_at, dof.updated_at AS offer_updated_at,
             CASE
@@ -2547,6 +2552,8 @@ async function listInHouseDeliveryDashboard({ page = 1, limit = 20, search = '',
     delivery_location: row.delivery_area || [row.shipping_address, row.shipping_area, row.shipping_city, row.shipping_pincode].filter(Boolean).join(', ') || '-',
     distance_km: row.distance_km === null || row.distance_km === undefined ? null : Number(row.distance_km),
     order_value: Number(row.total_amount || 0),
+    delivery_charge: Number(row.dashboard_delivery_charge || effectiveDeliveryCharge(0)),
+    delivery_earning: Number(row.dashboard_delivery_earning || row.dashboard_delivery_charge || effectiveDeliveryCharge(0)),
     delivery_person_id: row.delivery_partner_id || row.offered_delivery_person_id || row.latest_rejected_delivery_person_id || null,
     external_delivery_provider_id: row.external_delivery_provider_id || null,
     external_delivery_provider_name: row.external_delivery_provider_name || '',

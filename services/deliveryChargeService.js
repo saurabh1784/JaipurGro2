@@ -10,6 +10,38 @@ function roundMoney(value) {
   return Number(Math.max(0, toNumber(value)).toFixed(2));
 }
 
+function defaultBasePrice() {
+  return roundMoney(process.env.DEFAULT_DELIVERY_BASE_PRICE || 30);
+}
+
+function defaultPricePerKm() {
+  return roundMoney(process.env.DEFAULT_DELIVERY_PRICE_PER_KM || 0);
+}
+
+function defaultPricePerKg() {
+  return roundMoney(process.env.DEFAULT_DELIVERY_PRICE_PER_KG || 10);
+}
+
+function defaultAdditionalCharge() {
+  return roundMoney(process.env.DEFAULT_DELIVERY_ADDITIONAL_CHARGE || 0);
+}
+
+function fallbackRule(city = '') {
+  return {
+    id: null,
+    city: city || 'Default',
+    rule_name: 'Default delivery charge',
+    min_weight_kg: 0,
+    max_weight_kg: null,
+    base_delivery_price: defaultBasePrice(),
+    price_per_km: defaultPricePerKm(),
+    price_per_kg: defaultPricePerKg(),
+    additional_charge: defaultAdditionalCharge(),
+    is_active: true,
+    is_fallback: true,
+  };
+}
+
 function coordinateAddress(latitude, longitude) {
   const lat = Number(latitude);
   const lng = Number(longitude);
@@ -269,7 +301,23 @@ async function matchingRule(city, totalWeightKg, connection = pool) {
      LIMIT 1`,
     [city, totalWeightKg, totalWeightKg]
   );
-  return normalizeRule(rows[0]);
+  if (rows[0]) return normalizeRule(rows[0]);
+
+  const [fallbackRows] = await connection.query(
+    `SELECT *
+     FROM delivery_charge_rules
+     WHERE is_active = 1
+       AND ? >= min_weight_kg
+       AND (max_weight_kg IS NULL OR ? <= max_weight_kg)
+     ORDER BY
+       CASE WHEN LOWER(TRIM(city)) IN ('default', '*', 'all') THEN 0 ELSE 1 END,
+       min_weight_kg DESC,
+       COALESCE(max_weight_kg, 999999) ASC,
+       id ASC
+     LIMIT 1`,
+    [totalWeightKg, totalWeightKg]
+  );
+  return normalizeRule(fallbackRows[0]) || fallbackRule(city);
 }
 
 async function calculateCharge({
@@ -285,16 +333,6 @@ async function calculateCharge({
 }, connection = pool) {
   const weightKg = roundMoney(totalWeightKg === undefined ? items.reduce((sum, item) => sum + itemWeightKg(item), 0) : totalWeightKg);
   const rule = await matchingRule(city, weightKg, connection);
-  if (!rule) {
-    return {
-      applicable: false,
-      delivery_charge: 0,
-      distance_km: 0,
-      total_weight_kg: weightKg,
-      rule: null,
-      distance_source: 'no_matching_rule',
-    };
-  }
 
   const distanceOrigin = coordinateAddress(originLatitude, originLongitude) || origin;
   const distanceDestination = coordinateAddress(destinationLatitude, destinationLongitude) || destination;
@@ -302,30 +340,35 @@ async function calculateCharge({
   try {
     distance = await googleDistanceKm(distanceOrigin, distanceDestination);
   } catch (error) {
-    if (!isAddressResolutionDistanceError(error)) {
-      throw error;
-    }
     distance = {
       distanceKm: 0,
-      source: 'address_resolution_fallback',
+      source: isAddressResolutionDistanceError(error)
+        ? 'address_resolution_fallback'
+        : 'distance_service_fallback',
       diagnostics: [
         {
           ...(error.googleDiagnostic || {}),
           ok: false,
-          action: 'Delivery charge used the base/weight rule because Google could not resolve the pickup or delivery address.',
+          action: 'Delivery charge used the base/weight rule because distance could not be calculated.',
         },
       ],
     };
   }
-  const charge = roundMoney(
+  const calculatedCharge = roundMoney(
     rule.base_delivery_price
       + (distance.distanceKm * rule.price_per_km)
       + (weightKg * rule.price_per_kg)
       + rule.additional_charge
   );
+  const fallbackCharge = roundMoney(
+    defaultBasePrice()
+      + (weightKg * defaultPricePerKg())
+      + defaultAdditionalCharge()
+  );
+  const charge = calculatedCharge > 0 ? calculatedCharge : fallbackCharge;
 
   return {
-    applicable: true,
+    applicable: charge > 0,
     delivery_charge: charge,
     distance_km: distance.distanceKm,
     total_weight_kg: weightKg,
