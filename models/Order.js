@@ -46,10 +46,10 @@ const ADMIN_TRANSITIONS = {
 };
 
 const DELIVERY_TRANSITIONS = {
-  pending: ['on_the_way'],
-  accepted: ['on_the_way'],
-  processing: ['on_the_way'],
-  ready_for_pickup: ['on_the_way'],
+  pending: ['picked_up'],
+  accepted: ['picked_up'],
+  processing: ['picked_up'],
+  ready_for_pickup: ['picked_up'],
   picked_up: ['on_the_way'],
 };
 
@@ -567,7 +567,7 @@ function getAllowedNextStatusesForOrder(order, actorRole) {
       || ['delivered_by_vendor', 'counter_pickup'].includes(String(order.delivery_type || '').toLowerCase());
     statuses = statuses.filter((status) => {
       if ([ORDER_STATUS.PICKED_UP, ORDER_STATUS.ON_THE_WAY].includes(status)) {
-        return hasDeliveryPartner || vendorHandledDelivery;
+        return !hasDeliveryPartner && vendorHandledDelivery;
       }
       return status !== ORDER_STATUS.DELIVERED;
     });
@@ -2275,7 +2275,7 @@ async function verifyPickupOTP(orderId, otp, actorUser = null) {
 
     await connection.query(
       `UPDATE client_orders
-       SET status = 'on_the_way',
+       SET status = 'picked_up',
            delivery_status = 'out_for_delivery',
            delivery_otp = ?,
            delivery_otp_attempts = 0,
@@ -2289,11 +2289,11 @@ async function verifyPickupOTP(orderId, otp, actorUser = null) {
     );
     await connection.query(
       `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
-       VALUES (?, ?, 'on_the_way', ?, ?, ?)`,
-      [orderId, order.status, actorUser ? actorUser.id : null, actorUser ? actorUser.role : null, 'Pickup verified; delivery is now on the way and tracking started']
+       VALUES (?, ?, 'picked_up', ?, ?, ?)`,
+      [orderId, order.status, actorUser ? actorUser.id : null, actorUser ? actorUser.role : null, 'Pickup verified; delivery tracking started']
     );
     await connection.commit();
-    return { orderId, status: 'on_the_way', deliveryStatus: 'out_for_delivery', verified: true };
+    return { orderId, status: 'picked_up', deliveryStatus: 'out_for_delivery', verified: true };
   } catch (error) {
     await connection.rollback();
     throw error;

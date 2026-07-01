@@ -90,6 +90,7 @@ function deliveryPartnerSafeOrder(order, financial, offerFinancial) {
     ? settledEarning
     : (storedDeliveryCommission > 0 ? Math.max(deliveryCharge - storedDeliveryCommission, 0) : calculatedEarning);
   const rawNotificationPayload = clone.notification_payload;
+  clone.order_amount = Number(order.total_amount || 0);
   delete clone.delivery_otp;
   delete clone.pickup_otp;
   delete clone.total_amount;
@@ -747,14 +748,12 @@ async function deliveryUpdateStatus(req, res) {
     const order = await ensureAssignedDeliveryOrder(req, res);
     if (!order) return;
 
-    const requestedStatus = String(req.body.status || '').toLowerCase() === 'picked_up'
-      ? 'on_the_way'
-      : req.body.status;
+    const requestedStatus = req.body.status;
     const result = await Order.updateStatus({
       orderId: Number(req.params.id),
       actorUser: req.authUser || req.session.user,
       newStatus: requestedStatus,
-      note: req.body.note || (requestedStatus === 'on_the_way'
+      note: req.body.note || (String(requestedStatus || '').toLowerCase() === 'picked_up'
         ? 'Order picked up; delivery tracking started'
         : 'Updated from delivery partner app'),
     });
