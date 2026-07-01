@@ -37,6 +37,15 @@ async function update(req, res) {
       });
     }
 
+    if (req.body.location_commission && typeof req.body.location_commission === 'object') {
+      await LocationCommissionSetting.saveOne(req.body.location_commission);
+      return res.json({
+        success: true,
+        message: 'Location commission setting saved successfully',
+        location_commissions: await LocationCommissionSetting.listPayload(),
+      });
+    }
+
     const updatedSettings = await CommissionSetting.update({
       order_commission_percentage: req.body.order_commission_percentage,
       delivery_commission_percentage: req.body.delivery_commission_percentage,

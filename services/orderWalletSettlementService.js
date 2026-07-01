@@ -7,6 +7,20 @@ function hasAreaPricingSnapshot(order) {
   return Boolean(order && order.area_pricing_snapshot);
 }
 
+function resolvedCommissionAmount({ order, storedAmount, setting, basisAmount }) {
+  const stored = money(storedAmount);
+  if (stored > 0) {
+    return stored;
+  }
+
+  const calculated = CommissionSetting.calculateAmount(setting, basisAmount);
+  if (calculated > 0) {
+    return calculated;
+  }
+
+  return hasAreaPricingSnapshot(order) ? stored : calculated;
+}
+
 async function platformAdmin(connection) {
   const configuredId = Number(process.env.PLATFORM_ADMIN_USER_ID || 0);
   const params = configuredId > 0 ? [configuredId] : [];
@@ -95,9 +109,12 @@ async function settleOrderCompletion({ orderId, actorId, connection }) {
   const vendorGross = money(Math.max(totalPaid - deliveryCharge - platformFee, 0));
   const setting = await CommissionSetting.getOrderCommission(connection);
   const orderCommission = Math.min(
-    hasAreaPricingSnapshot(order)
-      ? money(order.order_commission_amount)
-      : money(order.order_commission_amount || CommissionSetting.calculateAmount(setting, vendorGross)),
+    resolvedCommissionAmount({
+      order,
+      storedAmount: order.order_commission_amount,
+      setting,
+      basisAmount: vendorGross,
+    }),
     vendorGross
   );
   const vendorEarning = money(vendorGross - orderCommission);
@@ -212,9 +229,12 @@ async function settleDeliveryCompletion({ orderId, deliveryPersonId, actorId, co
   const deliveryCharge = money(order.gross_delivery_charge);
   const setting = await CommissionSetting.getDeliveryCommission(connection);
   const deliveryCommission = Math.min(
-    hasAreaPricingSnapshot(order)
-      ? money(order.delivery_commission_amount)
-      : money(order.delivery_commission_amount || CommissionSetting.calculateAmount(setting, deliveryCharge)),
+    resolvedCommissionAmount({
+      order,
+      storedAmount: order.delivery_commission_amount,
+      setting,
+      basisAmount: deliveryCharge,
+    }),
     deliveryCharge
   );
   const deliveryEarning = money(deliveryCharge - deliveryCommission);

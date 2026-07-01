@@ -3952,15 +3952,23 @@ async function resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryO
     city: addressSnapshot.shippingCity || areaPricing.city || vendorOrder.city || '',
     area: addressSnapshot.shippingArea || areaPricing.area_name || addressSnapshot.shippingPincode || '',
   }, connection);
-  const orderCommissionPercentage = money(
+  const orderCommissionSetting = await CommissionSetting.getOrderCommission(connection);
+  const deliveryCommissionSetting = await CommissionSetting.getDeliveryCommission(connection);
+  const areaOrderCommissionPercentage = money(
     locationCommission
       ? locationCommission.order_commission_percentage
       : areaPricing.order_commission_percentage
   );
-  const deliveryCommissionPercentage = money(
+  const areaDeliveryCommissionPercentage = money(
     locationCommission
       ? locationCommission.delivery_commission_percentage
       : areaPricing.delivery_commission_percentage
+  );
+  const orderCommissionPercentage = money(
+    areaOrderCommissionPercentage || (orderCommissionSetting ? orderCommissionSetting.percentage : 0)
+  );
+  const deliveryCommissionPercentage = money(
+    areaDeliveryCommissionPercentage || (deliveryCommissionSetting ? deliveryCommissionSetting.percentage : 0)
   );
 
   return {

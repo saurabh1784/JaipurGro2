@@ -4,6 +4,7 @@ const DeliveryType = require('./DeliveryType');
 const Rating = require('./Rating');
 const Order = require('./Order');
 const AreaDefinition = require('./AreaDefinition');
+const LocationCommissionSetting = require('./LocationCommissionSetting');
 const DeliveryCharge = require('../services/deliveryChargeService');
 const OrderWalletSettlement = require('../services/orderWalletSettlementService');
 const { insertClientOrderWithOrderNumber } = require('../utils/orderNumber');
@@ -820,8 +821,30 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       ? 0
       : money(areaPricing.delivery_charge !== null ? areaPricing.delivery_charge : delivery.delivery_charge);
     const platformFee = money(areaPricing.platform_fee);
-    const orderCommissionAmount = money((itemPayable * money(areaPricing.order_commission_percentage)) / 100);
-    const deliveryCommissionAmount = money((deliveryCharge * money(areaPricing.delivery_commission_percentage)) / 100);
+    const locationCommission = await LocationCommissionSetting.resolveForLocation({
+      city: client.city || areaPricing.city || vendor.city || '',
+      area: client.area || areaPricing.area_name || client.city || '',
+    }, connection);
+    const orderCommissionSetting = await CommissionSetting.getOrderCommission(connection);
+    const deliveryCommissionSetting = await CommissionSetting.getDeliveryCommission(connection);
+    const areaOrderCommissionPercentage = money(
+      locationCommission
+        ? locationCommission.order_commission_percentage
+        : areaPricing.order_commission_percentage
+    );
+    const areaDeliveryCommissionPercentage = money(
+      locationCommission
+        ? locationCommission.delivery_commission_percentage
+        : areaPricing.delivery_commission_percentage
+    );
+    const orderCommissionPercentage = money(
+      areaOrderCommissionPercentage || (orderCommissionSetting ? orderCommissionSetting.percentage : 0)
+    );
+    const deliveryCommissionPercentage = money(
+      areaDeliveryCommissionPercentage || (deliveryCommissionSetting ? deliveryCommissionSetting.percentage : 0)
+    );
+    const orderCommissionAmount = money((itemPayable * orderCommissionPercentage) / 100);
+    const deliveryCommissionAmount = money((deliveryCharge * deliveryCommissionPercentage) / 100);
     const totalAmount = Number((itemPayable + deliveryCharge + platformFee).toFixed(2));
     await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
 
@@ -846,10 +869,12 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
           area_definition_id: areaPricing.area_definition_id,
           area_name: areaPricing.area_name,
           city: areaPricing.city,
+          commission_area: locationCommission ? locationCommission.area : null,
+          commission_source: locationCommission ? (locationCommission.area === '*' ? 'city' : 'area') : 'area_definition',
           platform_fee: platformFee,
           delivery_charge: deliveryCharge,
-          order_commission_percentage: money(areaPricing.order_commission_percentage),
-          delivery_commission_percentage: money(areaPricing.delivery_commission_percentage),
+          order_commission_percentage: orderCommissionPercentage,
+          delivery_commission_percentage: deliveryCommissionPercentage,
         }),
         promotion.coupon ? promotion.coupon.id : null,
         promotion.code || null,

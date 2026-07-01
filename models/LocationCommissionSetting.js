@@ -26,13 +26,14 @@ function validatePercent(value, label) {
 
 function normalize(row) {
   if (!row) return null;
+  const activeValue = row.is_active;
   return {
     id: row.id,
     city: row.city || '',
     area: row.area || '*',
     order_commission_percentage: Number(row.order_commission_percentage || 0),
     delivery_commission_percentage: Number(row.delivery_commission_percentage || 0),
-    is_active: Boolean(row.is_active),
+    is_active: activeValue === true || activeValue === 1 || activeValue === '1' || activeValue === 'true',
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -54,6 +55,9 @@ async function ensureTable(connection = pool) {
       KEY idx_location_commission_lookup (city, area, is_active)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await connection.query(
+    'CREATE UNIQUE INDEX IF NOT EXISTS uniq_location_commission_city_area ON location_commission_settings (city, area)'
+  );
 }
 
 async function list(connection = pool) {
@@ -118,7 +122,8 @@ async function saveOne(payload, connection = pool) {
        order_commission_percentage = EXCLUDED.order_commission_percentage,
        delivery_commission_percentage = EXCLUDED.delivery_commission_percentage,
        is_active = EXCLUDED.is_active,
-       updated_at = CURRENT_TIMESTAMP`,
+       updated_at = CURRENT_TIMESTAMP
+     RETURNING id`,
     [city, area, orderCommission, deliveryCommission, isActive]
   );
   return result.insertId || null;
@@ -168,7 +173,7 @@ async function resolveForLocation({ city = '', area = '' } = {}, connection = po
      FROM location_commission_settings
      WHERE is_active = 1
        AND LOWER(TRIM(city)) = LOWER(TRIM(?))
-       AND area IN (?, '*')
+       AND (LOWER(TRIM(area)) = LOWER(TRIM(?)) OR area = '*')
      ORDER BY CASE WHEN LOWER(TRIM(area)) = LOWER(TRIM(?)) THEN 0 WHEN area = '*' THEN 1 ELSE 2 END
      LIMIT 1`,
     [cityValue, areaValue, areaValue]

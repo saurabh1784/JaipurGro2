@@ -657,7 +657,7 @@
               Delivery Charge Commission (%)
               <input id="commissionDeliveryInput" type="number" min="0" max="100" step="0.01" value="0" />
             </label>
-            <button class="settings-save" type="button" onclick="addCommissionSetting()">Add / Update Row</button>
+            <button class="settings-save" type="button" onclick="addCommissionSetting()">Save / Update Commission</button>
           </div>
           <datalist id="commissionCityOptions"></datalist>
 
@@ -1824,7 +1824,7 @@
       select.innerHTML = options.join('');
     }
 
-    function addCommissionSetting() {
+    function readCommissionForm() {
       const cityInput = document.getElementById('commissionCityInput');
       const areaInput = document.getElementById('commissionAreaInput');
       const orderInput = document.getElementById('commissionOrderInput');
@@ -1837,20 +1837,23 @@
 
       if (!city) {
         message.textContent = 'Choose a city before adding a commission row.';
-        return;
+        return null;
       }
       if (orderPercent < 0 || orderPercent > 100 || deliveryPercent < 0 || deliveryPercent > 100) {
         message.textContent = 'Commission percentages must be between 0 and 100.';
-        return;
+        return null;
       }
 
-      const next = {
+      return {
         city,
         area,
         order_commission_percentage: orderPercent,
         delivery_commission_percentage: deliveryPercent,
         is_active: true,
       };
+    }
+
+    function upsertLocalCommissionSetting(next) {
       const existingIndex = commissionSettings.findIndex((row) => commissionKey(row) === commissionKey(next));
       if (existingIndex >= 0) {
         commissionSettings[existingIndex] = { ...commissionSettings[existingIndex], ...next };
@@ -1859,7 +1862,67 @@
       }
       renderCommissionCityOptions();
       renderCommissionSettings();
-      message.textContent = `${commissionAreaLabel(area)} commission staged for ${city}. Click Save All Commissions to apply.`;
+    }
+
+    async function addCommissionSetting() {
+      const message = document.getElementById('commissionMessage');
+      const next = readCommissionForm();
+      if (!next) return;
+      upsertLocalCommissionSetting(next);
+      message.textContent = `${commissionAreaLabel(next.area)} commission saved locally. Saving to server...`;
+      try {
+        await persistCommissionSetting(next);
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    function maybeStageCurrentCommissionForm() {
+      const cityInput = document.getElementById('commissionCityInput');
+      if (!cityInput || !cityInput.value.trim()) return true;
+      const next = readCommissionForm();
+      if (!next) return false;
+      upsertLocalCommissionSetting(next);
+      return true;
+    }
+
+    function replaceCommissionPayloadFromServer(locationPayload) {
+      commissionSettings = locationPayload.settings || [];
+      commissionCities = locationPayload.cities || commissionCities;
+      commissionAreas = locationPayload.areas || commissionAreas;
+      renderCommissionCityOptions();
+      renderCommissionAreaOptions();
+      renderCommissionSettings();
+    }
+
+    async function saveSingleCommissionSetting(next) {
+      const response = await fetch('/settings/commissions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ location_commission: next }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.message || 'Unable to save commission setting');
+      replaceCommissionPayloadFromServer(data.location_commissions || {});
+      return data;
+    }
+
+    async function saveAllCommissionRows() {
+      const response = await fetch('/settings/commissions', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ location_commissions: commissionSettings }),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.message || 'Unable to save commission settings');
+      replaceCommissionPayloadFromServer(data.location_commissions || {});
+      return data;
+    }
+
+    async function persistCommissionSetting(next) {
+      const data = await saveSingleCommissionSetting(next);
+      const message = document.getElementById('commissionMessage');
+      message.textContent = data.message || `${commissionAreaLabel(next.area)} commission saved for ${next.city}.`;
     }
 
     function editCommissionSetting(index) {
@@ -1870,7 +1933,7 @@
       document.getElementById('commissionAreaInput').value = row.area || '*';
       document.getElementById('commissionOrderInput').value = Number(row.order_commission_percentage || 0);
       document.getElementById('commissionDeliveryInput').value = Number(row.delivery_commission_percentage || 0);
-      document.getElementById('commissionMessage').textContent = 'Edit the values, then click Add / Update Row.';
+      document.getElementById('commissionMessage').textContent = 'Edit the values, then click Save / Update Commission.';
     }
 
     function toggleCommissionSetting(index) {
@@ -1950,26 +2013,14 @@
         .join('');
     }
 
-    async function saveCommissionSettings() {
+    async function saveCommissionSettings(options = {}) {
       const message = document.getElementById('commissionMessage');
       if (!message) return;
+      if (options.includeCurrentForm !== false && !maybeStageCurrentCommissionForm()) return;
       message.textContent = 'Saving commission settings...';
       try {
-        const response = await fetch('/settings/commissions', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ location_commissions: commissionSettings }),
-        });
-        const data = await response.json();
-        if (!data.success) throw new Error(data.message || 'Unable to save commission settings');
-        const locationPayload = data.location_commissions || {};
-        commissionSettings = locationPayload.settings || [];
-        commissionCities = locationPayload.cities || commissionCities;
-        commissionAreas = locationPayload.areas || commissionAreas;
-        renderCommissionCityOptions();
-        renderCommissionAreaOptions();
+        const data = await saveAllCommissionRows();
         message.textContent = data.message;
-        renderCommissionSettings();
       } catch (error) {
         message.textContent = error.message;
       }
