@@ -2,6 +2,7 @@ const VendorProduct = require('../models/VendorProduct');
 const Product = require('../models/Product');
 const ProductSearch = require('../models/ProductSearch');
 const Vendor = require('../models/Vendor');
+const { productImagePath } = require('../middleware/productImageUpload');
 
 function isSuperAdmin(user) {
   return String((user && (user.role || user.roleName)) || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin';
@@ -28,6 +29,62 @@ function isClient(user) {
 function resolveVendorId(req) {
   if (isVendor(req.authUser)) return req.authUser.id;
   return Number(req.body.vendor_id || req.query.vendor_id || req.params.vendorId);
+}
+
+function toNumber(value) {
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : NaN;
+}
+
+function normalizeId(value) {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function normalizeWeightUnit(value) {
+  const unit = String(value || 'kg').trim();
+  if (!unit) return 'kg';
+  const lower = unit.toLowerCase();
+  if (['gram', 'grams', 'g'].includes(lower)) return 'g';
+  if (['kilogram', 'kilograms', 'kg'].includes(lower)) return 'kg';
+  if (['liter', 'liters', 'litre', 'litres', 'l'].includes(lower)) return 'L';
+  if (['milliliter', 'milliliters', 'millilitre', 'millilitres', 'ml'].includes(lower)) return 'ml';
+  return unit.slice(0, 20);
+}
+
+function requestPayload(req, existing = {}) {
+  const files = Array.isArray(req.files) ? req.files : [];
+  const imagePaths = files.map(productImagePath).filter(Boolean);
+  const hasWeightValue = req.body.weight_value !== undefined && req.body.weight_value !== '';
+  const weightValue = hasWeightValue ? toNumber(req.body.weight_value) : toNumber(req.body.weight_kg || 0);
+  const weightUnit = normalizeWeightUnit(req.body.weight_unit || 'kg');
+  const weightKg = ['g', 'ml'].includes(weightUnit) ? weightValue / 1000 : weightValue;
+  const data = {
+    name: String(req.body.name || '').trim(),
+    description: String(req.body.description || '').trim(),
+    price: toNumber(req.body.price),
+    quantity: toNumber(req.body.quantity || 0),
+    weight_value: weightValue,
+    weight_unit: weightUnit,
+    weight_kg: weightKg,
+    tax_name: String(req.body.tax_name || '').trim(),
+    tax_percentage: req.body.tax_percentage === undefined || req.body.tax_percentage === '' ? null : toNumber(req.body.tax_percentage),
+    category_id: normalizeId(req.body.category_id),
+    sub_category_id: normalizeId(req.body.sub_category_id || req.body.subcategory_id),
+    brand_id: normalizeId(req.body.brand_id),
+    image_url: imagePaths[0] || existing.image_url || null,
+    vendor_id: resolveVendorId(req),
+  };
+  const errors = [];
+  if (!data.name || data.name.length < 2) errors.push('Name must be at least 2 characters');
+  if (!Number.isFinite(data.price) || data.price < 0) errors.push('Price must be a valid non-negative number');
+  if (!Number.isFinite(data.quantity) || data.quantity < 0) errors.push('Quantity must be a valid non-negative number');
+  if (!Number.isFinite(data.weight_value) || data.weight_value < 0 || !Number.isFinite(data.weight_kg) || data.weight_kg < 0) errors.push('Weight must be a valid non-negative number');
+  if (!data.category_id) errors.push('Category is required');
+  if (!data.sub_category_id) errors.push('Subcategory is required');
+  if (!data.brand_id) errors.push('Brand is required');
+  if (data.tax_percentage !== null && (!Number.isFinite(data.tax_percentage) || data.tax_percentage < 0 || data.tax_percentage > 100)) errors.push('Tax percentage must be between 0 and 100');
+  return { data, errors };
 }
 
 async function index(req, res) {
@@ -105,6 +162,53 @@ async function create(req, res) {
     return res.status(error.status || 500).json({
       success: false,
       message: error.status ? error.message : 'Unable to save vendor product',
+    });
+  }
+}
+
+async function requestProduct(req, res) {
+  if (!isVendor(req.authUser)) {
+    return res.status(403).json({ success: false, message: 'Only vendors can request new products' });
+  }
+  const { data, errors } = requestPayload(req);
+  if (errors.length) {
+    return res.status(422).json({ success: false, message: errors.join(', '), errors });
+  }
+  try {
+    const vendorProduct = await VendorProduct.createProductRequest(data);
+    return res.status(201).json({
+      success: true,
+      message: 'Product request sent for approval',
+      vendor_product: vendorProduct,
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to submit product request',
+    });
+  }
+}
+
+async function resubmitProductRequest(req, res) {
+  if (!isVendor(req.authUser)) {
+    return res.status(403).json({ success: false, message: 'Only vendors can resubmit product requests' });
+  }
+  const existing = await Product.findById(Number(req.params.productId));
+  const { data, errors } = requestPayload(req, existing || {});
+  if (errors.length) {
+    return res.status(422).json({ success: false, message: errors.join(', '), errors });
+  }
+  try {
+    const vendorProduct = await VendorProduct.resubmitProductRequest(req.params.productId, data);
+    return res.json({
+      success: true,
+      message: 'Product request resubmitted for approval',
+      vendor_product: vendorProduct,
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to resubmit product request',
     });
   }
 }
@@ -307,6 +411,8 @@ module.exports = {
   approvedProducts,
   show,
   create,
+  requestProduct,
+  resubmitProductRequest,
   update,
   destroy,
   updateInventoryPrice,

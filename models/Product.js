@@ -115,8 +115,17 @@ async function list(filters = {}) {
      params.push(filters.brand_name);
    }
    if (filters.approval_status) {
-     conditions.push('p.approval_status = ?');
-     params.push(filters.approval_status);
+     const statuses = String(filters.approval_status)
+       .split(',')
+       .map((status) => status.trim())
+       .filter(Boolean);
+     if (statuses.length === 1) {
+       conditions.push('p.approval_status = ?');
+       params.push(statuses[0]);
+     } else if (statuses.length > 1) {
+       conditions.push(`p.approval_status IN (${statuses.map(() => '?').join(',')})`);
+       params.push(...statuses);
+     }
    }
 
   const where = conditions.join(' AND ');
@@ -180,9 +189,28 @@ async function findById(id) {
 
 async function create(data) {
   const [result] = await pool.query(
-    `INSERT INTO products (name, description, price, weight_value, weight_unit, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-    [data.name, data.description || null, data.price, data.weight_value || 0, cleanWeightUnit(data.weight_unit), data.weight_kg || 0, data.image_url || null, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id]
+    `INSERT INTO products
+     (name, description, price, weight_value, weight_unit, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id, approval_status, created_by_vendor_id, approved_by, approved_at, rejection_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    [
+      data.name,
+      data.description || null,
+      data.price,
+      data.weight_value || 0,
+      cleanWeightUnit(data.weight_unit),
+      data.weight_kg || 0,
+      data.image_url || null,
+      data.tax_name || null,
+      data.tax_percentage ?? null,
+      data.category_id,
+      data.sub_category_id,
+      data.brand_id,
+      data.approval_status || 'approved',
+      data.created_by_vendor_id || null,
+      data.approved_by || null,
+      data.approved_at || (data.approval_status === 'approved' ? new Date() : null),
+      data.rejection_reason || null,
+    ]
   );
   return result.insertId;
 }
@@ -216,6 +244,25 @@ async function updatePrice(id, price) {
   await pool.query('UPDATE products SET price = ? WHERE id = ? AND is_deleted = 0', [price, id]);
 }
 
+async function updateApprovalStatus(id, { status, actor_id, rejection_reason }) {
+  const normalized = String(status || '').trim().toLowerCase();
+  if (!['pending', 'in_review', 'approved', 'rejected'].includes(normalized)) {
+    const error = new Error('Status must be Pending, In Review, Approved, or Rejected');
+    error.status = 422;
+    throw error;
+  }
+
+  await pool.query(
+    `UPDATE products
+     SET approval_status = ?,
+         approved_by = ?,
+         approved_at = CASE WHEN ? IN ('approved', 'rejected') THEN CURRENT_TIMESTAMP ELSE approved_at END,
+         rejection_reason = CASE WHEN ? = 'rejected' THEN ? ELSE NULL END
+     WHERE id = ? AND is_deleted = 0`,
+    [normalized, actor_id || null, normalized, normalized, rejection_reason || null, id]
+  );
+}
+
 async function softDelete(id) {
    await pool.query('UPDATE products SET is_deleted = 1 WHERE id = ?', [id]);
  }
@@ -247,6 +294,7 @@ module.exports = {
    create,
    update,
    updatePrice,
+   updateApprovalStatus,
    softDelete,
    validateRelation,
    resolveRelation,

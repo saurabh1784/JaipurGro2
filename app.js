@@ -48,6 +48,7 @@ const CommissionSetting = require('./models/CommissionSetting');
 const LocationCommissionSetting = require('./models/LocationCommissionSetting');
 const ProductSearch = require('./models/ProductSearch');
 const Promotion = require('./models/Promotion');
+const Advertisement = require('./models/Advertisement');
 const SupportTicket = require('./models/SupportTicket');
 const VendorCategoryRequest = require('./models/VendorCategoryRequest');
 const AreaDefinition = require('./models/AreaDefinition');
@@ -72,6 +73,11 @@ const {
   promotionImagePath,
   handlePromotionImageUploadError,
 } = require('./middleware/promotionImageUpload');
+const {
+  uploadAdvertisementImage,
+  advertisementImagePath,
+  handleAdvertisementImageUploadError,
+} = require('./middleware/advertisementImageUpload');
 const {
   uploadVendorSignature,
   handleVendorSignatureUploadError,
@@ -180,6 +186,10 @@ const permissionLabels = {
   'coupons.delete': 'Delete Coupons',
   'coupons.apply': 'Apply Coupons',
   'coupon_history.view': 'View Coupon History',
+  'advertisements.view': 'View Advertisements',
+  'advertisements.create': 'Create Advertisements',
+  'advertisements.edit': 'Edit Advertisements',
+  'advertisements.delete': 'Delete Advertisements',
   'support.manage': 'Manage Support Tickets',
 };
 
@@ -215,7 +225,7 @@ const roleSeeds = [
     slug: 'admin',
     description: 'Administrative access for users, roles, products, orders, and reports.',
     level: 1,
-    permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view', 'discounts.view', 'discounts.create', 'discounts.edit', 'discounts.delete', 'coupons.view', 'coupons.create', 'coupons.edit', 'coupons.delete', 'coupons.apply', 'coupon_history.view', 'support.manage'],
+    permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view', 'discounts.view', 'discounts.create', 'discounts.edit', 'discounts.delete', 'coupons.view', 'coupons.create', 'coupons.edit', 'coupons.delete', 'coupons.apply', 'coupon_history.view', 'advertisements.view', 'advertisements.create', 'advertisements.edit', 'advertisements.delete', 'support.manage'],
   },
   {
     name: 'Manager',
@@ -229,7 +239,7 @@ const roleSeeds = [
     slug: 'staff',
     description: 'Store team access for day-to-day order handling.',
     level: 3,
-    permissions: ['dashboard.view', 'wallets.view', 'orders.manage', 'support.manage'],
+    permissions: ['dashboard.view', 'wallets.view', 'orders.manage', 'advertisements.view', 'advertisements.create', 'advertisements.edit', 'support.manage'],
   },
   {
     name: 'Delivery Person',
@@ -280,9 +290,9 @@ const roleFallbackDetails = {
   Vendor: { name: 'Vendor', level: 5, permissions: ['dashboard.view', 'wallets.view'] },
   Client: { name: 'Client', level: 5, permissions: ['dashboard.view', 'wallets.view'] },
   superadmin: { name: 'Super Admin', level: 0, permissions: allPermissionKeys() },
-  admin: { name: 'Admin', level: 1, permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view'] },
+  admin: { name: 'Admin', level: 1, permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view', 'advertisements.view', 'advertisements.create', 'advertisements.edit', 'advertisements.delete'] },
   manager: { name: 'Manager', level: 2, permissions: ['dashboard.view', 'clients.manage', 'vendors.manage', 'products.manage', 'orders.manage', 'reports.view'] },
-  staff: { name: 'Staff', level: 3, permissions: ['dashboard.view', 'wallets.view', 'orders.manage', 'support.manage'] },
+  staff: { name: 'Staff', level: 3, permissions: ['dashboard.view', 'wallets.view', 'orders.manage', 'advertisements.view', 'advertisements.create', 'advertisements.edit', 'support.manage'] },
   deliveryPerson: { name: 'Delivery Person App', level: 3, permissions: ['dashboard.view', 'orders.manage', 'wallets.view'] },
   deliveryperson: { name: 'Delivery Person', level: 3, permissions: ['dashboard.view', 'orders.manage', 'wallets.view'] },
   'staff-l1': { name: 'Staff L1', level: 4, permissions: ['dashboard.view', 'products.manage', 'orders.manage', 'support.manage'] },
@@ -1663,6 +1673,54 @@ async function initDatabase(options = {}) {
   `);
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS advertisements (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      title VARCHAR(160) NOT NULL,
+      description TEXT DEFAULT NULL,
+      image_path VARCHAR(255) DEFAULT NULL,
+      start_at TIMESTAMP NULL DEFAULT NULL,
+      end_at TIMESTAMP NULL DEFAULT NULL,
+      countdown_seconds INT UNSIGNED NOT NULL DEFAULT 5,
+      target_platforms JSON DEFAULT NULL,
+      city_scope VARCHAR(20) NOT NULL DEFAULT 'all',
+      city VARCHAR(120) DEFAULT NULL,
+      areas JSON DEFAULT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      advertiser_name VARCHAR(150) DEFAULT NULL,
+      advertiser_email VARCHAR(150) DEFAULT NULL,
+      advertiser_phone VARCHAR(40) DEFAULT NULL,
+      package_name VARCHAR(120) DEFAULT NULL,
+      payment_amount DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      payment_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      invoice_number VARCHAR(80) DEFAULT NULL,
+      receipt_path VARCHAR(255) DEFAULT NULL,
+      approval_status VARCHAR(20) NOT NULL DEFAULT 'pending',
+      campaign_start_at TIMESTAMP NULL DEFAULT NULL,
+      campaign_end_at TIMESTAMP NULL DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_advertisements_status_dates (status, start_at, end_at),
+      KEY idx_advertisements_payment_approval (payment_status, approval_status)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('advertisements', 'target_platforms', 'JSON DEFAULT NULL AFTER countdown_seconds');
+  await addColumnIfMissing('advertisements', 'city_scope', "VARCHAR(20) NOT NULL DEFAULT 'all' AFTER target_platforms");
+  await addColumnIfMissing('advertisements', 'city', 'VARCHAR(120) DEFAULT NULL AFTER city_scope');
+  await addColumnIfMissing('advertisements', 'areas', 'JSON DEFAULT NULL AFTER city');
+  await addColumnIfMissing('advertisements', 'advertiser_name', 'VARCHAR(150) DEFAULT NULL AFTER status');
+  await addColumnIfMissing('advertisements', 'advertiser_email', 'VARCHAR(150) DEFAULT NULL AFTER advertiser_name');
+  await addColumnIfMissing('advertisements', 'advertiser_phone', 'VARCHAR(40) DEFAULT NULL AFTER advertiser_email');
+  await addColumnIfMissing('advertisements', 'package_name', 'VARCHAR(120) DEFAULT NULL AFTER advertiser_phone');
+  await addColumnIfMissing('advertisements', 'payment_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER package_name');
+  await addColumnIfMissing('advertisements', 'payment_status', "VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER payment_amount");
+  await addColumnIfMissing('advertisements', 'invoice_number', 'VARCHAR(80) DEFAULT NULL AFTER payment_status');
+  await addColumnIfMissing('advertisements', 'receipt_path', 'VARCHAR(255) DEFAULT NULL AFTER invoice_number');
+  await addColumnIfMissing('advertisements', 'approval_status', "VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER receipt_path");
+  await addColumnIfMissing('advertisements', 'campaign_start_at', 'TIMESTAMP NULL DEFAULT NULL AFTER approval_status');
+  await addColumnIfMissing('advertisements', 'campaign_end_at', 'TIMESTAMP NULL DEFAULT NULL AFTER campaign_start_at');
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS support_tickets (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
       requester_id INT UNSIGNED NOT NULL,
@@ -2387,6 +2445,7 @@ function buildShell(user, activePath = '/dashboard') {
       navItem('Coupons', '/coupons', 'coupons.view', 'coupons', activePath === '/coupons'),
       navItem('Coupon History', '/coupons/history', 'coupon_history.view', 'reports', activePath.startsWith('/coupons/history')),
     ]),
+    navItem('Advertisements', '/advertisements', 'advertisements.view', 'discounts', activePath.startsWith('/advertisements')),
     navItem('Reports', '#', 'reports.view', 'reports', false),
     navItem('Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings')),
   ]
@@ -4786,6 +4845,22 @@ async function promotionCityOptions() {
   return cityRows.map((row) => normalizeCityName(row.city)).filter(Boolean);
 }
 
+async function advertisementAreaOptions() {
+  const [areaRows] = await pool.query(
+    `SELECT DISTINCT city, name AS area FROM area_definitions WHERE city IS NOT NULL AND TRIM(city) <> '' AND name IS NOT NULL AND TRIM(name) <> ''
+     UNION
+     SELECT DISTINCT city, area FROM client_profiles WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> ''
+     UNION
+     SELECT DISTINCT city, area FROM client_delivery_addresses WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> ''
+     UNION
+     SELECT DISTINCT city, area FROM delivery_partner_settings WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> ''
+     ORDER BY city, area`
+  );
+  return areaRows
+    .map((row) => ({ city: normalizeCityName(row.city), area: normalizeCityName(row.area) }))
+    .filter((row) => row.city && row.area);
+}
+
 async function googleMapsBrowserSettings() {
   const maps = await settingGroup([
     'google_maps_browser_api_key',
@@ -4955,6 +5030,41 @@ async function promotionPayload(body) {
   };
 }
 
+function requestList(value) {
+  return [].concat(value || []).map((item) => String(item || '').trim()).filter(Boolean);
+}
+
+async function advertisementPayload(body) {
+  const cityOptions = await promotionCityOptions();
+  const cityMap = new Map(cityOptions.map((city) => [cityKey(city), city]));
+  const requestedCity = String(body.city || '').trim();
+  const selectedCity = requestedCity ? cityMap.get(cityKey(requestedCity)) || requestedCity : '';
+  const cityScope = String(body.city_scope || 'all').toLowerCase() === 'specific' && selectedCity ? 'specific' : 'all';
+  return {
+    title: String(body.title || '').trim(),
+    description: String(body.description || '').trim(),
+    start_at: body.start_at || null,
+    end_at: body.end_at || null,
+    countdown_seconds: Number(body.countdown_seconds || 0),
+    target_platforms: requestList(body.target_platforms),
+    city_scope: cityScope,
+    city: cityScope === 'specific' ? selectedCity : '',
+    areas: cityScope === 'specific' ? requestList(body.areas) : [],
+    status: String(body.status || 'draft').toLowerCase(),
+    advertiser_name: String(body.advertiser_name || '').trim(),
+    advertiser_email: String(body.advertiser_email || '').trim(),
+    advertiser_phone: String(body.advertiser_phone || '').trim(),
+    package_name: String(body.package_name || '').trim(),
+    payment_amount: Number(body.payment_amount || 0),
+    payment_status: String(body.payment_status || 'pending').toLowerCase(),
+    invoice_number: String(body.invoice_number || '').trim(),
+    receipt_path: String(body.receipt_path || '').trim(),
+    approval_status: String(body.approval_status || 'pending').toLowerCase(),
+    campaign_start_at: body.campaign_start_at || body.start_at || null,
+    campaign_end_at: body.campaign_end_at || body.end_at || null,
+  };
+}
+
 app.get('/discounts', requireAuth, requirePermission('discounts.view'), async (req, res) => {
   res.render('promotions', {
     user: req.session.user,
@@ -4981,6 +5091,19 @@ app.get('/coupons', requireAuth, requirePermission('coupons.view'), async (req, 
 
 app.get('/coupons/history', requireAuth, requirePermission('coupon_history.view'), (req, res) => {
   res.render('coupon-history', { user: req.session.user });
+});
+
+app.get('/advertisements', requireAuth, requirePermission('advertisements.view'), async (req, res) => {
+  res.render('advertisements', {
+    user: req.session.user,
+    title: 'Advertisements',
+    canCreate: roleCan(req.session.user, 'advertisements.create'),
+    canEdit: roleCan(req.session.user, 'advertisements.edit'),
+    canDelete: roleCan(req.session.user, 'advertisements.delete'),
+    cityOptions: await promotionCityOptions(),
+    areaOptions: await advertisementAreaOptions(),
+    platforms: Advertisement.PLATFORM_VALUES,
+  });
 });
 
 function canManageSupport(user) {
@@ -5119,6 +5242,51 @@ app.get('/api/discounts', webOrJwtAuth, requirePermission('discounts.view'), asy
 
 app.get('/api/promotions/active-display', webOrJwtAuth, async (req, res) => {
   res.json({ success: true, promotions: await Promotion.activeDisplayPromotions(req.authUser && req.authUser.id) });
+});
+
+app.get('/api/advertisements', webOrJwtAuth, requirePermission('advertisements.view'), async (req, res) => {
+  res.json({ success: true, advertisements: await Advertisement.list() });
+});
+
+app.get('/api/advertisements/active-display', webOrJwtAuth, async (req, res) => {
+  const advertisement = await Advertisement.activeForDisplay({
+    platform: req.query.platform || 'client_app',
+    userId: req.authUser && req.authUser.id,
+    query: req.query,
+  });
+  res.json({ success: true, advertisement });
+});
+
+app.post('/api/advertisements', webOrJwtAuth, requirePermission('advertisements.create'), uploadAdvertisementImage.single('image'), handleAdvertisementImageUploadError, async (req, res) => {
+  try {
+    const id = await Advertisement.create({ ...(await advertisementPayload(req.body)), image_path: advertisementImagePath(req.file) });
+    res.status(201).json({ success: true, id, message: 'Advertisement created' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to create advertisement' });
+  }
+});
+
+app.put('/api/advertisements/:id', webOrJwtAuth, requirePermission('advertisements.edit'), uploadAdvertisementImage.single('image'), handleAdvertisementImageUploadError, async (req, res) => {
+  try {
+    await Advertisement.update(req.params.id, { ...(await advertisementPayload(req.body)), image_path: advertisementImagePath(req.file) });
+    res.json({ success: true, message: 'Advertisement updated' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update advertisement' });
+  }
+});
+
+app.put('/api/advertisements/:id/status', webOrJwtAuth, requirePermission('advertisements.edit'), async (req, res) => {
+  try {
+    await Advertisement.updateStatus(req.params.id, req.body.status);
+    res.json({ success: true, message: 'Advertisement status updated' });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update advertisement status' });
+  }
+});
+
+app.delete('/api/advertisements/:id', webOrJwtAuth, requirePermission('advertisements.delete'), async (req, res) => {
+  await Advertisement.remove(req.params.id);
+  res.json({ success: true, message: 'Advertisement deleted' });
 });
 
 app.get('/api/vendor/offers', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {

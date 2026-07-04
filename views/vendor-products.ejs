@@ -19,6 +19,9 @@
         <button class="button" type="button" id="addProductBtn" style="width: auto; padding: 8px 16px;">
           Add Product
         </button>
+        <button class="button" type="button" id="requestProductBtn" style="width: auto; padding: 8px 16px;">
+          Request New Product
+        </button>
       </div>
     </header>
 
@@ -205,6 +208,76 @@
           </select>
         </label>
         <button class="settings-save" type="submit">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="user-modal" id="productRequestModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2>Request New Product</h2>
+        <button type="button" onclick="closeProductRequestModal()">Close</button>
+      </div>
+      <form id="productRequestForm" class="user-modal-grid">
+        <label>
+          Product Images
+          <input id="requestImages" name="images" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple />
+        </label>
+        <label>
+          Product Name
+          <input id="requestName" type="text" minlength="2" required />
+        </label>
+        <label>
+          Description
+          <textarea id="requestDescription" rows="3"></textarea>
+        </label>
+        <label>
+          Category
+          <select id="requestCategory" required>
+            <option value="">Select Category</option>
+            <% categories.forEach(function(category) { %>
+              <option value="<%= category.id %>"><%= category.name %></option>
+            <% }); %>
+          </select>
+        </label>
+        <label>
+          Subcategory
+          <select id="requestSubcategory" required></select>
+        </label>
+        <label>
+          Brand
+          <select id="requestBrand" required></select>
+        </label>
+        <label>
+          Price
+          <input id="requestPrice" type="number" min="0" step="0.01" required />
+        </label>
+        <label>
+          Quantity
+          <input id="requestQuantity" type="number" min="0" step="1" value="10" required />
+        </label>
+        <label>
+          Weight
+          <input id="requestWeight" type="number" min="0" step="0.001" required />
+        </label>
+        <label>
+          Weight Unit
+          <select id="requestWeightUnit">
+            <option value="g">g</option>
+            <option value="kg">kg</option>
+            <option value="L">L</option>
+            <option value="ml">ml</option>
+          </select>
+        </label>
+        <label>
+          Tax Name
+          <input id="requestTaxName" type="text" placeholder="Optional" />
+        </label>
+        <label>
+          Tax %
+          <input id="requestTaxPercentage" type="number" min="0" max="100" step="0.01" placeholder="Optional" />
+        </label>
+        <button class="settings-save" type="submit">Submit for Approval</button>
       </form>
     </div>
   </div>
@@ -801,6 +874,71 @@
     }
 
     document.getElementById('addProductBtn').addEventListener('click', openModal);
+    document.getElementById('requestProductBtn').addEventListener('click', openProductRequestModal);
+
+    function openProductRequestModal() {
+      document.getElementById('productRequestForm').reset();
+      updateRequestSubcategories();
+      updateRequestBrands();
+      document.getElementById('productRequestModal').classList.add('active');
+    }
+
+    function closeProductRequestModal() {
+      document.getElementById('productRequestModal').classList.remove('active');
+    }
+
+    function updateRequestSubcategories() {
+      const categoryId = document.getElementById('requestCategory').value;
+      const items = catalog.subcategories.filter((item) => String(item.category_id) === String(categoryId));
+      document.getElementById('requestSubcategory').innerHTML = optionList(items, 'Select Subcategory');
+    }
+
+    function updateRequestBrands() {
+      const categoryId = document.getElementById('requestCategory').value;
+      const subcategoryId = document.getElementById('requestSubcategory').value;
+      const items = catalog.brands
+        .filter((item) => String(item.category_id) === String(categoryId))
+        .filter((item) => String(subcategoryKey(item)) === String(subcategoryId));
+      document.getElementById('requestBrand').innerHTML = optionList(items, 'Select Brand');
+    }
+
+    document.getElementById('requestCategory').addEventListener('change', () => {
+      updateRequestSubcategories();
+      updateRequestBrands();
+    });
+    document.getElementById('requestSubcategory').addEventListener('change', updateRequestBrands);
+
+    document.getElementById('productRequestForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const payload = new FormData();
+      for (const file of document.getElementById('requestImages').files) {
+        payload.append('images', file);
+      }
+      payload.append('name', document.getElementById('requestName').value);
+      payload.append('description', document.getElementById('requestDescription').value);
+      payload.append('category_id', document.getElementById('requestCategory').value);
+      payload.append('sub_category_id', document.getElementById('requestSubcategory').value);
+      payload.append('brand_id', document.getElementById('requestBrand').value);
+      payload.append('price', document.getElementById('requestPrice').value);
+      payload.append('quantity', document.getElementById('requestQuantity').value);
+      payload.append('weight_value', document.getElementById('requestWeight').value);
+      payload.append('weight_unit', document.getElementById('requestWeightUnit').value);
+      payload.append('tax_name', document.getElementById('requestTaxName').value);
+      payload.append('tax_percentage', document.getElementById('requestTaxPercentage').value);
+      const response = await fetch('/api/vendor-products/product-requests', {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+        body: payload,
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to submit product request');
+        return;
+      }
+      closeProductRequestModal();
+      alert('Product request sent for approval');
+      loadProducts();
+    });
 
     document.getElementById('productForm').addEventListener('submit', async (e) => {
       e.preventDefault();
@@ -832,6 +970,7 @@
     window.toggleVendorProductStatus = toggleVendorProductStatus;
     window.setVendorProductAvailability = setVendorProductAvailability;
     window.saveProductQuantity = saveProductQuantity;
+    window.closeProductRequestModal = closeProductRequestModal;
     renderProducts();
     updateSubcategoryFilter();
     updateBrandFilter();

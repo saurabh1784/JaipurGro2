@@ -1,10 +1,13 @@
 const express = require('express');
 const vendorProductController = require('../controllers/vendorProductController');
+const { uploadProductImage, handleProductImageUploadError } = require('../middleware/productImageUpload');
 
 const router = express.Router();
 
 router.get('/', vendorProductController.index);
 router.post('/', vendorProductController.create);
+router.post('/product-requests', uploadProductImage.array('images', 5), handleProductImageUploadError, vendorProductController.requestProduct);
+router.put('/product-requests/:productId', uploadProductImage.array('images', 5), handleProductImageUploadError, vendorProductController.resubmitProductRequest);
 router.get('/approved-products', vendorProductController.approvedProducts);
 router.get('/client-visible', vendorProductController.visibleForClient);
 router.get('/client-visible/suggestions', vendorProductController.suggestions);

@@ -98,11 +98,66 @@ async function index(req, res) {
       sub_category_id: req.query.sub_category_id || req.query.subcategory_id,
       brand_id: req.query.brand_id,
       brand_name: req.query.brand_name,
+      approval_status: req.query.approval_status,
     });
     return res.json({ success: true, ...result });
   } catch (error) {
     console.error('Product list error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch products' });
+  }
+}
+
+async function updateApprovalStatus(req, res) {
+  const id = normalizeId(req.params.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid product ID is required' });
+  }
+
+  const existing = await Product.findById(id);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Product not found' });
+  }
+
+  const status = String(req.body.status || '').trim().toLowerCase();
+  const actor = req.authUser || (req.session && req.session.user) || {};
+  try {
+    await Product.updateApprovalStatus(id, {
+      status,
+      actor_id: actor.id,
+      rejection_reason: req.body.rejection_reason || req.body.reason || '',
+    });
+    if (status === 'approved') {
+      await VendorProduct.ensureProductForAllVendors(id);
+    }
+    const product = await Product.findById(id);
+    await notifyProductRequester(product, status);
+    return res.json({ success: true, message: 'Product approval status updated', product });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to update product approval status',
+    });
+  }
+}
+
+async function notifyProductRequester(product, status) {
+  if (!product || !product.created_by_vendor_id || !['approved', 'rejected', 'in_review'].includes(status)) return;
+  try {
+    const title = status === 'approved'
+      ? 'Product request approved'
+      : status === 'rejected'
+        ? 'Product request rejected'
+        : 'Product request in review';
+    const message = status === 'rejected' && product.rejection_reason
+      ? `${product.name}: ${product.rejection_reason}`
+      : `${product.name} is now ${status.replace('_', ' ')}`;
+    await require('../db').query(
+      `INSERT INTO user_notifications (user_id, title, message, link)
+       VALUES (?, ?, ?, ?)`,
+      [product.created_by_vendor_id, title, message, '/vendor-products']
+    );
+  } catch (error) {
+    console.warn('Product request notification failed:', error.message);
   }
 }
 
@@ -320,6 +375,7 @@ module.exports = {
   index,
   create,
   update,
+  updateApprovalStatus,
   destroy,
   bulkUpload,
   catalog,

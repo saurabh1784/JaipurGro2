@@ -1,0 +1,359 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / <%= title %></p>
+        <h1><%= title %></h1>
+      </div>
+      <% if (canCreate) { %>
+        <button class="settings-save" type="button" onclick="openForm()">Add Advertisement</button>
+      <% } %>
+    </header>
+
+    <section class="users-table-card">
+      <table class="wallets-table">
+        <thead>
+          <tr>
+            <th>Campaign</th>
+            <th>Target</th>
+            <th>Schedule</th>
+            <th>Payment</th>
+            <th>Approval</th>
+            <th>Status</th>
+            <th>Preview</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="advertisementBody"><tr><td colspan="8">Loading...</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div class="user-modal" id="advertisementModal" aria-hidden="true">
+    <div class="user-modal-card ad-modal-card">
+      <div class="user-modal-header">
+        <h2 id="modalTitle">Add Advertisement</h2>
+        <button type="button" onclick="closeForm()">Close</button>
+      </div>
+      <form class="user-modal-grid" id="advertisementForm">
+        <input type="hidden" id="advertisementId" />
+        <label>
+          Title
+          <input id="title" type="text" required />
+        </label>
+        <label>
+          Package / Plan
+          <input id="package_name" type="text" placeholder="Launch banner" />
+        </label>
+        <label>
+          Start Date & Time
+          <input id="start_at" type="datetime-local" />
+        </label>
+        <label>
+          End Date & Time
+          <input id="end_at" type="datetime-local" />
+        </label>
+        <label>
+          Countdown Seconds
+          <input id="countdown_seconds" type="number" min="0" max="120" value="5" />
+        </label>
+        <label>
+          Status
+          <select id="status">
+            <option value="draft">Draft</option>
+            <option value="active">Active</option>
+            <option value="paused">Paused</option>
+            <option value="expired">Expired</option>
+            <option value="blocked">Blocked</option>
+          </select>
+        </label>
+        <label class="settings-wide">
+          Image / Banner
+          <input id="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+          <span class="wallet-muted" id="currentImageText"></span>
+        </label>
+        <label class="settings-wide">
+          Description
+          <textarea id="description"></textarea>
+        </label>
+
+        <label>
+          Advertiser Name
+          <input id="advertiser_name" type="text" />
+        </label>
+        <label>
+          Advertiser Email
+          <input id="advertiser_email" type="email" />
+        </label>
+        <label>
+          Advertiser Phone
+          <input id="advertiser_phone" type="text" />
+        </label>
+        <label>
+          Payment Amount
+          <input id="payment_amount" type="number" min="0" step="0.01" value="0" />
+        </label>
+        <label>
+          Payment Status
+          <select id="payment_status">
+            <option value="pending">Pending</option>
+            <option value="paid">Paid</option>
+            <option value="failed">Failed</option>
+            <option value="refunded">Refunded</option>
+          </select>
+        </label>
+        <label>
+          Approval Status
+          <select id="approval_status">
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </label>
+        <label>
+          Invoice / Receipt No.
+          <input id="invoice_number" type="text" />
+        </label>
+        <label>
+          Receipt Path / URL
+          <input id="receipt_path" type="text" />
+        </label>
+
+        <fieldset class="settings-wide ad-fieldset">
+          <legend>Target Platform</legend>
+          <div class="ad-check-grid" id="targetPlatforms">
+            <% platforms.forEach((platform) => { %>
+              <label class="offer-city-option">
+                <input type="checkbox" value="<%= platform %>" />
+                <span><%= platform.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) %></span>
+              </label>
+            <% }) %>
+          </div>
+        </fieldset>
+
+        <label>
+          Target Location
+          <select id="city_scope" onchange="toggleLocationInputs()">
+            <option value="all">All Cities</option>
+            <option value="specific">Selected City / Area</option>
+          </select>
+        </label>
+        <label id="cityWrap">
+          City
+          <select id="city" onchange="renderAreaOptions()">
+            <option value="">Select City</option>
+            <% (cityOptions || []).forEach((city) => { %>
+              <option value="<%= city %>"><%= city %></option>
+            <% }) %>
+          </select>
+        </label>
+        <label class="settings-wide" id="areasWrap">
+          Areas
+          <div class="offer-city-list" id="areas"></div>
+          <span class="wallet-muted">Leave areas empty to target the whole selected city.</span>
+        </label>
+
+        <button class="settings-save" type="submit">Save Advertisement</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const canEdit = <%= canEdit ? 'true' : 'false' %>;
+    const canDelete = <%= canDelete ? 'true' : 'false' %>;
+    const areaOptions = <%- JSON.stringify(areaOptions || []) %>;
+    let rows = [];
+
+    function esc(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+    }
+    function money(value) { return 'INR ' + Number(value || 0).toFixed(2); }
+    function date(value) { return value ? new Date(value).toLocaleString() : 'Open'; }
+    function inputDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+      return date.toISOString().slice(0, 16);
+    }
+    function label(value) {
+      return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+    }
+
+    async function loadRows() {
+      const response = await fetch('/api/advertisements', { cache: 'no-store' });
+      const data = await response.json();
+      rows = data.advertisements || [];
+      renderRows();
+    }
+
+    function renderRows() {
+      const body = document.getElementById('advertisementBody');
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="8">No advertisements found</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map((row) => `
+        <tr>
+          <td><strong>${esc(row.title)}</strong><span class="wallet-muted">${esc(row.advertiser_name || row.description)}</span></td>
+          <td>${esc((row.target_platforms || []).map(label).join(', '))}<span class="wallet-muted">${row.city_scope === 'specific' ? `${esc(row.city)}${(row.areas || []).length ? ' / ' + esc(row.areas.join(', ')) : ''}` : 'All Cities'}</span></td>
+          <td>${date(row.start_at)}<br>${date(row.end_at)}<span class="wallet-muted">${Number(row.countdown_seconds || 0)}s countdown</span></td>
+          <td>${money(row.payment_amount)}<span class="wallet-muted">${label(row.payment_status)}${row.invoice_number ? ' / ' + esc(row.invoice_number) : ''}</span></td>
+          <td><span class="user-status-pill ${row.approval_status === 'approved' ? 'active' : 'inactive'}">${label(row.approval_status)}</span></td>
+          <td><span class="user-status-pill ${row.status === 'active' ? 'active' : 'inactive'}">${label(row.status)}</span></td>
+          <td><div class="ad-preview">${row.image_path ? `<img src="${esc(row.image_path)}" alt="">` : ''}<span>${esc(row.description || row.title)}</span></div></td>
+          <td>
+            <div class="user-actions">
+              ${canEdit ? `<button type="button" onclick="openForm(${row.id})">Edit</button>` : ''}
+              ${canEdit && row.status === 'active' ? `<button type="button" onclick="quickStatus(${row.id}, 'paused')">Pause</button>` : ''}
+              ${canEdit && row.status !== 'blocked' ? `<button type="button" onclick="quickStatus(${row.id}, 'blocked')">Block</button>` : ''}
+              ${canDelete ? `<button type="button" onclick="deleteRow(${row.id})">Delete</button>` : ''}
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openForm(id) {
+      const row = rows.find((item) => Number(item.id) === Number(id)) || {};
+      document.getElementById('advertisementId').value = row.id || '';
+      document.getElementById('modalTitle').textContent = `${row.id ? 'Edit' : 'Add'} Advertisement`;
+      ['title', 'description', 'package_name', 'countdown_seconds', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'city_scope', 'city'].forEach((key) => {
+        const input = document.getElementById(key);
+        if (input) input.value = row[key] ?? '';
+      });
+      if (!row.id) {
+        document.getElementById('countdown_seconds').value = '5';
+        document.getElementById('status').value = 'draft';
+        document.getElementById('payment_status').value = 'pending';
+        document.getElementById('approval_status').value = 'pending';
+        document.querySelector('#targetPlatforms input[value="client_app"]').checked = true;
+      }
+      document.getElementById('start_at').value = inputDate(row.start_at);
+      document.getElementById('end_at').value = inputDate(row.end_at);
+      document.getElementById('image').value = '';
+      document.getElementById('currentImageText').textContent = row.image_path ? `Current image: ${row.image_path}` : '';
+      const selectedPlatforms = new Set((row.target_platforms || ['client_app']).map(String));
+      document.querySelectorAll('#targetPlatforms input').forEach((input) => {
+        input.checked = selectedPlatforms.has(input.value);
+      });
+      window.selectedAreas = new Set((row.areas || []).map((area) => String(area).toLowerCase()));
+      toggleLocationInputs();
+      document.getElementById('advertisementModal').classList.add('active');
+    }
+
+    function toggleLocationInputs() {
+      const specific = document.getElementById('city_scope').value === 'specific';
+      document.getElementById('cityWrap').style.display = specific ? 'block' : 'none';
+      document.getElementById('areasWrap').style.display = specific ? 'block' : 'none';
+      renderAreaOptions();
+    }
+
+    function renderAreaOptions() {
+      const city = String(document.getElementById('city').value || '').toLowerCase();
+      const selected = window.selectedAreas || new Set();
+      const areas = areaOptions.filter((item) => String(item.city || '').toLowerCase() === city);
+      document.getElementById('areas').innerHTML = areas.length
+        ? areas.map((item) => `
+            <label class="offer-city-option">
+              <input type="checkbox" value="${esc(item.area)}" ${selected.has(String(item.area).toLowerCase()) ? 'checked' : ''} />
+              <span>${esc(item.area)}</span>
+            </label>
+          `).join('')
+        : '<span class="wallet-muted">No saved areas for this city yet.</span>';
+    }
+
+    function closeForm() {
+      document.getElementById('advertisementModal').classList.remove('active');
+    }
+
+    document.getElementById('advertisementForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = document.getElementById('advertisementId').value;
+      const payload = new FormData();
+      ['title', 'description', 'package_name', 'start_at', 'end_at', 'countdown_seconds', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'city_scope', 'city'].forEach((key) => {
+        payload.append(key, document.getElementById(key).value);
+      });
+      document.querySelectorAll('#targetPlatforms input:checked').forEach((input) => payload.append('target_platforms', input.value));
+      document.querySelectorAll('#areas input:checked').forEach((input) => payload.append('areas', input.value));
+      const image = document.getElementById('image').files[0];
+      if (image) payload.append('image', image);
+      const response = await fetch(`/api/advertisements${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body: payload });
+      const data = await response.json();
+      if (!data.success) return alert(data.message || 'Unable to save advertisement');
+      closeForm();
+      loadRows();
+    });
+
+    async function quickStatus(id, status) {
+      const response = await fetch(`/api/advertisements/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await response.json();
+      if (!data.success) return alert(data.message || 'Unable to update status');
+      loadRows();
+    }
+
+    async function deleteRow(id) {
+      if (!confirm('Delete this advertisement?')) return;
+      const response = await fetch(`/api/advertisements/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) return alert(data.message || 'Unable to delete');
+      loadRows();
+    }
+
+    loadRows();
+    setInterval(loadRows, 10000);
+  </script>
+
+  <style>
+    .ad-modal-card { max-width: 980px; }
+    .ad-fieldset {
+      border: 1px solid #d7dee8;
+      border-radius: 6px;
+      padding: 12px;
+      margin: 0;
+    }
+    .ad-fieldset legend {
+      padding: 0 6px;
+      font-weight: 900;
+      color: #334155;
+    }
+    .ad-check-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px;
+    }
+    .ad-preview {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 260px;
+    }
+    .ad-preview img {
+      width: 54px;
+      height: 38px;
+      object-fit: cover;
+      border-radius: 4px;
+      flex: 0 0 auto;
+    }
+    .ad-preview span {
+      max-width: 190px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 800;
+    }
+  </style>
+</body>
+</html>

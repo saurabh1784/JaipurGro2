@@ -1,4 +1,5 @@
 const pool = require('../db');
+const Product = require('./Product');
 
 function normalize(row) {
   if (!row) return null;
@@ -233,6 +234,114 @@ async function create(data) {
   } finally {
     connection.release();
   }
+}
+
+async function createProductRequest(data) {
+  const vendorId = toPositiveInt(data.vendor_id);
+  if (!vendorId || !(await vendorExists(vendorId))) {
+    const error = new Error('Valid vendor is required');
+    error.status = 422;
+    throw error;
+  }
+  if (!(await Product.validateRelation(data))) {
+    const error = new Error('Selected category, subcategory, and brand do not match');
+    error.status = 422;
+    throw error;
+  }
+
+  const price = toNonNegativeNumber(data.price || 0);
+  const quantity = toNonNegativeNumber(data.quantity || 0);
+  if (!Number.isFinite(price)) {
+    const error = new Error('Price must be a non-negative number');
+    error.status = 422;
+    throw error;
+  }
+  if (!Number.isFinite(quantity)) {
+    const error = new Error('Quantity must be a non-negative number');
+    error.status = 422;
+    throw error;
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const productId = await Product.create({
+      ...data,
+      price,
+      approval_status: 'pending',
+      created_by_vendor_id: vendorId,
+    });
+    await connection.query(
+      `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status, image_url)
+       VALUES (?, ?, ?, ?, 'active', ?)
+       ON CONFLICT (product_id, vendor_id) DO UPDATE
+       SET quantity = EXCLUDED.quantity,
+           price = EXCLUDED.price,
+           status = EXCLUDED.status,
+           image_url = EXCLUDED.image_url`,
+      [productId, vendorId, quantity, price, data.image_url || null]
+    );
+    await connection.commit();
+    return findById(await findExistingId(productId, vendorId));
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function resubmitProductRequest(productId, data) {
+  const vendorId = toPositiveInt(data.vendor_id);
+  const id = toPositiveInt(productId);
+  if (!vendorId || !id) {
+    const error = new Error('Valid vendor and product are required');
+    error.status = 422;
+    throw error;
+  }
+  const existing = await Product.findById(id);
+  if (!existing || Number(existing.created_by_vendor_id || 0) !== Number(vendorId)) {
+    const error = new Error('Product request not found for this vendor');
+    error.status = 404;
+    throw error;
+  }
+  if (!['rejected', 'pending', 'in_review'].includes(existing.approval_status)) {
+    const error = new Error('Only pending, in-review, or rejected product requests can be updated');
+    error.status = 422;
+    throw error;
+  }
+  if (!(await Product.validateRelation(data))) {
+    const error = new Error('Selected category, subcategory, and brand do not match');
+    error.status = 422;
+    throw error;
+  }
+
+  const price = toNonNegativeNumber(data.price || 0);
+  const quantity = toNonNegativeNumber(data.quantity || 0);
+  if (!Number.isFinite(price) || !Number.isFinite(quantity)) {
+    const error = new Error('Price and quantity must be valid non-negative numbers');
+    error.status = 422;
+    throw error;
+  }
+
+  await Product.update(id, { ...data, price });
+  await Product.updateApprovalStatus(id, { status: 'pending', actor_id: vendorId });
+  const vendorProductId = await findExistingId(id, vendorId);
+  if (vendorProductId) {
+    await update(vendorProductId, {
+      price,
+      quantity,
+      status: 'active',
+      image_url: data.image_url,
+    });
+  } else {
+    await pool.query(
+      `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status, image_url)
+       VALUES (?, ?, ?, ?, 'active', ?)`,
+      [id, vendorId, quantity, price, data.image_url || null]
+    );
+  }
+  return findById(await findExistingId(id, vendorId));
 }
 
 async function findExistingId(productId, vendorId) {
@@ -516,6 +625,8 @@ module.exports = {
   list,
   findById,
   create,
+  createProductRequest,
+  resubmitProductRequest,
   update,
   remove,
   setClientPrice,
