@@ -4,6 +4,7 @@ const DeliveryType = require('./DeliveryType');
 const Rating = require('./Rating');
 const Order = require('./Order');
 const AreaDefinition = require('./AreaDefinition');
+const CommissionSetting = require('./CommissionSetting');
 const LocationCommissionSetting = require('./LocationCommissionSetting');
 const DeliveryCharge = require('../services/deliveryChargeService');
 const OrderWalletSettlement = require('../services/orderWalletSettlementService');
