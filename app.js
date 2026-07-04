@@ -3476,11 +3476,72 @@ app.get('/api/client/categories', webOrJwtAuth, requireAuthRole('Client'), async
 
 app.get('/api/catalog/categories', webOrJwtAuth, async (req, res) => {
   try {
-    const categories = (await Catalog.listCategories()).filter((category) => category.status === 'active');
-    return res.json({ success: true, categories });
+    const [categories, subcategories, brands, tree] = await Promise.all([
+      Catalog.listCategories(),
+      Catalog.listSubcategories(),
+      Catalog.listBrands(),
+      Catalog.getTree(),
+    ]);
+    const activeCategories = categories.filter((category) => category.status === 'active');
+    const activeCategoryIds = new Set(activeCategories.map((category) => Number(category.id)));
+    const activeSubcategories = subcategories.filter((subcategory) => (
+      subcategory.status === 'active' && activeCategoryIds.has(Number(subcategory.category_id))
+    ));
+    const activeSubcategoryIds = new Set(activeSubcategories.map((subcategory) => Number(subcategory.id)));
+    const activeBrands = brands.filter((brand) => (
+      brand.status === 'active'
+        && activeCategoryIds.has(Number(brand.category_id))
+        && activeSubcategoryIds.has(Number(brand.sub_category_id || brand.subcategory_id))
+    ));
+    const activeTree = tree
+      .filter((category) => category.status === 'active')
+      .map((category) => ({
+        ...category,
+        subcategories: (category.subcategories || [])
+          .filter((subcategory) => subcategory.status === 'active')
+          .map((subcategory) => ({
+            ...subcategory,
+            brands: (subcategory.brands || []).filter((brand) => brand.status === 'active'),
+          })),
+      }));
+    return res.json({
+      success: true,
+      categories: activeCategories,
+      subcategories: activeSubcategories,
+      brands: activeBrands,
+      tree: activeTree,
+    });
   } catch (error) {
     console.error('Catalog categories API error:', error);
     return res.status(500).json({ success: false, message: 'Unable to load categories' });
+  }
+});
+
+app.get('/api/catalog/subcategories', webOrJwtAuth, async (req, res) => {
+  try {
+    const categoryId = Number(req.query.category_id || req.query.categoryId || 0);
+    const subcategories = (await Catalog.listSubcategories())
+      .filter((subcategory) => subcategory.status === 'active')
+      .filter((subcategory) => !categoryId || Number(subcategory.category_id) === categoryId);
+    return res.json({ success: true, subcategories });
+  } catch (error) {
+    console.error('Catalog subcategories API error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load subcategories' });
+  }
+});
+
+app.get('/api/catalog/brands', webOrJwtAuth, async (req, res) => {
+  try {
+    const categoryId = Number(req.query.category_id || req.query.categoryId || 0);
+    const subcategoryId = Number(req.query.sub_category_id || req.query.subcategory_id || req.query.subcategoryId || 0);
+    const brands = (await Catalog.listBrands())
+      .filter((brand) => brand.status === 'active')
+      .filter((brand) => !categoryId || Number(brand.category_id) === categoryId)
+      .filter((brand) => !subcategoryId || Number(brand.sub_category_id || brand.subcategory_id) === subcategoryId);
+    return res.json({ success: true, brands });
+  } catch (error) {
+    console.error('Catalog brands API error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load brands' });
   }
 });
 
