@@ -202,10 +202,11 @@ async function createForCityVendors({ clientId, items }) {
     await connection.beginTransaction();
 
     const [clientRows] = await connection.query(
-      'SELECT city FROM client_profiles WHERE user_id = ? LIMIT 1',
+      'SELECT city, area FROM client_profiles WHERE user_id = ? LIMIT 1',
       [clientId]
     );
     const clientCity = String(clientRows[0] && clientRows[0].city ? clientRows[0].city : '').trim();
+    const clientArea = String(clientRows[0] && clientRows[0].area ? clientRows[0].area : '').trim();
     if (!clientCity) {
       const error = new Error('Please update your profile city before sending a quotation');
       error.status = 422;
@@ -297,8 +298,9 @@ async function createForCityVendors({ clientId, items }) {
          WHERE u.role = 'Vendor'
            AND u.status = 'active'
            AND u.is_deleted = 0
-           AND LOWER(TRIM(vp.city)) = LOWER(TRIM(?))`,
-        [categoryGroup.categoryId, clientCity]
+           AND LOWER(TRIM(vp.city)) = LOWER(TRIM(?))
+           AND (? = '' OR LOWER(TRIM(vp.area)) = LOWER(TRIM(?)))`,
+        [categoryGroup.categoryId, clientCity, clientArea, clientArea]
       );
 
       if (vendorRows.length === 0) {

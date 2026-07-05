@@ -30,6 +30,7 @@ async function signup(req, res) {
   const password = String(req.body.password);
   const role = req.body.role;
   const city = String(req.body.city || '').trim().slice(0, 100);
+  const area = String(req.body.area || '').trim().slice(0, 120);
 
   const existingUser = await User.findByEmailOrPhone(email, phone);
   if (existingUser) {
@@ -45,8 +46,8 @@ async function signup(req, res) {
     await Profile.createEmptyForRole(userId, role, connection);
     if (city && role === 'Client') {
       await connection.query(
-        'UPDATE client_profiles SET city = $1 WHERE user_id = $2',
-        [city, userId]
+        'UPDATE client_profiles SET city = $1, area = $2 WHERE user_id = $3',
+        [city, area || null, userId]
       );
     }
     if (city && role === 'Vendor') {

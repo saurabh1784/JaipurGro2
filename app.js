@@ -4968,6 +4968,65 @@ app.get('/area-options', requireAuth, async (req, res) => {
   }
 });
 
+app.get('/api/area-definitions/options', async (req, res) => {
+  try {
+    const mappedAreas = await AreaDefinition.list({ includeInactive: false });
+    const savedAreas = await advertisementAreaOptions();
+    const areaRows = [];
+    const seenAreas = new Set();
+
+    for (const area of mappedAreas) {
+      if (!area.city || !area.name) continue;
+      const key = `${area.city.trim().toLowerCase()}::${area.name.trim().toLowerCase()}`;
+      if (seenAreas.has(key)) continue;
+      seenAreas.add(key);
+      areaRows.push({
+        id: area.id,
+        city: area.city,
+        name: area.name,
+        polygon: area.polygon,
+        center_lat: area.center_lat,
+        center_lng: area.center_lng,
+        delivery_charge: area.delivery_charge,
+        platform_fee: area.platform_fee,
+      });
+    }
+
+    for (const area of savedAreas) {
+      if (!area.city || !area.area || area.area === '*') continue;
+      const key = `${area.city.trim().toLowerCase()}::${area.area.trim().toLowerCase()}`;
+      if (seenAreas.has(key)) continue;
+      seenAreas.add(key);
+      areaRows.push({
+        id: null,
+        city: area.city,
+        name: area.area,
+        polygon: [],
+        center_lat: null,
+        center_lng: null,
+        delivery_charge: null,
+        platform_fee: null,
+      });
+    }
+
+    const citySet = new Set([
+      ...(await promotionCityOptions()),
+      ...areaRows.map((area) => area.city),
+    ].map((city) => normalizeCityName(city)).filter(Boolean));
+
+    res.json({
+      success: true,
+      cities: [...citySet].sort((left, right) => left.localeCompare(right)),
+      areas: areaRows.sort((left, right) => (
+        left.city.localeCompare(right.city) || left.name.localeCompare(right.name)
+      )),
+    });
+  } catch (error) {
+    console.error('Mobile area options load error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load area options' });
+  }
+});
+
 app.post('/area-definitions', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
     const id = await AreaDefinition.save(req.body);

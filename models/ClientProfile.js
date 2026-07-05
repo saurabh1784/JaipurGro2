@@ -12,7 +12,7 @@ async function findByUserId(userId) {
 async function update(userId, data) {
   const fields = [];
   const values = [];
-  const allowedFields = ['address', 'country', 'state', 'city', 'age', 'gender', 'notes'];
+  const allowedFields = ['address', 'country', 'state', 'city', 'area', 'age', 'gender', 'notes'];
 
   for (const field of allowedFields) {
     if (Object.prototype.hasOwnProperty.call(data, field)) {

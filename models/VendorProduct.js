@@ -517,6 +517,7 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
     where.push('cp.city IS NOT NULL');
     where.push("TRIM(cp.city) <> ''");
     where.push('LOWER(TRIM(vprof.city)) = LOWER(TRIM(cp.city))');
+    where.push("(cp.area IS NULL OR TRIM(cp.area) = '' OR LOWER(TRIM(vprof.area)) = LOWER(TRIM(cp.area)))");
   }
   if (vendor_id) {
     where.push('vp.vendor_id = ?');

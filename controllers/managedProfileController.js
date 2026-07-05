@@ -7,7 +7,7 @@ function sanitizeProfileUpdate(role, body) {
   const update = {};
   const fieldsByRole = {
     Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'signature_path', 'address', 'pickup_latitude', 'pickup_longitude', 'country', 'state', 'city', 'gst_number', 'services'],
-    Client: ['address', 'country', 'state', 'city', 'age', 'gender', 'notes'],
+    Client: ['address', 'country', 'state', 'city', 'area', 'age', 'gender', 'notes'],
     Admin: ['permissions'],
   };
 
