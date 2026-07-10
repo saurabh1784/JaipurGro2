@@ -15,7 +15,7 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >>
 endobj
 6 0 obj
-<< /Length 33067 >>
+<< /Length 33253 >>
 stream
 q
 0 g
@@ -1027,17 +1027,21 @@ BT /F1 7 Tf 479.00 315.50 Td () Tj ET
 BT /F1 7 Tf 504.28 315.50 Td (0.00) Tj ET
 BT /F1 7 Tf 538.42 315.50 Td (840.00) Tj ET
 BT /F2 8 Tf 25.00 291.00 Td (Item Total) Tj ET
-BT /F2 8 Tf 546.96 291.00 Td (881.00) Tj ET
-BT /F1 8 Tf 25.00 277.00 Td (Round off to) Tj ET
-BT /F2 8 Tf 554.64 277.00 Td (0.00) Tj ET
-1.2 w 25.00 271.00 m 570.00 271.00 l S
-BT /F2 8 Tf 25.00 258.00 Td (Invoice Value) Tj ET
-BT /F2 8 Tf 546.96 258.00 Td (881.00) Tj ET
-1.2 w 25.00 251.00 m 570.00 251.00 l S
-BT /F1 7 Tf 25.00 228.00 Td (Whether GST is payable on reverse-charge - No.) Tj ET
-BT /F1 7 Tf 25.00 209.00 Td (For IMEI / Serial number information, please refer to packaging / warranty slip.) Tj ET
-BT /F1 7 Tf 25.00 191.00 Td (Note: Effective 1st Feb 2026, The valuation of the tobacco and pan masala products is made in) Tj ET
-BT /F1 7 Tf 25.00 182.00 Td (accordance with Rule 31D of the CGST Rules, 2017.) Tj ET
+BT /F2 8 Tf 546.96 291.00 Td (840.00) Tj ET
+BT /F2 8 Tf 25.00 277.00 Td (Delivery Charge) Tj ET
+BT /F2 8 Tf 550.80 277.00 Td (41.00) Tj ET
+BT /F2 8 Tf 25.00 263.00 Td (Platform Fee) Tj ET
+BT /F2 8 Tf 554.64 263.00 Td (0.00) Tj ET
+BT /F1 8 Tf 25.00 249.00 Td (Round off to) Tj ET
+BT /F2 8 Tf 554.64 249.00 Td (0.00) Tj ET
+1.2 w 25.00 243.00 m 570.00 243.00 l S
+BT /F2 8 Tf 25.00 230.00 Td (Invoice Value) Tj ET
+BT /F2 8 Tf 546.96 230.00 Td (881.00) Tj ET
+1.2 w 25.00 223.00 m 570.00 223.00 l S
+BT /F1 7 Tf 25.00 200.00 Td (Whether GST is payable on reverse-charge - No.) Tj ET
+BT /F1 7 Tf 25.00 181.00 Td (For IMEI / Serial number information, please refer to packaging / warranty slip.) Tj ET
+BT /F1 7 Tf 25.00 163.00 Td (Note: Effective 1st Feb 2026, The valuation of the tobacco and pan masala products is made in) Tj ET
+BT /F1 7 Tf 25.00 154.00 Td (accordance with Rule 31D of the CGST Rules, 2017.) Tj ET
 BT /F1 8 Tf 475.20 116.00 Td (Authorized Signatory) Tj ET
 1 w 450.00 132.00 m 546.00 112.00 l S
 0.8 w 452.00 123.00 m 525.00 142.00 l S
@@ -1065,5 +1069,5 @@ xref
 trailer
 << /Size 7 /Root 1 0 R >>
 startxref
-33514
+33700
 %%EOF

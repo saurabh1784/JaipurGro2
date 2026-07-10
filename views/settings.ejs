@@ -1211,6 +1211,48 @@
       return `<span class="brand-logo-fallback" aria-label="${escapeCatalog(subcategory.name)} picture">${escapeCatalog(initial)}</span>`;
     }
 
+    function categoryIconMarkup(category) {
+      const initial = String(category.name || '?').trim().charAt(0).toUpperCase() || '?';
+      if (category.icon_path) {
+        return `<span class="brand-logo-wrap"><img class="brand-logo" src="${escapeCatalog(category.icon_path)}" alt="${escapeCatalog(category.name)} icon" /></span>`;
+      }
+      return `<span class="brand-logo-fallback" aria-label="${escapeCatalog(category.name)} icon">${escapeCatalog(initial)}</span>`;
+    }
+
+    function loadImageElement(file) {
+      return new Promise((resolve, reject) => {
+        const image = new Image();
+        image.onload = () => resolve(image);
+        image.onerror = () => reject(new Error('Unable to read selected image'));
+        image.src = URL.createObjectURL(file);
+      });
+    }
+
+    async function fitImageForCatalogIcon(file) {
+      const image = await loadImageElement(file);
+      const canvas = document.createElement('canvas');
+      const size = 512;
+      canvas.width = size;
+      canvas.height = size;
+      const context = canvas.getContext('2d');
+      context.fillStyle = '#ffffff';
+      context.fillRect(0, 0, size, size);
+
+      const scale = Math.min(size / image.naturalWidth, size / image.naturalHeight);
+      const width = image.naturalWidth * scale;
+      const height = image.naturalHeight * scale;
+      const x = (size - width) / 2;
+      const y = (size - height) / 2;
+      context.drawImage(image, x, y, width, height);
+      URL.revokeObjectURL(image.src);
+
+      return new Promise((resolve) => {
+        canvas.toBlob((blob) => {
+          resolve(new File([blob], file.name.replace(/\.[^.]+$/, '') + '-icon.webp', { type: 'image/webp' }));
+        }, 'image/webp', 0.92);
+      });
+    }
+
     function renderCatalogFilters() {
       const categoryFilter = document.getElementById('catalogCategoryFilter');
       const subcategoryFilter = document.getElementById('catalogSubcategoryFilter');
@@ -1321,6 +1363,7 @@
             <td>${escapeCatalog(row.name)}</td>
             <td>${escapeCatalog(row.slug)}</td>
             <td>${escapeCatalog(row.tax_name || '-')}<br><small>${row.tax_percentage === null || row.tax_percentage === undefined ? '-' : Number(row.tax_percentage || 0).toFixed(2) + '%'}</small></td>
+            <td>${categoryIconMarkup(row)}</td>
             <td><span class="user-status-pill ${row.is_active ? 'active' : 'inactive'}">${row.is_active ? 'active' : 'inactive'}</span></td>
             <td>
               <div class="user-actions">
@@ -1330,7 +1373,7 @@
             </td>
           </tr>
         `).join('')
-        : '<tr><td colspan="6">No categories found</td></tr>';
+        : '<tr><td colspan="7">No categories found</td></tr>';
 
       document.getElementById('subcategoryTableBody').innerHTML = subcategories.length
         ? subcategories.map((row) => `
@@ -1383,7 +1426,7 @@
       document.getElementById('catalogActiveInput').checked = item ? item.is_active : true;
       document.getElementById('catalogCategoryField').style.display = type === 'subcategory' || type === 'brand' ? 'block' : 'none';
       document.getElementById('catalogSubcategoryField').style.display = type === 'brand' ? 'block' : 'none';
-      document.getElementById('catalogLogoField').style.display = type === 'subcategory' || type === 'brand' ? 'block' : 'none';
+      document.getElementById('catalogLogoField').style.display = 'block';
       document.getElementById('catalogTaxNameField').style.display = type === 'category' ? 'block' : 'none';
       document.getElementById('catalogTaxPercentageField').style.display = type === 'category' ? 'block' : 'none';
       document.getElementById('catalogLogoInput').value = '';
@@ -1414,16 +1457,19 @@
         payload.tax_percentage = document.getElementById('catalogTaxPercentageInput').value;
       }
       const selectedLogo = document.getElementById('catalogLogoInput').files[0];
-      const needsMultipart = type === 'brand' || (type === 'subcategory' && selectedLogo);
+      const processedLogo = selectedLogo ? await fitImageForCatalogIcon(selectedLogo) : null;
+      const needsMultipart = type === 'brand' || type === 'subcategory' || (type === 'category' && processedLogo);
 
       if (needsMultipart) {
         payload.category_id = document.getElementById('catalogCategoryInput').value;
-        if (type === 'brand') {
+        if (type === 'brand' || type === 'subcategory') {
           payload.sub_category_id = document.getElementById('catalogSubcategoryInput').value;
         }
         const formData = new FormData();
         Object.entries(payload).forEach(([key, value]) => formData.append(key, value));
-        formData.append(type === 'subcategory' ? 'image' : 'logo', selectedLogo);
+        if (processedLogo) {
+          formData.append(type === 'subcategory' ? 'image' : (type === 'brand' ? 'logo' : 'icon'), processedLogo);
+        }
         payload = formData;
       }
 

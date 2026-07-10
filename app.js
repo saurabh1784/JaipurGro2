@@ -64,6 +64,11 @@ const {
   handleSubcategoryImageUploadError,
 } = require('./middleware/subcategoryImageUpload');
 const {
+  uploadCategoryIcon,
+  categoryIconPath,
+  handleCategoryIconUploadError,
+} = require('./middleware/categoryIconUpload');
+const {
   catalogSeed: groceryCatalogSeed,
   productSeeds: indianProductSeeds,
   genericProductLabels,
@@ -1139,6 +1144,7 @@ async function initDatabase(options = {}) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('categories', 'slug', 'VARCHAR(180) NOT NULL DEFAULT "" AFTER name');
+  await addColumnIfMissing('categories', 'icon_path', 'VARCHAR(255) DEFAULT NULL AFTER slug');
   await addColumnIfMissing('categories', 'tax_name', 'VARCHAR(80) DEFAULT NULL AFTER slug');
   await addColumnIfMissing('categories', 'tax_percentage', 'DECIMAL(7,2) DEFAULT NULL AFTER tax_name');
   await pool.query(
@@ -1678,6 +1684,7 @@ async function initDatabase(options = {}) {
       title VARCHAR(160) NOT NULL,
       description TEXT DEFAULT NULL,
       image_path VARCHAR(255) DEFAULT NULL,
+      ad_type VARCHAR(40) NOT NULL DEFAULT 'page_banner',
       start_at TIMESTAMP NULL DEFAULT NULL,
       end_at TIMESTAMP NULL DEFAULT NULL,
       countdown_seconds INT UNSIGNED NOT NULL DEFAULT 5,
@@ -1705,6 +1712,7 @@ async function initDatabase(options = {}) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('advertisements', 'target_platforms', 'JSON DEFAULT NULL AFTER countdown_seconds');
+  await addColumnIfMissing('advertisements', 'ad_type', "VARCHAR(40) NOT NULL DEFAULT 'page_banner' AFTER image_path");
   await addColumnIfMissing('advertisements', 'city_scope', "VARCHAR(20) NOT NULL DEFAULT 'all' AFTER target_platforms");
   await addColumnIfMissing('advertisements', 'city', 'VARCHAR(120) DEFAULT NULL AFTER city_scope');
   await addColumnIfMissing('advertisements', 'areas', 'JSON DEFAULT NULL AFTER city');
@@ -1719,6 +1727,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('advertisements', 'approval_status', "VARCHAR(20) NOT NULL DEFAULT 'pending' AFTER receipt_path");
   await addColumnIfMissing('advertisements', 'campaign_start_at', 'TIMESTAMP NULL DEFAULT NULL AFTER approval_status');
   await addColumnIfMissing('advertisements', 'campaign_end_at', 'TIMESTAMP NULL DEFAULT NULL AFTER campaign_start_at');
+  await addColumnIfMissing('advertisements', 'target_pages', "JSON DEFAULT NULL AFTER target_platforms");
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS support_tickets (
@@ -5163,10 +5172,12 @@ async function advertisementPayload(body) {
   return {
     title: String(body.title || '').trim(),
     description: String(body.description || '').trim(),
+    ad_type: String(body.ad_type || 'page_banner').toLowerCase(),
     start_at: body.start_at || null,
     end_at: body.end_at || null,
     countdown_seconds: Number(body.countdown_seconds || 0),
     target_platforms: requestList(body.target_platforms),
+    target_pages: requestList(body.target_pages),
     city_scope: cityScope,
     city: cityScope === 'specific' ? selectedCity : '',
     areas: cityScope === 'specific' ? requestList(body.areas) : [],
@@ -5216,6 +5227,7 @@ app.get('/coupons/history', requireAuth, requirePermission('coupon_history.view'
 app.get('/advertisements', requireAuth, requirePermission('advertisements.view'), async (req, res) => {
   res.render('advertisements', {
     user: req.session.user,
+    shell: buildShell(req.session.user, req.path),
     title: 'Advertisements',
     canCreate: roleCan(req.session.user, 'advertisements.create'),
     canEdit: roleCan(req.session.user, 'advertisements.edit'),
@@ -5361,16 +5373,68 @@ app.get('/api/discounts', webOrJwtAuth, requirePermission('discounts.view'), asy
 });
 
 app.get('/api/promotions/active-display', webOrJwtAuth, async (req, res) => {
-  res.json({ success: true, promotions: await Promotion.activeDisplayPromotions(req.authUser && req.authUser.id) });
+  const userId = req.authUser && req.authUser.id;
+  const platform = req.query.platform || 'client_app';
+  const page = req.query.page || 'home';
+  const inHouseAdvertisements = await Advertisement.activeListForDisplay({
+    platform,
+    page,
+    adTypes: ['page_banner', 'offer_banner', 'in_app_card'],
+    userId,
+    query: req.query,
+  });
+  const vendorAdvertisements = await Promotion.activeDisplayPromotions(userId, { vendorOnly: true });
+  const advertisements = [
+    ...inHouseAdvertisements.map((advertisement) => ({
+      id: advertisement.id,
+      promo_type: 'in_house_ad',
+      content_priority: 1,
+      name: advertisement.title,
+      code: '',
+      description: advertisement.description,
+      image_path: advertisement.image_path,
+      ad_type: advertisement.ad_type,
+      background_color: '#101820',
+      text_color: '#ffffff',
+      scroll_message: advertisement.description || advertisement.title,
+      start_at: advertisement.start_at,
+      expires_at: advertisement.end_at,
+      vendor_id: null,
+      vendor_name: '',
+      vendor_store_name: 'JaipurGro',
+      vendor_logo_path: '',
+      vendor_storefront_image_path: '',
+    })),
+    ...vendorAdvertisements,
+  ];
+  const promotions = advertisements.length
+    ? advertisements
+    : await Promotion.activeDisplayPromotions(userId, { offersOnly: true });
+  res.json({ success: true, promotions });
 });
 
 app.get('/api/advertisements', webOrJwtAuth, requirePermission('advertisements.view'), async (req, res) => {
   res.json({ success: true, advertisements: await Advertisement.list() });
 });
 
+app.get('/api/advertisements/active-display-list', webOrJwtAuth, async (req, res) => {
+  const advertisements = await Advertisement.activeListForDisplay({
+    platform: req.query.platform || 'client_app',
+    page: req.query.page || null,
+    adType: req.query.ad_type || null,
+    adTypes: req.query.ad_types || null,
+    userId: req.authUser && req.authUser.id,
+    query: req.query,
+  });
+  res.json({ success: true, advertisements });
+});
+
 app.get('/api/advertisements/active-display', webOrJwtAuth, async (req, res) => {
   const advertisement = await Advertisement.activeForDisplay({
     platform: req.query.platform || 'client_app',
+    page: req.query.page || null,
+    adType: req.query.ad_type || null,
+    adTypes: req.query.ad_types || null,
     userId: req.authUser && req.authUser.id,
     query: req.query,
   });
@@ -6303,9 +6367,9 @@ app.get('/settings/commissions', requireAuth, requirePermission('settings.manage
 app.put('/settings/commissions', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.update);
 app.delete('/settings/commissions/location/:id', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.removeLocation);
 app.post('/settings/commissions/calculate', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.calculate);
-app.post('/settings/categories', requireAuth, requirePermission('settings.manage'), catalogController.createCategory);
+app.post('/settings/categories', requireAuth, requirePermission('settings.manage'), uploadCategoryIcon.single('icon'), handleCategoryIconUploadError, catalogController.createCategory);
 app.get('/settings/categories', requireAuth, requirePermission('settings.manage'), catalogController.listCategories);
-app.put('/settings/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.updateCategory);
+app.put('/settings/categories/:id', requireAuth, requirePermission('settings.manage'), uploadCategoryIcon.single('icon'), handleCategoryIconUploadError, catalogController.updateCategory);
 app.delete('/settings/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteCategory);
 app.post('/settings/subcategories', requireAuth, requirePermission('settings.manage'), uploadSubcategoryImage.single('image'), handleSubcategoryImageUploadError, catalogController.createSubcategory);
 app.get('/settings/subcategories', requireAuth, requirePermission('settings.manage'), catalogController.listSubcategories);
@@ -6316,9 +6380,9 @@ app.get('/settings/brands', requireAuth, requirePermission('settings.manage'), c
 app.put('/settings/brands/:id', requireAuth, requirePermission('settings.manage'), uploadBrandLogo.single('logo'), handleUploadError, catalogController.updateBrand);
 app.delete('/settings/brands/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteBrand);
 app.get('/catalog-tree', requireAuth, requirePermission('settings.manage'), catalogController.tree);
-app.post('/categories', requireAuth, requirePermission('settings.manage'), catalogController.createCategory);
+app.post('/categories', requireAuth, requirePermission('settings.manage'), uploadCategoryIcon.single('icon'), handleCategoryIconUploadError, catalogController.createCategory);
 app.get('/categories', requireAuth, requirePermission('settings.manage'), catalogController.listCategories);
-app.put('/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.updateCategory);
+app.put('/categories/:id', requireAuth, requirePermission('settings.manage'), uploadCategoryIcon.single('icon'), handleCategoryIconUploadError, catalogController.updateCategory);
 app.delete('/categories/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteCategory);
 app.post('/sub-categories', requireAuth, requirePermission('settings.manage'), uploadSubcategoryImage.single('image'), handleSubcategoryImageUploadError, catalogController.createSubcategory);
 app.get('/sub-categories', requireAuth, requirePermission('settings.manage'), catalogController.listSubcategories);

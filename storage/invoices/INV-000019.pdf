@@ -15,7 +15,7 @@ endobj
 << /Type /Font /Subtype /Type1 /BaseFont /Times-Bold >>
 endobj
 6 0 obj
-<< /Length 32823 >>
+<< /Length 33010 >>
 stream
 q
 0 g
@@ -1029,16 +1029,20 @@ BT /F1 7 Tf 504.28 307.50 Td (0.00) Tj ET
 BT /F1 7 Tf 538.42 307.50 Td (650.00) Tj ET
 BT /F2 8 Tf 25.00 283.00 Td (Item Total) Tj ET
 BT /F2 8 Tf 546.96 283.00 Td (650.00) Tj ET
-BT /F1 8 Tf 25.00 269.00 Td (Round off to) Tj ET
-BT /F2 8 Tf 554.64 269.00 Td (0.00) Tj ET
-1.2 w 25.00 263.00 m 570.00 263.00 l S
-BT /F2 8 Tf 25.00 250.00 Td (Invoice Value) Tj ET
-BT /F2 8 Tf 546.96 250.00 Td (650.00) Tj ET
-1.2 w 25.00 243.00 m 570.00 243.00 l S
-BT /F1 7 Tf 25.00 220.00 Td (Whether GST is payable on reverse-charge - No.) Tj ET
-BT /F1 7 Tf 25.00 201.00 Td (For IMEI / Serial number information, please refer to packaging / warranty slip.) Tj ET
-BT /F1 7 Tf 25.00 183.00 Td (Note: Effective 1st Feb 2026, The valuation of the tobacco and pan masala products is made in) Tj ET
-BT /F1 7 Tf 25.00 174.00 Td (accordance with Rule 31D of the CGST Rules, 2017.) Tj ET
+BT /F2 8 Tf 25.00 269.00 Td (Delivery Charge) Tj ET
+BT /F2 8 Tf 546.96 269.00 Td (150.00) Tj ET
+BT /F2 8 Tf 25.00 255.00 Td (Platform Fee) Tj ET
+BT /F2 8 Tf 554.64 255.00 Td (0.00) Tj ET
+BT /F1 8 Tf 25.00 241.00 Td (Round off to) Tj ET
+BT /F2 8 Tf 554.64 241.00 Td (0.00) Tj ET
+1.2 w 25.00 235.00 m 570.00 235.00 l S
+BT /F2 8 Tf 25.00 222.00 Td (Invoice Value) Tj ET
+BT /F2 8 Tf 546.96 222.00 Td (650.00) Tj ET
+1.2 w 25.00 215.00 m 570.00 215.00 l S
+BT /F1 7 Tf 25.00 192.00 Td (Whether GST is payable on reverse-charge - No.) Tj ET
+BT /F1 7 Tf 25.00 173.00 Td (For IMEI / Serial number information, please refer to packaging / warranty slip.) Tj ET
+BT /F1 7 Tf 25.00 155.00 Td (Note: Effective 1st Feb 2026, The valuation of the tobacco and pan masala products is made in) Tj ET
+BT /F1 7 Tf 25.00 146.00 Td (accordance with Rule 31D of the CGST Rules, 2017.) Tj ET
 BT /F1 8 Tf 475.20 116.00 Td (Authorized Signatory) Tj ET
 1 w 450.00 132.00 m 546.00 112.00 l S
 0.8 w 452.00 123.00 m 525.00 142.00 l S
@@ -1066,5 +1070,5 @@ xref
 trailer
 << /Size 7 /Root 1 0 R >>
 startxref
-33270
+33457
 %%EOF

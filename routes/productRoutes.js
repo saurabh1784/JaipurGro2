@@ -22,10 +22,16 @@ const upload = multer({
 
 router.get('/', productController.index);
 router.get('/catalog', productController.catalog);
+router.get('/sponsored', productController.sponsoredIndex);
+router.post('/sponsored', productController.sponsoredCreate);
 router.post('/', uploadProductImage.single('image'), handleProductImageUploadError, productController.create);
 router.post('/bulk-upload', upload.single('file'), productController.bulkUpload);
 router.put('/:id/approval-status', productController.updateApprovalStatus);
 router.put('/:id/search-settings', productController.updateSearchSettings);
+router.put('/:id/featured', productController.setFeatured);
+router.get('/:id/sponsored', productController.sponsoredShow);
+router.put('/:id/sponsored', productController.sponsoredUpdate);
+router.delete('/:id/sponsored', productController.sponsoredDelete);
 router.put('/:id', uploadProductImage.single('image'), handleProductImageUploadError, productController.update);
 router.delete('/:id', productController.destroy);
 

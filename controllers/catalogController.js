@@ -1,6 +1,7 @@
 const Catalog = require('../models/Catalog');
 const { brandLogoPath } = require('../middleware/brandLogoUpload');
 const { subcategoryImagePath } = require('../middleware/subcategoryImageUpload');
+const { categoryIconPath } = require('../middleware/categoryIconUpload');
 
 function parseActive(value) {
   return value === true || value === 'true' || value === 1 || value === '1';
@@ -61,13 +62,15 @@ async function createCategory(req, res) {
   if (errors.length) return res.status(422).json({ success: false, errors });
 
   try {
+    const iconPath = categoryIconPath(req.file);
     const id = await Catalog.createCategory({
       name: String(req.body.name).trim(),
       slug: req.body.slug,
       is_active: req.body.is_active === undefined ? true : parseActive(req.body.is_active),
+      icon_path: iconPath,
       ...tax,
     });
-    res.status(201).json({ success: true, message: 'Category created', id });
+    res.status(201).json({ success: true, message: 'Category created', id, icon_path: iconPath });
   } catch (error) {
     if (duplicateResponse(res, error)) return;
     console.error('Create category error:', error);
@@ -86,9 +89,10 @@ async function updateCategory(req, res) {
       name: String(req.body.name).trim(),
       slug: req.body.slug,
       is_active: req.body.is_active === undefined ? true : parseActive(req.body.is_active),
+      icon_path: categoryIconPath(req.file),
       ...tax,
     });
-    res.json({ success: true, message: 'Category updated' });
+    res.json({ success: true, message: 'Category updated', icon_path: categoryIconPath(req.file) });
   } catch (error) {
     if (duplicateResponse(res, error)) return;
     console.error('Update category error:', error);

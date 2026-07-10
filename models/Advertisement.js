@@ -13,6 +13,29 @@ const PLATFORM_VALUES = [
   'client_website',
 ];
 
+const PAGE_VALUES = [
+  'home',
+  'products',
+  'categories',
+  'cart',
+  'orders',
+  'profile',
+  'checkout',
+  'vendor_products',
+  'vendor_orders',
+  'delivery_orders',
+  'delivery_profile',
+];
+
+const AD_TYPE_VALUES = [
+  'page_banner',
+  'launch_banner',
+  'in_app_card',
+  'offer_banner',
+  'popup_banner',
+  'other',
+];
+
 function parseJsonList(value) {
   if (!value) return [];
   if (Array.isArray(value)) return value.map((item) => String(item || '').trim()).filter(Boolean);
@@ -48,10 +71,12 @@ function normalizeAdvertisement(row) {
     title: row.title || '',
     description: row.description || '',
     image_path: row.image_path || '',
+    ad_type: normalizeKey(row.ad_type || 'page_banner'),
     start_at: row.start_at,
     end_at: row.end_at,
     countdown_seconds: Number(row.countdown_seconds || 0),
     target_platforms: parseJsonList(row.target_platforms),
+    target_pages: parseJsonList(row.target_pages),
     city_scope: row.city_scope || 'all',
     city: row.city || '',
     areas: parseJsonList(row.areas),
@@ -97,11 +122,26 @@ function validatePayload(data) {
     throw error;
   }
 
+  const targetPages = uniqueList(data.target_pages)
+    .map((page) => normalizeKey(page))
+    .filter((page) => PAGE_VALUES.includes(page));
+  if (!targetPages.length) {
+    const error = new Error('Select at least one target page');
+    error.status = 422;
+    throw error;
+  }
+
   const paymentStatus = normalizeKey(data.payment_status || 'pending');
   const approvalStatus = normalizeKey(data.approval_status || 'pending');
   const status = normalizeKey(data.status || 'draft');
+  const adType = normalizeKey(data.ad_type || 'page_banner');
   if (!PAYMENT_STATUSES.includes(paymentStatus) || !APPROVAL_STATUSES.includes(approvalStatus) || !STATUS_VALUES.includes(status)) {
     const error = new Error('Invalid advertisement status value');
+    error.status = 422;
+    throw error;
+  }
+  if (!AD_TYPE_VALUES.includes(adType)) {
+    const error = new Error('Invalid advertisement type');
     error.status = 422;
     throw error;
   }
@@ -110,10 +150,12 @@ function validatePayload(data) {
     title,
     description: String(data.description || '').trim(),
     image_path: data.image_path || null,
+    ad_type: adType,
     start_at: data.start_at || data.campaign_start_at || null,
     end_at: data.end_at || data.campaign_end_at || null,
     countdown_seconds: Math.max(0, Math.min(120, Number(data.countdown_seconds || 0))),
     target_platforms: targetPlatforms,
+    target_pages: targetPages,
     city_scope: normalizeKey(data.city_scope || 'all') === 'specific' ? 'specific' : 'all',
     city: String(data.city || '').trim(),
     areas: uniqueList(data.areas),
@@ -136,6 +178,9 @@ function activationStatus(payload) {
   if (payload.status === 'blocked' || payload.status === 'paused' || payload.status === 'expired') {
     return payload.status;
   }
+  if (payload.status === 'active' && Number(payload.payment_amount || 0) <= 0) {
+    return 'active';
+  }
   if (payload.payment_status === 'paid' && payload.approval_status === 'approved') {
     return 'active';
   }
@@ -152,19 +197,21 @@ async function create(data) {
   const payload = validatePayload(data);
   const [result] = await pool.query(
     `INSERT INTO advertisements
-     (title, description, image_path, start_at, end_at, countdown_seconds, target_platforms,
+     (title, description, image_path, ad_type, start_at, end_at, countdown_seconds, target_platforms, target_pages,
       city_scope, city, areas, status, advertiser_name, advertiser_email, advertiser_phone,
       package_name, payment_amount, payment_status, invoice_number, receipt_path,
       approval_status, campaign_start_at, campaign_end_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       payload.title,
       payload.description || null,
       payload.image_path,
+      payload.ad_type,
       payload.start_at,
       payload.end_at,
       payload.countdown_seconds,
       JSON.stringify(payload.target_platforms),
+      JSON.stringify(payload.target_pages),
       payload.city_scope,
       payload.city || null,
       JSON.stringify(payload.areas),
@@ -189,8 +236,8 @@ async function update(id, data) {
   const payload = validatePayload(data);
   await pool.query(
     `UPDATE advertisements
-     SET title = ?, description = ?, image_path = COALESCE(?, image_path), start_at = ?, end_at = ?,
-         countdown_seconds = ?, target_platforms = ?, city_scope = ?, city = ?, areas = ?,
+     SET title = ?, description = ?, image_path = COALESCE(?, image_path), ad_type = ?, start_at = ?, end_at = ?,
+         countdown_seconds = ?, target_platforms = ?, target_pages = ?, city_scope = ?, city = ?, areas = ?,
          status = ?, advertiser_name = ?, advertiser_email = ?, advertiser_phone = ?, package_name = ?,
          payment_amount = ?, payment_status = ?, invoice_number = ?, receipt_path = ?,
          approval_status = ?, campaign_start_at = ?, campaign_end_at = ?, updated_at = CURRENT_TIMESTAMP
@@ -199,10 +246,12 @@ async function update(id, data) {
       payload.title,
       payload.description || null,
       payload.image_path,
+      payload.ad_type,
       payload.start_at,
       payload.end_at,
       payload.countdown_seconds,
       JSON.stringify(payload.target_platforms),
+      JSON.stringify(payload.target_pages),
       payload.city_scope,
       payload.city || null,
       JSON.stringify(payload.areas),
@@ -289,17 +338,28 @@ function matchesLocation(ad, location) {
   return ad.areas.some((area) => normalizeKey(area) === '*' || normalizeKey(area) === normalizeKey(location.area));
 }
 
-async function activeForDisplay({ platform = 'client_app', userId = null, query = {} } = {}) {
+function normalizeAdTypeList(value) {
+  return uniqueList(value)
+    .map((item) => normalizeKey(item))
+    .filter((item) => AD_TYPE_VALUES.includes(item));
+}
+
+async function activeForDisplay({ platform = 'client_app', page = null, adType = null, adTypes = null, userId = null, query = {} } = {}) {
+  const advertisements = await activeListForDisplay({ platform, page, adType, adTypes, userId, query });
+  return advertisements[0] || null;
+}
+
+async function activeListForDisplay({ platform = 'client_app', page = null, adType = null, adTypes = null, userId = null, query = {}, limit = 50 } = {}) {
   await expireEnded();
   const normalizedPlatform = normalizeKey(platform || 'client_app');
-  if (!PLATFORM_VALUES.includes(normalizedPlatform)) return null;
+  if (!PLATFORM_VALUES.includes(normalizedPlatform)) return [];
+  const normalizedPage = page ? normalizeKey(page) : null;
+  const requestedAdTypes = normalizeAdTypeList(adTypes || adType || query.ad_types || query.ad_type);
   const location = await locationForUser(userId, normalizedPlatform, query);
   const [rows] = await pool.query(
     `SELECT *
      FROM advertisements
      WHERE status = 'active'
-       AND payment_status = 'paid'
-       AND approval_status = 'approved'
        AND (start_at IS NULL OR start_at <= CURRENT_TIMESTAMP)
        AND (end_at IS NULL OR end_at >= CURRENT_TIMESTAMP)
      ORDER BY created_at DESC, id DESC
@@ -307,16 +367,24 @@ async function activeForDisplay({ platform = 'client_app', userId = null, query 
   );
   return rows
     .map(normalizeAdvertisement)
-    .find((ad) => ad.target_platforms.includes(normalizedPlatform) && matchesLocation(ad, location)) || null;
+    .filter((ad) => {
+      if (!ad.target_platforms.includes(normalizedPlatform)) return false;
+      if (requestedAdTypes.length && !requestedAdTypes.includes(ad.ad_type)) return false;
+      if (normalizedPage && ad.target_pages.length && !ad.target_pages.includes('all') && !ad.target_pages.includes(normalizedPage)) return false;
+      return matchesLocation(ad, location);
+    })
+    .slice(0, Math.max(1, Number(limit || 50)));
 }
 
 module.exports = {
   PLATFORM_VALUES,
+  AD_TYPE_VALUES,
   list,
   create,
   update,
   updateStatus,
   remove,
   activeForDisplay,
+  activeListForDisplay,
   expireEnded,
 };

@@ -9,6 +9,20 @@ function toPositiveInt(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function toSponsoredFlag(value) {
+  return value === true
+    || value === 1
+    || value === '1'
+    || String(value || '').trim().toLowerCase() === 'true'
+    || String(value || '').trim().toLowerCase() === 'yes'
+    || String(value || '').trim().toLowerCase() === 'on';
+}
+
+function toPriorityOrder(value) {
+  const parsed = parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : 0;
+}
+
 async function trackSearch({ userId, keyword, clickedProductId = null, viewedProductId = null }) {
   const term = normalizeTerm(keyword);
   if (!term && !clickedProductId && !viewedProductId) return;
@@ -147,12 +161,79 @@ async function setSponsored({ productId, isSponsored, priorityOrder = 0 }) {
      SET is_sponsored = EXCLUDED.is_sponsored,
          priority_order = EXCLUDED.priority_order,
          updated_at = CURRENT_TIMESTAMP`,
-    [id, isSponsored ? 1 : 0, Number(priorityOrder) || 0]
+    [id, toSponsoredFlag(isSponsored) ? 1 : 0, toPriorityOrder(priorityOrder)]
   );
+
+  return getSponsored(id);
+}
+
+async function getSponsored(productId) {
+  const id = toPositiveInt(productId);
+  if (!id) return null;
+
+  const [rows] = await pool.query(
+    `SELECT product_id, is_sponsored, priority_order, created_at, updated_at
+     FROM sponsored_products
+     WHERE product_id = ?
+     LIMIT 1`,
+    [id]
+  );
+  const row = rows[0];
+  return row
+    ? {
+        product_id: Number(row.product_id),
+        is_sponsored: Boolean(row.is_sponsored),
+        priority_order: toPriorityOrder(row.priority_order),
+        sponsored_priority: toPriorityOrder(row.priority_order),
+        created_at: row.created_at,
+        updated_at: row.updated_at,
+      }
+    : {
+        product_id: id,
+        is_sponsored: false,
+        priority_order: 0,
+        sponsored_priority: 0,
+      };
+}
+
+async function listSponsored({ activeOnly = true, limit = 100 } = {}) {
+  const conditions = ['p.is_deleted = 0'];
+  const params = [];
+  if (activeOnly) {
+    conditions.push('sp.is_sponsored = 1');
+    conditions.push("p.approval_status = 'approved'");
+  }
+
+  const [rows] = await pool.query(
+    `SELECT sp.product_id, sp.is_sponsored, sp.priority_order, sp.created_at, sp.updated_at,
+            p.name, p.price, p.image_url, p.approval_status,
+            c.name AS category_name,
+            s.name AS sub_category_name,
+            b.name AS brand_name
+     FROM sponsored_products sp
+     INNER JOIN products p ON p.id = sp.product_id
+     INNER JOIN categories c ON c.id = p.category_id
+     INNER JOIN sub_categories s ON s.id = p.sub_category_id
+     INNER JOIN brands b ON b.id = p.brand_id
+     WHERE ${conditions.join(' AND ')}
+     ORDER BY sp.is_sponsored DESC, sp.priority_order DESC, sp.updated_at DESC
+     LIMIT ?`,
+    [...params, Math.min(toPositiveInt(limit) || 100, 500)]
+  );
+  return rows.map((row) => ({
+    ...row,
+    product_id: Number(row.product_id),
+    price: Number(row.price || 0),
+    is_sponsored: Boolean(row.is_sponsored),
+    priority_order: toPriorityOrder(row.priority_order),
+    sponsored_priority: toPriorityOrder(row.priority_order),
+  }));
 }
 
 module.exports = {
   normalizeTerm,
+  toSponsoredFlag,
+  toPriorityOrder,
   suggestions,
   trackSearch,
   trackClick,
@@ -160,4 +241,6 @@ module.exports = {
   trackPurchase,
   updateProductKeywords,
   setSponsored,
+  getSponsored,
+  listSponsored,
 };

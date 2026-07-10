@@ -24,7 +24,7 @@ function row(row) {
 
 async function listCategories() {
   const { rows } = await pool.query(
-    `SELECT id, name, slug, tax_name, tax_percentage, status, created_at, updated_at
+    `SELECT id, name, slug, icon_path, tax_name, tax_percentage, status, created_at, updated_at
      FROM categories
      WHERE is_deleted = 0
      ORDER BY name ASC`
@@ -62,7 +62,7 @@ async function listBrands() {
 
 async function getTree() {
   const [rows] = await pool.query(
-    `SELECT c.id AS category_id, c.name AS category_name, c.slug AS category_slug, c.status AS category_status,
+    `SELECT c.id AS category_id, c.name AS category_name, c.slug AS category_slug, c.icon_path AS category_icon_path, c.status AS category_status,
             s.id AS sub_category_id, s.name AS sub_category_name, s.slug AS sub_category_slug, s.image_path AS sub_category_image_path, s.status AS sub_category_status,
             c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
             b.id AS brand_id, b.name AS brand_name, b.slug AS brand_slug, b.logo_path AS brand_logo_path, b.status AS brand_status
@@ -80,6 +80,7 @@ async function getTree() {
         id: item.category_id,
         name: item.category_name,
         slug: item.category_slug,
+        icon_path: item.category_icon_path || '',
         tax_name: item.category_tax_name || '',
         tax_percentage: item.category_tax_percentage === null || item.category_tax_percentage === undefined ? null : Number(item.category_tax_percentage || 0),
         status: item.category_status,
@@ -123,20 +124,21 @@ async function getTree() {
   });
 }
 
-async function createCategory({ name, slug, is_active, tax_name, tax_percentage }) {
+async function createCategory({ name, slug, is_active, tax_name, tax_percentage, icon_path }) {
   const status = activeToStatus(is_active);
   const [result] = await pool.query(
-    'INSERT INTO categories (name, slug, tax_name, tax_percentage, status, is_active) VALUES (?, ?, ?, ?, ?, ?)',
-    [name, slugify(slug || name), tax_name || null, tax_percentage ?? null, status, status === 'active' ? 1 : 0]
+    'INSERT INTO categories (name, slug, icon_path, tax_name, tax_percentage, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [name, slugify(slug || name), icon_path || null, tax_name || null, tax_percentage ?? null, status, status === 'active' ? 1 : 0]
   );
   return result.insertId;
 }
 
-async function updateCategory(id, { name, slug, is_active, tax_name, tax_percentage }) {
+async function updateCategory(id, { name, slug, is_active, tax_name, tax_percentage, icon_path }) {
   const status = activeToStatus(is_active);
-  await pool.query('UPDATE categories SET name = ?, slug = ?, tax_name = ?, tax_percentage = ?, status = ?, is_active = ? WHERE id = ? AND is_deleted = 0', [
+  await pool.query('UPDATE categories SET name = ?, slug = ?, icon_path = COALESCE(?, icon_path), tax_name = ?, tax_percentage = ?, status = ?, is_active = ? WHERE id = ? AND is_deleted = 0', [
     name,
     slugify(slug || name),
+    icon_path || null,
     tax_name || null,
     tax_percentage ?? null,
     status,

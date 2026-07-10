@@ -40,6 +40,33 @@ function normalizeId(value) {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
+function hasSponsoredPayload(body) {
+  return [
+    'is_sponsored',
+    'sponsored',
+    'featured',
+    'boosted',
+    'sponsored_priority',
+    'priority_order',
+    'priority',
+    'boost_priority',
+  ].some((key) => Object.prototype.hasOwnProperty.call(body, key));
+}
+
+function sponsoredPayload(body, fallbackIsSponsored = false) {
+  return {
+    isSponsored: ProductSearch.toSponsoredFlag(
+      body.is_sponsored ?? body.sponsored ?? body.featured ?? body.boosted ?? fallbackIsSponsored
+    ),
+    priorityOrder:
+      body.sponsored_priority ??
+      body.priority_order ??
+      body.priority ??
+      body.boost_priority ??
+      0,
+  };
+}
+
 function validateProductPayload(body) {
   const errors = [];
   const name = body.name && String(body.name).trim();
@@ -174,6 +201,14 @@ async function create(req, res) {
   try {
     data.image_url = productImagePath(req.file);
     const id = await Product.create(data);
+    if (hasSponsoredPayload(req.body)) {
+      const payload = sponsoredPayload(req.body);
+      await ProductSearch.setSponsored({
+        productId: id,
+        isSponsored: payload.isSponsored,
+        priorityOrder: payload.priorityOrder,
+      });
+    }
     await VendorProduct.ensureProductForAllVendors(id);
     const product = await Product.findById(id);
     return res.status(201).json({ success: true, message: 'Product created', product });
@@ -215,6 +250,14 @@ async function update(req, res) {
   const uploadedImage = productImagePath(req.file);
   if (uploadedImage) data.image_url = uploadedImage;
   await Product.update(id, data);
+  if (hasSponsoredPayload(req.body)) {
+    const payload = sponsoredPayload(req.body, existing.is_sponsored);
+    await ProductSearch.setSponsored({
+      productId: id,
+      isSponsored: payload.isSponsored,
+      priorityOrder: payload.priorityOrder,
+    });
+  }
   return res.json({ success: true, message: 'Product updated', product: await Product.findById(id) });
 }
 
@@ -357,16 +400,168 @@ async function updateSearchSettings(req, res) {
 
   try {
     await ProductSearch.updateProductKeywords(id, req.body.keywords || req.body.tags || '');
+    const payload = sponsoredPayload(req.body);
     await ProductSearch.setSponsored({
       productId: id,
-      isSponsored: req.body.is_sponsored === true || req.body.is_sponsored === 'true' || req.body.is_sponsored === 1 || req.body.is_sponsored === '1',
-      priorityOrder: req.body.sponsored_priority || req.body.priority_order || 0,
+      isSponsored: payload.isSponsored,
+      priorityOrder: payload.priorityOrder,
     });
     return res.json({ success: true, message: 'Search settings updated', product: await Product.findById(id) });
   } catch (error) {
     return res.status(error.status || 500).json({
       success: false,
       message: error.status ? error.message : 'Unable to update search settings',
+    });
+  }
+}
+
+async function setFeatured(req, res) {
+  const id = normalizeId(req.params.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid product ID is required' });
+  }
+
+  const existing = await Product.findById(id);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Product not found' });
+  }
+
+  const payload = sponsoredPayload(req.body);
+
+  try {
+    await ProductSearch.setSponsored({
+      productId: id,
+      isSponsored: payload.isSponsored,
+      priorityOrder: payload.priorityOrder,
+    });
+    return res.json({
+      success: true,
+      message: payload.isSponsored ? 'Product boosted as sponsored' : 'Product removed from sponsored',
+      product: await Product.findById(id),
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to update featured status',
+    });
+  }
+}
+
+async function sponsoredIndex(req, res) {
+  try {
+    const activeOnly = req.query.active === undefined
+      ? true
+      : ProductSearch.toSponsoredFlag(req.query.active);
+    const sponsoredProducts = await ProductSearch.listSponsored({
+      activeOnly,
+      limit: req.query.limit,
+    });
+    return res.json({
+      success: true,
+      sponsored_products: sponsoredProducts,
+      products: sponsoredProducts,
+    });
+  } catch (error) {
+    console.error('Sponsored product list error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch sponsored products' });
+  }
+}
+
+async function sponsoredShow(req, res) {
+  const id = normalizeId(req.params.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid product ID is required' });
+  }
+
+  const existing = await Product.findById(id);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Product not found' });
+  }
+
+  return res.json({
+    success: true,
+    sponsored_product: await ProductSearch.getSponsored(id),
+    product: existing,
+  });
+}
+
+async function sponsoredUpdate(req, res) {
+  const id = normalizeId(req.params.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid product ID is required' });
+  }
+
+  const existing = await Product.findById(id);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Product not found' });
+  }
+
+  const payload = sponsoredPayload(req.body);
+  try {
+    const sponsoredProduct = await ProductSearch.setSponsored({
+      productId: id,
+      isSponsored: payload.isSponsored,
+      priorityOrder: payload.priorityOrder,
+    });
+    return res.json({
+      success: true,
+      message: sponsoredProduct.is_sponsored ? 'Sponsored product saved' : 'Sponsored product disabled',
+      sponsored_product: sponsoredProduct,
+      product: await Product.findById(id),
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to save sponsored product',
+    });
+  }
+}
+
+async function sponsoredCreate(req, res) {
+  const id = normalizeId(req.body.product_id || req.body.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid product ID is required' });
+  }
+
+  req.params.id = id;
+  if (
+    req.body.is_sponsored === undefined &&
+    req.body.sponsored === undefined &&
+    req.body.featured === undefined &&
+    req.body.boosted === undefined
+  ) {
+    req.body.is_sponsored = true;
+  }
+  return sponsoredUpdate(req, res);
+}
+
+async function sponsoredDelete(req, res) {
+  const id = normalizeId(req.params.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid product ID is required' });
+  }
+
+  const existing = await Product.findById(id);
+  if (!existing) {
+    return res.status(404).json({ success: false, message: 'Product not found' });
+  }
+
+  try {
+    const sponsoredProduct = await ProductSearch.setSponsored({
+      productId: id,
+      isSponsored: false,
+      priorityOrder: 0,
+    });
+    return res.json({
+      success: true,
+      message: 'Sponsored product disabled',
+      sponsored_product: sponsoredProduct,
+      product: await Product.findById(id),
+    });
+  } catch (error) {
+    return res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to disable sponsored product',
     });
   }
 }
@@ -380,4 +575,10 @@ module.exports = {
   bulkUpload,
   catalog,
   updateSearchSettings,
+  setFeatured,
+  sponsoredIndex,
+  sponsoredCreate,
+  sponsoredShow,
+  sponsoredUpdate,
+  sponsoredDelete,
 };

@@ -24,7 +24,9 @@
         <thead>
           <tr>
             <th>Campaign</th>
+            <th>Type</th>
             <th>Target</th>
+            <th>Pages</th>
             <th>Schedule</th>
             <th>Payment</th>
             <th>Approval</th>
@@ -33,7 +35,7 @@
             <th>Actions</th>
           </tr>
         </thead>
-        <tbody id="advertisementBody"><tr><td colspan="8">Loading...</td></tr></tbody>
+        <tbody id="advertisementBody"><tr><td colspan="10">Loading...</td></tr></tbody>
       </table>
     </section>
   </main>
@@ -53,6 +55,17 @@
         <label>
           Package / Plan
           <input id="package_name" type="text" placeholder="Launch banner" />
+        </label>
+        <label>
+          Advertisement Type
+          <select id="ad_type">
+            <option value="page_banner">Page Banner</option>
+            <option value="launch_banner">Launch Banner</option>
+            <option value="in_app_card">In-App Card</option>
+            <option value="offer_banner">Offer Banner</option>
+            <option value="popup_banner">Popup Banner</option>
+            <option value="other">Other</option>
+          </select>
         </label>
         <label>
           Start Date & Time
@@ -80,6 +93,9 @@
           Image / Banner
           <input id="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
           <span class="wallet-muted" id="currentImageText"></span>
+          <div class="ad-current-image" id="currentImagePreview" hidden>
+            <img id="currentImage" alt="Advertisement preview" />
+          </div>
         </label>
         <label class="settings-wide">
           Description
@@ -140,6 +156,52 @@
           </div>
         </fieldset>
 
+        <fieldset class="settings-wide ad-fieldset">
+          <legend>Target Pages</legend>
+          <div class="ad-check-grid" id="targetPages">
+            <label class="offer-city-option">
+              <input type="checkbox" value="home" checked />
+              <span>Home</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="products" />
+              <span>Products</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="categories" />
+              <span>Categories</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="cart" />
+              <span>Cart</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="orders" />
+              <span>Orders</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="profile" />
+              <span>Profile</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="vendor_products" />
+              <span>Vendor Products</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="vendor_orders" />
+              <span>Vendor Orders</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="delivery_orders" />
+              <span>Delivery Orders</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="delivery_profile" />
+              <span>Delivery Profile</span>
+            </label>
+          </div>
+        </fieldset>
+
         <label>
           Target Location
           <select id="city_scope" onchange="toggleLocationInputs()">
@@ -172,6 +234,8 @@
     const canDelete = <%= canDelete ? 'true' : 'false' %>;
     const areaOptions = <%- JSON.stringify(areaOptions || []) %>;
     let rows = [];
+    let loadingRows = false;
+    let selectedAreas = new Set();
 
     function esc(value) {
       return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
@@ -189,22 +253,35 @@
     }
 
     async function loadRows() {
-      const response = await fetch('/api/advertisements', { cache: 'no-store' });
-      const data = await response.json();
-      rows = data.advertisements || [];
-      renderRows();
+      if (loadingRows) return;
+      loadingRows = true;
+      try {
+        const response = await fetch('/api/advertisements', { cache: 'no-store' });
+        const data = await response.json();
+        rows = data.advertisements || [];
+        renderRows();
+      } finally {
+        loadingRows = false;
+      }
+    }
+
+    function autoSyncRows() {
+      if (document.getElementById('advertisementModal').classList.contains('active')) return;
+      loadRows();
     }
 
     function renderRows() {
       const body = document.getElementById('advertisementBody');
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="8">No advertisements found</td></tr>';
+        body.innerHTML = '<tr><td colspan="10">No advertisements found</td></tr>';
         return;
       }
       body.innerHTML = rows.map((row) => `
         <tr>
           <td><strong>${esc(row.title)}</strong><span class="wallet-muted">${esc(row.advertiser_name || row.description)}</span></td>
+          <td>${esc(label(row.ad_type || 'page_banner'))}</td>
           <td>${esc((row.target_platforms || []).map(label).join(', '))}<span class="wallet-muted">${row.city_scope === 'specific' ? `${esc(row.city)}${(row.areas || []).length ? ' / ' + esc(row.areas.join(', ')) : ''}` : 'All Cities'}</span></td>
+          <td>${esc((row.target_pages || []).join(', '))}</td>
           <td>${date(row.start_at)}<br>${date(row.end_at)}<span class="wallet-muted">${Number(row.countdown_seconds || 0)}s countdown</span></td>
           <td>${money(row.payment_amount)}<span class="wallet-muted">${label(row.payment_status)}${row.invoice_number ? ' / ' + esc(row.invoice_number) : ''}</span></td>
           <td><span class="user-status-pill ${row.approval_status === 'approved' ? 'active' : 'inactive'}">${label(row.approval_status)}</span></td>
@@ -212,10 +289,10 @@
           <td><div class="ad-preview">${row.image_path ? `<img src="${esc(row.image_path)}" alt="">` : ''}<span>${esc(row.description || row.title)}</span></div></td>
           <td>
             <div class="user-actions">
-              ${canEdit ? `<button type="button" onclick="openForm(${row.id})">Edit</button>` : ''}
-              ${canEdit && row.status === 'active' ? `<button type="button" onclick="quickStatus(${row.id}, 'paused')">Pause</button>` : ''}
-              ${canEdit && row.status !== 'blocked' ? `<button type="button" onclick="quickStatus(${row.id}, 'blocked')">Block</button>` : ''}
-              ${canDelete ? `<button type="button" onclick="deleteRow(${row.id})">Delete</button>` : ''}
+              ${canEdit ? `<button type="button" data-action="edit" data-id="${esc(row.id)}">Edit</button>` : ''}
+              ${canEdit && row.status === 'active' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="paused">Pause</button>` : ''}
+              ${canEdit && row.status !== 'blocked' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="blocked">Block</button>` : ''}
+              ${canDelete ? `<button type="button" data-action="delete" data-id="${esc(row.id)}">Delete</button>` : ''}
             </div>
           </td>
         </tr>
@@ -223,29 +300,37 @@
     }
 
     function openForm(id) {
+      document.getElementById('advertisementForm').reset();
       const row = rows.find((item) => Number(item.id) === Number(id)) || {};
       document.getElementById('advertisementId').value = row.id || '';
       document.getElementById('modalTitle').textContent = `${row.id ? 'Edit' : 'Add'} Advertisement`;
-      ['title', 'description', 'package_name', 'countdown_seconds', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'city_scope', 'city'].forEach((key) => {
+      ['title', 'description', 'package_name', 'ad_type', 'countdown_seconds', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'city_scope', 'city'].forEach((key) => {
         const input = document.getElementById(key);
         if (input) input.value = row[key] ?? '';
       });
       if (!row.id) {
+        document.getElementById('ad_type').value = 'page_banner';
         document.getElementById('countdown_seconds').value = '5';
         document.getElementById('status').value = 'draft';
         document.getElementById('payment_status').value = 'pending';
         document.getElementById('approval_status').value = 'pending';
-        document.querySelector('#targetPlatforms input[value="client_app"]').checked = true;
+        document.getElementById('city_scope').value = 'all';
+        document.getElementById('city').value = '';
       }
       document.getElementById('start_at').value = inputDate(row.start_at);
       document.getElementById('end_at').value = inputDate(row.end_at);
       document.getElementById('image').value = '';
       document.getElementById('currentImageText').textContent = row.image_path ? `Current image: ${row.image_path}` : '';
+      renderImagePreview(row.image_path || '');
       const selectedPlatforms = new Set((row.target_platforms || ['client_app']).map(String));
       document.querySelectorAll('#targetPlatforms input').forEach((input) => {
         input.checked = selectedPlatforms.has(input.value);
       });
-      window.selectedAreas = new Set((row.areas || []).map((area) => String(area).toLowerCase()));
+      const selectedPages = new Set((row.target_pages || ['home']).map(String));
+      document.querySelectorAll('#targetPages input').forEach((input) => {
+        input.checked = selectedPages.has(input.value);
+      });
+      selectedAreas = new Set((row.areas || []).map((area) => String(area).toLowerCase()));
       toggleLocationInputs();
       document.getElementById('advertisementModal').classList.add('active');
     }
@@ -259,12 +344,11 @@
 
     function renderAreaOptions() {
       const city = String(document.getElementById('city').value || '').toLowerCase();
-      const selected = window.selectedAreas || new Set();
       const areas = areaOptions.filter((item) => String(item.city || '').toLowerCase() === city);
       document.getElementById('areas').innerHTML = areas.length
         ? areas.map((item) => `
             <label class="offer-city-option">
-              <input type="checkbox" value="${esc(item.area)}" ${selected.has(String(item.area).toLowerCase()) ? 'checked' : ''} />
+              <input type="checkbox" value="${esc(item.area)}" ${selectedAreas.has(String(item.area).toLowerCase()) ? 'checked' : ''} />
               <span>${esc(item.area)}</span>
             </label>
           `).join('')
@@ -275,14 +359,33 @@
       document.getElementById('advertisementModal').classList.remove('active');
     }
 
+    function renderImagePreview(src) {
+      const wrap = document.getElementById('currentImagePreview');
+      const image = document.getElementById('currentImage');
+      if (!src) {
+        wrap.hidden = true;
+        image.removeAttribute('src');
+        return;
+      }
+      image.src = src;
+      wrap.hidden = false;
+    }
+
+    document.getElementById('image').addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      renderImagePreview(file ? URL.createObjectURL(file) : '');
+      document.getElementById('currentImageText').textContent = file ? `Selected image: ${file.name}` : '';
+    });
+
     document.getElementById('advertisementForm').addEventListener('submit', async (event) => {
       event.preventDefault();
       const id = document.getElementById('advertisementId').value;
       const payload = new FormData();
-      ['title', 'description', 'package_name', 'start_at', 'end_at', 'countdown_seconds', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'city_scope', 'city'].forEach((key) => {
+      ['title', 'description', 'package_name', 'ad_type', 'start_at', 'end_at', 'countdown_seconds', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'city_scope', 'city'].forEach((key) => {
         payload.append(key, document.getElementById(key).value);
       });
       document.querySelectorAll('#targetPlatforms input:checked').forEach((input) => payload.append('target_platforms', input.value));
+      document.querySelectorAll('#targetPages input:checked').forEach((input) => payload.append('target_pages', input.value));
       document.querySelectorAll('#areas input:checked').forEach((input) => payload.append('areas', input.value));
       const image = document.getElementById('image').files[0];
       if (image) payload.append('image', image);
@@ -291,6 +394,22 @@
       if (!data.success) return alert(data.message || 'Unable to save advertisement');
       closeForm();
       loadRows();
+    });
+
+    document.getElementById('advertisementBody').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const id = button.dataset.id;
+      if (button.dataset.action === 'edit') openForm(id);
+      if (button.dataset.action === 'status') quickStatus(id, button.dataset.status);
+      if (button.dataset.action === 'delete') deleteRow(id);
+    });
+
+    document.getElementById('areas').addEventListener('change', (event) => {
+      if (!event.target.matches('input[type="checkbox"]')) return;
+      const key = String(event.target.value || '').toLowerCase();
+      if (event.target.checked) selectedAreas.add(key);
+      else selectedAreas.delete(key);
     });
 
     async function quickStatus(id, status) {
@@ -313,7 +432,7 @@
     }
 
     loadRows();
-    setInterval(loadRows, 10000);
+    setInterval(autoSyncRows, 10000);
   </script>
 
   <style>
@@ -353,6 +472,20 @@
       overflow: hidden;
       text-overflow: ellipsis;
       font-weight: 800;
+    }
+    .ad-current-image {
+      margin-top: 10px;
+      width: min(100%, 420px);
+      border: 1px solid #d7dee8;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+    .ad-current-image img {
+      display: block;
+      width: 100%;
+      max-height: 220px;
+      object-fit: contain;
     }
   </style>
 </body>

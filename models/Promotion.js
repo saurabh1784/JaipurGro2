@@ -462,8 +462,16 @@ async function listHistory() {
   }));
 }
 
-async function activeDisplayPromotions(userId) {
+async function activeDisplayPromotions(userId, options = {}) {
+  const vendorOnly = Boolean(options.vendorOnly);
+  const offersOnly = Boolean(options.offersOnly);
   const clientCity = userId ? await cityForClient(userId) : '';
+  const discountVendorClause = vendorOnly
+    ? 'AND vendor_id IS NOT NULL'
+    : offersOnly
+      ? 'AND vendor_id IS NULL'
+      : '';
+  const includeCoupons = !vendorOnly;
   const [discountRows] = await pool.query(
     `SELECT id, 'discount' AS promo_type, name, NULL AS code, value_type, value, min_order_amount,
             image_path, background_color, text_color, scroll_message, apply_on, expires_at, start_at, city_scope, cities,
@@ -480,26 +488,31 @@ async function activeDisplayPromotions(userId) {
        AND (start_at IS NULL OR start_at <= CURRENT_TIMESTAMP)
        AND (expires_at IS NULL OR expires_at >= CURRENT_TIMESTAMP)
        AND COALESCE(scroll_message, '') <> ''
+       ${discountVendorClause}
      ORDER BY created_at DESC, id DESC
      LIMIT 5`
   );
-  const [couponRows] = await pool.query(
-    `SELECT id, 'coupon' AS promo_type, name, code, value_type, value, min_order_amount,
-            image_path, background_color, text_color, scroll_message, apply_on, expires_at, start_at, city_scope, cities
-     FROM coupons
-     WHERE is_active = 1
-       AND (start_at IS NULL OR start_at <= CURRENT_TIMESTAMP)
-       AND (expires_at IS NULL OR expires_at >= CURRENT_TIMESTAMP)
-       AND COALESCE(scroll_message, '') <> ''
-     ORDER BY created_at DESC, id DESC
-     LIMIT 5`
-  );
+  const [couponRows] = includeCoupons
+    ? await pool.query(
+        `SELECT id, 'coupon' AS promo_type, name, code, value_type, value, min_order_amount,
+                image_path, background_color, text_color, scroll_message, apply_on, expires_at, start_at, city_scope, cities
+         FROM coupons
+         WHERE is_active = 1
+           AND (start_at IS NULL OR start_at <= CURRENT_TIMESTAMP)
+           AND (expires_at IS NULL OR expires_at >= CURRENT_TIMESTAMP)
+           AND COALESCE(scroll_message, '') <> ''
+         ORDER BY created_at DESC, id DESC
+         LIMIT 5`
+      )
+    : [[]];
 
   return [...discountRows, ...couponRows]
     .map(normalizePromotion)
     .filter((promotion) => matchesCity(promotion, clientCity))
     .map((promotion) => ({
       ...promotion,
+      promo_type: promotion.vendor_id ? 'vendor_ad' : promotion.promo_type,
+      content_priority: promotion.vendor_id ? 2 : 3,
       value: Number(promotion.value || 0),
       min_order_amount: Number(promotion.min_order_amount || 0),
       scroll_message: storeOfferMessage(promotion),

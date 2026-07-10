@@ -127,7 +127,9 @@ async function list({ vendor_id, approval_status, status, search, category_id, s
             p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.rejection_reason, p.category_id, p.sub_category_id, p.brand_id,
             c.name AS category_name, s.name AS sub_category_name, s.image_path AS sub_category_image_path, b.name AS brand_name,
-            u.name AS vendor_name, u.email AS vendor_email
+            u.name AS vendor_name, u.email AS vendor_email,
+            COALESCE(sp.is_sponsored, 0) AS is_sponsored,
+            COALESCE(sp.priority_order, 0) AS sponsored_priority
      FROM vendor_products vp
      INNER JOIN products p ON p.id = vp.product_id
      INNER JOIN users u ON u.id = vp.vendor_id
@@ -135,8 +137,12 @@ async function list({ vendor_id, approval_status, status, search, category_id, s
      INNER JOIN categories c ON c.id = p.category_id
      INNER JOIN sub_categories s ON s.id = p.sub_category_id
      INNER JOIN brands b ON b.id = p.brand_id
+     LEFT JOIN sponsored_products sp ON sp.product_id = p.id
      WHERE ${where.join(' AND ')}
-     ORDER BY vp.updated_at DESC, vp.id DESC`,
+     ORDER BY COALESCE(sp.is_sponsored, 0) DESC,
+              COALESCE(sp.priority_order, 0) DESC,
+              vp.updated_at DESC,
+              vp.id DESC`,
     params
   );
   return rows.map(normalize);
@@ -156,13 +162,16 @@ async function findById(id) {
             p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.rejection_reason, p.category_id, p.sub_category_id, p.brand_id,
             c.name AS category_name, s.name AS sub_category_name, s.image_path AS sub_category_image_path, b.name AS brand_name,
-            u.name AS vendor_name, u.email AS vendor_email
+            u.name AS vendor_name, u.email AS vendor_email,
+            COALESCE(sp.is_sponsored, 0) AS is_sponsored,
+            COALESCE(sp.priority_order, 0) AS sponsored_priority
      FROM vendor_products vp
      INNER JOIN products p ON p.id = vp.product_id
      INNER JOIN users u ON u.id = vp.vendor_id
      INNER JOIN categories c ON c.id = p.category_id
      INNER JOIN sub_categories s ON s.id = p.sub_category_id
      INNER JOIN brands b ON b.id = p.brand_id
+     LEFT JOIN sponsored_products sp ON sp.product_id = p.id
      WHERE vp.id = ?
      LIMIT 1`,
     [id]

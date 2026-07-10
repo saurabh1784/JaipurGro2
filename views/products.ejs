@@ -85,6 +85,14 @@
             Brand
             <select id="productBrand" required></select>
           </label>
+          <label class="product-sponsored-field">
+            <span>Sponsored</span>
+            <input id="productSponsored" type="checkbox" />
+          </label>
+          <label>
+            Sponsored Priority
+            <input id="productSponsoredPriority" type="number" step="1" value="0" />
+          </label>
           <button class="settings-save" type="submit" id="productSubmit">Save Product</button>
         </form>
 
@@ -185,6 +193,19 @@
       font-size: 0.78rem;
       line-height: 1.3;
     }
+    .product-sponsored-field {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      min-height: 74px;
+    }
+    .product-sponsored-field input {
+      width: 18px;
+      height: 18px;
+      flex: 0 0 auto;
+    }
     .search-boost-cell {
       display: grid;
       grid-template-columns: 1fr 70px;
@@ -219,6 +240,22 @@
       color: #fff;
       cursor: pointer;
       font-weight: 700;
+    }
+    .product-status-cell {
+      display: grid;
+      gap: 7px;
+      min-width: 135px;
+    }
+    .product-status-select {
+      width: 100%;
+      min-width: 0;
+      padding: 7px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      color: #172033;
+      font-size: 0.8rem;
+      font-weight: 800;
     }
     .product-approval-tabs {
       display: flex;
@@ -376,6 +413,10 @@
         .join(' ');
     }
 
+    function statusOption(value, currentStatus) {
+      return `<option value="${value}" ${String(currentStatus || 'approved') === value ? 'selected' : ''}>${statusLabel(value)}</option>`;
+    }
+
     async function readJsonResponse(response) {
       const text = await response.text();
       try {
@@ -506,8 +547,16 @@
               <input class="inline-price-input" id="price-${product.id}" type="number" min="0" step="0.01" value="${Number(product.price).toFixed(2)}" />
             </td>
             <td>
-              <span class="approval-status-badge ${escapeHtml(product.approval_status || 'approved')}">${statusLabel(product.approval_status || 'approved')}</span>
-              ${product.rejection_reason ? `<br><small>${escapeHtml(product.rejection_reason)}</small>` : ''}
+              <div class="product-status-cell">
+                <span class="approval-status-badge ${escapeHtml(product.approval_status || 'approved')}">${statusLabel(product.approval_status || 'approved')}</span>
+                <select class="product-status-select" id="status-${product.id}">
+                  ${statusOption('pending', product.approval_status)}
+                  ${statusOption('in_review', product.approval_status)}
+                  ${statusOption('approved', product.approval_status)}
+                  ${statusOption('rejected', product.approval_status)}
+                </select>
+                ${product.rejection_reason ? `<small>${escapeHtml(product.rejection_reason)}</small>` : ''}
+              </div>
               ${activeProductTab !== 'approved' ? `
                 <div class="approval-actions">
                   <button type="button" onclick="changeApprovalStatus(${product.id}, 'in_review')">In Review</button>
@@ -519,7 +568,7 @@
             <td>
               <div class="user-actions">
                 <button type="button" onclick="editProduct(${product.id})">Edit</button>
-                <button type="button" onclick="savePrice(${product.id})">Save</button>
+                <button type="button" onclick="saveProductRow(${product.id})">Save</button>
                 <button type="button" onclick="askDelete(${product.id})">Delete</button>
               </div>
             </td>
@@ -536,6 +585,8 @@
       document.getElementById('productId').value = '';
       document.getElementById('productFormTitle').textContent = 'Single Product';
       document.getElementById('productSubmit').textContent = 'Save Product';
+      document.getElementById('productSponsored').checked = false;
+      document.getElementById('productSponsoredPriority').value = 0;
       updateProductSubcategories();
       updateProductBrands();
     }
@@ -555,23 +606,51 @@
       document.getElementById('productCategory').value = product.category_id;
       updateProductSubcategories(product.sub_category_id);
       updateProductBrands(product.brand_id);
+      document.getElementById('productSponsored').checked = Boolean(product.is_sponsored);
+      document.getElementById('productSponsoredPriority').value = Number(product.sponsored_priority || 0);
       document.getElementById('productFormTitle').textContent = 'Edit Product';
       document.getElementById('productSubmit').textContent = 'Update Product';
       window.scrollTo({ top: 0, behavior: 'smooth' });
     }
 
-    async function savePrice(id) {
+    async function saveProductRow(id) {
+      const product = products.find((item) => Number(item.id) === Number(id));
       const price = document.getElementById(`price-${id}`).value;
-      const response = await fetch(`/products/${id}`, {
+      const status = document.getElementById(`status-${id}`).value;
+
+      const priceResponse = await fetch(`/products/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
         body: JSON.stringify({ price }),
       });
-      const data = await readJsonResponse(response);
-      if (!data.success) {
-        alert(data.message || 'Unable to save price');
+      const priceData = await readJsonResponse(priceResponse);
+      if (!priceData.success) {
+        alert(priceData.message || 'Unable to save price');
         return;
       }
+
+      if (!product || String(product.approval_status || 'approved') !== status) {
+        const body = { status };
+        if (status === 'rejected') {
+          const reason = prompt('Reason for rejecting this product request?') || '';
+          if (!reason.trim()) {
+            loadProducts(currentPage);
+            return;
+          }
+          body.rejection_reason = reason.trim();
+        }
+        const statusResponse = await fetch(`/products/${id}/approval-status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(body),
+        });
+        const statusData = await readJsonResponse(statusResponse);
+        if (!statusData.success) {
+          alert(statusData.message || 'Unable to save product status');
+          return;
+        }
+      }
+
       loadProducts(currentPage);
     }
 
@@ -681,6 +760,8 @@
       payload.append('category_id', document.getElementById('productCategory').value);
       payload.append('sub_category_id', document.getElementById('productSubcategory').value);
       payload.append('brand_id', document.getElementById('productBrand').value);
+      payload.append('is_sponsored', document.getElementById('productSponsored').checked ? 'true' : 'false');
+      payload.append('sponsored_priority', document.getElementById('productSponsoredPriority').value || '0');
       const image = document.getElementById('productImage').files[0];
       if (image) payload.append('image', await fitImageForProductCard(image));
       const response = await fetch(`/products${id ? `/${id}` : ''}`, {

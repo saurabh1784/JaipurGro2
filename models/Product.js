@@ -252,7 +252,7 @@ async function updateApprovalStatus(id, { status, actor_id, rejection_reason }) 
     throw error;
   }
 
-  await pool.query(
+  const result = await pool.query(
     `UPDATE products
      SET approval_status = ?,
          approved_by = ?,
@@ -261,6 +261,11 @@ async function updateApprovalStatus(id, { status, actor_id, rejection_reason }) 
      WHERE id = ? AND is_deleted = 0`,
     [normalized, actor_id || null, normalized, normalized, rejection_reason || null, id]
   );
+  if (!result.affectedRows && !result.rowCount) {
+    const error = new Error('Product not found or status was not saved');
+    error.status = 404;
+    throw error;
+  }
 }
 
 async function softDelete(id) {
@@ -275,13 +280,16 @@ async function softDelete(id) {
    const [rows] = await pool.query(
      `SELECT p.id, p.name, p.description, p.price, p.weight_value, p.weight_unit, p.weight_kg, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,
              c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
-             s.name AS sub_category_name, s.image_path AS sub_category_image_path, b.name AS brand_name
+             s.name AS sub_category_name, s.image_path AS sub_category_image_path, b.name AS brand_name,
+             COALESCE(sp.is_sponsored, 0) AS is_sponsored,
+             COALESCE(sp.priority_order, 0) AS sponsored_priority
       FROM products p
       INNER JOIN categories c ON c.id = p.category_id
       INNER JOIN sub_categories s ON s.id = p.sub_category_id
       INNER JOIN brands b ON b.id = p.brand_id
+      LEFT JOIN sponsored_products sp ON sp.product_id = p.id
       WHERE p.is_deleted = 0 AND p.approval_status = 'approved'${categorySql}
-      ORDER BY p.name ASC
+      ORDER BY COALESCE(sp.is_sponsored, 0) DESC, COALESCE(sp.priority_order, 0) DESC, p.name ASC
       LIMIT ?`,
      [...ids, limit]
    );
