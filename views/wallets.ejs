@@ -5,6 +5,34 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Wallets</title>
   <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .wallet-role-tabs {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+      flex-wrap: wrap;
+      padding: 6px;
+      background: #f3f4f6;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+    }
+
+    .wallet-role-tabs button {
+      border: 0;
+      border-radius: 9px;
+      padding: 10px 14px;
+      background: transparent;
+      color: #4b5563;
+      font-weight: 800;
+      cursor: pointer;
+    }
+
+    .wallet-role-tabs button.active {
+      background: #111827;
+      color: #fff;
+      box-shadow: 0 8px 18px rgba(17, 24, 39, 0.16);
+    }
+  </style>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -33,15 +61,11 @@
           <p id="walletSummaryNote">Wallet balances are synced with users.</p>
         </div>
         <% if (canManage) { %>
-          <label>
-            Role
-            <select id="walletRoleFilter">
-              <option value="">All Roles</option>
-              <% roleOptions.forEach((role) => { %>
-                <option value="<%= role %>"><%= role %></option>
-              <% }) %>
-            </select>
-          </label>
+          <div class="wallet-role-tabs" role="tablist" aria-label="Wallet user type">
+            <button type="button" class="active" data-role="Client" role="tab" aria-selected="true">Clients</button>
+            <button type="button" data-role="Vendor" role="tab" aria-selected="false">Vendors</button>
+            <button type="button" data-role="deliveryPerson" role="tab" aria-selected="false">Delivery Persons</button>
+          </div>
           <label>
             Status
             <select id="walletStatusFilter">
@@ -117,6 +141,7 @@
     let walletPage = 1;
     let walletTotalPages = 1;
     let wallets = [];
+    let activeWalletRole = 'Client';
 
     const walletTableHead = document.getElementById('walletTableHead');
     const walletTableBody = document.getElementById('walletTableBody');
@@ -126,8 +151,14 @@
     const prevWalletPage = document.getElementById('prevWalletPage');
     const nextWalletPage = document.getElementById('nextWalletPage');
     const walletSearch = document.getElementById('walletSearch');
-    const walletRoleFilter = document.getElementById('walletRoleFilter');
     const walletStatusFilter = document.getElementById('walletStatusFilter');
+    const walletRoleTabs = Array.from(document.querySelectorAll('.wallet-role-tabs button'));
+
+    const roleLabels = {
+      Client: 'client',
+      Vendor: 'vendor',
+      deliveryPerson: 'delivery person',
+    };
 
     function debounce(fn, delay) {
       let timer;
@@ -168,7 +199,7 @@
       const params = new URLSearchParams({ format: 'json', page, limit: 10 });
       if (canManageWallets) {
         params.set('search', walletSearch.value.trim());
-        params.set('role', walletRoleFilter.value);
+        params.set('role', activeWalletRole);
         params.set('status', walletStatusFilter.value);
       }
 
@@ -230,7 +261,8 @@
 
       const totalBalance = wallets.reduce((sum, wallet) => sum + Number(wallet.balance || 0), 0);
       walletTotal.textContent = formatMoney(totalBalance);
-      walletSummaryNote.textContent = `${wallets.length} wallets on this page`;
+      const roleLabel = roleLabels[activeWalletRole] || 'user';
+      walletSummaryNote.textContent = `${wallets.length} ${roleLabel} wallet${wallets.length === 1 ? '' : 's'} on this page`;
       updatePagination();
     }
 
@@ -355,7 +387,17 @@
 
     if (canManageWallets) {
       walletSearch.addEventListener('input', debounce(() => loadWallets(1), 300));
-      walletRoleFilter.addEventListener('change', () => loadWallets(1));
+      walletRoleTabs.forEach((button) => {
+        button.addEventListener('click', () => {
+          activeWalletRole = button.dataset.role || 'Client';
+          walletRoleTabs.forEach((tab) => {
+            const active = tab === button;
+            tab.classList.toggle('active', active);
+            tab.setAttribute('aria-selected', active ? 'true' : 'false');
+          });
+          loadWallets(1);
+        });
+      });
       walletStatusFilter.addEventListener('change', () => loadWallets(1));
     }
     prevWalletPage.addEventListener('click', () => loadWallets(walletPage - 1));

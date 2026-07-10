@@ -260,8 +260,8 @@ async function list({ page = 1, limit = 10, search = '', role = '', status = '' 
   }
 
   if (role) {
-    where.push('u.role = ?');
-    values.push(role);
+    where.push("LOWER(REPLACE(REPLACE(u.role, '_', ''), '-', '')) = ?");
+    values.push(String(role).toLowerCase().replace(/[\s_-]+/g, ''));
   }
 
   if (status) {
