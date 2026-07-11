@@ -1307,7 +1307,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
     const debugDeliveryPersonName = String(process.env.DEBUG_DELIVERY_PERSON_NAME || '').trim();
     const nearbyBatchPartner = autoAssignFirstAvailable ? null : await findNearbyBatchPartner(order, connection);
     let partnerRows = nearbyBatchPartner ? [nearbyBatchPartner] : [];
-    if (!partnerRows.length && debugDeliveryPersonName) {
+    if (!partnerRows.length && debugDeliveryPersonName && !autoAssignFirstAvailable) {
       const [debugRows] = await connection.query(
         `SELECT u.id, u.name, u.phone, p.area, 0 AS distance_score,
                 CASE
@@ -1353,6 +1353,21 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
                   ELSE 2
                 END AS area_match_rank,
                 CASE
+                  WHEN EXISTS (
+                    SELECT 1 FROM client_orders busy
+                    WHERE busy.delivery_partner_id = u.id
+                      AND busy.delivery_status IN ('assigned', 'ready_to_deliver', 'out_for_delivery')
+                      AND LOWER(COALESCE(busy.status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'canceled')
+                  ) THEN 1
+                  ELSE 0
+                END AS workload_rank,
+                (
+                  SELECT COUNT(*) FROM client_orders busy_count
+                  WHERE busy_count.delivery_partner_id = u.id
+                    AND busy_count.delivery_status IN ('assigned', 'ready_to_deliver', 'out_for_delivery')
+                    AND LOWER(COALESCE(busy_count.status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'canceled')
+                ) AS active_delivery_count,
+                CASE
                   WHEN p.current_latitude IS NOT NULL AND p.current_longitude IS NOT NULL
                    AND CAST(? AS DECIMAL) IS NOT NULL AND CAST(? AS DECIMAL) IS NOT NULL
                   THEN POWER(CAST(p.current_latitude AS DECIMAL) - CAST(? AS DECIMAL), 2)
@@ -1369,11 +1384,12 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
            AND (? = 1 OR p.last_seen_at >= CURRENT_TIMESTAMP - INTERVAL '45 seconds')
            AND LOWER(TRIM(dps.city)) = LOWER(TRIM(CAST(? AS TEXT)))
            AND (TRIM(COALESCE(dps.area, '*')) = '*' OR LOWER(TRIM(dps.area)) = LOWER(TRIM(CAST(? AS TEXT))))
-           AND NOT EXISTS (
+           AND (? = 1 OR NOT EXISTS (
              SELECT 1 FROM client_orders busy
              WHERE busy.delivery_partner_id = u.id
                AND busy.delivery_status IN ('assigned', 'ready_to_deliver', 'out_for_delivery')
-           )
+               AND LOWER(COALESCE(busy.status, '')) NOT IN ('delivered', 'completed', 'cancelled', 'canceled')
+           ))
            AND NOT EXISTS (
              SELECT 1 FROM delivery_order_offers open_offer
              WHERE open_offer.delivery_person_id = u.id
@@ -1396,7 +1412,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
              SELECT 1 FROM delivery_order_offers attempted_offer
              WHERE attempted_offer.order_id = ? AND attempted_offer.delivery_person_id = u.id
            ))
-         ORDER BY area_match_rank ASC, distance_score ASC, u.id ASC
+         ORDER BY workload_rank ASC, distance_score ASC, area_match_rank ASC, u.id ASC
          LIMIT 1`,
         [
           matchedArea,
@@ -1408,6 +1424,7 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
           autoAssignFirstAvailable ? 1 : 0,
           matchedCity,
           matchedArea,
+          autoAssignFirstAvailable ? 1 : 0,
           orderId,
           orderId,
           retryAttemptedDeliveryPeople ? 1 : 0,
@@ -1429,6 +1446,8 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
       return { orderId, pending: true, deliveryType: selectedDeliveryType, message: 'Waiting for an available delivery person in the delivery area' };
     }
     const partner = partnerRows[0];
+    const partnerActiveDeliveryCount = Number(partner.active_delivery_count || 0);
+    const usedActivePartnerFallback = Boolean(autoAssignFirstAvailable && partnerActiveDeliveryCount > 0 && !nearbyBatchPartner);
     const pickupOtp = order.pickup_otp || generateOtp();
     const deliveryOtp = order.delivery_otp || generateOtp();
     const grossDeliveryCharge = effectiveDeliveryCharge(order.delivery_charge);
@@ -1454,6 +1473,8 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
       approx_total_weight_kg: Number(order.approx_total_weight_kg || 0),
       debug_delivery_person: debugDeliveryPersonName && partner.name === debugDeliveryPersonName,
       nearby_batch: Boolean(nearbyBatchPartner),
+      active_partner_fallback: usedActivePartnerFallback,
+      active_delivery_count: partnerActiveDeliveryCount,
       batch_source_order_id: nearbyBatchPartner ? Number(nearbyBatchPartner.source_order_id) : null,
       batch_distance_km: nearbyBatchPartner ? Number(nearbyBatchPartner.batch_distance_km.toFixed(3)) : null,
     };
@@ -1525,7 +1546,9 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
     }
 
     if (autoAssignFirstAvailable) {
-      const assignmentNote = `${selectedDeliveryType === 'in_house_delivery' ? 'In-house' : 'Delivery partner'} automatically assigned when vendor marked Ready for Pickup`;
+      const assignmentNote = usedActivePartnerFallback
+        ? `${selectedDeliveryType === 'in_house_delivery' ? 'In-house' : 'Delivery partner'} fallback assigned to nearest active delivery partner because no free partner was available`
+        : `${selectedDeliveryType === 'in_house_delivery' ? 'In-house' : 'Delivery partner'} automatically assigned to nearest free delivery partner when vendor marked Ready for Pickup`;
       await connection.query(
         `UPDATE client_orders
          SET delivery_partner_id = ?,
@@ -1575,6 +1598,8 @@ async function createAutoDeliveryOffer(orderId, actorUser = null, options = {}) 
         deliveryPersonName: partner.name,
         automaticallyAssigned: true,
         deliveryType: selectedDeliveryType,
+        activePartnerFallback: usedActivePartnerFallback,
+        activeDeliveryCount: partnerActiveDeliveryCount,
         notification: notificationPayload,
       };
     }
@@ -2061,7 +2086,9 @@ async function processExpiredDeliveryOffers() {
   const results = [];
   for (const order of waitingOrders) {
     try {
-      results.push(await createAutoDeliveryOffer(order.id));
+      results.push(await createAutoDeliveryOffer(order.id, null, {
+        autoAssignFirstAvailable: true,
+      }));
     } catch (error) {
       results.push({ orderId: order.id, pending: true, message: error.message });
     }
