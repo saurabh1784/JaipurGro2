@@ -1863,7 +1863,10 @@ async function listDeliveryOffers(deliveryPersonId) {
      LEFT JOIN users v ON v.id = o.vendor_id
      LEFT JOIN vendor_profiles vprof ON vprof.user_id = o.vendor_id
      WHERE dof.delivery_person_id = ?
-       AND (dof.status <> 'pending' OR dof.expires_at > CURRENT_TIMESTAMP)
+       AND dof.status = 'pending'
+       AND dof.expires_at > CURRENT_TIMESTAMP
+       AND o.delivery_partner_id IS NULL
+       AND o.delivery_status = 'offer_pending'
      ORDER BY dof.created_at DESC, dof.id DESC`,
     [deliveryPersonId]
   );
@@ -1945,7 +1948,7 @@ async function decideDeliveryOffer({ orderId, deliveryPersonId, decision, note =
       `UPDATE delivery_order_offers SET status = 'accepted', response_note = ?, responded_at = CURRENT_TIMESTAMP WHERE id = ?`,
       [note || null, offer.id]
     );
-    await connection.query(
+    const [assignmentResult] = await connection.query(
       `UPDATE client_orders
        SET delivery_partner_id = ?,
            delivery_method = 'in_house_auto',
@@ -1953,8 +1956,9 @@ async function decideDeliveryOffer({ orderId, deliveryPersonId, decision, note =
            delivery_charge = CASE WHEN COALESCE(delivery_charge, 0) > 0 THEN delivery_charge ELSE ? END,
            delivery_earning = CASE WHEN COALESCE(delivery_earning, 0) > 0 THEN delivery_earning ELSE ? END,
            auto_delivery_offer_id = ?,
-           delivery_status = 'assigned',
+           delivery_status = 'ready_to_deliver',
            assigned_at = CURRENT_TIMESTAMP,
+           ready_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND delivery_partner_id IS NULL`,
       [
@@ -1965,6 +1969,20 @@ async function decideDeliveryOffer({ orderId, deliveryPersonId, decision, note =
         orderId,
       ]
     );
+    if (Number(assignmentResult.affectedRows || assignmentResult.rowCount || 0) === 0) {
+      throw new Error('Order already assigned');
+    }
+    await connection.query(
+      `UPDATE delivery_order_offers
+       SET status = 'expired',
+           response_note = COALESCE(response_note, 'Superseded by accepted delivery offer'),
+           responded_at = COALESCE(responded_at, CURRENT_TIMESTAMP),
+           updated_at = CURRENT_TIMESTAMP
+       WHERE order_id = ?
+         AND id <> ?
+         AND status = 'pending'`,
+      [orderId, offer.id]
+    );
     await connection.query(
       `INSERT INTO delivery_person_activity_logs (delivery_person_id, actor_id, action, description, metadata)
        VALUES (?, ?, 'order_accepted', ?, ?)`,
@@ -1972,11 +1990,11 @@ async function decideDeliveryOffer({ orderId, deliveryPersonId, decision, note =
     );
     await connection.query(
       `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
-       VALUES (?, ?, 'assigned', ?, 'deliveryPerson', ?)`,
+       VALUES (?, ?, 'ready_to_deliver', ?, 'deliveryPerson', ?)`,
       [orderId, offer.delivery_status, deliveryPersonId, 'Delivery partner accepted auto delivery offer']
     );
     await connection.commit();
-    return { orderId, status: 'accepted', deliveryPartnerId: deliveryPersonId };
+    return { orderId, status: 'accepted', deliveryStatus: 'ready_to_deliver', deliveryPartnerId: deliveryPersonId };
   } catch (error) {
     await connection.rollback();
     throw error;
