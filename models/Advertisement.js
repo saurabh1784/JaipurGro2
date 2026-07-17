@@ -14,6 +14,7 @@ const PLATFORM_VALUES = [
 ];
 
 const PAGE_VALUES = [
+  'app_start',
   'home',
   'products',
   'categories',
@@ -34,6 +35,7 @@ const AD_TYPE_VALUES = [
   'offer_banner',
   'popup_banner',
   'full_page_banner',
+  'top_text_ad',
   'other',
 ];
 
@@ -453,3 +455,6 @@ module.exports = {
   recordClick,
   expireEnded,
 };
+
+
+

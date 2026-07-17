@@ -15,10 +15,15 @@
         <h1><%= title %></h1>
       </div>
       <% if (canCreate) { %>
-        <button class="settings-save" type="button" onclick="openForm()">Add Advertisement</button>
+        <button class="settings-save" type="button" onclick="openForm(null, activeTypeFilter === 'top_text_ad' ? 'top_text_ad' : null)">Add Advertisement</button>
       <% } %>
     </header>
 
+
+    <section class="ad-tabs" aria-label="Advertisement type filters">
+      <button class="ad-tab active" type="button" data-ad-filter="all" onclick="setAdTab('all')">All Advertising</button>
+      <button class="ad-tab" type="button" data-ad-filter="top_text_ad" onclick="setAdTab('top_text_ad')">Top Text Advertising</button>
+    </section>
     <section class="users-table-card">
       <table class="wallets-table">
         <thead>
@@ -66,6 +71,7 @@
             <option value="offer_banner">Offer Banner</option>
             <option value="popup_banner">Popup Banner</option>
             <option value="full_page_banner">Full Page Banner</option>
+            <option value="top_text_ad">Top Text Advertisement</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -78,8 +84,8 @@
           <input id="end_at" type="datetime-local" />
         </label>
         <label>
-          Countdown Seconds
-          <input id="countdown_seconds" type="number" min="0" max="120" value="5" />
+          Display Duration (Seconds)
+          <input id="countdown_seconds" type="number" min="1" max="120" value="5" />
         </label>
         <label>
           Priority
@@ -90,13 +96,13 @@
           <select id="status">
             <option value="draft">Draft</option>
             <option value="active">Active</option>
-            <option value="paused">Paused</option>
+            <option value="paused">Inactive</option>
             <option value="expired">Expired</option>
             <option value="blocked">Blocked</option>
           </select>
         </label>
         <label class="settings-wide">
-          Image / Banner
+          Image / Banner / Small Icon
           <input id="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
           <span class="wallet-muted" id="currentImageText"></span>
           <div class="ad-current-image" id="currentImagePreview" hidden>
@@ -165,6 +171,10 @@
         <fieldset class="settings-wide ad-fieldset">
           <legend>Target Pages</legend>
           <div class="ad-check-grid" id="targetPages">
+            <label class="offer-city-option">
+              <input type="checkbox" value="app_start" />
+              <span>App Start</span>
+            </label>
             <label class="offer-city-option">
               <input type="checkbox" value="home" checked />
               <span>Home</span>
@@ -264,6 +274,7 @@
     const canDelete = <%= canDelete ? 'true' : 'false' %>;
     const areaOptions = <%- JSON.stringify(areaOptions || []) %>;
     let rows = [];
+    let activeTypeFilter = 'all';
     let loadingRows = false;
     let selectedAreas = new Set();
 
@@ -300,19 +311,30 @@
       loadRows();
     }
 
+
+    function setAdTab(type) {
+      activeTypeFilter = type || 'all';
+      document.querySelectorAll('.ad-tab').forEach((button) => {
+        button.classList.toggle('active', button.dataset.adFilter === activeTypeFilter);
+      });
+      renderRows();
+    }
     function renderRows() {
       const body = document.getElementById('advertisementBody');
-      if (!rows.length) {
+      const visibleRows = activeTypeFilter === 'all'
+        ? rows
+        : rows.filter((row) => String(row.ad_type || '') === activeTypeFilter);
+      if (!visibleRows.length) {
         body.innerHTML = '<tr><td colspan="11">No advertisements found</td></tr>';
         return;
       }
-      body.innerHTML = rows.map((row) => `
+      body.innerHTML = visibleRows.map((row) => `
         <tr>
           <td><strong>${esc(row.title)}</strong><span class="wallet-muted">${esc(row.advertiser_name || row.description)}</span></td>
           <td>${esc(label(row.ad_type || 'page_banner'))}</td>
           <td>${esc((row.target_platforms || []).map(label).join(', '))}<span class="wallet-muted">${row.city_scope === 'specific' ? `${esc(row.city)}${(row.areas || []).length ? ' / ' + esc(row.areas.join(', ')) : ''}` : 'All Cities'}</span></td>
           <td>${esc((row.target_pages || []).join(', '))}<span class="wallet-muted">${row.target_category_name ? 'Category: ' + esc(row.target_category_name) : 'Any category'}</span></td>
-          <td>${date(row.start_at)}<br>${date(row.end_at)}<span class="wallet-muted">${Number(row.countdown_seconds || 0)}s countdown / Priority ${Number(row.priority || 0)}</span></td>
+          <td>${date(row.start_at)}<br>${date(row.end_at)}<span class="wallet-muted">${Number(row.countdown_seconds || 0)}s display / Priority ${Number(row.priority || 0)}</span></td>
           <td>${Number(row.impression_count || 0)} views<br><span class="wallet-muted">${Number(row.click_count || 0)} clicks</span></td>
           <td>${money(row.payment_amount)}<span class="wallet-muted">${label(row.payment_status)}${row.invoice_number ? ' / ' + esc(row.invoice_number) : ''}</span></td>
           <td><span class="user-status-pill ${row.approval_status === 'approved' ? 'active' : 'inactive'}">${label(row.approval_status)}</span></td>
@@ -321,7 +343,7 @@
           <td>
             <div class="user-actions">
               ${canEdit ? `<button type="button" data-action="edit" data-id="${esc(row.id)}">Edit</button>` : ''}
-              ${canEdit && row.status === 'active' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="paused">Pause</button>` : ''}
+              ${canEdit && row.status === 'active' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="paused">Deactivate</button>` : ''}
               ${canEdit && row.status !== 'blocked' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="blocked">Block</button>` : ''}
               ${canDelete ? `<button type="button" data-action="delete" data-id="${esc(row.id)}">Delete</button>` : ''}
             </div>
@@ -330,7 +352,7 @@
       `).join('');
     }
 
-    function openForm(id) {
+    function openForm(id, forcedType = null) {
       document.getElementById('advertisementForm').reset();
       const row = rows.find((item) => Number(item.id) === Number(id)) || {};
       document.getElementById('advertisementId').value = row.id || '';
@@ -340,7 +362,7 @@
         if (input) input.value = row[key] ?? '';
       });
       if (!row.id) {
-        document.getElementById('ad_type').value = 'page_banner';
+        document.getElementById('ad_type').value = forcedType || 'page_banner';
         document.getElementById('countdown_seconds').value = '5';
         document.getElementById('priority').value = '0';
         document.getElementById('click_action_type').value = 'none';
@@ -352,6 +374,10 @@
         document.getElementById('approval_status').value = 'pending';
         document.getElementById('city_scope').value = 'all';
         document.getElementById('city').value = '';
+        if (forcedType === 'top_text_ad') {
+          document.getElementById('status').value = 'active';
+          document.getElementById('countdown_seconds').value = '5';
+        }
       }
       document.getElementById('start_at').value = inputDate(row.start_at);
       document.getElementById('end_at').value = inputDate(row.end_at);
@@ -480,6 +506,26 @@
   </script>
 
   <style>
+    .ad-tabs {
+      display: flex;
+      gap: 8px;
+      margin: 0 0 14px;
+      flex-wrap: wrap;
+    }
+    .ad-tab {
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .ad-tab.active {
+      background: #168832;
+      border-color: #168832;
+      color: #ffffff;
+    }
     .ad-modal-card { max-width: 980px; }
     .ad-fieldset {
       border: 1px solid #d7dee8;
@@ -534,3 +580,7 @@
   </style>
 </body>
 </html>
+
+
+
+
