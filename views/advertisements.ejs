@@ -28,6 +28,7 @@
             <th>Target</th>
             <th>Pages</th>
             <th>Schedule</th>
+            <th>Analytics</th>
             <th>Payment</th>
             <th>Approval</th>
             <th>Status</th>
@@ -35,7 +36,7 @@
             <th>Actions</th>
           </tr>
         </thead>
-        <tbody id="advertisementBody"><tr><td colspan="10">Loading...</td></tr></tbody>
+        <tbody id="advertisementBody"><tr><td colspan="11">Loading...</td></tr></tbody>
       </table>
     </section>
   </main>
@@ -64,6 +65,7 @@
             <option value="in_app_card">In-App Card</option>
             <option value="offer_banner">Offer Banner</option>
             <option value="popup_banner">Popup Banner</option>
+            <option value="full_page_banner">Full Page Banner</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -78,6 +80,10 @@
         <label>
           Countdown Seconds
           <input id="countdown_seconds" type="number" min="0" max="120" value="5" />
+        </label>
+        <label>
+          Priority
+          <input id="priority" type="number" min="0" max="9999" value="0" />
         </label>
         <label>
           Status
@@ -203,6 +209,30 @@
         </fieldset>
 
         <label>
+          Target Category
+          <select id="target_category_id" onchange="syncTargetCategoryName()">
+            <option value="">Any Category</option>
+            <% (categories || []).forEach((category) => { %>
+              <option value="<%= category.id %>" data-name="<%= category.name %>"><%= category.name %></option>
+            <% }) %>
+          </select>
+          <input id="target_category_name" type="hidden" />
+        </label>
+        <label>
+          Click Action
+          <select id="click_action_type">
+            <option value="none">Do Nothing</option>
+            <option value="product">Open Product</option>
+            <option value="category">Open Category</option>
+            <option value="business">Open Business</option>
+            <option value="external_url">External URL</option>
+          </select>
+        </label>
+        <label>
+          Click Action Value
+          <input id="click_action_value" type="text" placeholder="Product/category id, business id, or URL" />
+        </label>
+        <label>
           Target Location
           <select id="city_scope" onchange="toggleLocationInputs()">
             <option value="all">All Cities</option>
@@ -273,7 +303,7 @@
     function renderRows() {
       const body = document.getElementById('advertisementBody');
       if (!rows.length) {
-        body.innerHTML = '<tr><td colspan="10">No advertisements found</td></tr>';
+        body.innerHTML = '<tr><td colspan="11">No advertisements found</td></tr>';
         return;
       }
       body.innerHTML = rows.map((row) => `
@@ -281,8 +311,9 @@
           <td><strong>${esc(row.title)}</strong><span class="wallet-muted">${esc(row.advertiser_name || row.description)}</span></td>
           <td>${esc(label(row.ad_type || 'page_banner'))}</td>
           <td>${esc((row.target_platforms || []).map(label).join(', '))}<span class="wallet-muted">${row.city_scope === 'specific' ? `${esc(row.city)}${(row.areas || []).length ? ' / ' + esc(row.areas.join(', ')) : ''}` : 'All Cities'}</span></td>
-          <td>${esc((row.target_pages || []).join(', '))}</td>
-          <td>${date(row.start_at)}<br>${date(row.end_at)}<span class="wallet-muted">${Number(row.countdown_seconds || 0)}s countdown</span></td>
+          <td>${esc((row.target_pages || []).join(', '))}<span class="wallet-muted">${row.target_category_name ? 'Category: ' + esc(row.target_category_name) : 'Any category'}</span></td>
+          <td>${date(row.start_at)}<br>${date(row.end_at)}<span class="wallet-muted">${Number(row.countdown_seconds || 0)}s countdown / Priority ${Number(row.priority || 0)}</span></td>
+          <td>${Number(row.impression_count || 0)} views<br><span class="wallet-muted">${Number(row.click_count || 0)} clicks</span></td>
           <td>${money(row.payment_amount)}<span class="wallet-muted">${label(row.payment_status)}${row.invoice_number ? ' / ' + esc(row.invoice_number) : ''}</span></td>
           <td><span class="user-status-pill ${row.approval_status === 'approved' ? 'active' : 'inactive'}">${label(row.approval_status)}</span></td>
           <td><span class="user-status-pill ${row.status === 'active' ? 'active' : 'inactive'}">${label(row.status)}</span></td>
@@ -304,13 +335,18 @@
       const row = rows.find((item) => Number(item.id) === Number(id)) || {};
       document.getElementById('advertisementId').value = row.id || '';
       document.getElementById('modalTitle').textContent = `${row.id ? 'Edit' : 'Add'} Advertisement`;
-      ['title', 'description', 'package_name', 'ad_type', 'countdown_seconds', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'city_scope', 'city'].forEach((key) => {
+      ['title', 'description', 'package_name', 'ad_type', 'countdown_seconds', 'priority', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'target_category_id', 'target_category_name', 'click_action_type', 'click_action_value', 'city_scope', 'city'].forEach((key) => {
         const input = document.getElementById(key);
         if (input) input.value = row[key] ?? '';
       });
       if (!row.id) {
         document.getElementById('ad_type').value = 'page_banner';
         document.getElementById('countdown_seconds').value = '5';
+        document.getElementById('priority').value = '0';
+        document.getElementById('click_action_type').value = 'none';
+        document.getElementById('click_action_value').value = '';
+        document.getElementById('target_category_id').value = '';
+        document.getElementById('target_category_name').value = '';
         document.getElementById('status').value = 'draft';
         document.getElementById('payment_status').value = 'pending';
         document.getElementById('approval_status').value = 'pending';
@@ -331,8 +367,15 @@
         input.checked = selectedPages.has(input.value);
       });
       selectedAreas = new Set((row.areas || []).map((area) => String(area).toLowerCase()));
+      syncTargetCategoryName();
       toggleLocationInputs();
       document.getElementById('advertisementModal').classList.add('active');
+    }
+
+    function syncTargetCategoryName() {
+      const select = document.getElementById('target_category_id');
+      const selected = select.options[select.selectedIndex];
+      document.getElementById('target_category_name').value = selected ? selected.dataset.name || '' : '';
     }
 
     function toggleLocationInputs() {
@@ -381,7 +424,8 @@
       event.preventDefault();
       const id = document.getElementById('advertisementId').value;
       const payload = new FormData();
-      ['title', 'description', 'package_name', 'ad_type', 'start_at', 'end_at', 'countdown_seconds', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'city_scope', 'city'].forEach((key) => {
+      syncTargetCategoryName();
+      ['title', 'description', 'package_name', 'ad_type', 'start_at', 'end_at', 'countdown_seconds', 'priority', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'target_category_id', 'target_category_name', 'click_action_type', 'click_action_value', 'city_scope', 'city'].forEach((key) => {
         payload.append(key, document.getElementById(key).value);
       });
       document.querySelectorAll('#targetPlatforms input:checked').forEach((input) => payload.append('target_platforms', input.value));

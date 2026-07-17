@@ -1723,6 +1723,7 @@ async function initDatabase(options = {}) {
       start_at TIMESTAMP NULL DEFAULT NULL,
       end_at TIMESTAMP NULL DEFAULT NULL,
       countdown_seconds INT UNSIGNED NOT NULL DEFAULT 5,
+      priority INT NOT NULL DEFAULT 0,
       target_platforms JSON DEFAULT NULL,
       city_scope VARCHAR(20) NOT NULL DEFAULT 'all',
       city VARCHAR(120) DEFAULT NULL,
@@ -1763,6 +1764,29 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('advertisements', 'campaign_start_at', 'TIMESTAMP NULL DEFAULT NULL AFTER approval_status');
   await addColumnIfMissing('advertisements', 'campaign_end_at', 'TIMESTAMP NULL DEFAULT NULL AFTER campaign_start_at');
   await addColumnIfMissing('advertisements', 'target_pages', "JSON DEFAULT NULL AFTER target_platforms");
+  await addColumnIfMissing('advertisements', 'priority', 'INT NOT NULL DEFAULT 0 AFTER countdown_seconds');
+  await addColumnIfMissing('advertisements', 'target_category_id', 'INT UNSIGNED DEFAULT NULL AFTER target_pages');
+  await addColumnIfMissing('advertisements', 'target_category_name', 'VARCHAR(150) DEFAULT NULL AFTER target_category_id');
+  await addColumnIfMissing('advertisements', 'click_action_type', "VARCHAR(40) NOT NULL DEFAULT 'none' AFTER target_category_name");
+  await addColumnIfMissing('advertisements', 'click_action_value', 'VARCHAR(255) DEFAULT NULL AFTER click_action_type');
+  await addColumnIfMissing('advertisements', 'impression_count', 'INT NOT NULL DEFAULT 0 AFTER click_action_value');
+  await addColumnIfMissing('advertisements', 'click_count', 'INT NOT NULL DEFAULT 0 AFTER impression_count');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS advertisement_events (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      advertisement_id INT UNSIGNED NOT NULL,
+      event_type VARCHAR(20) NOT NULL,
+      platform VARCHAR(40) DEFAULT NULL,
+      page VARCHAR(60) DEFAULT NULL,
+      category_id INT UNSIGNED DEFAULT NULL,
+      user_id INT UNSIGNED DEFAULT NULL,
+      metadata JSON DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_ad_events_ad_type (advertisement_id, event_type),
+      CONSTRAINT fk_ad_events_ad FOREIGN KEY (advertisement_id) REFERENCES advertisements(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS support_tickets (
@@ -5211,8 +5235,13 @@ async function advertisementPayload(body) {
     start_at: body.start_at || null,
     end_at: body.end_at || null,
     countdown_seconds: Number(body.countdown_seconds || 0),
+    priority: Number(body.priority || 0) || 0,
     target_platforms: requestList(body.target_platforms),
     target_pages: requestList(body.target_pages),
+    target_category_id: Number(body.target_category_id || 0) || 0,
+    target_category_name: String(body.target_category_name || '').trim(),
+    click_action_type: String(body.click_action_type || 'none').trim(),
+    click_action_value: String(body.click_action_value || '').trim(),
     city_scope: cityScope,
     city: cityScope === 'specific' ? selectedCity : '',
     areas: cityScope === 'specific' ? requestList(body.areas) : [],
@@ -5268,6 +5297,7 @@ app.get('/advertisements', requireAuth, requirePermission('advertisements.view')
     canEdit: roleCan(req.session.user, 'advertisements.edit'),
     canDelete: roleCan(req.session.user, 'advertisements.delete'),
     cityOptions: await promotionCityOptions(),
+    categories: (await Catalog.listCategories()).filter((category) => category.status === 'active'),
     areaOptions: await advertisementAreaOptions(),
     platforms: Advertisement.PLATFORM_VALUES,
   });
@@ -5476,6 +5506,32 @@ app.get('/api/advertisements/active-display', webOrJwtAuth, async (req, res) => 
   res.json({ success: true, advertisement });
 });
 
+app.get('/api/advertisements/full-page-banners', webOrJwtAuth, async (req, res) => {
+  const advertisements = await Advertisement.activeListForDisplay({
+    platform: req.query.platform || 'client_app',
+    page: req.query.page || null,
+    adType: 'full_page_banner',
+    userId: req.authUser && req.authUser.id,
+    query: req.query,
+  });
+  res.json({ success: true, advertisements });
+});
+
+app.post('/api/advertisements/:id/impression', webOrJwtAuth, async (req, res) => {
+  await Advertisement.recordImpression(req.params.id, {
+    ...(req.body || {}),
+    user_id: req.authUser && req.authUser.id,
+  });
+  res.json({ success: true });
+});
+
+app.post('/api/advertisements/:id/click', webOrJwtAuth, async (req, res) => {
+  await Advertisement.recordClick(req.params.id, {
+    ...(req.body || {}),
+    user_id: req.authUser && req.authUser.id,
+  });
+  res.json({ success: true });
+});
 app.post('/api/advertisements', webOrJwtAuth, requirePermission('advertisements.create'), uploadAdvertisementImage.single('image'), handleAdvertisementImageUploadError, async (req, res) => {
   try {
     const id = await Advertisement.create({ ...(await advertisementPayload(req.body)), image_path: advertisementImagePath(req.file) });

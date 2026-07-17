@@ -33,6 +33,7 @@ const AD_TYPE_VALUES = [
   'in_app_card',
   'offer_banner',
   'popup_banner',
+  'full_page_banner',
   'other',
 ];
 
@@ -75,8 +76,15 @@ function normalizeAdvertisement(row) {
     start_at: row.start_at,
     end_at: row.end_at,
     countdown_seconds: Number(row.countdown_seconds || 0),
+    priority: Number(row.priority || 0),
     target_platforms: parseJsonList(row.target_platforms),
     target_pages: parseJsonList(row.target_pages),
+    target_category_id: Number(row.target_category_id || 0),
+    target_category_name: row.target_category_name || '',
+    click_action_type: normalizeKey(row.click_action_type || 'none'),
+    click_action_value: row.click_action_value || '',
+    impression_count: Number(row.impression_count || 0),
+    click_count: Number(row.click_count || 0),
     city_scope: row.city_scope || 'all',
     city: row.city || '',
     areas: parseJsonList(row.areas),
@@ -154,8 +162,13 @@ function validatePayload(data) {
     start_at: data.start_at || data.campaign_start_at || null,
     end_at: data.end_at || data.campaign_end_at || null,
     countdown_seconds: Math.max(0, Math.min(120, Number(data.countdown_seconds || 0))),
+    priority: Math.max(0, Math.min(9999, Number(data.priority || 0))),
     target_platforms: targetPlatforms,
     target_pages: targetPages,
+    target_category_id: Math.max(0, Number(data.target_category_id || data.targetCategoryId || 0) || 0),
+    target_category_name: String(data.target_category_name || data.targetCategoryName || '').trim(),
+    click_action_type: normalizeKey(data.click_action_type || data.clickActionType || 'none'),
+    click_action_value: String(data.click_action_value || data.clickActionValue || '').trim(),
     city_scope: normalizeKey(data.city_scope || 'all') === 'specific' ? 'specific' : 'all',
     city: String(data.city || '').trim(),
     areas: uniqueList(data.areas),
@@ -197,11 +210,12 @@ async function create(data) {
   const payload = validatePayload(data);
   const [result] = await pool.query(
     `INSERT INTO advertisements
-     (title, description, image_path, ad_type, start_at, end_at, countdown_seconds, target_platforms, target_pages,
+     (title, description, image_path, ad_type, start_at, end_at, countdown_seconds, priority, target_platforms, target_pages,
+      target_category_id, target_category_name, click_action_type, click_action_value,
       city_scope, city, areas, status, advertiser_name, advertiser_email, advertiser_phone,
       package_name, payment_amount, payment_status, invoice_number, receipt_path,
       approval_status, campaign_start_at, campaign_end_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       payload.title,
       payload.description || null,
@@ -210,8 +224,13 @@ async function create(data) {
       payload.start_at,
       payload.end_at,
       payload.countdown_seconds,
+      payload.priority,
       JSON.stringify(payload.target_platforms),
       JSON.stringify(payload.target_pages),
+      payload.target_category_id || null,
+      payload.target_category_name || null,
+      payload.click_action_type,
+      payload.click_action_value || null,
       payload.city_scope,
       payload.city || null,
       JSON.stringify(payload.areas),
@@ -237,7 +256,8 @@ async function update(id, data) {
   await pool.query(
     `UPDATE advertisements
      SET title = ?, description = ?, image_path = COALESCE(?, image_path), ad_type = ?, start_at = ?, end_at = ?,
-         countdown_seconds = ?, target_platforms = ?, target_pages = ?, city_scope = ?, city = ?, areas = ?,
+         countdown_seconds = ?, priority = ?, target_platforms = ?, target_pages = ?, target_category_id = ?, target_category_name = ?,
+         click_action_type = ?, click_action_value = ?, city_scope = ?, city = ?, areas = ?,
          status = ?, advertiser_name = ?, advertiser_email = ?, advertiser_phone = ?, package_name = ?,
          payment_amount = ?, payment_status = ?, invoice_number = ?, receipt_path = ?,
          approval_status = ?, campaign_start_at = ?, campaign_end_at = ?, updated_at = CURRENT_TIMESTAMP
@@ -250,8 +270,13 @@ async function update(id, data) {
       payload.start_at,
       payload.end_at,
       payload.countdown_seconds,
+      payload.priority,
       JSON.stringify(payload.target_platforms),
       JSON.stringify(payload.target_pages),
+      payload.target_category_id || null,
+      payload.target_category_name || null,
+      payload.click_action_type,
+      payload.click_action_value || null,
       payload.city_scope,
       payload.city || null,
       JSON.stringify(payload.areas),
@@ -344,8 +369,16 @@ function normalizeAdTypeList(value) {
     .filter((item) => AD_TYPE_VALUES.includes(item));
 }
 
+function randomItem(items) {
+  if (!items.length) return null;
+  return items[Math.floor(Math.random() * items.length)] || null;
+}
+
 async function activeForDisplay({ platform = 'client_app', page = null, adType = null, adTypes = null, userId = null, query = {} } = {}) {
   const advertisements = await activeListForDisplay({ platform, page, adType, adTypes, userId, query });
+  if (normalizeAdTypeList(adTypes || adType || query.ad_types || query.ad_type).includes('full_page_banner')) {
+    return randomItem(advertisements);
+  }
   return advertisements[0] || null;
 }
 
@@ -354,6 +387,7 @@ async function activeListForDisplay({ platform = 'client_app', page = null, adTy
   const normalizedPlatform = normalizeKey(platform || 'client_app');
   if (!PLATFORM_VALUES.includes(normalizedPlatform)) return [];
   const normalizedPage = page ? normalizeKey(page) : null;
+  const requestedCategoryId = Number(query.category_id || query.categoryId || 0) || 0;
   const requestedAdTypes = normalizeAdTypeList(adTypes || adType || query.ad_types || query.ad_type);
   const location = await locationForUser(userId, normalizedPlatform, query);
   const [rows] = await pool.query(
@@ -362,8 +396,8 @@ async function activeListForDisplay({ platform = 'client_app', page = null, adTy
      WHERE status = 'active'
        AND (start_at IS NULL OR start_at <= CURRENT_TIMESTAMP)
        AND (end_at IS NULL OR end_at >= CURRENT_TIMESTAMP)
-     ORDER BY created_at DESC, id DESC
-     LIMIT 50`
+     ORDER BY priority DESC, created_at DESC, id DESC
+     LIMIT 100`
   );
   return rows
     .map(normalizeAdvertisement)
@@ -371,11 +405,40 @@ async function activeListForDisplay({ platform = 'client_app', page = null, adTy
       if (!ad.target_platforms.includes(normalizedPlatform)) return false;
       if (requestedAdTypes.length && !requestedAdTypes.includes(ad.ad_type)) return false;
       if (normalizedPage && ad.target_pages.length && !ad.target_pages.includes('all') && !ad.target_pages.includes(normalizedPage)) return false;
+      if (ad.target_category_id > 0 && ad.target_category_id !== requestedCategoryId) return false;
       return matchesLocation(ad, location);
     })
     .slice(0, Math.max(1, Number(limit || 50)));
 }
 
+
+async function recordEvent(id, eventType, metadata = {}) {
+  const type = normalizeKey(eventType);
+  if (!['impression', 'click'].includes(type)) return;
+  const column = type === 'click' ? 'click_count' : 'impression_count';
+  await pool.query(`UPDATE advertisements SET ${column} = COALESCE(${column}, 0) + 1, updated_at = CURRENT_TIMESTAMP WHERE id = ?`, [id]);
+  await pool.query(
+    `INSERT INTO advertisement_events (advertisement_id, event_type, platform, page, category_id, user_id, metadata)
+     VALUES (?, ?, ?, ?, ?, ?, ?)`,
+    [
+      id,
+      type,
+      normalizeKey(metadata.platform || ''),
+      normalizeKey(metadata.page || ''),
+      Number(metadata.category_id || metadata.categoryId || 0) || null,
+      Number(metadata.user_id || metadata.userId || 0) || null,
+      JSON.stringify(metadata || {}),
+    ]
+  ).catch(() => null);
+}
+
+async function recordImpression(id, metadata = {}) {
+  return recordEvent(id, 'impression', metadata);
+}
+
+async function recordClick(id, metadata = {}) {
+  return recordEvent(id, 'click', metadata);
+}
 module.exports = {
   PLATFORM_VALUES,
   AD_TYPE_VALUES,
@@ -386,5 +449,7 @@ module.exports = {
   remove,
   activeForDisplay,
   activeListForDisplay,
+  recordImpression,
+  recordClick,
   expireEnded,
 };
