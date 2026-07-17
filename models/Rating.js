@@ -32,8 +32,9 @@ function validateScores(subjectType, scores) {
     throw error;
   }
   const normalized = {};
-  for (const key of Object.keys(categoryDefinitions)) {
-    const score = Number(scores[key]);
+  for (const [key, rawScore] of Object.entries(scores)) {
+    if (!Object.prototype.hasOwnProperty.call(categoryDefinitions, key)) continue;
+    const score = Number(rawScore);
     if (!Number.isInteger(score) || score < 1 || score > 5) {
       const error = new Error(`${categoryDefinitions[key]} must be rated from 1 to 5 stars`);
       error.status = 422;
@@ -41,7 +42,18 @@ function validateScores(subjectType, scores) {
     }
     normalized[key] = score;
   }
+  if (!Object.keys(normalized).length) {
+    const error = new Error(`At least one ${subjectType.replace('_', ' ')} rating is required`);
+    error.status = 422;
+    throw error;
+  }
   return normalized;
+}
+
+function overallScore(scores) {
+  if (Number.isInteger(scores.overall_experience)) return scores.overall_experience;
+  const values = Object.values(scores).map(Number).filter((score) => Number.isFinite(score));
+  return values.length ? Math.round(values.reduce((sum, score) => sum + score, 0) / values.length) : 0;
 }
 
 function emptySummary(subjectType, subjectId) {
@@ -179,11 +191,13 @@ async function saveForOrder({ orderId, clientId, vendorScores, deliveryPersonSco
     const submissions = [];
     if (vendorScores !== undefined) {
       if (!order.vendor_id) throw Object.assign(new Error('This order has no vendor to rate'), { status: 422 });
-      submissions.push({ type: 'vendor', subjectId: order.vendor_id, scores: validateScores('vendor', vendorScores) });
+      const scores = validateScores('vendor', vendorScores);
+      submissions.push({ type: 'vendor', subjectId: order.vendor_id, scores, overall: overallScore(scores) });
     }
     if (deliveryPersonScores !== undefined) {
       if (!order.delivery_partner_id) throw Object.assign(new Error('This order has no delivery person to rate'), { status: 422 });
-      submissions.push({ type: 'delivery_person', subjectId: order.delivery_partner_id, scores: validateScores('delivery_person', deliveryPersonScores) });
+      const scores = validateScores('delivery_person', deliveryPersonScores);
+      submissions.push({ type: 'delivery_person', subjectId: order.delivery_partner_id, scores, overall: overallScore(scores) });
     }
     if (!submissions.length) {
       const error = new Error('Vendor or delivery person ratings are required');
@@ -200,7 +214,7 @@ async function saveForOrder({ orderId, clientId, vendorScores, deliveryPersonSco
            overall_rating = EXCLUDED.overall_rating,
            updated_at = CURRENT_TIMESTAMP
          RETURNING id`,
-        [orderId, clientId, submission.type, submission.subjectId, submission.scores.overall_experience]
+        [orderId, clientId, submission.type, submission.subjectId, submission.overall]
       );
       const ratingId = ratingResult.insertId;
       await connection.query('DELETE FROM order_rating_categories WHERE rating_id = ?', [ratingId]);
@@ -228,3 +242,4 @@ module.exports = {
   contextForOrder,
   saveForOrder,
 };
+

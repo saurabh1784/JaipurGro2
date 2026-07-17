@@ -51,6 +51,7 @@
         <% } %>
         <button class="settings-tab" type="button" data-tab="delivery-partners">Delivery Partners</button>
         <button class="settings-tab" type="button" data-tab="role-permissions">Role Permissions</button>
+        <button class="settings-tab" type="button" data-tab="content-management">Legal Pages</button>
         <button class="settings-tab" type="button" data-tab="security">Security</button>
         <button class="settings-tab" type="button" data-tab="debug">Debug</button>
       </div>
@@ -747,6 +748,89 @@
         </div>
       </section>
 
+      <section class="settings-panel" id="content-management" aria-labelledby="content-management-tab">
+        <div class="panel-header green-panel-header">
+          <h2>Legal Pages</h2>
+          <p>Create, publish, preview, copy, and restore Terms & Conditions and Privacy Policy pages for each app.</p>
+        </div>
+        <div class="legal-toolbar">
+          <input id="legalSearchInput" type="search" placeholder="Search legal pages" oninput="renderLegalPageButtons()" />
+          <select id="legalAppFilter" onchange="renderLegalPageButtons()">
+            <option value="">All apps</option>
+            <option value="client">Client App</option>
+            <option value="vendor">Vendor App</option>
+            <option value="delivery">Delivery Partner App</option>
+          </select>
+          <button class="settings-save" type="button" onclick="seedDemoLegalPages()">Create Demo Pages</button>
+        </div>
+        <div class="legal-page-button-grid" id="legalPageButtonGrid">
+          <button type="button" onclick="openLegalPageDialog('client', 'privacy-policy')">Client App - Privacy Policy</button>
+          <button type="button" onclick="openLegalPageDialog('client', 'terms-and-conditions')">Client App - Terms &amp; Conditions</button>
+          <button type="button" onclick="openLegalPageDialog('vendor', 'privacy-policy')">Vendor App - Privacy Policy</button>
+          <button type="button" onclick="openLegalPageDialog('vendor', 'terms-and-conditions')">Vendor App - Terms &amp; Conditions</button>
+          <button type="button" onclick="openLegalPageDialog('delivery', 'privacy-policy')">Delivery Partner App - Privacy Policy</button>
+          <button type="button" onclick="openLegalPageDialog('delivery', 'terms-and-conditions')">Delivery Partner App - Terms &amp; Conditions</button>
+        </div>
+        <div class="settings-grid content-management-grid">
+          <label>
+            App
+            <select id="contentAppName" onchange="loadSelectedContentPage()">
+              <option value="client">Client App</option>
+              <option value="vendor">Vendor App</option>
+              <option value="delivery">Delivery Partner App</option>
+            </select>
+          </label>
+          <label>
+            Page
+            <select id="contentPageType" onchange="loadSelectedContentPage()">
+              <option value="privacy-policy">Privacy Policy</option>
+              <option value="terms-and-conditions">Terms &amp; Conditions</option>
+              <option value="cookie-policy">Cookie Policy</option>
+              <option value="refund-policy">Refund Policy</option>
+              <option value="disclaimer">Disclaimer</option>
+            </select>
+          </label>
+          <label>
+            Status
+            <select id="contentPageStatus">
+              <option value="draft">Draft</option>
+              <option value="published">Published</option>
+            </select>
+          </label>
+          <label class="settings-toggle legal-enabled-toggle">
+            <input id="contentPageEnabled" type="checkbox" checked />
+            Enabled
+          </label>
+          <label class="settings-wide">
+            Page Title
+            <input id="contentPageTitle" type="text" maxlength="180" value="Privacy Policy" />
+          </label>
+          <div class="settings-wide content-editor-card">
+            <div class="content-editor-toolbar" aria-label="Rich text editor tools">
+              <button type="button" onclick="formatContentEditor('bold')"><strong>B</strong></button>
+              <button type="button" onclick="formatContentEditor('italic')"><em>I</em></button>
+              <button type="button" onclick="formatContentEditor('underline')"><u>U</u></button>
+              <button type="button" onclick="formatContentEditor('insertUnorderedList')">List</button>
+              <button type="button" onclick="formatContentEditor('formatBlock', 'h2')">H2</button>
+              <button type="button" onclick="formatContentEditor('formatBlock', 'p')">P</button>
+              <button type="button" onclick="createContentLink()">Link</button>
+              <button type="button" onclick="clearContentFormatting()">Clear</button>
+            </div>
+            <div id="contentPageEditor" class="content-page-editor" contenteditable="true" aria-label="Page content editor"></div>
+          </div>
+          <div class="settings-wide legal-actions-row">
+            <button class="settings-save" type="button" onclick="saveContentPage()">Save Legal Page</button>
+            <button class="product-secondary-button" type="button" onclick="previewContentPage()">Preview</button>
+            <button class="product-secondary-button" type="button" onclick="copyContentPagePrompt()">Copy To App</button>
+          </div>
+          <div class="settings-wide content-page-link" id="contentPagePublicLink" hidden></div>
+        </div>
+        <div class="catalog-table-card legal-history-card">
+          <h3>Version History</h3>
+          <div id="legalVersionHistory" class="legal-version-history">Select a saved page to view version history.</div>
+        </div>
+        <p class="commission-message" id="contentPageMessage"></p>
+      </section>
       <form class="settings-panel" id="security" aria-labelledby="security-tab">
         <div class="panel-header purple-header settings-purple-header">
           <h2>Security Settings</h2>
@@ -774,6 +858,19 @@
       </form>
     </section>
   </main>
+
+  <div class="legal-dialog-backdrop" id="legalPageDialog" hidden>
+    <section class="legal-dialog-card" role="dialog" aria-modal="true" aria-labelledby="legalDialogTitle">
+      <header class="legal-dialog-header">
+        <div>
+          <p id="legalDialogMeta">Legal Page</p>
+          <h2 id="legalDialogTitle">Legal Page</h2>
+        </div>
+        <button type="button" class="legal-dialog-close" onclick="closeLegalPageDialog()" aria-label="Close legal page">&times;</button>
+      </header>
+      <div class="legal-dialog-content" id="legalDialogContent">Loading...</div>
+    </section>
+  </div>
 
   <script>
     function confirmMaintenanceClear() {
@@ -1742,6 +1839,351 @@
       }
     }
 
+    let legalPages = [];
+
+    const legalDemoDefaults = {
+      'privacy-policy': {
+        title: 'Privacy Policy',
+        body: '<h2>Information We Collect</h2><p>We collect account, profile, contact, address, location, transaction, support, device, and usage information needed to operate groxen services.</p><h2>How We Use Your Information</h2><ul><li>To create and manage accounts.</li><li>To process orders, payments, deliveries, refunds, support, and notifications.</li><li>To improve safety, fraud prevention, analytics, and service quality.</li></ul><h2>Location Permissions</h2><p>Location data helps calculate service availability, delivery charges, routes, and delivery assignments.</p><h2>Camera and Storage Permissions</h2><p>Camera and storage access may be used for profile images, product images, delivery proof, receipts, or support attachments.</p><h2>Payment Information</h2><p>Payment providers process sensitive payment credentials. We store transaction references, status, refunds, wallet, and invoice records.</p><h2>Cookies and Analytics</h2><p>We use logs, local storage, cookies, and analytics to maintain sessions, improve performance, and detect errors.</p><h2>Data Security</h2><p>We use reasonable safeguards to protect personal information from unauthorized access, misuse, alteration, or loss.</p><h2>Data Sharing</h2><p>We share limited information with vendors, delivery partners, payment providers, support teams, hosting providers, and legal authorities when required.</p><h2>User Rights</h2><p>You may request access, correction, deletion, or restriction of eligible personal data.</p><h2>Data Retention</h2><p>We retain data as long as needed for service, legal, accounting, security, and dispute-resolution purposes.</p><h2>Children\'s Privacy</h2><p>Our services are not intended for children below the age required by applicable law.</p><h2>Changes to Privacy Policy</h2><p>We may update this policy periodically. The latest version will appear in the app and public page.</p><h2>Contact Information</h2><p>Contact support@groxen.com for privacy requests.</p>',
+      },
+      'terms-and-conditions': {
+        title: 'Terms & Conditions',
+        body: '<h2>Introduction</h2><p>These Terms & Conditions govern your access to and use of groxen services.</p><h2>User Responsibilities</h2><ul><li>Provide accurate account, billing, business, service, and delivery information.</li><li>Keep credentials secure.</li><li>Use the platform lawfully and responsibly.</li></ul><h2>Account Rules</h2><p>You are responsible for activity under your account and may be asked to verify identity, business, tax, or delivery details.</p><h2>Orders and Payments</h2><p>Orders, quotations, fees, taxes, charges, payments, refunds, and wallet entries follow the details shown at checkout or confirmation.</p><h2>Cancellations and Refunds</h2><p>Eligibility depends on order status, product type, vendor acceptance, dispatch state, delivery progress, and applicable law.</p><h2>Service Availability</h2><p>Services may vary by city, area, inventory, vendor availability, delivery capacity, weather, traffic, and maintenance.</p><h2>Prohibited Activities</h2><p>You may not misuse coupons, wallets, ratings, support, payments, security, or platform workflows.</p><h2>Intellectual Property</h2><p>groxen software, names, logos, content, designs, and workflows are owned by groxen or licensed to us.</p><h2>Limitation of Liability</h2><p>To the maximum extent allowed by law, groxen is not liable for indirect, incidental, special, punitive, or consequential losses.</p><h2>Account Suspension</h2><p>We may restrict or terminate accounts for fraud, abuse, safety risks, payment issues, policy violations, or legal compliance.</p><h2>Changes to Terms</h2><p>Continued use after updated terms are published means you accept the changes.</p><h2>Contact Information</h2><p>Contact support@groxen.com for questions about these Terms.</p>',
+      },
+      'cookie-policy': {
+        title: 'Cookie Policy',
+        body: '<h2>Cookie Use</h2><p>groxen may use cookies, local storage, device identifiers, and similar technologies to keep sessions, preferences, diagnostics, and security features working.</p><h2>Analytics and Diagnostics</h2><p>We may collect usage, device, browser, crash, and diagnostic information to improve service quality and prevent abuse.</p><h2>Managing Preferences</h2><p>You can manage browser cookies and app permissions from your browser or device settings.</p><h2>Contact Information</h2><p>Contact support@groxen.com for cookie questions.</p>',
+      },
+      'refund-policy': {
+        title: 'Refund Policy',
+        body: '<h2>Refund Eligibility</h2><p>Refunds depend on order status, product type, vendor acceptance, dispatch progress, delivery status, cancellation timing, and applicable law.</p><h2>Refund Processing</h2><p>Approved refunds may be returned to the original payment method, groxen wallet, or another supported mode.</p><h2>Order Issues</h2><p>Contact support with order details and evidence for missing, damaged, incorrect, expired, or otherwise disputed items.</p><h2>Contact Information</h2><p>Contact support@groxen.com for refund help.</p>',
+      },
+      disclaimer: {
+        title: 'Disclaimer',
+        body: '<h2>General Information</h2><p>groxen information is provided for service use and may change without prior notice.</p><h2>Third-Party Products and Services</h2><p>Product details, prices, offers, availability, delivery estimates, vendor information, and partner service details may be provided by third parties.</p><h2>Service Availability</h2><p>Features and services may vary by area, inventory, vendor capacity, delivery availability, weather, traffic, maintenance, and operational requirements.</p><h2>Contact Information</h2><p>Contact support@groxen.com for disclaimer questions.</p>',
+      },
+    };
+
+    function selectedContentKeys() {
+      return {
+        appName: document.getElementById('contentAppName').value,
+        pageType: document.getElementById('contentPageType').value,
+      };
+    }
+
+    function legalPageLabel(pageType) {
+      return (legalDemoDefaults[pageType] && legalDemoDefaults[pageType].title) || 'Legal Page';
+    }
+
+    function legalAppLabel(appName) {
+      return { client: 'Client App', vendor: 'Vendor App', delivery: 'Delivery Partner App' }[appName] || appName;
+    }
+
+    function setContentMessage(text, isError = false) {
+      const message = document.getElementById('contentPageMessage');
+      message.textContent = text || '';
+      message.style.color = isError ? '#b42318' : '';
+    }
+
+    function setContentPublicLink(page) {
+      const box = document.getElementById('contentPagePublicLink');
+      if (!page || !page.public_url) {
+        box.hidden = true;
+        box.innerHTML = '';
+        return;
+      }
+      const apiPath = page.page_type === 'terms-and-conditions' ? 'terms' : page.page_type;
+      box.hidden = false;
+      box.innerHTML = `Public URL: <a href="${escapeCatalog(page.public_url)}" target="_blank" rel="noopener">${escapeCatalog(page.public_url)}</a><br>API: <code>/api/${escapeCatalog(page.app_name)}/${apiPath}</code>`;
+    }
+
+    function legalQueryString() {
+      const params = new URLSearchParams();
+      const q = document.getElementById('legalSearchInput')?.value.trim();
+      const app = document.getElementById('legalAppFilter')?.value;
+      const status = document.getElementById('legalStatusFilter')?.value;
+      if (q) params.set('q', q);
+      if (app) params.set('app_name', app);
+      if (status) params.set('status', status);
+      return params.toString();
+    }
+
+    const legalPageDefinitions = [
+      { appName: 'client', pageType: 'privacy-policy' },
+      { appName: 'client', pageType: 'terms-and-conditions' },
+      { appName: 'vendor', pageType: 'privacy-policy' },
+      { appName: 'vendor', pageType: 'terms-and-conditions' },
+      { appName: 'delivery', pageType: 'privacy-policy' },
+      { appName: 'delivery', pageType: 'terms-and-conditions' },
+    ];
+
+    async function loadLegalPages(options = {}) {
+      try {
+        const response = await fetch('/api/content-pages');
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load legal pages');
+        legalPages = data.pages || [];
+        if (!legalPages.length && !options.skipSeed) {
+          await seedDemoLegalPages({ silent: true });
+          return;
+        }
+        renderLegalPageButtons();
+      } catch (error) {
+        setContentMessage(error.message || 'Unable to load legal pages', true);
+        renderLegalPageButtons();
+      }
+    }
+
+    function legalPageKey(appName, pageType) {
+      return `${appName}:${pageType}`;
+    }
+
+    function findLoadedLegalPage(appName, pageType) {
+      return legalPages.find((page) => page.app_name === appName && page.page_type === pageType);
+    }
+
+    function renderLegalPageButtons() {
+      const grid = document.getElementById('legalPageButtonGrid');
+      if (!grid) return;
+      const q = (document.getElementById('legalSearchInput')?.value || '').trim().toLowerCase();
+      const appFilter = document.getElementById('legalAppFilter')?.value || '';
+      const definitions = legalPageDefinitions.filter((item) => {
+        const label = `${legalAppLabel(item.appName)} - ${legalPageLabel(item.pageType)}`.toLowerCase();
+        return (!appFilter || item.appName === appFilter) && (!q || label.includes(q));
+      });
+      if (!definitions.length) {
+        grid.innerHTML = '<p class="legal-empty-state">No legal pages match your filters.</p>';
+        return;
+      }
+      grid.innerHTML = definitions.map((item) => {
+        const page = findLoadedLegalPage(item.appName, item.pageType);
+        const status = page ? `${page.status || 'draft'}${page.is_enabled ? '' : ' / disabled'}` : 'not created';
+        return `<button type="button" onclick="openLegalPageDialog('${item.appName}', '${item.pageType}')">
+          <strong>${escapeCatalog(legalAppLabel(item.appName))} - ${escapeCatalog(legalPageLabel(item.pageType))}</strong>
+          <span>${escapeCatalog(status)}</span>
+        </button>`;
+      }).join('');
+    }
+    function closeLegalPageDialog() {
+      const dialog = document.getElementById('legalPageDialog');
+      dialog.hidden = true;
+      document.body.classList.remove('legal-dialog-open');
+    }
+
+    async function openLegalPageDialog(appName, pageType) {
+      const dialog = document.getElementById('legalPageDialog');
+      const title = document.getElementById('legalDialogTitle');
+      const meta = document.getElementById('legalDialogMeta');
+      const content = document.getElementById('legalDialogContent');
+      const displayTitle = `${legalAppLabel(appName)} - ${legalPageLabel(pageType)}`;
+      title.textContent = displayTitle;
+      meta.textContent = 'Loading legal content';
+      content.innerHTML = '<p class="legal-empty-state">Loading...</p>';
+      dialog.hidden = false;
+      document.body.classList.add('legal-dialog-open');
+
+      try {
+        let page = findLoadedLegalPage(appName, pageType);
+        if (!page) {
+          const response = await fetch(`/api/content-pages?app_name=${encodeURIComponent(appName)}&page_type=${encodeURIComponent(pageType)}`);
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load legal page');
+          page = (data.pages || [])[0];
+          if (page) {
+            const existingIndex = legalPages.findIndex((item) => legalPageKey(item.app_name, item.page_type) === legalPageKey(appName, pageType));
+            if (existingIndex >= 0) legalPages[existingIndex] = page;
+            else legalPages.push(page);
+            renderLegalPageButtons();
+          }
+        }
+
+        const html = page && String(page.content_html || '').trim();
+        title.textContent = page && page.title ? `${legalAppLabel(appName)} - ${page.title}` : displayTitle;
+        meta.textContent = page && page.updated_at ? `Last updated: ${new Date(page.updated_at).toLocaleString()}` : 'No saved content';
+        content.innerHTML = html || '<p class="legal-empty-state">No content available.</p>';
+      } catch (error) {
+        meta.textContent = 'Unable to load content';
+        content.innerHTML = `<p class="legal-empty-state">${escapeCatalog(error.message || 'No content available.')}</p>`;
+      }
+    }
+
+    document.getElementById('legalPageDialog')?.addEventListener('click', (event) => {
+      if (event.target.id === 'legalPageDialog') closeLegalPageDialog();
+    });
+
+    document.addEventListener('keydown', (event) => {
+      if (event.key === 'Escape' && !document.getElementById('legalPageDialog')?.hidden) {
+        closeLegalPageDialog();
+      }
+    });
+    function applyLegalPage(page) {
+      const defaults = legalDemoDefaults[page.page_type] || legalDemoDefaults['privacy-policy'];
+      document.getElementById('contentAppName').value = page.app_name;
+      document.getElementById('contentPageType').value = page.page_type;
+      document.getElementById('contentPageTitle').value = page.title || defaults.title;
+      document.getElementById('contentPageStatus').value = page.status || 'draft';
+      document.getElementById('contentPageEnabled').checked = page.is_enabled !== false;
+      document.getElementById('contentPageEditor').innerHTML = page.content_html || defaults.body;
+      setContentPublicLink(page.public_url ? page : null);
+    }
+
+    async function selectLegalPage(appName, pageType) {
+      document.getElementById('contentAppName').value = appName;
+      document.getElementById('contentPageType').value = pageType;
+      await loadSelectedContentPage();
+    }
+
+    async function loadSelectedContentPage() {
+      const { appName, pageType } = selectedContentKeys();
+      const defaults = legalDemoDefaults[pageType] || legalDemoDefaults['privacy-policy'];
+      applyLegalPage({ app_name: appName, page_type: pageType, title: defaults.title, content_html: defaults.body, status: 'draft', is_enabled: true });
+      setContentPublicLink(null);
+      setContentMessage('Loading legal page...');
+      try {
+        const response = await fetch(`/api/content-pages?app_name=${encodeURIComponent(appName)}&page_type=${encodeURIComponent(pageType)}`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load legal page');
+        const page = (data.pages || [])[0];
+        if (!page) {
+          setContentMessage('No saved legal page yet. Demo content is ready to edit.');
+          document.getElementById('legalVersionHistory').textContent = 'Save this page to create version history.';
+          return;
+        }
+        applyLegalPage(page);
+        await loadLegalHistory();
+        setContentMessage('Legal page loaded.');
+      } catch (error) {
+        setContentMessage(error.message || 'Unable to load legal page', true);
+      }
+    }
+
+    async function loadLegalHistory() {
+      const { appName, pageType } = selectedContentKeys();
+      const box = document.getElementById('legalVersionHistory');
+      box.textContent = 'Loading version history...';
+      try {
+        const response = await fetch(`/settings/content-pages/${encodeURIComponent(appName)}/${encodeURIComponent(pageType)}/history`);
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to load history');
+        const versions = data.versions || [];
+        if (!versions.length) {
+          box.textContent = 'No version history yet.';
+          return;
+        }
+        box.innerHTML = versions.map((version) => `
+          <div class="legal-version-row">
+            <span>v${Number(version.version || 1)} - ${escapeCatalog(version.status)} - ${version.created_at ? escapeCatalog(new Date(version.created_at).toLocaleString()) : '-'}</span>
+            <button type="button" onclick="restoreLegalVersion(${Number(version.version || 1)})">Restore</button>
+          </div>
+        `).join('');
+      } catch (error) {
+        box.textContent = error.message || 'Unable to load history';
+      }
+    }
+
+    function formatContentEditor(command, value = null) {
+      document.getElementById('contentPageEditor').focus();
+      document.execCommand(command, false, value);
+    }
+
+    function createContentLink() {
+      const url = window.prompt('Enter link URL');
+      if (!url) return;
+      formatContentEditor('createLink', url);
+    }
+
+    function clearContentFormatting() {
+      formatContentEditor('removeFormat');
+    }
+
+    async function saveContentPage() {
+      const { appName, pageType } = selectedContentKeys();
+      const title = document.getElementById('contentPageTitle').value.trim();
+      const contentHtml = document.getElementById('contentPageEditor').innerHTML.trim();
+      const plainText = document.getElementById('contentPageEditor').innerText.trim();
+      if (!title) return setContentMessage('Page title is required.', true);
+      if (plainText.length < 10) return setContentMessage('Content must contain at least 10 characters.', true);
+      setContentMessage('Saving legal page...');
+      try {
+        const response = await fetch('/settings/content-pages', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            app_name: appName,
+            page_type: pageType,
+            title,
+            content_html: contentHtml,
+            status: document.getElementById('contentPageStatus').value,
+            is_enabled: document.getElementById('contentPageEnabled').checked,
+          }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to save legal page');
+        applyLegalPage(data.page || {});
+        await loadLegalPages();
+        await loadLegalHistory();
+        setContentMessage(data.message || 'Legal page saved.');
+      } catch (error) {
+        setContentMessage(error.message || 'Unable to save legal page', true);
+      }
+    }
+
+    function previewContentPage() {
+      const { appName, pageType } = selectedContentKeys();
+      window.open(`/content-pages/${encodeURIComponent(appName)}/${encodeURIComponent(pageType)}/preview`, '_blank', 'noopener');
+    }
+
+    async function copyContentPagePrompt() {
+      const { appName, pageType } = selectedContentKeys();
+      const targetApp = window.prompt('Copy to which app? client, vendor, or delivery');
+      if (!targetApp) return;
+      setContentMessage('Copying legal page...');
+      try {
+        const response = await fetch('/settings/content-pages/copy', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ source_app: appName, source_page_type: pageType, target_app: targetApp.trim(), target_page_type: pageType }),
+        });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to copy legal page');
+        await loadLegalPages();
+        applyLegalPage(data.page || {});
+        await loadLegalHistory();
+        setContentMessage(data.message || 'Legal page copied.');
+      } catch (error) {
+        setContentMessage(error.message || 'Unable to copy legal page', true);
+      }
+    }
+
+    async function restoreLegalVersion(version) {
+      const { appName, pageType } = selectedContentKeys();
+      if (!window.confirm(`Restore version ${version}? This creates a new current version.`)) return;
+      try {
+        const response = await fetch(`/settings/content-pages/${encodeURIComponent(appName)}/${encodeURIComponent(pageType)}/restore/${version}`, { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to restore version');
+        applyLegalPage(data.page || {});
+        await loadLegalPages();
+        await loadLegalHistory();
+        setContentMessage(data.message || 'Version restored.');
+      } catch (error) {
+        setContentMessage(error.message || 'Unable to restore version', true);
+      }
+    }
+
+    async function seedDemoLegalPages() {
+      setContentMessage('Creating demo legal pages...');
+      try {
+        const response = await fetch('/settings/content-pages/seed-demo', { method: 'POST' });
+        const data = await response.json().catch(() => ({}));
+        if (!response.ok || !data.success) throw new Error(data.message || 'Unable to create demo pages');
+        await loadLegalPages();
+        await loadSelectedContentPage();
+        setContentMessage(data.message || 'Demo legal pages created.');
+      } catch (error) {
+        setContentMessage(error.message || 'Unable to create demo pages', true);
+      }
+    }
     async function loadRoleSettings() {
       const select = document.getElementById('roleSettingsSelect');
       const message = document.getElementById('roleSettingsMessage');
@@ -2408,6 +2850,228 @@
       color: #047857;
       border-color: #a7f3d0;
     }
+    .legal-toolbar {
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) 180px 160px auto;
+      gap: 10px;
+      margin-bottom: 14px;
+      align-items: center;
+    }
+    .legal-toolbar input,
+    .legal-toolbar select {
+      min-height: 40px;
+      border: 1px solid #dce3ee;
+      border-radius: 8px;
+      padding: 0 12px;
+      background: #fff;
+    }
+    .legal-page-button-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(220px, 1fr));
+      gap: 12px;
+      margin: 0 0 18px;
+    }
+    .legal-page-button-grid button {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 12px;
+      min-height: 58px;
+      border: 1px solid #d8e1ec;
+      border-radius: 8px;
+      background: #fff;
+      color: #172033;
+      padding: 14px 16px;
+      cursor: pointer;
+      text-align: left;
+      box-shadow: 0 8px 24px rgba(24, 35, 57, 0.05);
+    }
+    .legal-page-button-grid button:hover {
+      border-color: #0f766e;
+      box-shadow: 0 12px 28px rgba(15, 118, 110, 0.12);
+    }
+    .legal-page-button-grid button strong {
+      font-size: 0.94rem;
+      line-height: 1.25;
+    }
+    .legal-page-button-grid button span {
+      flex: 0 0 auto;
+      color: #64748b;
+      font-size: 0.78rem;
+      text-transform: capitalize;
+    }
+    .legal-dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: grid;
+      place-items: center;
+      padding: 20px;
+      background: rgba(15, 23, 42, 0.48);
+    }
+    .legal-dialog-backdrop[hidden] {
+      display: none;
+    }
+    .legal-dialog-card {
+      width: min(860px, 100%);
+      max-height: min(760px, 88vh);
+      display: grid;
+      grid-template-rows: auto minmax(0, 1fr);
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 24px 80px rgba(15, 23, 42, 0.28);
+      overflow: hidden;
+    }
+    .legal-dialog-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 16px;
+      padding: 18px 22px;
+      border-bottom: 1px solid #e6ebf2;
+      background: #f8fafc;
+    }
+    .legal-dialog-header p {
+      margin: 0 0 4px;
+      color: #64748b;
+      font-size: 0.8rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+    .legal-dialog-header h2 {
+      margin: 0;
+      font-size: 1.25rem;
+      color: #172033;
+    }
+    .legal-dialog-close {
+      width: 36px;
+      height: 36px;
+      border: 1px solid #d8e1ec;
+      border-radius: 8px;
+      background: #fff;
+      color: #172033;
+      cursor: pointer;
+      font-size: 1.5rem;
+      line-height: 1;
+    }
+    .legal-dialog-content {
+      overflow: auto;
+      padding: 22px;
+      color: #172033;
+      line-height: 1.65;
+    }
+    .legal-dialog-content h2 {
+      margin: 24px 0 8px;
+      color: #0f766e;
+      font-size: 1.08rem;
+    }
+    .legal-dialog-content h2:first-child {
+      margin-top: 0;
+    }
+    .legal-dialog-content p,
+    .legal-dialog-content ul {
+      margin-top: 0;
+    }
+    .legal-empty-state {
+      margin: 0;
+      color: #64748b;
+      font-weight: 700;
+    }
+    .legal-pages-list {
+      margin-bottom: 16px;
+    }
+    .legal-actions-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 10px;
+      align-items: center;
+    }
+    .legal-enabled-toggle {
+      min-height: 42px;
+      align-items: center;
+      justify-content: flex-start;
+    }
+    .legal-history-card {
+      margin-top: 16px;
+      padding: 16px;
+    }
+    .legal-history-card h3 {
+      margin: 0 0 10px;
+    }
+    .legal-version-history {
+      display: grid;
+      gap: 8px;
+    }
+    .legal-version-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      padding: 10px 12px;
+      border: 1px solid #e6ebf2;
+      border-radius: 8px;
+      background: #f8fafc;
+    }
+    .legal-version-row button {
+      border: 1px solid #cfd8e3;
+      border-radius: 7px;
+      background: #fff;
+      padding: 6px 10px;
+      cursor: pointer;
+      font-weight: 700;
+    }
+    .content-management-grid {
+      align-items: start;
+    }
+    .content-editor-card {
+      border: 1px solid #dce3ee;
+      border-radius: 10px;
+      background: #fff;
+      overflow: hidden;
+    }
+    .content-editor-toolbar {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      padding: 10px;
+      border-bottom: 1px solid #e6ebf2;
+      background: #f8fafc;
+    }
+    .content-editor-toolbar button {
+      border: 1px solid #cfd8e3;
+      background: #fff;
+      border-radius: 7px;
+      flex: 0 0 auto;
+      width: auto;
+      min-width: 36px;
+      min-height: 34px;
+      padding: 6px 10px;
+      cursor: pointer;
+      color: #172033;
+    }
+    .content-page-editor {
+      min-height: 360px;
+      padding: 16px;
+      outline: none;
+      color: #172033;
+      line-height: 1.6;
+    }
+    .content-page-editor:focus {
+      box-shadow: inset 0 0 0 2px rgba(15, 118, 110, 0.18);
+    }
+    .content-page-link {
+      padding: 12px 14px;
+      border: 1px solid #a7f3d0;
+      border-radius: 10px;
+      background: #ecfdf5;
+      color: #047857;
+      overflow-wrap: anywhere;
+    }
+    .content-page-link a {
+      color: #0f766e;
+      font-weight: 700;
+    }
     .maintenance-panel {
       display: flex;
       justify-content: space-between;
@@ -2872,6 +3536,19 @@
       cursor: pointer;
     }
     @media (max-width: 900px) {
+      .legal-toolbar {
+        grid-template-columns: 1fr;
+      }
+      .legal-page-button-grid {
+        grid-template-columns: 1fr;
+      }
+      .legal-dialog-card {
+        max-height: 92vh;
+      }
+      .legal-dialog-header,
+      .legal-dialog-content {
+        padding: 16px;
+      }
       .maintenance-panel {
         align-items: stretch;
         flex-direction: column;
@@ -2897,3 +3574,19 @@
   </style>
 </body>
 </html>
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+

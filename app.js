@@ -53,6 +53,7 @@ const SupportTicket = require('./models/SupportTicket');
 const VendorCategoryRequest = require('./models/VendorCategoryRequest');
 const AreaDefinition = require('./models/AreaDefinition');
 const DeliveryType = require('./models/DeliveryType');
+const ContentPage = require('./models/ContentPage');
 const { findOrCreateGoogleClient, publicGoogleConfig } = require('./services/googleClientAuthService');
 const { firebaseAdminStatus } = require('./services/firebaseAdminService');
 const {
@@ -423,7 +424,7 @@ app.get('/api/system/status', async (req, res) => {
       : [[]];
     res.json({
       success: true,
-      service: 'JaipurGro2',
+      service: 'groxen',
       revision: appRevision,
       migration_table_ready: hasMigrationTable,
       schema_sync_table_ready: hasSyncTable,
@@ -436,7 +437,7 @@ app.get('/api/system/status', async (req, res) => {
   } catch (error) {
     res.status(500).json({
       success: false,
-      service: 'JaipurGro2',
+      service: 'groxen',
       revision: appRevision,
       message: error.message,
     });
@@ -899,6 +900,40 @@ async function initDatabase(options = {}) {
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
       PRIMARY KEY (id),
       UNIQUE KEY uniq_app_settings_key (setting_key)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS content_pages (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      app_name VARCHAR(30) NOT NULL,
+      page_type VARCHAR(60) NOT NULL,
+      title VARCHAR(180) NOT NULL,
+      content_html TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      current_version INT NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      UNIQUE KEY uniq_content_pages_app_page (app_name, page_type)
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+  await addColumnIfMissing('content_pages', 'status', "VARCHAR(20) NOT NULL DEFAULT 'draft' AFTER content_html");
+  await addColumnIfMissing('content_pages', 'is_enabled', 'TINYINT(1) NOT NULL DEFAULT 1 AFTER status');
+  await addColumnIfMissing('content_pages', 'current_version', 'INT NOT NULL DEFAULT 1 AFTER is_enabled');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS content_page_versions (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      page_id INT UNSIGNED NOT NULL,
+      version INT NOT NULL,
+      title VARCHAR(180) NOT NULL,
+      content_html TEXT NOT NULL,
+      status VARCHAR(20) NOT NULL DEFAULT 'draft',
+      is_enabled TINYINT(1) NOT NULL DEFAULT 1,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_content_page_versions_page (page_id),
+      CONSTRAINT fk_content_page_versions_page FOREIGN KEY (page_id) REFERENCES content_pages(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await pool.query(`
@@ -5401,7 +5436,7 @@ app.get('/api/promotions/active-display', webOrJwtAuth, async (req, res) => {
       expires_at: advertisement.end_at,
       vendor_id: null,
       vendor_name: '',
-      vendor_store_name: 'JaipurGro',
+      vendor_store_name: 'groxen',
       vendor_logo_path: '',
       vendor_storefront_image_path: '',
     })),
@@ -5548,6 +5583,190 @@ app.get('/api/coupons/history', webOrJwtAuth, requirePermission('coupon_history.
   res.json({ success: true, history: await Promotion.listHistory() });
 });
 
+function contentPagePublicUrl(req, page) {
+  const host = `${req.protocol}://${req.get('host')}`;
+  return `${host}/content-pages/${encodeURIComponent(page.app_name)}/${encodeURIComponent(page.page_type)}`;
+}
+
+function legalApiPayload(req, page) {
+  return {
+    app_name: page.app_name,
+    appName: page.appName,
+    app_label: page.app_label,
+    appLabel: page.appLabel,
+    page_type: page.page_type,
+    pageType: page.pageType,
+    title: page.title,
+    content_html: page.content_html,
+    contentHtml: page.contentHtml,
+    status: page.status,
+    is_enabled: page.is_enabled,
+    isEnabled: page.isEnabled,
+    current_version: page.current_version,
+    currentVersion: page.currentVersion,
+    updated_at: page.updated_at,
+    updatedAt: page.updatedAt,
+    public_url: contentPagePublicUrl(req, page),
+  };
+}
+
+function escapePageText(value) {
+  return String(value || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function renderLegalPage(page, options = {}) {
+  const badge = options.preview ? '<span class="badge">Preview</span>' : '';
+  return `<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>${escapePageText(page.title)} - ${escapePageText(page.app_label)}</title>
+  <style>
+    body { margin: 0; font-family: Inter, Arial, sans-serif; background: #f6f8fb; color: #172033; line-height: 1.65; }
+    main { max-width: 900px; margin: 0 auto; padding: 42px 20px 64px; }
+    article { background: #fff; border: 1px solid #e4e8f0; border-radius: 12px; padding: clamp(22px, 4vw, 42px); box-shadow: 0 18px 50px rgba(24, 35, 57, 0.08); }
+    p.eyebrow { margin: 0 0 8px; color: #5e6b82; font-size: 13px; font-weight: 700; text-transform: uppercase; letter-spacing: .08em; }
+    h1 { margin: 0 0 18px; font-size: clamp(28px, 5vw, 42px); line-height: 1.15; }
+    h2 { margin-top: 28px; color: #0f5132; }
+    .meta { margin: 0 0 28px; color: #64748b; font-size: 14px; }
+    .badge { display: inline-block; margin-left: 8px; padding: 3px 8px; border-radius: 999px; background: #fff7ed; color: #c2410c; font-size: 12px; font-weight: 800; }
+    img { max-width: 100%; height: auto; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { border: 1px solid #d9e0ea; padding: 8px; }
+    a { color: #0f766e; }
+  </style>
+</head>
+<body>
+  <main>
+    <article>
+      <p class="eyebrow">${escapePageText(page.app_label)} ${badge}</p>
+      <h1>${escapePageText(page.title)}</h1>
+      <p class="meta">Last updated: ${escapePageText(page.updated_at ? new Date(page.updated_at).toLocaleString('en-IN') : 'Not published')}</p>
+      ${page.content_html}
+    </article>
+  </main>
+</body>
+</html>`;
+}
+
+async function sendLegalApiPage(req, res, appName, pageType) {
+  try {
+    const page = await ContentPage.publicFind(appName, pageType);
+    return res.json({ success: true, page: legalApiPayload(req, page), ...legalApiPayload(req, page) });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('Public legal page fetch error:', error);
+    return res.status(status).json({ success: false, message: error.message || 'Unable to fetch legal page' });
+  }
+}
+
+app.get('/api/content-pages', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const pages = await ContentPage.list(req.query || {});
+    res.json({
+      success: true,
+      pages: pages.map((page) => legalApiPayload(req, page)),
+      apps: ContentPage.APP_VALUES,
+      page_types: ContentPage.PAGE_VALUES,
+      statuses: ContentPage.STATUS_VALUES,
+    });
+  } catch (error) {
+    console.error('Legal pages list error:', error);
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to load legal pages' });
+  }
+});
+
+app.post('/settings/content-pages/seed-demo', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const pages = await ContentPage.seedDemoPages();
+    res.json({ success: true, message: `${pages.length} demo legal page(s) created`, pages: pages.map((page) => legalApiPayload(req, page)) });
+  } catch (error) {
+    console.error('Legal page seed error:', error);
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to create demo legal pages' });
+  }
+});
+
+async function handleContentPageSave(req, res) {
+  try {
+    const page = await ContentPage.save(req.body || {});
+    res.json({ success: true, message: 'Legal page saved', page: legalApiPayload(req, page) });
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('Legal page save error:', error);
+    res.status(status).json({ success: false, message: error.message || 'Unable to save legal page' });
+  }
+}
+
+app.put('/settings/content-pages', requireAuth, requirePermission('settings.manage'), handleContentPageSave);
+app.post('/settings/content-pages', requireAuth, requirePermission('settings.manage'), handleContentPageSave);
+
+app.post('/settings/content-pages/copy', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const page = await ContentPage.copy(req.body.source_app, req.body.source_page_type, req.body.target_app, req.body.target_page_type);
+    res.json({ success: true, message: 'Legal page copied as draft', page: legalApiPayload(req, page) });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to copy legal page' });
+  }
+});
+
+app.get('/settings/content-pages/:appName/:pageType/history', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const versions = await ContentPage.history(req.params.appName, req.params.pageType);
+    res.json({ success: true, versions });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to load version history' });
+  }
+});
+
+app.post('/settings/content-pages/:appName/:pageType/restore/:version', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const page = await ContentPage.restore(req.params.appName, req.params.pageType, req.params.version);
+    res.json({ success: true, message: `Version ${req.params.version} restored`, page: legalApiPayload(req, page) });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to restore version' });
+  }
+});
+
+app.get('/api/content-pages/:appName/:pageType', async (req, res) => {
+  return sendLegalApiPage(req, res, req.params.appName, req.params.pageType);
+});
+
+app.get('/api/client/privacy-policy', async (req, res) => sendLegalApiPage(req, res, 'client', 'privacy-policy'));
+app.get('/api/client/terms', async (req, res) => sendLegalApiPage(req, res, 'client', 'terms-and-conditions'));
+app.get('/api/client/:pageType', async (req, res) => sendLegalApiPage(req, res, 'client', req.params.pageType));
+app.get('/api/vendor/privacy-policy', async (req, res) => sendLegalApiPage(req, res, 'vendor', 'privacy-policy'));
+app.get('/api/vendor/terms', async (req, res) => sendLegalApiPage(req, res, 'vendor', 'terms-and-conditions'));
+app.get('/api/vendor/:pageType', async (req, res) => sendLegalApiPage(req, res, 'vendor', req.params.pageType));
+app.get('/api/delivery/privacy-policy', async (req, res) => sendLegalApiPage(req, res, 'delivery', 'privacy-policy'));
+app.get('/api/delivery/terms', async (req, res) => sendLegalApiPage(req, res, 'delivery', 'terms-and-conditions'));
+app.get('/api/delivery/:pageType', async (req, res) => sendLegalApiPage(req, res, 'delivery', req.params.pageType));
+
+app.get('/content-pages/:appName/:pageType/preview', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const page = await ContentPage.find(req.params.appName, req.params.pageType);
+    if (!page) return res.status(404).send('<!DOCTYPE html><html><head><title>Page not found</title></head><body><h1>Legal page not found</h1></body></html>');
+    return res.send(renderLegalPage(page, { preview: true }));
+  } catch (error) {
+    return res.status(error.status || 500).send(`<!DOCTYPE html><html><head><title>Error</title></head><body><h1>${escapePageText(error.message || 'Unable to load preview')}</h1></body></html>`);
+  }
+});
+
+app.get('/content-pages/:appName/:pageType', async (req, res) => {
+  try {
+    const page = await ContentPage.publicFind(req.params.appName, req.params.pageType);
+    return res.send(renderLegalPage(page));
+  } catch (error) {
+    const status = error.status || 500;
+    if (status >= 500) console.error('Public legal page render error:', error);
+    return res.status(status).send(`<!DOCTYPE html><html><head><title>Legal page unavailable</title></head><body><main style="font-family:Arial,sans-serif;max-width:720px;margin:48px auto;padding:20px;"><h1>Legal page unavailable</h1><p>${escapePageText(error.message || 'This page is temporarily unavailable.')}</p></main></body></html>`);
+  }
+});
 app.get('/settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   const googleConfig = publicGoogleConfig();
   const firebaseAdmin = firebaseAdminStatus();
@@ -6628,3 +6847,10 @@ initDatabase()
     }
     process.exit(1);
   });
+
+
+
+
+
+
+

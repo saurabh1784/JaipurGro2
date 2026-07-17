@@ -1,5 +1,5 @@
 {
-  "name": "jaipur-db-node",
+  "name": "groxen-server",
   "version": "1.0.0",
   "description": "Default Node.js project with superadmin login and MySQL UI.",
   "main": "app.js",
