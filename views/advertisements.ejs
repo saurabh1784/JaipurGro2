@@ -24,6 +24,11 @@
       <button class="ad-tab active" type="button" data-ad-filter="all" onclick="setAdTab('all')">All Advertising</button>
       <button class="ad-tab" type="button" data-ad-filter="top_text_ad" onclick="setAdTab('top_text_ad')">Top Text Advertising</button>
     </section>
+    <% if (canCreate) { %>
+      <section class="top-text-ad-actions" id="topTextAdActions" hidden>
+        <button class="settings-save" type="button" onclick="openTopTextForm()">Add Top Text Advertisement</button>
+      </section>
+    <% } %>
     <section class="users-table-card">
       <table class="wallets-table">
         <thead>
@@ -317,7 +322,13 @@
       document.querySelectorAll('.ad-tab').forEach((button) => {
         button.classList.toggle('active', button.dataset.adFilter === activeTypeFilter);
       });
+      const actions = document.getElementById('topTextAdActions');
+      if (actions) actions.hidden = activeTypeFilter !== 'top_text_ad';
       renderRows();
+    }
+    function openTopTextForm() {
+      setAdTab('top_text_ad');
+      openForm(null, 'top_text_ad');
     }
     function renderRows() {
       const body = document.getElementById('advertisementBody');
@@ -356,7 +367,11 @@
       document.getElementById('advertisementForm').reset();
       const row = rows.find((item) => Number(item.id) === Number(id)) || {};
       document.getElementById('advertisementId').value = row.id || '';
-      document.getElementById('modalTitle').textContent = `${row.id ? 'Edit' : 'Add'} Advertisement`;
+      document.getElementById('modalTitle').textContent = row.id
+        ? 'Edit Advertisement'
+        : forcedType === 'top_text_ad'
+          ? 'Add Top Text Advertisement'
+          : 'Add Advertisement';
       ['title', 'description', 'package_name', 'ad_type', 'countdown_seconds', 'priority', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'target_category_id', 'target_category_name', 'click_action_type', 'click_action_value', 'city_scope', 'city'].forEach((key) => {
         const input = document.getElementById(key);
         if (input) input.value = row[key] ?? '';
@@ -506,6 +521,11 @@
   </script>
 
   <style>
+    .top-text-ad-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin: -6px 0 14px;
+    }
     .ad-tabs {
       display: flex;
       gap: 8px;
@@ -580,6 +600,11 @@
   </style>
 </body>
 </html>
+
+
+
+
+
 
 
 
