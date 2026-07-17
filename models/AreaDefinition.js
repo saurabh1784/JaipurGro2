@@ -32,6 +32,7 @@ function normalizeArea(row) {
     delivery_charge: Number(row.delivery_charge || 0),
     order_commission_percentage: Number(row.order_commission_percentage || 0),
     delivery_commission_percentage: Number(row.delivery_commission_percentage || 0),
+    cod_enabled: Boolean(row.cod_enabled),
     own_delivery_active: Boolean(row.own_delivery_active),
     is_active: Boolean(row.is_active),
     created_at: row.created_at,
@@ -118,6 +119,7 @@ async function save(payload) {
   const polygon = parsePolygon(payload.polygon).map(normalizePoint).filter(Boolean);
   const ownDeliveryActive = payload.own_delivery_active || payload.ownDeliveryActive ? 1 : 0;
   const isActive = payload.is_active === undefined || payload.is_active || payload.isActive ? 1 : 0;
+  const codEnabled = payload.cod_enabled || payload.codEnabled ? 1 : 0;
   const platformFee = money(payload.platform_fee);
   const deliveryCharge = money(payload.delivery_charge);
   const orderCommissionPercentage = Math.min(money(payload.order_commission_percentage), 100);
@@ -145,7 +147,7 @@ async function save(payload) {
     const [result] = await pool.query(
       `UPDATE area_definitions
        SET name = ?, city = ?, polygon = ?, center_lat = ?, center_lng = ?,
-           platform_fee = ?, delivery_charge = ?, order_commission_percentage = ?, delivery_commission_percentage = ?,
+           platform_fee = ?, delivery_charge = ?, order_commission_percentage = ?, delivery_commission_percentage = ?, cod_enabled = ?,
            own_delivery_active = ?, is_active = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [
@@ -158,6 +160,7 @@ async function save(payload) {
         deliveryCharge,
         orderCommissionPercentage,
         deliveryCommissionPercentage,
+        codEnabled,
         ownDeliveryActive,
         isActive,
         id,
@@ -173,8 +176,8 @@ async function save(payload) {
 
   const [result] = await pool.query(
     `INSERT INTO area_definitions
-     (name, city, polygon, center_lat, center_lng, platform_fee, delivery_charge, order_commission_percentage, delivery_commission_percentage, own_delivery_active, is_active)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (name, city, polygon, center_lat, center_lng, platform_fee, delivery_charge, order_commission_percentage, delivery_commission_percentage, cod_enabled, own_delivery_active, is_active)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       name,
       city || null,
@@ -185,6 +188,7 @@ async function save(payload) {
       deliveryCharge,
       orderCommissionPercentage,
       deliveryCommissionPercentage,
+      codEnabled,
       ownDeliveryActive,
       isActive,
     ]
@@ -203,6 +207,7 @@ async function pricingForLocation(location = {}, connection = pool) {
     delivery_charge: area ? money(area.delivery_charge) : null,
     order_commission_percentage: area ? money(area.order_commission_percentage) : null,
     delivery_commission_percentage: area ? money(area.delivery_commission_percentage) : null,
+    cod_enabled: Boolean(area && area.cod_enabled),
   };
 }
 

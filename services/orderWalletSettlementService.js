@@ -95,7 +95,7 @@ async function settleOrderCompletion({ orderId, actorId, connection }) {
   const [rows] = await connection.query(
     `SELECT id, order_number, user_id, vendor_id, total_amount, subtotal_amount,
             discount_amount, delivery_charge, platform_fee, order_commission_amount,
-            area_pricing_snapshot, wallet_settled_at, platform_charge, vendor_earning
+            area_pricing_snapshot, wallet_settled_at, platform_charge, vendor_earning, payment_method, payment_status
      FROM client_orders WHERE id = ? FOR UPDATE`,
     [orderId]
   );
@@ -183,6 +183,7 @@ async function settleOrderCompletion({ orderId, actorId, connection }) {
   await connection.query(
     `UPDATE client_orders
      SET platform_charge = ?, vendor_earning = ?, wallet_settled_at = CURRENT_TIMESTAMP,
+         payment_status = CASE WHEN payment_method = 'cod' THEN 'paid' ELSE payment_status END,
          updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
     [orderCommission, vendorEarning, order.id]

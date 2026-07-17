@@ -122,6 +122,16 @@
                 <strong>Create a complete JSON database backup</strong>
                 <button class="settings-save" type="submit">Backup database</button>
               </form>
+              <form id="updateDatabaseForm" method="post" action="/admin/maintenance/update-database">
+                <strong>Update live database schema to match development</strong>
+                <span class="maintenance-hint">Safely creates a backup, then adds any missing tables, columns, indexes, and migrations without deleting existing data.</span>
+                <button class="settings-save update-database-button" type="submit" id="updateDatabaseButton">Update database</button>
+              </form>
+              <div class="update-database-progress" id="updateDatabaseProgress" hidden>
+                <div class="update-database-bar"><span id="updateDatabaseBarFill"></span></div>
+                <p class="update-database-status" id="updateDatabaseStatus">Starting…</p>
+                <pre class="update-database-log" id="updateDatabaseLog"></pre>
+              </div>
               <form method="post" action="/admin/maintenance/restore-database-backup" onsubmit="return confirmRestoreBackup();">
                 <strong>Restore from saved backup</strong>
                 <select name="backup_name" required>
@@ -900,6 +910,74 @@
     function confirmCleanDatabase() {
       return window.confirm('Warning: this will drop every table, permanently delete all current data, and recreate the database schema with default seed data. Continue?');
     }
+
+    (function setupUpdateDatabase() {
+      const form = document.getElementById('updateDatabaseForm');
+      if (!form) return;
+      const button = document.getElementById('updateDatabaseButton');
+      const progress = document.getElementById('updateDatabaseProgress');
+      const barFill = document.getElementById('updateDatabaseBarFill');
+      const statusEl = document.getElementById('updateDatabaseStatus');
+      const logEl = document.getElementById('updateDatabaseLog');
+
+      const totalSteps = 7;
+      let doneSteps = 0;
+
+      function setStep(message) {
+        doneSteps += 1;
+        statusEl.textContent = message;
+        barFill.style.width = `${Math.min(100, Math.round((doneSteps / totalSteps) * 100))}%`;
+        logEl.textContent += `\n• ${message}`;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      function reset() {
+        doneSteps = 0;
+        barFill.style.width = '0%';
+        statusEl.textContent = 'Starting…';
+        logEl.textContent = '';
+        progress.hidden = false;
+      }
+
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        if (!window.confirm('Create a safety backup and update the live database schema? Existing data will be preserved.')) {
+          return;
+        }
+        reset();
+        button.disabled = true;
+        const originalLabel = button.textContent;
+        button.textContent = 'Updating…';
+        setStep('Preparing schema update');
+        try {
+          const response = await fetch(form.action, {
+            method: 'POST',
+            headers: { Accept: 'application/json' },
+            credentials: 'same-origin',
+          });
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success) {
+            throw new Error(data.message || `Server returned ${response.status}`);
+          }
+          const result = data.result || {};
+          const stepMessages = Array.isArray(result.steps) ? result.steps : [];
+          stepMessages.forEach((message) => setStep(message));
+          if (!stepMessages.length) {
+            setStep('Schema update completed');
+          }
+          barFill.style.width = '100%';
+          statusEl.textContent = data.message || 'Database schema updated successfully.';
+          statusEl.classList.add('update-database-success');
+        } catch (error) {
+          statusEl.textContent = error.message || 'Unable to update database schema.';
+          statusEl.classList.add('update-database-error');
+        } finally {
+          button.disabled = false;
+          button.textContent = originalLabel;
+        }
+      });
+    })();
+
 
     const tabs = document.querySelectorAll('.settings-tab');
     const panels = document.querySelectorAll('.settings-panel');
@@ -3171,6 +3249,64 @@
       cursor: pointer;
       font-weight: 900;
     }
+    .maintenance-hint {
+      color: #9a3412;
+      font-size: 0.78rem;
+      font-weight: 600;
+      line-height: 1.35;
+    }
+    .update-database-button {
+      background: #16a34a;
+    }
+    .update-database-button:disabled {
+      opacity: 0.65;
+      cursor: progress;
+    }
+    .update-database-progress {
+      margin-top: 14px;
+      padding: 14px;
+      border: 1px solid #bbf7d0;
+      border-radius: 10px;
+      background: #f0fdf4;
+    }
+    .update-database-bar {
+      height: 10px;
+      border-radius: 999px;
+      background: #dcfce7;
+      overflow: hidden;
+    }
+    .update-database-bar span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: #16a34a;
+      transition: width 0.3s ease;
+    }
+    .update-database-status {
+      margin: 10px 0 6px;
+      font-weight: 800;
+      color: #166534;
+    }
+    .update-database-status.update-database-success {
+      color: #15803d;
+    }
+    .update-database-status.update-database-error {
+      color: #b91c1c;
+    }
+    .update-database-log {
+      margin: 0;
+      max-height: 220px;
+      overflow: auto;
+      white-space: pre-wrap;
+      font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+      font-size: 0.78rem;
+      color: #14532d;
+      background: #fff;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      padding: 10px;
+    }
+
     .debug-subtabs {
       display: flex;
       gap: 8px;

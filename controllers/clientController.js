@@ -33,6 +33,7 @@ function validateClient(body, { requirePassword = false } = {}) {
     age: ageValue,
     gender: body.gender ? String(body.gender).trim() : '',
     notes: body.notes ? String(body.notes).trim() : '',
+    cod_limit: Math.max(0, Number(body.cod_limit || body.codLimit || 0)),
   };
 
   if (data.name.length < 2) errors.push('Name must be at least 2 characters');
@@ -44,6 +45,7 @@ function validateClient(body, { requirePassword = false } = {}) {
   if (!locationTree[data.country]) errors.push('Country is required');
   if (!data.country || !locationTree[data.country] || !locationTree[data.country][data.state]) errors.push('State is required');
   if (!isValidLocation(data)) errors.push('City is required');
+  if (!Number.isFinite(data.cod_limit)) errors.push('COD limit must be a valid number');
   if (data.age !== '' && (!Number.isInteger(data.age) || data.age < 1 || data.age > 120)) {
     errors.push('Age must be between 1 and 120');
   }

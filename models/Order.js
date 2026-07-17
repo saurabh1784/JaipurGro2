@@ -205,6 +205,8 @@ function normalizeOrder(row, includeItems = false) {
     discount_id: row.discount_id || null,
     discount_label: row.discount_label || '',
     order_type: row.order_type || 'direct',
+    payment_method: row.payment_method || 'wallet',
+    payment_status: row.payment_status || 'paid',
     invoice_number: row.invoice_number || '',
     invoice_pdf_path: row.invoice_pdf_path || '',
     invoice_generated_at: row.invoice_generated_at,

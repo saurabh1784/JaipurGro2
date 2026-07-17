@@ -37,6 +37,10 @@
             <input id="ownDeliveryActive" type="checkbox" />
             <span>Own Delivery active for this area</span>
           </label>
+          <label class="settings-wide area-toggle-row">
+            <input id="codEnabled" type="checkbox" />
+            <span>Cash on Delivery enabled for this area</span>
+          </label>
           <label>
             Platform Fee
             <input id="areaPlatformFee" type="number" min="0" step="0.01" value="0" />
@@ -495,6 +499,7 @@
       document.getElementById('areaName').value = '';
       document.getElementById('areaCity').value = currentCity;
       document.getElementById('ownDeliveryActive').checked = false;
+      document.getElementById('codEnabled').checked = false;
       document.getElementById('areaPlatformFee').value = '0';
       document.getElementById('areaDeliveryCharge').value = '0';
       document.getElementById('areaOrderCommission').value = '0';
@@ -515,7 +520,7 @@
 
     async function loadAreas() {
       const body = document.getElementById('areasBody');
-      body.innerHTML = '<tr><td colspan="4">Loading areas...</td></tr>';
+      body.innerHTML = '<tr><td colspan="5">Loading areas...</td></tr>';
       try {
         const response = await fetch('/area-definitions/list', { headers: { Accept: 'application/json' } });
         const data = await response.json();
@@ -525,7 +530,7 @@
         chooseInitialAreaCity();
         refreshVisibleAreas();
       } catch (error) {
-        body.innerHTML = `<tr><td colspan="4">${escapeHtml(error.message)}</td></tr>`;
+        body.innerHTML = `<tr><td colspan="5">${escapeHtml(error.message)}</td></tr>`;
       }
     }
 
@@ -583,6 +588,7 @@
           <td>
             <strong>PF ${money(area.platform_fee || 0)} / Delivery ${money(area.delivery_charge || 0)}</strong>
             <br><small>Order ${Number(area.order_commission_percentage || 0).toFixed(2)}% / Delivery ${Number(area.delivery_commission_percentage || 0).toFixed(2)}%</small>
+            <br><small>COD ${area.cod_enabled ? 'Enabled' : 'Disabled'}</small>
           </td>
           <td>${area.own_delivery_active ? 'Active' : 'Off'}</td>
           <td>${area.is_active ? 'Active' : 'Inactive'}</td>
@@ -762,6 +768,7 @@
       document.getElementById('areaName').value = area.name;
       document.getElementById('areaCity').value = area.city || '';
       document.getElementById('ownDeliveryActive').checked = Boolean(area.own_delivery_active);
+      document.getElementById('codEnabled').checked = Boolean(area.cod_enabled);
       document.getElementById('areaPlatformFee').value = Number(area.platform_fee || 0);
       document.getElementById('areaDeliveryCharge').value = Number(area.delivery_charge || 0);
       document.getElementById('areaOrderCommission').value = Number(area.order_commission_percentage || 0);
@@ -780,6 +787,7 @@
         delivery_charge: Number(document.getElementById('areaDeliveryCharge').value || 0),
         order_commission_percentage: Number(document.getElementById('areaOrderCommission').value || 0),
         delivery_commission_percentage: Number(document.getElementById('areaDeliveryCommission').value || 0),
+        cod_enabled: document.getElementById('codEnabled').checked,
         own_delivery_active: document.getElementById('ownDeliveryActive').checked,
         is_active: document.getElementById('areaActive').checked,
       };

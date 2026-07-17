@@ -17,6 +17,7 @@ function publicClient(row) {
     age: row.age || '',
     gender: row.gender || '',
     notes: row.notes || '',
+    cod_limit: Number(row.cod_limit || 0),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -66,7 +67,7 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
   );
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            cp.address, cp.country, cp.state, cp.city, cp.area, cp.age, cp.gender, cp.notes
+            cp.address, cp.country, cp.state, cp.city, cp.area, cp.cod_limit, cp.age, cp.gender, cp.notes
      FROM users u
      LEFT JOIN client_profiles cp ON cp.user_id = u.id
      WHERE ${whereSql}
@@ -89,7 +90,7 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
 async function findById(id) {
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            cp.address, cp.country, cp.state, cp.city, cp.area, cp.age, cp.gender, cp.notes
+            cp.address, cp.country, cp.state, cp.city, cp.area, cp.cod_limit, cp.age, cp.gender, cp.notes
      FROM users u
      LEFT JOIN client_profiles cp ON cp.user_id = u.id
      WHERE u.id = ? AND u.role = 'Client' AND u.is_deleted = 0
@@ -118,9 +119,9 @@ async function create(data) {
     );
     const userId = result.insertId;
     await connection.query(
-      `INSERT INTO client_profiles (user_id, address, country, state, city, area, age, gender, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-      [userId, data.address || null, data.country || null, data.state || null, data.city || null, data.area || null, data.age || null, data.gender || null, data.notes || null]
+      `INSERT INTO client_profiles (user_id, address, country, state, city, area, cod_limit, age, gender, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [userId, data.address || null, data.country || null, data.state || null, data.city || null, data.area || null, data.cod_limit || 0, data.age || null, data.gender || null, data.notes || null]
     );
     await connection.commit();
     return userId;
@@ -145,18 +146,19 @@ async function update(id, data) {
     userValues.push(id);
     await connection.query(`UPDATE users SET ${userFields.join(', ')} WHERE id = ? AND role = 'Client' AND is_deleted = 0`, userValues);
     await connection.query(
-      `INSERT INTO client_profiles (user_id, address, country, state, city, area, age, gender, notes)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO client_profiles (user_id, address, country, state, city, area, cod_limit, age, gender, notes)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO UPDATE
        SET address = EXCLUDED.address,
            country = EXCLUDED.country,
            state = EXCLUDED.state,
            city = EXCLUDED.city,
            area = EXCLUDED.area,
+           cod_limit = EXCLUDED.cod_limit,
            age = EXCLUDED.age,
            gender = EXCLUDED.gender,
            notes = EXCLUDED.notes`,
-      [id, data.address || null, data.country || null, data.state || null, data.city || null, data.area || null, data.age || null, data.gender || null, data.notes || null]
+      [id, data.address || null, data.country || null, data.state || null, data.city || null, data.area || null, data.cod_limit || 0, data.age || null, data.gender || null, data.notes || null]
     );
     await connection.commit();
   } catch (error) {

@@ -1127,6 +1127,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_profiles', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
   await addColumnIfMissing('client_profiles', 'city', 'VARCHAR(80) DEFAULT NULL AFTER state');
   await addColumnIfMissing('client_profiles', 'area', 'VARCHAR(120) DEFAULT NULL AFTER city');
+  await addColumnIfMissing('client_profiles', 'cod_limit', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER area');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_delivery_addresses (
@@ -1602,6 +1603,8 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_orders', 'discount_id', 'INT UNSIGNED DEFAULT NULL AFTER coupon_code');
   await addColumnIfMissing('client_orders', 'discount_label', 'VARCHAR(150) DEFAULT NULL AFTER discount_id');
   await addColumnIfMissing('client_orders', 'order_type', "VARCHAR(20) NOT NULL DEFAULT 'direct' AFTER discount_label");
+  await addColumnIfMissing('client_orders', 'payment_method', "VARCHAR(20) NOT NULL DEFAULT 'wallet' AFTER order_type");
+  await addColumnIfMissing('client_orders', 'payment_status', "VARCHAR(20) NOT NULL DEFAULT 'paid' AFTER payment_method");
   await addColumnIfMissing('client_orders', 'invoice_number', 'VARCHAR(80) DEFAULT NULL AFTER order_type');
   await addColumnIfMissing('client_orders', 'invoice_pdf_path', 'VARCHAR(255) DEFAULT NULL AFTER invoice_number');
   await addColumnIfMissing('client_orders', 'invoice_generated_at', 'TIMESTAMP NULL DEFAULT NULL AFTER invoice_pdf_path');
@@ -2085,6 +2088,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('area_definitions', 'delivery_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER platform_fee');
   await addColumnIfMissing('area_definitions', 'order_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
   await addColumnIfMissing('area_definitions', 'delivery_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER order_commission_percentage');
+  await addColumnIfMissing('area_definitions', 'cod_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER delivery_commission_percentage');
   await LocationCommissionSetting.ensureTable(pool);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_type_area_settings (
@@ -3007,6 +3011,70 @@ async function restoreDatabaseBackupFromFile(snapshotFile) {
   }
 }
 
+async function updateLiveDatabaseSchema() {
+  if (databaseRestoreInProgress) {
+    const error = new Error('Database maintenance is already running');
+    error.status = 409;
+    throw error;
+  }
+
+  databaseRestoreInProgress = true;
+
+  const steps = [];
+  const logStep = (message) => steps.push(message);
+
+  try {
+    logStep('Preparing schema update');
+
+    const beforeTableResult = await pgPool.query(
+      `SELECT tablename
+       FROM pg_tables
+       WHERE schemaname = 'public'
+       ORDER BY tablename`
+    );
+    const beforeTableCount = (beforeTableResult.rows || []).length;
+
+    logStep('Creating safety backup of the live database');
+    const backup = await backupDatabaseFromSettings();
+
+    logStep('Synchronising schema with the development definition');
+    logStep(`Live tables present before update: ${beforeTableCount}`);
+    await initDatabase({ restoreSnapshot: false });
+
+    logStep('Applying pending schema migrations');
+    await runMigrations(pgPool);
+
+    const afterTableResult = await pgPool.query(
+      `SELECT tablename
+       FROM pg_tables
+       WHERE schemaname = 'public'
+       ORDER BY tablename`
+    );
+    const afterTableCount = (afterTableResult.rows || []).length;
+
+    logStep(`Live tables present after update: ${afterTableCount}`);
+    logStep('Schema update completed without removing existing data');
+
+    return {
+      updated: true,
+      backupName: backup.name,
+      backupTables: backup.tables,
+      beforeTableCount,
+      afterTableCount,
+      steps,
+    };
+  } catch (error) {
+    steps.push(`Schema update failed: ${error.message}`);
+    const enhanced = new Error(
+      `Schema update failed after creating a backup. The backup ${backupDatabaseFromSettings.name} is still available for restore. Original error: ${error.message}`
+    );
+    enhanced.status = Number(error.status || 500);
+    throw enhanced;
+  } finally {
+    databaseRestoreInProgress = false;
+  }
+}
+
 async function syncVendorPricesToMasterProducts() {
   const [result] = await pool.query(
     `UPDATE vendor_products vp
@@ -3309,6 +3377,28 @@ app.post('/admin/maintenance/clean-database', requireAuth, requireAdminMaintenan
     const message = status === 409
       ? 'Database maintenance is already running. Please wait for it to finish.'
       : 'Unable to clean database. Check server logs.';
+    return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
+  }
+});
+
+app.post('/admin/maintenance/update-database', requireAuth, requireAdminMaintenance, async (req, res) => {
+  const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
+  try {
+    const result = await updateLiveDatabaseSchema();
+    const detail = `Database schema updated. Backup created: ${result.backupName} (${result.backupTables} table(s)). Tables after update: ${result.afterTableCount}.`;
+    if (wantsJson) {
+      return res.json({ success: true, message: detail, result });
+    }
+    return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Admin maintenance database update failed:', error);
+    const status = Number(error.status || 500);
+    const message = status === 409
+      ? 'Database maintenance is already running. Please wait for it to finish.'
+      : 'Unable to update database schema. Check server logs.';
+    if (wantsJson) {
+      return res.status(status).json({ success: false, message });
+    }
     return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
   }
 });
@@ -3777,6 +3867,7 @@ app.post('/client/quotations/:recipientId/:decision', requireSessionRole('Client
       clientId: req.session.user.id,
       decision,
       couponCode: req.body.coupon_code,
+      paymentMethod: req.body.payment_method || req.body.paymentMethod,
     });
     if (decision === 'accepted' && result.vendorId) {
       vendorNotifications.notifyVendor(result.vendorId, {
@@ -3814,6 +3905,7 @@ app.post('/api/client/quotations/:recipientId/:decision', webOrJwtAuth, requireA
       clientId: req.authUser.id,
       decision,
       couponCode: req.body.coupon_code,
+      paymentMethod: req.body.payment_method || req.body.paymentMethod,
     });
     if (decision === 'accepted' && result.vendorId) {
       vendorNotifications.notifyVendor(result.vendorId, {
@@ -4112,6 +4204,56 @@ function money(value) {
   return Number(Math.max(Number(value || 0), 0).toFixed(2));
 }
 
+function normalizePaymentMethod(value) {
+  const method = String(value || 'wallet').trim().toLowerCase();
+  return method === 'cod' || method === 'cash_on_delivery' ? 'cod' : 'wallet';
+}
+
+function codEligibility({ areaPricing, client, totalAmount }) {
+  const codLimit = money(client && client.cod_limit);
+  const areaEnabled = Boolean(areaPricing && areaPricing.cod_enabled);
+  const amount = money(totalAmount);
+  let message = 'Cash on Delivery is available.';
+  let eligible = true;
+  if (!areaEnabled) {
+    eligible = false;
+    message = 'Cash on Delivery is not enabled for this delivery area.';
+  } else if (codLimit <= 0) {
+    eligible = false;
+    message = 'Cash on Delivery is not enabled for your account.';
+  } else if (amount > codLimit) {
+    eligible = false;
+    message = `Cash on Delivery limit is INR ${codLimit.toFixed(2)} for your account.`;
+  }
+  return { available: eligible, enabled_for_area: areaEnabled, cod_limit: codLimit, order_amount: amount, message };
+}
+
+function aggregateCodEligibility(previews, totalAmount) {
+  const items = Array.isArray(previews) ? previews : [];
+  const blocked = items.find((item) => item && !item.available);
+  if (blocked) return { ...blocked, order_amount: money(totalAmount) };
+  if (!items.length) return { available: false, enabled_for_area: false, cod_limit: 0, order_amount: money(totalAmount), message: 'Cash on Delivery is not available for this order.' };
+  const limit = Math.min(...items.map((item) => Number(item.cod_limit || 0)));
+  return { available: true, enabled_for_area: true, cod_limit: money(limit), order_amount: money(totalAmount), message: 'Cash on Delivery is available for this order.' };
+}
+
+
+function normalizeLocationToken(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '');
+}
+
+function premiumVendorAreaMatches(vendorArea, clientArea) {
+  const rawVendorArea = String(vendorArea || '').trim();
+  if (!rawVendorArea || rawVendorArea === '*') return true;
+  const vendor = normalizeLocationToken(rawVendorArea);
+  const client = normalizeLocationToken(clientArea);
+  if (!client) return true;
+  return vendor === client || vendor.includes(client) || client.includes(vendor);
+}
+
 async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot, client, connection, lockStock = false }) {
   let productId = Number(item.productId || item.product_id || 0);
   const fallbackVendorProductId = Number(item.vendorProductId || item.vendor_product_id || item.id || 0);
@@ -4132,9 +4274,78 @@ async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot,
   }
 
   const city = String(addressSnapshot.shippingCity || client.city || '').trim();
-  const area = String(addressSnapshot.shippingArea || addressSnapshot.shippingPincode || '').trim();
+  const area = String(addressSnapshot.shippingArea || client.area || addressSnapshot.shippingPincode || '').trim();
   const lockSql = lockStock ? 'FOR UPDATE' : '';
   const [rows] = await connection.query(
+    `SELECT vp.id, p.id AS product_id, vprof.user_id AS vendor_id,
+            COALESCE(vp.quantity, 0) AS quantity,
+            COALESCE(NULLIF(vp.price, 0), p.price, 0) AS price,
+            COALESCE(vp.status, 'missing') AS vendor_product_status,
+            p.name AS product_name,
+            p.weight_kg,
+            vprof.address AS vendor_address,
+            vprof.pickup_latitude AS vendor_pickup_latitude,
+            vprof.pickup_longitude AS vendor_pickup_longitude,
+            vprof.city AS vendor_city,
+            vprof.state AS vendor_state,
+            vprof.country AS vendor_country,
+            vprof.area AS vendor_area,
+            COALESCE(vprof.premium_commission_percent, 0) AS premium_commission_percent,
+            CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
+            COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
+     FROM vendor_profiles vprof
+     INNER JOIN users u ON u.id = vprof.user_id
+     INNER JOIN products p ON p.id = ? AND p.is_deleted = 0 AND p.approval_status = 'approved'
+     INNER JOIN categories c ON c.id = p.category_id
+     LEFT JOIN vendor_products vp ON vp.vendor_id = vprof.user_id AND vp.product_id = p.id
+     WHERE COALESCE(vprof.is_premium_vendor, 0) = 1
+       AND u.is_deleted = 0
+       AND LOWER(u.status) = 'active'
+       AND LOWER(u.role) = 'vendor'
+       AND (TRIM(COALESCE(vprof.city, '')) = '' OR LOWER(TRIM(vprof.city)) = LOWER(TRIM(CAST(? AS TEXT))))
+     ORDER BY COALESCE(vprof.premium_commission_percent, 0) ASC, vprof.user_id ASC
+     ${lockSql}`,
+    [productId, city]
+  );
+
+  const matchingRows = rows.filter((row) => premiumVendorAreaMatches(row.vendor_area, area));
+  if (!matchingRows.length) {
+    const productName = rows[0] && rows[0].product_name ? ` for ${rows[0].product_name}` : '';
+    const error = new Error(rows.length
+      ? `No premium vendor in ${area || city || 'your area'} has this product available${productName}`
+      : `No premium vendor has this product available${productName} in ${city || 'your city'}`);
+    error.status = 422;
+    throw error;
+  }
+
+  matchingRows.sort((left, right) => {
+    const leftExact = normalizeLocationToken(left.vendor_area) === normalizeLocationToken(area) ? 0 : 1;
+    const rightExact = normalizeLocationToken(right.vendor_area) === normalizeLocationToken(area) ? 0 : 1;
+    if (leftExact !== rightExact) return leftExact - rightExact;
+    const leftStocked = Number(left.id || 0) > 0 && String(left.vendor_product_status || '').toLowerCase() === 'active' && Number(left.quantity || 0) >= quantity ? 0 : 1;
+    const rightStocked = Number(right.id || 0) > 0 && String(right.vendor_product_status || '').toLowerCase() === 'active' && Number(right.quantity || 0) >= quantity ? 0 : 1;
+    if (leftStocked !== rightStocked) return leftStocked - rightStocked;
+    return Number(left.premium_commission_percent || 0) - Number(right.premium_commission_percent || 0) || Number(left.vendor_id || 0) - Number(right.vendor_id || 0);
+  });
+
+  const stocked = matchingRows.find((row) => Number(row.id || 0) > 0
+    && String(row.vendor_product_status || '').toLowerCase() === 'active'
+    && Number(row.quantity || 0) >= quantity);
+  if (stocked) return stocked;
+
+  const candidate = matchingRows[0];
+  const startingQuantity = Math.max(quantity, 10);
+  await connection.query(
+    `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
+     VALUES (?, ?, ?, ?, 'active')
+     ON CONFLICT (product_id, vendor_id) DO UPDATE
+     SET quantity = GREATEST(vendor_products.quantity, EXCLUDED.quantity),
+         price = CASE WHEN COALESCE(vendor_products.price, 0) > 0 THEN vendor_products.price ELSE EXCLUDED.price END,
+         status = 'active'`,
+    [productId, candidate.vendor_id, startingQuantity, Number(candidate.price || 0)]
+  );
+
+  const [backfilledRows] = await connection.query(
     `SELECT vp.id, vp.product_id, vp.vendor_id, vp.quantity, vp.price,
             p.name AS product_name,
             p.weight_kg,
@@ -4149,40 +4360,21 @@ async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot,
             CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
             COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
      FROM vendor_products vp
-     INNER JOIN users u ON u.id = vp.vendor_id
      INNER JOIN products p ON p.id = vp.product_id
      INNER JOIN categories c ON c.id = p.category_id
      INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
-     WHERE vp.product_id = ?
-       AND COALESCE(vp.quantity, 0) >= ?
-       AND COALESCE(vprof.is_premium_vendor, 0) = 1
-       AND u.is_deleted = 0
-       AND LOWER(u.status) = 'active'
-       AND u.role = 'Vendor'
-       AND (TRIM(COALESCE(vprof.city, '')) = '' OR LOWER(TRIM(vprof.city)) = LOWER(TRIM(CAST(? AS TEXT))))
-       AND (
-         TRIM(COALESCE(vprof.area, '')) = ''
-         OR TRIM(COALESCE(vprof.area, '*')) = '*'
-         OR LOWER(TRIM(vprof.area)) = LOWER(TRIM(CAST(? AS TEXT)))
-       )
-     ORDER BY
-       CASE WHEN LOWER(TRIM(COALESCE(vprof.area, ''))) = LOWER(TRIM(CAST(? AS TEXT))) THEN 0 ELSE 1 END,
-       COALESCE(vprof.premium_commission_percent, 0) ASC,
-       vp.id ASC
+     WHERE vp.product_id = ? AND vp.vendor_id = ?
      LIMIT 1
      ${lockSql}`,
-    [productId, quantity, city, area, area]
+    [productId, candidate.vendor_id]
   );
 
-  if (!rows.length) {
-    const error = new Error('No premium vendor is available for one or more products in your area');
-    error.status = 422;
-    throw error;
-  }
+  if (backfilledRows.length) return backfilledRows[0];
 
-  return rows[0];
+  const error = new Error(`Premium vendor found in ${area || city || 'your area'}, but product inventory could not be prepared`);
+  error.status = 422;
+  throw error;
 }
-
 
 async function resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection }) {
   const areaPricing = await AreaDefinition.pricingForLocation({
@@ -4425,7 +4617,7 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
   }
 
   const clientRows = await connection.query(
-    'SELECT u.name, u.phone, cp.address, cp.country, cp.state, cp.city FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
+    'SELECT u.name, u.phone, cp.address, cp.country, cp.state, cp.city, cp.area, cp.cod_limit FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
     [clientId]
   );
   const client = clientRows[0][0] || {};
@@ -4508,6 +4700,7 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
   let discountAmount = 0;
   let deliveryCharge = 0;
   const vendorBreakdown = [];
+  const codPreviews = [];
 
   for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
     const promotion = globalPromotion || await Promotion.resolveOrderPromotion({
@@ -4539,6 +4732,7 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
     discountAmount += vendorDiscount;
     deliveryCharge += vendorDeliveryCharge;
     totalAmount += vendorTotal;
+    codPreviews.push(codEligibility({ areaPricing: pricing.areaPricing, client, totalAmount: vendorTotal }));
     vendorBreakdown.push({
       vendor_id: vendorId,
       vendor_name: await (async () => {
@@ -4591,6 +4785,10 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
       city: addressSnapshot.shippingCity || client.city || '',
     },
     vendors: vendorBreakdown,
+    payment_options: {
+      wallet: { available: true, message: 'Pay from wallet' },
+      cod: aggregateCodEligibility(codPreviews, totalAmount),
+    },
   };
 }
 
@@ -4648,6 +4846,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
     }
 
     let totalAmount = 0;
+    const paymentMethod = normalizePaymentMethod(req.body.payment_method || req.body.paymentMethod);
 
     const connection = await pool.getConnection();
     const purchasedProducts = [];
@@ -4655,7 +4854,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
       await connection.beginTransaction();
 
       const clientRows = await connection.query(
-        'SELECT u.name, u.phone, cp.address, cp.country, cp.state, cp.city FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
+        'SELECT u.name, u.phone, cp.address, cp.country, cp.state, cp.city, cp.area, cp.cod_limit FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
         [clientId]
       );
       const client = clientRows[0][0] || {};
@@ -4786,11 +4985,22 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           pricing,
           deliveryOptions,
           premiumOrderCommissionPercentage,
+          cod: codEligibility({ areaPricing: pricing.areaPricing, client, totalAmount: vendorTotal }),
         });
         totalAmount += vendorTotal;
       }
 
-      await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
+      if (paymentMethod === 'cod') {
+        const codChecks = [...vendorPromotions.values()].map((entry) => entry.cod);
+        const cod = aggregateCodEligibility(codChecks, totalAmount);
+        if (!cod.available) {
+          const error = new Error(cod.message || 'Cash on Delivery is not available for this order');
+          error.status = 422;
+          throw error;
+        }
+      } else {
+        await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
+      }
 
       for (const [vendorId, vendorOrder] of vendorOrders.entries()) {
         const vendorSubtotal = vendorOrder.total;
@@ -4808,8 +5018,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
           connection,
           `INSERT INTO client_orders
-           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, premium_vendor_commission_percentage, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, premium_vendor_commission_percentage, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, payment_method, payment_status, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
             vendorId,
@@ -4839,6 +5049,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             promotion.discount ? promotion.discount.id : null,
             promotion.discount ? promotion.discount.name : null,
             'direct',
+            paymentMethod,
+            paymentMethod === 'cod' ? 'pending' : 'paid',
             vendorTotal,
             'pending',
             'pending',
@@ -4904,11 +5116,13 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
 
           purchasedProducts.push({ productId: orderItem.productId, quantity: orderItem.quantity });
         }
-        await OrderWalletSettlement.settleOrderPlacement({
-          orderId,
-          actorId: clientId,
-          connection,
-        });
+        if (paymentMethod !== 'cod') {
+          await OrderWalletSettlement.settleOrderPlacement({
+            orderId,
+            actorId: clientId,
+            connection,
+          });
+        }
       }
 
       await connection.commit();

@@ -31,6 +31,51 @@ function money(value) {
   return Number(Math.max(Number(value || 0), 0).toFixed(2));
 }
 
+function normalizePaymentMethod(value) {
+  const method = String(value || 'wallet').trim().toLowerCase();
+  return method === 'cod' || method === 'cash_on_delivery' ? 'cod' : 'wallet';
+}
+
+function codEligibility({ areaPricing, client, totalAmount }) {
+  const codLimit = money(client && client.cod_limit);
+  const areaEnabled = Boolean(areaPricing && areaPricing.cod_enabled);
+  const amount = money(totalAmount);
+  if (!areaEnabled) {
+    return {
+      available: false,
+      enabled_for_area: false,
+      cod_limit: codLimit,
+      order_amount: amount,
+      message: 'Cash on Delivery is not enabled for this delivery area.',
+    };
+  }
+  if (codLimit <= 0) {
+    return {
+      available: false,
+      enabled_for_area: true,
+      cod_limit: codLimit,
+      order_amount: amount,
+      message: 'Cash on Delivery is not enabled for your account.',
+    };
+  }
+  if (amount > codLimit) {
+    return {
+      available: false,
+      enabled_for_area: true,
+      cod_limit: codLimit,
+      order_amount: amount,
+      message: `Cash on Delivery limit is INR ${codLimit.toFixed(2)} for your account.`,
+    };
+  }
+  return {
+    available: true,
+    enabled_for_area: true,
+    cod_limit: codLimit,
+    order_amount: amount,
+    message: 'Cash on Delivery is available for this order.',
+  };
+}
+
 async function quotationSubmissionMinutes(connection = pool) {
   try {
     const [rows] = await connection.query(
@@ -202,7 +247,7 @@ async function createForCityVendors({ clientId, items }) {
     await connection.beginTransaction();
 
     const [clientRows] = await connection.query(
-      'SELECT city, area FROM client_profiles WHERE user_id = ? LIMIT 1',
+      'SELECT city, area, cod_limit FROM client_profiles WHERE user_id = ? LIMIT 1',
       [clientId]
     );
     const clientCity = String(clientRows[0] && clientRows[0].city ? clientRows[0].city : '').trim();
@@ -478,6 +523,7 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
       throw error;
     }
     const recipient = recipientRows[0];
+    const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
     if (!['new', 'seen', 'submitted'].includes(recipient.status)) {
       const error = new Error('Quotation request cannot be edited');
       error.status = 422;
@@ -686,19 +732,24 @@ async function listForClient(clientId) {
     const quoteFees = ['submitted', 'accepted'].includes(quotation.recipient_status)
       ? money(pricing.platform_fee) + money(pricing.delivery_charge)
       : 0;
+    const responseTotal = money(Number(quotation.response_total || 0) + quoteFees);
     decorated.push({
       ...quotation,
-      response_total: money(Number(quotation.response_total || 0) + quoteFees),
+      response_total: responseTotal,
       platform_fee: money(pricing.platform_fee),
       delivery_charge: money(pricing.delivery_charge),
       area_name: pricing.area_name,
+      payment_options: {
+        wallet: { available: true, message: 'Pay from wallet' },
+        cod: codEligibility({ areaPricing: pricing, client: clientLocation, totalAmount: responseTotal }),
+      },
       vendor_rating: ratingSummaries.get(Number(quotation.vendor_id)),
     });
   }
   return decorated;
 }
 
-async function decideClientResponse({ recipientId, clientId, decision, couponCode = '' }) {
+async function decideClientResponse({ recipientId, clientId, decision, couponCode = '', paymentMethod = 'wallet' }) {
   const connection = await pool.getConnection();
 
   try {
@@ -785,7 +836,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
 
     // Get client details for denormalization
     const [clientRows] = await connection.query(
-      'SELECT u.name, u.phone, cp.address, cp.area, cp.country, cp.state, cp.city FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
+      'SELECT u.name, u.phone, cp.address, cp.area, cp.country, cp.state, cp.city, cp.cod_limit FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
       [clientId]
     );
     const client = clientRows[0];
@@ -849,13 +900,22 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     const orderCommissionAmount = money((itemPayable * orderCommissionPercentage) / 100);
     const deliveryCommissionAmount = money((deliveryCharge * deliveryCommissionPercentage) / 100);
     const totalAmount = Number((itemPayable + deliveryCharge + platformFee).toFixed(2));
-    await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
+    if (normalizedPaymentMethod === 'cod') {
+      const cod = codEligibility({ areaPricing, client, totalAmount });
+      if (!cod.available) {
+        const error = new Error(cod.message || 'Cash on Delivery is not available for this order');
+        error.status = 422;
+        throw error;
+      }
+    } else {
+      await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
+    }
 
     const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
       connection,
       `INSERT INTO client_orders 
-       (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, payment_method, payment_status, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         recipient.vendor_id,
@@ -884,6 +944,8 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
         promotion.discount ? promotion.discount.id : null,
         promotion.discount ? promotion.discount.name : null,
         'quotation',
+        normalizedPaymentMethod,
+        normalizedPaymentMethod === 'cod' ? 'pending' : 'paid',
         totalAmount,
         'pending',
         'pending',
@@ -942,11 +1004,13 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       );
     }
 
-    await OrderWalletSettlement.settleOrderPlacement({
-      orderId,
-      actorId: clientId,
-      connection,
-    });
+    if (normalizedPaymentMethod !== 'cod') {
+      await OrderWalletSettlement.settleOrderPlacement({
+        orderId,
+        actorId: clientId,
+        connection,
+      });
+    }
 
     await connection.query(
       "UPDATE quotation_vendor_recipients SET status = 'accepted', decided_at = CURRENT_TIMESTAMP WHERE id = ?",
@@ -976,7 +1040,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       });
     }
 
-    return { status: 'accepted', orderId, orderNumber, vendorId: recipient.vendor_id, totalAmount, deliveryOffer };
+    return { status: 'accepted', orderId, orderNumber, vendorId: recipient.vendor_id, totalAmount, paymentMethod: normalizedPaymentMethod, deliveryOffer };
   } catch (error) {
     await connection.rollback();
     throw error;

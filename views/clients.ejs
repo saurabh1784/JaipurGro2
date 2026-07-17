@@ -66,12 +66,13 @@
               <th>Area</th>
               <th>Age</th>
               <th>Gender</th>
+              <th>COD Limit</th>
               <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="clientsTableBody">
-            <tr><td colspan="9">Loading clients...</td></tr>
+            <tr><td colspan="10">Loading clients...</td></tr>
           </tbody>
         </table>
       </div>
@@ -127,6 +128,10 @@
             <option value="Male">Male</option>
             <option value="Other">Other</option>
           </select>
+        </label>
+        <label>
+          COD Limit
+          <input id="clientCodLimit" type="number" min="0" step="0.01" value="0" />
         </label>
         <label>
           Country
@@ -299,7 +304,7 @@
       const response = await fetch(`/clients?${params.toString()}`, { headers: { Accept: 'application/json' } });
       const data = await response.json();
       if (!data.success) {
-        tableBody.innerHTML = `<tr><td colspan="9">${escapeHtml(data.message || 'Unable to load clients')}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="10">${escapeHtml(data.message || 'Unable to load clients')}</td></tr>`;
         return;
       }
       clients = data.clients || [];
@@ -310,7 +315,7 @@
 
     function renderClients() {
       if (!clients.length) {
-        tableBody.innerHTML = '<tr><td colspan="9">No clients found</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="10">No clients found</td></tr>';
       } else {
         tableBody.innerHTML = clients.map((client) => `
           <tr>
@@ -324,6 +329,7 @@
             <td>${escapeHtml(client.area || '-')}</td>
             <td>${escapeHtml(client.age || '-')}</td>
             <td>${escapeHtml(client.gender || '-')}</td>
+            <td>Rs ${Number(client.cod_limit || 0).toFixed(2)}</td>
             <td><span class="user-status-pill ${client.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(client.status)}</span></td>
             <td>
               <div class="user-actions">
@@ -355,6 +361,7 @@
       document.getElementById('clientForm').reset();
       document.getElementById('clientId').value = '';
       document.getElementById('clientPassword').required = true;
+      document.getElementById('clientCodLimit').value = '0';
       document.getElementById('clientModalTitle').textContent = 'Add Client';
       document.getElementById('clientSubmit').textContent = 'Save Client';
       renderLocationOptions();
@@ -382,6 +389,7 @@
       document.getElementById('clientStatus').value = client.status;
       document.getElementById('clientAge').value = client.age || '';
       document.getElementById('clientGender').value = client.gender || '';
+      document.getElementById('clientCodLimit').value = Number(client.cod_limit || 0);
       document.getElementById('clientCountry').value = client.country || '';
       pendingClientArea = client.area || '';
       updateStateOptions(client.state || '');
@@ -441,6 +449,7 @@
         status: document.getElementById('clientStatus').value,
         age: document.getElementById('clientAge').value,
         gender: document.getElementById('clientGender').value,
+        cod_limit: Number(document.getElementById('clientCodLimit').value || 0),
         country: document.getElementById('clientCountry').value,
         state: document.getElementById('clientState').value,
         city: document.getElementById('clientCity').value,
