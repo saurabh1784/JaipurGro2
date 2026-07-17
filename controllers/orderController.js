@@ -203,6 +203,7 @@ async function index(req, res) {
       deliveryStatus: req.query.delivery_status,
       vendorId: req.query.vendor_id,
       clientId: req.query.client_id,
+      orderType: req.query.order_type,
     });
     return res.json({ success: true, ...result });
   } catch (error) {

@@ -194,6 +194,7 @@ function normalizeOrder(row, includeItems = false) {
     platform_fee: Number(row.platform_fee || 0),
     platform_charge: Number(row.platform_charge || 0),
     order_commission_amount: Number(row.order_commission_amount || row.platform_charge || 0),
+    premium_vendor_commission_percentage: Number(row.premium_vendor_commission_percentage || 0),
     delivery_commission_amount: Number(row.delivery_commission_amount || 0),
     vendor_earning: Number(row.vendor_earning || 0),
     delivery_earning: Number(row.delivery_earning || 0),
@@ -259,7 +260,7 @@ function normalizeOrder(row, includeItems = false) {
   return order;
 }
 
-async function listAll({ page = 1, limit = 10, search = '', status = '', deliveryStatus = '', vendorId = '', clientId = '', deliveryPartnerId = '' } = {}) {
+async function listAll({ page = 1, limit = 10, search = '', status = '', deliveryStatus = '', vendorId = '', clientId = '', deliveryPartnerId = '', orderType = '' } = {}) {
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
   const pageSize = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
   const offset = (currentPage - 1) * pageSize;
@@ -295,6 +296,10 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
   if (deliveryPartnerId) {
     where.push('o.delivery_partner_id = ?');
     params.push(deliveryPartnerId);
+  }
+  if (orderType) {
+    where.push('o.order_type = ?');
+    params.push(String(orderType).trim());
   }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';

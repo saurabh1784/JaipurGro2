@@ -92,12 +92,13 @@
               <th>Area</th>
               <th>Main Categories</th>
               <th>Services</th>
+              <% if (canManagePremiumVendors) { %><th>Premium</th><% } %>
               <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="vendorsTableBody">
-            <tr><td colspan="10">Loading vendors...</td></tr>
+            <tr><td colspan="<%= canManagePremiumVendors ? 11 : 10 %>">Loading vendors...</td></tr>
           </tbody>
         </table>
       </div>
@@ -177,6 +178,19 @@
           Address
           <textarea id="vendorAddress" rows="3"></textarea>
         </label>
+        <% if (canManagePremiumVendors) { %>
+          <label>
+            Premium Vendor
+            <select id="premiumVendorStatus">
+              <option value="0">Disabled</option>
+              <option value="1">Enabled</option>
+            </select>
+          </label>
+          <label>
+            Premium Commission %
+            <input id="premiumCommissionPercent" type="number" min="0" max="100" step="0.01" value="0" />
+          </label>
+        <% } %>
         <button class="settings-save" type="submit" id="vendorSubmit">Save Vendor</button>
       </form>
     </div>
@@ -196,6 +210,7 @@
     const locationOptions = <%- JSON.stringify(locationOptions) %>;
     const availableCategories = <%- JSON.stringify((categories || []).filter((category) => category.status === 'active')) %>;
     const availableServices = ['Home Delivery', 'Counter Pickup', 'Wholesale Supply', 'Express Delivery'];
+    const canManagePremiumVendors = <%= canManagePremiumVendors ? 'true' : 'false' %>;
     let areaOptions = [];
     let pendingVendorArea = '';
     let vendors = [];
@@ -425,7 +440,7 @@
       const response = await fetch(`/vendors?${params.toString()}`, { headers: { Accept: 'application/json' } });
       const data = await response.json();
       if (!data.success) {
-        tableBody.innerHTML = `<tr><td colspan="10">${escapeHtml(data.message || 'Unable to load vendors')}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="${canManagePremiumVendors ? 11 : 10}">${escapeHtml(data.message || 'Unable to load vendors')}</td></tr>`;
         return;
       }
       vendors = data.vendors || [];
@@ -436,7 +451,7 @@
 
     function renderVendors() {
       if (!vendors.length) {
-        tableBody.innerHTML = '<tr><td colspan="10">No vendors found</td></tr>';
+        tableBody.innerHTML = `<tr><td colspan="${canManagePremiumVendors ? 11 : 10}">No vendors found</td></tr>`;
       } else {
         tableBody.innerHTML = vendors.map((vendor) => `
           <tr>
@@ -451,6 +466,7 @@
             <td>${escapeHtml(vendor.area || '-')}</td>
             <td class="vendor-services-cell">${escapeHtml(categoriesText(vendor.categories) || '-')}</td>
             <td class="vendor-services-cell">${escapeHtml(servicesText(vendor.services) || '-')}</td>
+            ${canManagePremiumVendors ? `<td>${vendor.is_premium_vendor ? '<span class="user-status-pill active">Premium</span>' : '<span class="user-status-pill inactive">Standard</span>'}<br><small>${Number(vendor.premium_commission_percent || 0).toFixed(2)}%</small></td>` : ''}
             <td><span class="user-status-pill ${vendor.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(vendor.status)}</span></td>
             <td>
               <div class="user-actions">
@@ -484,6 +500,10 @@
       document.getElementById('vendorPassword').required = true;
       document.getElementById('vendorModalTitle').textContent = 'Add Vendor';
       document.getElementById('vendorSubmit').textContent = 'Save Vendor';
+      if (canManagePremiumVendors) {
+        document.getElementById('premiumVendorStatus').value = '0';
+        document.getElementById('premiumCommissionPercent').value = '0';
+      }
       renderLocationOptions();
       renderServiceOptions(['Home Delivery', 'Counter Pickup']);
       renderCategoryOptions();
@@ -510,6 +530,10 @@
       document.getElementById('vendorPassword').value = '';
       document.getElementById('vendorPassword').required = false;
       document.getElementById('vendorStatus').value = vendor.status;
+      if (canManagePremiumVendors) {
+        document.getElementById('premiumVendorStatus').value = vendor.is_premium_vendor ? '1' : '0';
+        document.getElementById('premiumCommissionPercent').value = Number(vendor.premium_commission_percent || 0).toFixed(2);
+      }
       document.getElementById('gstNumber').value = vendor.gst_number || '';
       document.getElementById('vendorCountry').value = vendor.country || '';
       pendingVendorArea = vendor.area || '';
@@ -579,6 +603,10 @@
         category_ids: selectedCategoryIds(),
         address: document.getElementById('vendorAddress').value,
       };
+      if (canManagePremiumVendors) {
+        payload.is_premium_vendor = document.getElementById('premiumVendorStatus').value === '1';
+        payload.premium_commission_percent = Number(document.getElementById('premiumCommissionPercent').value || 0);
+      }
       if (id && !payload.password) delete payload.password;
 
       const response = await fetch(`/vendors${id ? `/${id}` : ''}`, {

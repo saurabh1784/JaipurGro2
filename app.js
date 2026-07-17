@@ -1103,6 +1103,8 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('vendor_profiles', 'logo_path', 'VARCHAR(255) DEFAULT NULL AFTER business_name');
   await addColumnIfMissing('vendor_profiles', 'storefront_image_path', 'VARCHAR(255) DEFAULT NULL AFTER logo_path');
   await addColumnIfMissing('vendor_profiles', 'signature_path', 'VARCHAR(255) DEFAULT NULL AFTER storefront_image_path');
+  await addColumnIfMissing('vendor_profiles', 'is_premium_vendor', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER services');
+  await addColumnIfMissing('vendor_profiles', 'premium_commission_percent', 'DECIMAL(5,2) NOT NULL DEFAULT 0.00 AFTER is_premium_vendor');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_profiles (
@@ -1586,6 +1588,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_orders', 'delivery_charge', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER savings_amount');
   await addColumnIfMissing('client_orders', 'platform_fee', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
   await addColumnIfMissing('client_orders', 'order_commission_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER platform_fee');
+  await addColumnIfMissing('client_orders', 'premium_vendor_commission_percentage', 'DECIMAL(5,2) NOT NULL DEFAULT 0.00 AFTER order_commission_amount');
   await addColumnIfMissing('client_orders', 'delivery_commission_amount', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER order_commission_amount');
   await addColumnIfMissing('client_orders', 'area_definition_id', 'INT UNSIGNED DEFAULT NULL AFTER shipping_longitude');
   await addColumnIfMissing('client_orders', 'area_pricing_snapshot', 'JSON DEFAULT NULL AFTER area_definition_id');
@@ -4109,6 +4112,78 @@ function money(value) {
   return Number(Math.max(Number(value || 0), 0).toFixed(2));
 }
 
+async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot, client, connection, lockStock = false }) {
+  let productId = Number(item.productId || item.product_id || 0);
+  const fallbackVendorProductId = Number(item.vendorProductId || item.vendor_product_id || item.id || 0);
+  const quantity = Math.max(1, Number(item.quantity || 1));
+
+  if (!productId && fallbackVendorProductId) {
+    const [productRows] = await connection.query(
+      'SELECT product_id FROM vendor_products WHERE id = ? LIMIT 1',
+      [fallbackVendorProductId]
+    );
+    productId = Number(productRows[0] && productRows[0].product_id || 0);
+  }
+
+  if (!productId) {
+    const error = new Error('Valid product is required for direct order');
+    error.status = 422;
+    throw error;
+  }
+
+  const city = String(addressSnapshot.shippingCity || client.city || '').trim();
+  const area = String(addressSnapshot.shippingArea || addressSnapshot.shippingPincode || '').trim();
+  const lockSql = lockStock ? 'FOR UPDATE' : '';
+  const [rows] = await connection.query(
+    `SELECT vp.id, vp.product_id, vp.vendor_id, vp.quantity, vp.price,
+            p.name AS product_name,
+            p.weight_kg,
+            vprof.address AS vendor_address,
+            vprof.pickup_latitude AS vendor_pickup_latitude,
+            vprof.pickup_longitude AS vendor_pickup_longitude,
+            vprof.city AS vendor_city,
+            vprof.state AS vendor_state,
+            vprof.country AS vendor_country,
+            vprof.area AS vendor_area,
+            COALESCE(vprof.premium_commission_percent, 0) AS premium_commission_percent,
+            CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
+            COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
+     FROM vendor_products vp
+     INNER JOIN users u ON u.id = vp.vendor_id
+     INNER JOIN products p ON p.id = vp.product_id
+     INNER JOIN categories c ON c.id = p.category_id
+     INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+     WHERE vp.product_id = ?
+       AND COALESCE(vp.quantity, 0) >= ?
+       AND COALESCE(vprof.is_premium_vendor, 0) = 1
+       AND u.is_deleted = 0
+       AND LOWER(u.status) = 'active'
+       AND u.role = 'Vendor'
+       AND (TRIM(COALESCE(vprof.city, '')) = '' OR LOWER(TRIM(vprof.city)) = LOWER(TRIM(CAST(? AS TEXT))))
+       AND (
+         TRIM(COALESCE(vprof.area, '')) = ''
+         OR TRIM(COALESCE(vprof.area, '*')) = '*'
+         OR LOWER(TRIM(vprof.area)) = LOWER(TRIM(CAST(? AS TEXT)))
+       )
+     ORDER BY
+       CASE WHEN LOWER(TRIM(COALESCE(vprof.area, ''))) = LOWER(TRIM(CAST(? AS TEXT))) THEN 0 ELSE 1 END,
+       COALESCE(vprof.premium_commission_percent, 0) ASC,
+       vp.id ASC
+     LIMIT 1
+     ${lockSql}`,
+    [productId, quantity, city, area, area]
+  );
+
+  if (!rows.length) {
+    const error = new Error('No premium vendor is available for one or more products in your area');
+    error.status = 422;
+    throw error;
+  }
+
+  return rows[0];
+}
+
+
 async function resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection }) {
   const areaPricing = await AreaDefinition.pricingForLocation({
     city: addressSnapshot.shippingCity || vendorOrder.city || '',
@@ -4376,40 +4451,8 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
 
   const vendorOrders = new Map();
   for (const item of items) {
-    const vpId = item.vendorProductId || item.id;
-    const [vpRows] = await connection.query(
-      `SELECT vp.product_id, vp.vendor_id, vp.quantity, vp.price,
-              p.name AS product_name,
-              p.weight_kg,
-              vprof.address AS vendor_address,
-              vprof.pickup_latitude AS vendor_pickup_latitude,
-              vprof.pickup_longitude AS vendor_pickup_longitude,
-              vprof.city AS vendor_city,
-              vprof.state AS vendor_state,
-              vprof.country AS vendor_country,
-              CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
-              COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
-       FROM vendor_products vp
-       INNER JOIN products p ON p.id = vp.product_id
-       INNER JOIN categories c ON c.id = p.category_id
-       LEFT JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
-       WHERE vp.id = ?
-       ${lockStock ? 'FOR UPDATE' : ''}`,
-      [vpId]
-    );
-
-    if (!vpRows.length) {
-      const error = new Error(`Product not found: ${vpId}`);
-      error.status = 404;
-      throw error;
-    }
-
-    const vp = vpRows[0];
-    if (Number(vp.quantity || 0) < item.quantity) {
-      const error = new Error(`Insufficient stock for product: ${vpId}`);
-      error.status = 422;
-      throw error;
-    }
+    const vp = await selectPremiumVendorProductForDirectOrder({ item, addressSnapshot, client, connection, lockStock });
+    const vpId = vp.id;
 
     const quantity = Math.max(1, Number(item.quantity || 1));
     const unitPrice = Math.max(0, Number(item.price || vp.price || 0));
@@ -4433,6 +4476,7 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
         ].filter(Boolean).join(', '),
         originLatitude: vp.vendor_pickup_latitude,
         originLongitude: vp.vendor_pickup_longitude,
+        premiumCommissionPercent: money(vp.premium_commission_percent),
       });
     }
 
@@ -4488,8 +4532,9 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
     }, connection);
     const pricing = await resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection });
     const vendorDeliveryCharge = pricing.deliveryCharge;
-    const vendorPlatformFee = pricing.platformFee;
     const itemPayable = Math.max(vendorOrder.subtotal - vendorDiscount, 0);
+    const orderCommissionPercentage = money(vendorOrder.premiumCommissionPercent ?? pricing.orderCommissionPercentage);
+    const vendorPlatformFee = money((itemPayable * orderCommissionPercentage) / 100);
     const vendorTotal = itemPayable + vendorDeliveryCharge + vendorPlatformFee;
     discountAmount += vendorDiscount;
     deliveryCharge += vendorDeliveryCharge;
@@ -4523,7 +4568,7 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
         city: pricing.areaPricing.city,
         commission_area: pricing.locationCommission ? pricing.locationCommission.area : null,
         commission_source: pricing.locationCommission ? (pricing.locationCommission.area === '*' ? 'city' : 'area') : 'area_definition',
-        order_commission_percentage: pricing.orderCommissionPercentage,
+        order_commission_percentage: orderCommissionPercentage,
         delivery_commission_percentage: pricing.deliveryCommissionPercentage,
       },
     });
@@ -4639,36 +4684,8 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
       const vendorOrders = new Map();
 
       for (const item of items) {
-        const vpId = item.vendorProductId || item.id;
-        const [vpRows] = await connection.query(
-          `SELECT vp.product_id, vp.vendor_id, vp.quantity, vp.price,
-                  p.name AS product_name,
-                  p.weight_kg,
-                  vprof.address AS vendor_address,
-                  vprof.pickup_latitude AS vendor_pickup_latitude,
-                  vprof.pickup_longitude AS vendor_pickup_longitude,
-                  vprof.city AS vendor_city,
-                  vprof.state AS vendor_state,
-                  vprof.country AS vendor_country,
-                  CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
-                  COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
-           FROM vendor_products vp
-           INNER JOIN products p ON p.id = vp.product_id
-           INNER JOIN categories c ON c.id = p.category_id
-           LEFT JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
-           WHERE vp.id = ?
-           FOR UPDATE`,
-          [vpId]
-        );
-
-        if (!vpRows.length) {
-          throw new Error(`Product not found: ${vpId}`);
-        }
-
-        const vp = vpRows[0];
-        if (vp.quantity < item.quantity) {
-          throw new Error(`Insufficient stock for product: ${vpId}`);
-        }
+        const vp = await selectPremiumVendorProductForDirectOrder({ item, addressSnapshot, client, connection, lockStock: true });
+        const vpId = vp.id;
 
         const quantity = Math.max(1, Number(item.quantity || 1));
         const unitPrice = Math.max(0, Number(item.price || vp.price || 0));
@@ -4694,6 +4711,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             ].filter(Boolean).join(', '),
             originLatitude: vp.vendor_pickup_latitude,
             originLongitude: vp.vendor_pickup_longitude,
+            premiumCommissionPercent: money(vp.premium_commission_percent),
           });
         }
 
@@ -4751,9 +4769,10 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         }, connection);
         const pricing = await resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection });
         const deliveryCharge = pricing.deliveryCharge;
-        const platformFee = pricing.platformFee;
         const itemPayable = Math.max(vendorSubtotal - vendorDiscount, 0);
-        const orderCommissionAmount = money((itemPayable * pricing.orderCommissionPercentage) / 100);
+        const premiumOrderCommissionPercentage = money(vendorOrder.premiumCommissionPercent ?? pricing.orderCommissionPercentage);
+        const orderCommissionAmount = money((itemPayable * premiumOrderCommissionPercentage) / 100);
+        const platformFee = orderCommissionAmount;
         const deliveryCommissionAmount = money((deliveryCharge * pricing.deliveryCommissionPercentage) / 100);
         const vendorTotal = itemPayable + deliveryCharge + platformFee;
         vendorPromotions.set(vendorId, {
@@ -4766,6 +4785,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           deliveryCommissionAmount,
           pricing,
           deliveryOptions,
+          premiumOrderCommissionPercentage,
         });
         totalAmount += vendorTotal;
       }
@@ -4782,12 +4802,13 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const platformFee = vendorPromotion.platformFee;
         const orderCommissionAmount = vendorPromotion.orderCommissionAmount;
         const deliveryCommissionAmount = vendorPromotion.deliveryCommissionAmount;
+        const premiumOrderCommissionPercentage = vendorPromotion.premiumOrderCommissionPercentage;
         const pricing = vendorPromotion.pricing;
         const deliveryOptions = vendorPromotion.deliveryOptions;
         const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
           connection,
           `INSERT INTO client_orders
-           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
+           (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, premium_vendor_commission_percentage, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_address_id, shipping_name, shipping_phone, shipping_address, shipping_area, shipping_city, shipping_state, shipping_country, shipping_pincode, shipping_latitude, shipping_longitude, created_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
           [
             clientId,
@@ -4798,6 +4819,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
             deliveryCharge,
             platformFee,
             orderCommissionAmount,
+            premiumOrderCommissionPercentage,
             deliveryCommissionAmount,
             orderCommissionAmount,
             pricing.areaPricing.area_definition_id,
@@ -4809,7 +4831,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
               delivery_charge: deliveryCharge,
               commission_area: pricing.locationCommission ? pricing.locationCommission.area : null,
               commission_source: pricing.locationCommission ? (pricing.locationCommission.area === '*' ? 'city' : 'area') : 'area_definition',
-              order_commission_percentage: pricing.orderCommissionPercentage,
+              order_commission_percentage: premiumOrderCommissionPercentage,
               delivery_commission_percentage: pricing.deliveryCommissionPercentage,
             }),
             promotion.coupon ? promotion.coupon.id : null,

@@ -29,6 +29,15 @@ function normalizeCategoryIds(value) {
   return Vendor.normalizeCategoryIds(value);
 }
 
+function isAdminUser(user) {
+  const role = String((user && (user.role || user.roleName)) || '').toLowerCase().replace(/[\s_-]+/g, '');
+  return role === 'admin' || role === 'superadmin';
+}
+
+function canManagePremiumVendors(req) {
+  return isAdminUser(req.authUser || (req.session && req.session.user));
+}
+
 function validateVendor(body, { requirePassword = false } = {}) {
   const errors = [];
   const password = body.password ? String(body.password) : '';
@@ -47,6 +56,8 @@ function validateVendor(body, { requirePassword = false } = {}) {
     gst_number: body.gst_number ? String(body.gst_number).trim() : '',
     services: normalizeServices(body.services),
     category_ids: normalizeCategoryIds(body.category_ids || body.categories),
+    is_premium_vendor: body.is_premium_vendor === true || body.is_premium_vendor === 'true' || body.is_premium_vendor === '1' || body.is_premium_vendor === 1,
+    premium_commission_percent: Math.max(0, Math.min(100, Number(body.premium_commission_percent || 0))),
   };
 
   if (data.name.length < 2) errors.push('Name must be at least 2 characters');
@@ -63,6 +74,9 @@ function validateVendor(body, { requirePassword = false } = {}) {
   if (!isValidLocation(data)) {
     errors.push('City is required');
   }
+  if (!Number.isFinite(data.premium_commission_percent)) {
+    errors.push('Premium commission percentage must be a valid number');
+  }
 
   return { errors, data };
 }
@@ -73,6 +87,7 @@ async function index(req, res) {
       user: req.session.user,
       locationOptions: flattenLocationOptions(),
       categories: await Catalog.listCategories(),
+      canManagePremiumVendors: canManagePremiumVendors(req),
     });
   }
 
@@ -86,6 +101,14 @@ async function index(req, res) {
       state: req.query.state,
       city: req.query.city,
     });
+    if (!canManagePremiumVendors(req)) {
+      result.vendors = (result.vendors || []).map((vendor) => {
+        const clone = { ...vendor };
+        delete clone.is_premium_vendor;
+        delete clone.premium_commission_percent;
+        return clone;
+      });
+    }
     return res.json({ success: true, ...result });
   } catch (error) {
     console.error('Vendor list error:', error);
@@ -98,11 +121,19 @@ async function show(req, res) {
   if (!vendor) {
     return res.status(404).json({ success: false, message: 'Vendor not found' });
   }
+  if (!canManagePremiumVendors(req)) {
+    delete vendor.is_premium_vendor;
+    delete vendor.premium_commission_percent;
+  }
   return res.json({ success: true, vendor });
 }
 
 async function create(req, res) {
   const { errors, data } = validateVendor(req.body, { requirePassword: true });
+  if (!canManagePremiumVendors(req)) {
+    data.is_premium_vendor = false;
+    data.premium_commission_percent = 0;
+  }
   if (errors.length) {
     return res.status(422).json({ success: false, message: 'Validation failed', errors });
   }
@@ -145,6 +176,10 @@ async function update(req, res) {
   }
 
   const { errors, data } = validateVendor(req.body);
+  if (!canManagePremiumVendors(req)) {
+    data.is_premium_vendor = existing.is_premium_vendor;
+    data.premium_commission_percent = existing.premium_commission_percent;
+  }
   if (errors.length) {
     return res.status(422).json({ success: false, message: 'Validation failed', errors });
   }

@@ -67,6 +67,8 @@ function publicVendor(row) {
     area: row.area || '',
     gst_number: row.gst_number || '',
     services: normalizeServices(row.services),
+    is_premium_vendor: Boolean(Number(row.is_premium_vendor || 0)),
+    premium_commission_percent: Number(row.premium_commission_percent || 0),
     categories,
     category_ids: categories.map((category) => Number(category.id)).filter(Boolean),
     created_at: row.created_at,
@@ -122,7 +124,7 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
   );
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services
+            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services, vp.is_premium_vendor, vp.premium_commission_percent
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE ${whereSql}
@@ -146,7 +148,7 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
 async function findById(id) {
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services
+            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services, vp.is_premium_vendor, vp.premium_commission_percent
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE u.id = ? AND u.role = 'Vendor' AND u.is_deleted = 0
@@ -177,8 +179,8 @@ async function create(data) {
     );
     const userId = result.insertId;
     await connection.query(
-      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, area, gst_number, services)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, area, gst_number, services, is_premium_vendor, premium_commission_percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         userId,
         data.business_name || null,
@@ -189,6 +191,8 @@ async function create(data) {
         data.area || null,
         data.gst_number || null,
         JSON.stringify(data.services || []),
+        data.is_premium_vendor ? 1 : 0,
+        Number(data.premium_commission_percent || 0),
       ]
     );
     await VendorProduct.ensureVendorHasAllProducts(userId, connection);
@@ -216,8 +220,8 @@ async function update(id, data) {
     userValues.push(id);
     await connection.query(`UPDATE users SET ${userFields.join(', ')} WHERE id = ? AND role = 'Vendor' AND is_deleted = 0`, userValues);
     await connection.query(
-      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, area, gst_number, services)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `INSERT INTO vendor_profiles (user_id, business_name, address, country, state, city, area, gst_number, services, is_premium_vendor, premium_commission_percent)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO UPDATE
        SET business_name = EXCLUDED.business_name,
            address = EXCLUDED.address,
@@ -226,7 +230,9 @@ async function update(id, data) {
            city = EXCLUDED.city,
            area = EXCLUDED.area,
            gst_number = EXCLUDED.gst_number,
-           services = EXCLUDED.services`,
+           services = EXCLUDED.services,
+           is_premium_vendor = EXCLUDED.is_premium_vendor,
+           premium_commission_percent = EXCLUDED.premium_commission_percent`,
       [
         id,
         data.business_name || null,
@@ -237,6 +243,8 @@ async function update(id, data) {
         data.area || null,
         data.gst_number || null,
         JSON.stringify(data.services || []),
+        data.is_premium_vendor ? 1 : 0,
+        Number(data.premium_commission_percent || 0),
       ]
     );
     if (Object.prototype.hasOwnProperty.call(data, 'category_ids') || Object.prototype.hasOwnProperty.call(data, 'categories')) {
