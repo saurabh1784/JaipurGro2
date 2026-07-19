@@ -428,6 +428,8 @@
           <div class="assign-detail-row"><span>Subtotal</span><strong>${money(order.subtotal_amount || order.total_amount)}</strong></div>
           <div class="assign-detail-row"><span>Discount</span><strong>${money(order.discount_amount || 0)}</strong></div>
           <div class="assign-detail-row"><span>Delivery charge</span><strong>${money(order.delivery_charge || 0)}</strong></div>
+          <div class="assign-detail-row"><span>Platform fee</span><strong>${money(order.platform_fee || 0)}</strong></div>
+          <div class="assign-detail-row"><span>Grand total</span><strong>${money(order.total_amount || 0)}</strong></div>
           <div class="assign-detail-row"><span>Delivery status</span><strong>${escapeHtml(statusLabel(order.delivery_status))}</strong></div>
         </div>
         <div class="assign-order-details">
@@ -554,7 +556,12 @@
                 <div class="order-money-card">
                   <span>Delivery Charge</span>
                   <strong>₹${Number(order.delivery_charge || 0).toFixed(2)}</strong>
-                  <small>Added by admin or staff</small>
+                  <small>Calculated from vendor to delivery address</small>
+                </div>
+                <div class="order-money-card">
+                  <span>Platform Fee</span>
+                  <strong>₹${Number(order.platform_fee || 0).toFixed(2)}</strong>
+                  <small>Included in grand total</small>
                 </div>
                 <div class="order-status-card">
                   <span>Order Status</span>

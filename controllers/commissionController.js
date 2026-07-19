@@ -81,6 +81,23 @@ async function removeLocation(req, res) {
   }
 }
 
+
+async function setLocationActive(req, res) {
+  try {
+    await LocationCommissionSetting.setActive(req.params.id, req.body.is_active);
+    res.json({
+      success: true,
+      message: req.body.is_active ? 'Location commission setting activated' : 'Location commission setting deactivated',
+      location_commissions: await LocationCommissionSetting.listPayload(),
+    });
+  } catch (error) {
+    console.error('Location commission status error:', error);
+    res.status(error.status || 500).json({
+      success: false,
+      message: error.status ? error.message : 'Unable to update location commission setting status',
+    });
+  }
+}
 function calculate(req, res) {
   const orderAmount = Number(req.body.order_amount || req.body.amount || 0);
   const deliveryCharge = Number(req.body.delivery_charge || 0);
@@ -99,4 +116,5 @@ function calculate(req, res) {
   });
 }
 
-module.exports = { list, update, calculate, removeLocation };
+module.exports = { list, update, calculate, removeLocation, setLocationActive };
+

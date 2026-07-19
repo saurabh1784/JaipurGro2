@@ -184,7 +184,9 @@
               <p><strong>Shipping Address:</strong> ${order.shipping_name || order.client_name || 'Client'} (${order.shipping_phone || order.client_phone || 'No phone'}) - ${order.shipping_address || order.client_address || 'No shipping address'}</p>
               <p><strong>Subtotal:</strong> ₹${Number(order.subtotal_amount || order.total_amount).toFixed(2)}</p>
               <p><strong>Discount:</strong> ₹${Number(order.discount_amount || 0).toFixed(2)} ${order.coupon_code ? `(${order.coupon_code})` : order.discount_label ? `(${order.discount_label})` : ''}</p>
-              <p><strong>Total:</strong> ₹${Number(order.total_amount).toFixed(2)}</p>
+              <p><strong>Delivery Charge:</strong> ₹${Number(order.delivery_charge || 0).toFixed(2)}</p>
+              <p><strong>Platform Fee:</strong> ₹${Number(order.platform_fee || 0).toFixed(2)}</p>
+              <p><strong>Grand Total:</strong> ₹${Number(order.total_amount).toFixed(2)}</p>
               <p><strong>Order Status:</strong> ${order.status}</p>
               <p><strong>Delivery Status:</strong> ${order.delivery_status}</p>
               <p><strong>Delivery Partner:</strong> ${order.delivery_partner_name || 'Not assigned'}</p>

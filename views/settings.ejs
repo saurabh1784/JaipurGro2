@@ -49,6 +49,7 @@
         <% if (canManageCommissions) { %>
           <button class="settings-tab" type="button" data-tab="commissions">Commission</button>
         <% } %>
+        <button class="settings-tab" type="button" data-tab="bidding-settings">Bidding Settings</button>
         <button class="settings-tab" type="button" data-tab="delivery-partners">Delivery Partners</button>
         <button class="settings-tab" type="button" data-tab="role-permissions">Role Permissions</button>
         <button class="settings-tab" type="button" data-tab="content-management">Legal Pages</button>
@@ -661,7 +662,7 @@
               <small class="commission-subtext">Use City Default for city-wise commission.</small>
             </label>
             <label>
-              Platform Fees / Order Commission (%)
+              Platform Fee (%)
               <input id="commissionOrderInput" type="number" min="0" max="100" step="0.01" value="0" />
             </label>
             <label>
@@ -678,7 +679,7 @@
                 <tr>
                   <th>City</th>
                   <th>Area</th>
-                  <th>Platform Fees / Order Commission</th>
+                  <th>Platform Fee</th>
                   <th>Delivery Charge Commission</th>
                   <th>Preview</th>
                   <th>Status</th>
@@ -694,6 +695,58 @@
         </section>
       <% } %>
 
+      <section class="settings-panel" id="bidding-settings" aria-labelledby="bidding-settings-tab">
+        <div class="panel-header orange-header">
+          <h2>Bidding Settings</h2>
+          <p>City-wise quotation bidding timer, daily bidding window, and live closure controls.</p>
+        </div>
+        <div class="settings-grid">
+          <label>
+            City
+            <input id="biddingCityInput" type="text" list="biddingCityOptions" placeholder="Jaipur" />
+            <datalist id="biddingCityOptions">
+              <% locationSettings.cities.forEach((city) => { %>
+                <option value="<%= city %>"></option>
+              <% }) %>
+            </datalist>
+          </label>
+          <label>
+            Timer Duration (minutes)
+            <input id="biddingTimerInput" type="number" min="1" max="10080" step="1" value="30" />
+          </label>
+          <label>
+            Daily Start Time
+            <input id="biddingStartInput" type="time" value="00:00" />
+          </label>
+          <label>
+            Daily End Time
+            <input id="biddingEndInput" type="time" value="23:59" />
+          </label>
+          <label class="settings-toggle">
+            <input id="biddingEnabledInput" type="checkbox" checked />
+            Enable bidding
+          </label>
+          <label class="settings-toggle">
+            <input id="biddingAutoCloseInput" type="checkbox" checked />
+            Auto-close expired quotations
+          </label>
+        </div>
+        <button class="settings-save" type="button" onclick="saveBiddingSetting()">Save Bidding Setting</button>
+        <p class="commission-message" id="biddingSettingsMessage"></p>
+        <table class="settings-table commission-preview-table">
+          <thead>
+            <tr>
+              <th>City</th>
+              <th>Timer</th>
+              <th>Daily Window</th>
+              <th>Status</th>
+              <th>Auto Close</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="biddingSettingsBody"></tbody>
+        </table>
+      </section>
       <section class="settings-panel" id="delivery-partners" aria-labelledby="delivery-partners-tab">
         <div class="panel-header blue-header">
           <h2>Delivery Partner Settings</h2>
@@ -1081,6 +1134,105 @@
       }
     }
 
+    async function readSettingsJson(response, fallbackMessage) {
+      const text = await response.text();
+      let data = {};
+      try {
+        data = text ? JSON.parse(text) : {};
+      } catch (_) {
+        throw new Error(response.ok ? fallbackMessage : `${fallbackMessage} Server replied: ${text || response.status}`);
+      }
+      if (!response.ok && !data.message) {
+        data.message = fallbackMessage;
+      }
+      return data;
+    }
+    function biddingRowPayload() {
+      return {
+        city: document.getElementById('biddingCityInput').value.trim(),
+        timer_minutes: Number(document.getElementById('biddingTimerInput').value || 0),
+        daily_start_time: document.getElementById('biddingStartInput').value || '00:00',
+        daily_end_time: document.getElementById('biddingEndInput').value || '23:59',
+        is_enabled: document.getElementById('biddingEnabledInput').checked,
+        auto_close_on_expiry: document.getElementById('biddingAutoCloseInput').checked,
+      };
+    }
+
+    function editBiddingSetting(index) {
+      const row = biddingSettings[index];
+      if (!row) return;
+      document.getElementById('biddingCityInput').value = row.city || '';
+      document.getElementById('biddingTimerInput').value = Number(row.timer_minutes || 30);
+      document.getElementById('biddingStartInput').value = String(row.daily_start_time || '00:00').slice(0, 5);
+      document.getElementById('biddingEndInput').value = String(row.daily_end_time || '23:59').slice(0, 5);
+      document.getElementById('biddingEnabledInput').checked = row.is_enabled !== false;
+      document.getElementById('biddingAutoCloseInput').checked = row.auto_close_on_expiry !== false;
+      document.getElementById('biddingSettingsMessage').textContent = 'Edit values, then click Save Bidding Setting.';
+    }
+
+    async function saveBiddingSetting() {
+      const message = document.getElementById('biddingSettingsMessage');
+      const payload = biddingRowPayload();
+      if (!payload.city) {
+        message.textContent = 'City is required.';
+        return;
+      }
+      message.textContent = 'Saving bidding setting...';
+      try {
+        const response = await fetch('/settings/bidding', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save bidding setting');
+        biddingSettings = data.settings || [];
+        renderBiddingSettings();
+        message.textContent = data.message || 'Bidding setting saved.';
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    async function deleteBiddingSetting(index) {
+      const row = biddingSettings[index];
+      if (!row || !row.id) return;
+      if (!confirm(`Delete bidding settings for ${row.city}?`)) return;
+      const message = document.getElementById('biddingSettingsMessage');
+      message.textContent = 'Deleting bidding setting...';
+      try {
+        const response = await fetch(`/settings/bidding/${encodeURIComponent(row.id)}`, { method: 'DELETE' });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to delete bidding setting');
+        biddingSettings = data.settings || [];
+        renderBiddingSettings();
+        message.textContent = data.message || 'Bidding setting deleted.';
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    function renderBiddingSettings() {
+      const body = document.getElementById('biddingSettingsBody');
+      if (!body) return;
+      if (!biddingSettings.length) {
+        body.innerHTML = '<tr><td colspan="6">No city-wise bidding settings yet. Default timer is 1440 minutes.</td></tr>';
+        return;
+      }
+      body.innerHTML = biddingSettings.map((row, index) => `
+        <tr class="${row.is_enabled === false ? 'commission-row-inactive' : ''}">
+          <td><strong>${escapeCatalog(row.city || '-')}</strong></td>
+          <td>${Number(row.timer_minutes || 0)} min</td>
+          <td>${escapeCatalog(String(row.daily_start_time || '00:00').slice(0, 5))} - ${escapeCatalog(String(row.daily_end_time || '23:59').slice(0, 5))}</td>
+          <td>${row.is_enabled === false ? 'Disabled' : 'Enabled'}</td>
+          <td>${row.auto_close_on_expiry === false ? 'No' : 'Yes'}</td>
+          <td>
+            <button class="product-secondary-button area-row-button" type="button" onclick="editBiddingSetting(${index})">Edit</button>
+            <button class="danger-action-button area-row-button" type="button" onclick="deleteBiddingSetting(${index})">Delete</button>
+          </td>
+        </tr>
+      `).join('');
+    }
     async function saveQuotationSettings() {
       const message = document.getElementById('quotationSettingsMessage');
       const input = document.getElementById('quotationSubmissionMinutes');
@@ -1682,6 +1834,8 @@
         "'": '&#039;',
       }[char]));
     }
+
+    let biddingSettings = <%- JSON.stringify(settings.bidding && settings.bidding.settings || []) %>;
 
     let commissionSettings = [];
     let commissionCities = [];
@@ -2499,14 +2653,33 @@
       document.getElementById('commissionAreaInput').value = row.area || '*';
       document.getElementById('commissionOrderInput').value = Number(row.order_commission_percentage || 0);
       document.getElementById('commissionDeliveryInput').value = Number(row.delivery_commission_percentage || 0);
-      document.getElementById('commissionMessage').textContent = 'Edit the values, then click Save / Update Commission.';
+      document.getElementById('commissionMessage').textContent = 'Edit the values, then click Add / Update Commission.';
     }
 
-    function toggleCommissionSetting(index) {
+    async function toggleCommissionSetting(index) {
       const row = commissionSettings[index];
       if (!row) return;
-      row.is_active = !row.is_active;
-      renderCommissionSettings();
+      const nextActive = row.is_active === false;
+      if (!row.id) {
+        row.is_active = nextActive;
+        renderCommissionSettings();
+        return;
+      }
+      const message = document.getElementById('commissionMessage');
+      message.textContent = nextActive ? 'Activating commission setting...' : 'Deactivating commission setting...';
+      try {
+        const response = await fetch(`/settings/commissions/location/${encodeURIComponent(row.id)}/status`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ is_active: nextActive }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to update commission setting status');
+        replaceCommissionPayloadFromServer(data.location_commissions || {});
+        message.textContent = data.message || (nextActive ? 'Commission setting activated.' : 'Commission setting deactivated.');
+      } catch (error) {
+        message.textContent = error.message;
+      }
     }
 
     async function deleteCommissionSetting(index) {
@@ -2564,13 +2737,13 @@
                 <input class="commission-inline-input" type="number" min="0" max="100" step="0.01" value="${deliveryPercent}" onchange="commissionSettings[${index}].delivery_commission_percentage = Number(this.value || 0); renderCommissionSettings();" />
               </td>
               <td>
-                <strong>Order ${orderCommission.toFixed(2)}</strong>
+                <strong>Platform ${orderCommission.toFixed(2)}</strong>
                 <span class="commission-subtext">Delivery ${deliveryCommission.toFixed(2)} / Partner ${(Math.max(deliveryCharge - deliveryCommission, 0)).toFixed(2)}</span>
               </td>
               <td>${active ? 'Active' : 'Inactive'}</td>
               <td>
                 <button class="product-secondary-button area-row-button" type="button" onclick="editCommissionSetting(${index})">Edit</button>
-                <button class="product-secondary-button area-row-button" type="button" onclick="toggleCommissionSetting(${index})">${active ? 'Disable' : 'Enable'}</button>
+                <button class="product-secondary-button area-row-button" type="button" onclick="toggleCommissionSetting(${index})">${active ? 'Deactivate' : 'Activate'}</button>
                 <button class="danger-action-button area-row-button" type="button" onclick="deleteCommissionSetting(${index})">Delete</button>
               </td>
             </tr>
@@ -2917,6 +3090,7 @@
     document.getElementById('deliveryCityInput').addEventListener('change', () => populateDeliveryAreaSelect('deliveryAreaInput'));
     document.getElementById('deliveryPartnerCity').addEventListener('change', () => populateDeliveryAreaSelect('deliveryPartnerArea'));
 
+    renderBiddingSettings();
     loadCatalog();
     loadRoleSettings();
     loadCommissionSettings();
@@ -3710,6 +3884,11 @@
   </style>
 </body>
 </html>
+
+
+
+
+
 
 
 

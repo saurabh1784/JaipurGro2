@@ -71,10 +71,33 @@ async function list(connection = pool) {
 }
 
 async function listPayload() {
-  const [settings, mappedAreas] = await Promise.all([
+  let [settings, mappedAreas] = await Promise.all([
     list(),
     AreaDefinition.list({ includeInactive: true }),
   ]);
+  const settingKeys = new Set(settings.map((setting) => `${normalizeText(setting.city).toLowerCase()}::${normalizeAreaName(setting.area).toLowerCase()}`));
+  const missingMappedCommissions = mappedAreas.filter((area) => {
+    if (!area.city || !area.name) return false;
+    const orderCommission = money(area.order_commission_percentage);
+    const deliveryCommission = money(area.delivery_commission_percentage);
+    if (orderCommission <= 0 && deliveryCommission <= 0) return false;
+    const key = `${normalizeText(area.city).toLowerCase()}::${normalizeAreaName(area.name).toLowerCase()}`;
+    return !settingKeys.has(key);
+  });
+
+  if (missingMappedCommissions.length) {
+    for (const area of missingMappedCommissions) {
+      await saveOne({
+        city: area.city,
+        area: area.name,
+        order_commission_percentage: area.order_commission_percentage,
+        delivery_commission_percentage: area.delivery_commission_percentage,
+        is_active: area.is_active,
+      });
+    }
+    settings = await list();
+  }
+
   const citySet = new Set();
 
   mappedAreas.forEach((area) => {
@@ -129,6 +152,21 @@ async function saveOne(payload, connection = pool) {
   return result.insertId || null;
 }
 
+
+async function setActive(id, isActive, connection = pool) {
+  await ensureTable(connection);
+  const [result] = await connection.query(
+    `UPDATE location_commission_settings
+     SET is_active = ?, updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [isActive ? 1 : 0, Number(id)]
+  );
+  if (result.affectedRows === 0) {
+    const error = new Error('Commission setting not found');
+    error.status = 404;
+    throw error;
+  }
+}
 async function saveMany(entries = []) {
   if (!Array.isArray(entries)) {
     const error = new Error('Commission entries must be an array');
@@ -154,11 +192,24 @@ async function saveMany(entries = []) {
 
 async function remove(id) {
   await ensureTable();
+  const [rows] = await pool.query('SELECT city, area FROM location_commission_settings WHERE id = ? LIMIT 1', [Number(id)]);
+  const setting = rows[0];
   const [result] = await pool.query('DELETE FROM location_commission_settings WHERE id = ?', [Number(id)]);
   if (result.affectedRows === 0) {
     const error = new Error('Commission setting not found');
     error.status = 404;
     throw error;
+  }
+  if (setting && setting.area && setting.area !== '*') {
+    await pool.query(
+      `UPDATE area_definitions
+       SET order_commission_percentage = 0,
+           delivery_commission_percentage = 0,
+           updated_at = CURRENT_TIMESTAMP
+       WHERE LOWER(TRIM(city)) = LOWER(TRIM(?))
+         AND LOWER(TRIM(name)) = LOWER(TRIM(?))`,
+      [setting.city || '', setting.area]
+    );
   }
 }
 
@@ -190,3 +241,5 @@ module.exports = {
   saveMany,
   saveOne,
 };
+
+

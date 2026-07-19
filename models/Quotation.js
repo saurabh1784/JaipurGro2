@@ -6,6 +6,7 @@ const Order = require('./Order');
 const AreaDefinition = require('./AreaDefinition');
 const CommissionSetting = require('./CommissionSetting');
 const LocationCommissionSetting = require('./LocationCommissionSetting');
+const BiddingSetting = require('./BiddingSetting');
 const DeliveryCharge = require('../services/deliveryChargeService');
 const OrderWalletSettlement = require('../services/orderWalletSettlementService');
 const { insertClientOrderWithOrderNumber } = require('../utils/orderNumber');
@@ -76,8 +77,12 @@ function codEligibility({ areaPricing, client, totalAmount }) {
   };
 }
 
-async function quotationSubmissionMinutes(connection = pool) {
+async function quotationSubmissionMinutes(connection = pool, city = '') {
   try {
+    if (city) {
+      const bidding = await BiddingSetting.resolveForCity(city, connection);
+      return Number.isFinite(Number(bidding.timer_minutes)) && Number(bidding.timer_minutes) > 0 ? Math.round(Number(bidding.timer_minutes)) : 1440;
+    }
     const [rows] = await connection.query(
       "SELECT setting_value FROM app_settings WHERE setting_key = 'quotation_submission_minutes' LIMIT 1"
     );
@@ -111,6 +116,11 @@ function normalizeRows(rows) {
         recipient_id: row.recipient_id,
         response_total: Number(row.response_total || 0),
         min_bid_price: row.min_bid_price === undefined || row.min_bid_price === null ? null : Number(row.min_bid_price || 0),
+        current_min_bid: row.current_min_bid === undefined || row.current_min_bid === null ? null : Number(row.current_min_bid || 0),
+        vendor_bid_amount: row.vendor_bid_amount === undefined || row.vendor_bid_amount === null ? null : Number(row.vendor_bid_amount || 0),
+        is_winning_bid: Boolean(Number(row.is_winning_bid || 0)),
+        bid_status: row.bid_status || 'Pending',
+        awarded_to_vendor: Boolean(Number(row.awarded_to_vendor || 0)),
         discount_percent: Number(row.discount_percent || 0),
         actual_total: Number(row.actual_total || 0),
         savings: Number(row.savings || 0),
@@ -138,6 +148,8 @@ function normalizeRows(rows) {
       const catalogUnavailable = row.vendor_product_status === 'unavailable' || (row.stock !== undefined && row.stock !== null && Number(row.stock || 0) <= 0);
       const itemStatus = catalogUnavailable ? 'not_available' : (row.item_status || 'available');
       const unitPrice = row.unit_price === undefined || row.unit_price === null ? Number(row.default_vendor_price || row.admin_price || row.expected_price || 0) : Number(row.unit_price || 0);
+      const bidUnitPrice = row.bid_unit_price === undefined || row.bid_unit_price === null ? null : Number(row.bid_unit_price || 0);
+      const bidLineTotal = row.bid_line_total === undefined || row.bid_line_total === null ? null : Number(row.bid_line_total || 0);
       const quantity = Number(row.quantity || row.requested_quantity || 0);
       const weightValue = Number(row.weight_value ?? row.product_weight_value ?? row.weight_kg ?? 0);
       const weightUnit = cleanWeightUnit(row.weight_unit || row.product_weight_unit || 'kg');
@@ -165,6 +177,9 @@ function normalizeRows(rows) {
         vendor_product_status: row.vendor_product_status,
         unit_price: unitPrice,
         line_total: itemStatus === 'not_available' ? 0 : Number(row.line_total || unitPrice * quantity || 0),
+        bid_unit_price: bidUnitPrice,
+        bid_line_total: bidLineTotal,
+        has_bid_price: bidUnitPrice !== null,
         master_line_total: Number(row.master_line_total || 0),
       });
     }
@@ -254,6 +269,17 @@ async function createForCityVendors({ clientId, items }) {
     const clientArea = String(clientRows[0] && clientRows[0].area ? clientRows[0].area : '').trim();
     if (!clientCity) {
       const error = new Error('Please update your profile city before sending a quotation');
+      error.status = 422;
+      throw error;
+    }
+const biddingSetting = await BiddingSetting.resolveForCity(clientCity, connection);
+    if (!biddingSetting.is_enabled) {
+      const error = new Error('Bidding is disabled for your city');
+      error.status = 422;
+      throw error;
+    }
+    if (!BiddingSetting.isWithinDailyWindow(biddingSetting)) {
+      const error = new Error(`Bidding is available between ${biddingSetting.daily_start_time} and ${biddingSetting.daily_end_time} in ${clientCity}`);
       error.status = 422;
       throw error;
     }
@@ -359,7 +385,7 @@ async function createForCityVendors({ clientId, items }) {
       }
 
       const totalAmount = categoryGroup.items.reduce((sum, item) => sum + item.expectedPrice * item.quantity, 0);
-      const expiryMinutes = await quotationSubmissionMinutes(connection);
+      const expiryMinutes = await quotationSubmissionMinutes(connection, clientCity);
       const expiresAt = quotationExpiryFromNow(expiryMinutes);
       const [requestResult] = await connection.query(
         'INSERT INTO quotation_requests (client_id, client_city, total_amount, status, expires_at) VALUES (?, ?, ?, ?, ?)',
@@ -429,12 +455,13 @@ async function createForCityVendors({ clientId, items }) {
   }
 }
 
-async function listForVendor(vendorId, { categoryId } = {}) {
-  const where = [
-    'qvr.vendor_id = ?',
-    "qr.status = 'pending'",
-    "qvr.status IN ('new', 'seen', 'submitted')",
-  ];
+async function listForVendor(vendorId, { categoryId, includeAll = false } = {}) {
+  await closeExpiredQuotations();
+  const where = ['qvr.vendor_id = ?'];
+  if (!includeAll) {
+    where.push("qr.status = 'pending'");
+    where.push("qvr.status IN ('new', 'seen', 'submitted')");
+  }
   const params = [vendorId];
   const normalizedCategoryId = Number(categoryId || 0);
   if (normalizedCategoryId > 0) {
@@ -455,7 +482,29 @@ async function listForVendor(vendorId, { categoryId } = {}) {
             CASE WHEN qr.expires_at IS NULL OR qr.expires_at > CURRENT_TIMESTAMP THEN 1 ELSE 0 END AS bid_editable,
             qvr.status AS recipient_status,
             CASE WHEN qvr.status IN ('submitted', 'accepted') THEN qvr.total_amount ELSE 0 END AS response_total,
+            CASE WHEN qvr.status IN ('submitted', 'accepted') AND qvr.total_amount > 0 THEN qvr.total_amount ELSE NULL END AS vendor_bid_amount,
             bid_totals.min_bid_price,
+            bid_totals.min_bid_price AS current_min_bid,
+            CASE
+              WHEN qvr.status IN ('submitted', 'accepted')
+               AND qvr.total_amount > 0
+               AND bid_totals.min_bid_price IS NOT NULL
+               AND qvr.total_amount <= bid_totals.min_bid_price + 0.005 THEN 1
+              ELSE 0
+            END AS is_winning_bid,
+            CASE
+              WHEN qr.status = 'cancelled' OR qvr.status = 'cancelled' THEN 'Cancelled'
+              WHEN qvr.status = 'accepted' THEN 'Awarded'
+              WHEN qr.status = 'accepted' AND qvr.status <> 'accepted' THEN 'Missed'
+              WHEN qr.status <> 'pending' AND qvr.status <> 'accepted' THEN 'Cancelled'
+              WHEN (qr.expires_at IS NOT NULL AND qr.expires_at <= CURRENT_TIMESTAMP) AND qvr.status NOT IN ('submitted', 'accepted') THEN 'Expired'
+              WHEN qvr.status IN ('submitted', 'accepted') AND qvr.total_amount > 0
+               AND bid_totals.min_bid_price IS NOT NULL
+               AND qvr.total_amount <= bid_totals.min_bid_price + 0.005 THEN 'Winning'
+              WHEN qvr.status IN ('submitted', 'accepted') AND qvr.total_amount > 0 THEN 'Outbid'
+              ELSE 'Pending'
+            END AS bid_status,
+            CASE WHEN qvr.status = 'accepted' THEN 1 ELSE 0 END AS awarded_to_vendor,
             qvr.discount_percent,
             qvr.updated_at AS bid_updated_at,
             u.name AS client_name,
@@ -476,6 +525,8 @@ async function listForVendor(vendorId, { categoryId } = {}) {
             CASE WHEN vp.id IS NULL THEN 0 ELSE 1 END AS in_catalog,
             COALESCE(qvri.unit_price, p.price, qri.expected_price) AS unit_price,
             qvri.line_total,
+            qvri.unit_price AS bid_unit_price,
+            qvri.line_total AS bid_line_total,
             p.price AS default_vendor_price,
             vp.quantity AS stock,
             vp.status AS vendor_product_status
@@ -523,7 +574,6 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
       throw error;
     }
     const recipient = recipientRows[0];
-    const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
     if (!['new', 'seen', 'submitted'].includes(recipient.status)) {
       const error = new Error('Quotation request cannot be edited');
       error.status = 422;
@@ -565,25 +615,33 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
       const unitPrice = Math.max(0, Number(submitted.unit_price || submitted.price || existing.admin_price || 0));
       const adminPrice = Number(existing.admin_price || 0);
       if (status === 'available' && unitPrice > adminPrice + 0.005) {
-        const error = new Error(`Bid amount for ${existing.product_name} cannot be higher than admin MRP INR ${adminPrice.toFixed(2)}`);
+        const error = new Error(`Bid amount for ${existing.product_name} cannot be higher than MRP INR ${adminPrice.toFixed(2)}`);
         error.status = 422;
         throw error;
       }
       const lineTotal = status === 'available' ? quantity * unitPrice : 0;
       total += lineTotal;
 
-      await connection.query(
-        `INSERT INTO quotation_vendor_response_items
-         (quotation_vendor_recipient_id, quotation_request_item_id, product_name, quantity, status, unit_price, line_total)
-         VALUES (?, ?, ?, ?, ?, ?, ?)
-         ON CONFLICT (quotation_vendor_recipient_id, quotation_request_item_id) DO UPDATE
-         SET product_name = EXCLUDED.product_name,
-             quantity = EXCLUDED.quantity,
-             status = EXCLUDED.status,
-             unit_price = EXCLUDED.unit_price,
-             line_total = EXCLUDED.line_total`,
-        [recipientId, itemId, existing.product_name, quantity, status, unitPrice, lineTotal]
+      const [updateResult] = await connection.query(
+        `UPDATE quotation_vendor_response_items
+         SET product_name = ?,
+             quantity = ?,
+             status = ?,
+             unit_price = ?,
+             line_total = ?
+         WHERE quotation_vendor_recipient_id = ?
+           AND quotation_request_item_id = ?`,
+        [existing.product_name, quantity, status, unitPrice, lineTotal, recipientId, itemId]
       );
+      const updatedRows = Number(updateResult.affectedRows ?? updateResult.rowCount ?? 0);
+      if (!updatedRows) {
+        await connection.query(
+          `INSERT INTO quotation_vendor_response_items
+           (quotation_vendor_recipient_id, quotation_request_item_id, product_name, quantity, status, unit_price, line_total)
+           VALUES (?, ?, ?, ?, ?, ?, ?)`,
+          [recipientId, itemId, existing.product_name, quantity, status, unitPrice, lineTotal]
+        );
+      }
     }
 
     const discount = Math.min(Math.max(Number(discountPercent || 0), 0), 100);
@@ -640,6 +698,7 @@ async function rejectVendorRequest({ recipientId, vendorId }) {
 }
 
 async function listForClient(clientId) {
+  await closeExpiredQuotations();
   const [rows] = await pool.query(
     `SELECT qr.id,
             qvr.id AS recipient_id,
@@ -679,6 +738,8 @@ async function listForClient(clientId) {
             1 AS in_catalog,
             qvri.unit_price,
             qvri.line_total,
+            qvri.unit_price AS bid_unit_price,
+            qvri.line_total AS bid_line_total,
             qri.quantity AS requested_quantity,
             qri.quantity * p.price AS master_line_total,
             vprod.quantity AS stock,
@@ -750,6 +811,7 @@ async function listForClient(clientId) {
 }
 
 async function decideClientResponse({ recipientId, clientId, decision, couponCode = '', paymentMethod = 'wallet' }) {
+  await closeExpiredQuotations();
   const connection = await pool.getConnection();
 
   try {
@@ -767,6 +829,11 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       error.status = 404;
       throw error;
     }
+    if (recipientRows[0].expires_at && new Date(recipientRows[0].expires_at).getTime() <= Date.now()) {
+      const error = new Error('Quotation bidding timer has expired');
+      error.status = 422;
+      throw error;
+    }
 
     if (decision === 'rejected') {
       await connection.query(
@@ -774,10 +841,33 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
         [recipientId]
       );
       await connection.commit();
-      return { status: 'rejected' };
+      return {
+        status: 'rejected',
+        quotationId: recipientRows[0].quotation_request_id,
+        recipientId,
+        vendorId: recipientRows[0].vendor_id,
+      };
     }
 
-    const recipient = recipientRows[0];
+    const [lowestRows] = await connection.query(
+      `SELECT qvr.*
+       FROM quotation_vendor_recipients qvr
+       WHERE qvr.quotation_request_id = ?
+         AND qvr.status = 'submitted'
+         AND qvr.total_amount > 0
+       ORDER BY qvr.total_amount ASC, qvr.updated_at ASC, qvr.id ASC
+       LIMIT 1
+       FOR UPDATE`,
+      [recipientRows[0].quotation_request_id]
+    );
+    const recipient = lowestRows[0];
+    if (!recipient) {
+      const error = new Error('No valid vendor bid found for this quotation');
+      error.status = 422;
+      throw error;
+    }
+    recipientId = Number(recipient.id);
+    const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
     const [items] = await connection.query(
       `SELECT qvri.*, qri.product_id, vp.id AS vendor_product_id, vp.quantity AS stock, vp.status AS vendor_product_status,
               p.weight_kg,
@@ -1040,7 +1130,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       });
     }
 
-    return { status: 'accepted', orderId, orderNumber, vendorId: recipient.vendor_id, totalAmount, paymentMethod: normalizedPaymentMethod, deliveryOffer };
+    return { status: 'accepted', quotationId: recipient.quotation_request_id, recipientId, orderId, orderNumber, vendorId: recipient.vendor_id, totalAmount, paymentMethod: normalizedPaymentMethod, deliveryOffer };
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -1049,6 +1139,32 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
   }
 }
 
+async function closeExpiredQuotations(connection = pool) {
+  const [expiredRows] = await connection.query(
+    `SELECT id FROM quotation_requests
+     WHERE status = 'pending'
+       AND expires_at IS NOT NULL
+       AND expires_at <= CURRENT_TIMESTAMP`
+  );
+  if (!expiredRows.length) return [];
+  const ids = expiredRows.map((row) => Number(row.id || 0)).filter(Boolean);
+  if (!ids.length) return [];
+  const placeholders = ids.map(() => '?').join(',');
+  await connection.query(
+    `UPDATE quotation_requests
+     SET status = 'closed', updated_at = CURRENT_TIMESTAMP
+     WHERE id IN (${placeholders}) AND status = 'pending'`,
+    ids
+  );
+  await connection.query(
+    `UPDATE quotation_vendor_recipients
+     SET decided_at = COALESCE(decided_at, CURRENT_TIMESTAMP)
+     WHERE quotation_request_id IN (${placeholders})
+       AND status IN ('new', 'seen', 'submitted')`,
+    ids
+  );
+  return ids.map((id) => ({ id }));
+}
 async function pendingCountForVendor(vendorId) {
   const [rows] = await pool.query(
     `SELECT COUNT(*) AS total
@@ -1077,4 +1193,12 @@ module.exports = {
   decideClientResponse,
   pendingCountForVendor,
   markSeenForVendor,
+  closeExpiredQuotations,
 };
+
+
+
+
+
+
+

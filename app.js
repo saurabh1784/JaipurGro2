@@ -46,6 +46,7 @@ const DeliveryPerson = require('./models/DeliveryPerson');
 const Catalog = require('./models/Catalog');
 const CommissionSetting = require('./models/CommissionSetting');
 const LocationCommissionSetting = require('./models/LocationCommissionSetting');
+const BiddingSetting = require('./models/BiddingSetting');
 const ProductSearch = require('./models/ProductSearch');
 const Promotion = require('./models/Promotion');
 const Advertisement = require('./models/Advertisement');
@@ -696,6 +697,34 @@ async function notifyClientBidUpdate(response) {
       `/client/quotations?recipient_id=${response.recipientId}`,
     ]
   );
+}
+
+async function notifyClientBidUpdateSafe(response) {
+  try {
+    await notifyClientBidUpdate(response);
+  } catch (error) {
+    console.warn('Quotation bid notification failed:', error);
+  }
+}
+
+async function notifyQuotationParticipantsSafe(response) {
+  try {
+    if (!response || !response.quotationId) return;
+    const [rows] = await pool.query(
+      'SELECT vendor_id FROM quotation_vendor_recipients WHERE quotation_request_id = ?',
+      [response.quotationId]
+    );
+    const vendorIds = rows.map((row) => Number(row.vendor_id || 0)).filter(Boolean);
+    vendorNotifications.notifyVendors(vendorIds, {
+      type: 'quotation',
+      id: response.quotationId,
+      recipientId: response.recipientId,
+      title: 'Quotation bid updated',
+      message: 'Quotation bid status updated',
+    });
+  } catch (error) {
+    console.warn('Quotation participant notification failed:', error);
+  }
 }
 
 function slugify(value) {
@@ -2090,6 +2119,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('area_definitions', 'delivery_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER order_commission_percentage');
   await addColumnIfMissing('area_definitions', 'cod_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER delivery_commission_percentage');
   await LocationCommissionSetting.ensureTable(pool);
+  await BiddingSetting.ensureTable(pool);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS delivery_type_area_settings (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -2258,6 +2288,10 @@ async function initDatabase(options = {}) {
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
   await addColumnIfMissing('quotation_vendor_response_items', 'status', "VARCHAR(20) NOT NULL DEFAULT 'available' AFTER quantity");
+  await pool.query(`
+    CREATE UNIQUE INDEX IF NOT EXISTS uniq_quote_response_item
+    ON quotation_vendor_response_items (quotation_vendor_recipient_id, quotation_request_item_id)
+  `);
 
   await saveSetting('quotation_submission_minutes', await settingValue('quotation_submission_minutes', '1440'));
 
@@ -3500,7 +3534,8 @@ app.get('/vendor/quotations', requireSessionRole('Vendor', '/login/vendor'), asy
     const selectedCategoryId = Number(req.query.category_id || req.query.categoryId || 0) || 0;
     const categoriesByVendor = await Vendor.assignedCategories([vendorId]);
     const vendorCategories = categoriesByVendor.get(Number(vendorId)) || [];
-    const allQuotations = await Quotation.listForVendor(vendorId);
+    const includeAllQuotations = ['all', 'participated', 'history', 'my'].includes(String(req.query.scope || '').toLowerCase()) || ['1', 'true', 'yes'].includes(String(req.query.all || '').toLowerCase()) || ['1', 'true', 'yes'].includes(String(req.query.my || '').toLowerCase()) || String(req.query.status || '').toLowerCase() === 'all';
+    const allQuotations = await Quotation.listForVendor(vendorId, { includeAll: includeAllQuotations });
     const categoryCounts = allQuotations.reduce((counts, quotation) => {
       if (!['new', 'seen'].includes(quotation.recipient_status)) return counts;
       const categoryId = Number(quotation.category_id || 0);
@@ -3508,7 +3543,7 @@ app.get('/vendor/quotations', requireSessionRole('Vendor', '/login/vendor'), asy
       return counts;
     }, {});
     const quotations = selectedCategoryId > 0
-      ? await Quotation.listForVendor(vendorId, { categoryId: selectedCategoryId })
+      ? await Quotation.listForVendor(vendorId, { categoryId: selectedCategoryId, includeAll: includeAllQuotations })
       : allQuotations;
     console.log(`[quotation] vendor ${vendorId} loaded ${quotations.length} quotation request(s)`);
 
@@ -3570,13 +3605,14 @@ app.post('/vendor/quotations/:recipientId/submit', requireSessionRole('Vendor', 
       items: req.body.items || [],
       discountPercent: req.body.discount_percent,
     });
-    await notifyClientBidUpdate(response);
+    await notifyClientBidUpdateSafe(response);
+    await notifyQuotationParticipantsSafe(response);
     return res.json({ success: true, message: response.isUpdate ? 'Quotation bid updated' : 'Quotation submitted to client', response });
   } catch (error) {
     console.error('Vendor quotation submit error:', error);
     return res.status(error.status || 500).json({
       success: false,
-      message: error.status ? error.message : 'Unable to submit quotation',
+      message: error.message || 'Unable to submit quotation',
     });
   }
 });
@@ -3777,7 +3813,8 @@ app.get('/api/vendor/quotations', webOrJwtAuth, requireAuthRole('Vendor'), async
     const selectedCategoryId = Number(req.query.category_id || req.query.categoryId || 0) || 0;
     const categoriesByVendor = await Vendor.assignedCategories([vendorId]);
     const vendorCategories = categoriesByVendor.get(Number(vendorId)) || [];
-    const allQuotations = await Quotation.listForVendor(vendorId);
+    const includeAllQuotations = ['all', 'participated', 'history', 'my'].includes(String(req.query.scope || '').toLowerCase()) || ['1', 'true', 'yes'].includes(String(req.query.all || '').toLowerCase()) || ['1', 'true', 'yes'].includes(String(req.query.my || '').toLowerCase()) || String(req.query.status || '').toLowerCase() === 'all';
+    const allQuotations = await Quotation.listForVendor(vendorId, { includeAll: includeAllQuotations });
     const categoryCounts = allQuotations.reduce((counts, quotation) => {
       if (!['new', 'seen'].includes(quotation.recipient_status)) return counts;
       const categoryId = Number(quotation.category_id || 0);
@@ -3785,7 +3822,7 @@ app.get('/api/vendor/quotations', webOrJwtAuth, requireAuthRole('Vendor'), async
       return counts;
     }, {});
     const quotations = selectedCategoryId > 0
-      ? await Quotation.listForVendor(vendorId, { categoryId: selectedCategoryId })
+      ? await Quotation.listForVendor(vendorId, { categoryId: selectedCategoryId, includeAll: includeAllQuotations })
       : allQuotations;
     if (req.query.peek !== '1') {
       await Quotation.markSeenForVendor(vendorId);
@@ -3826,13 +3863,14 @@ app.post('/api/vendor/quotations/:recipientId/submit', webOrJwtAuth, requireAuth
       items: req.body.items || [],
       discountPercent: req.body.discount_percent,
     });
-    await notifyClientBidUpdate(response);
+    await notifyClientBidUpdateSafe(response);
+    await notifyQuotationParticipantsSafe(response);
     return res.json({ success: true, message: response.isUpdate ? 'Quotation bid updated' : 'Quotation submitted to client', response });
   } catch (error) {
     console.error('Vendor quotation API submit error:', error);
     return res.status(error.status || 500).json({
       success: false,
-      message: error.status ? error.message : 'Unable to submit quotation',
+      message: error.message || 'Unable to submit quotation',
     });
   }
 });
@@ -3869,6 +3907,7 @@ app.post('/client/quotations/:recipientId/:decision', requireSessionRole('Client
       couponCode: req.body.coupon_code,
       paymentMethod: req.body.payment_method || req.body.paymentMethod,
     });
+    await notifyQuotationParticipantsSafe(result);
     if (decision === 'accepted' && result.vendorId) {
       vendorNotifications.notifyVendor(result.vendorId, {
         type: 'order',
@@ -3907,6 +3946,7 @@ app.post('/api/client/quotations/:recipientId/:decision', webOrJwtAuth, requireA
       couponCode: req.body.coupon_code,
       paymentMethod: req.body.payment_method || req.body.paymentMethod,
     });
+    await notifyQuotationParticipantsSafe(result);
     if (decision === 'accepted' && result.vendorId) {
       vendorNotifications.notifyVendor(result.vendorId, {
         type: 'order',
@@ -4275,7 +4315,8 @@ async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot,
 
   const city = String(addressSnapshot.shippingCity || client.city || '').trim();
   const area = String(addressSnapshot.shippingArea || client.area || addressSnapshot.shippingPincode || '').trim();
-  const lockSql = lockStock ? 'FOR UPDATE' : '';
+  const lockSql = '';
+  const lockExistingStockSql = lockStock ? 'FOR UPDATE' : '';
   const [rows] = await connection.query(
     `SELECT vp.id, p.id AS product_id, vprof.user_id AS vendor_id,
             COALESCE(vp.quantity, 0) AS quantity,
@@ -4328,10 +4369,25 @@ async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot,
     return Number(left.premium_commission_percent || 0) - Number(right.premium_commission_percent || 0) || Number(left.vendor_id || 0) - Number(right.vendor_id || 0);
   });
 
-  const stocked = matchingRows.find((row) => Number(row.id || 0) > 0
+  const stockedCandidates = matchingRows.filter((row) => Number(row.id || 0) > 0
     && String(row.vendor_product_status || '').toLowerCase() === 'active'
     && Number(row.quantity || 0) >= quantity);
-  if (stocked) return stocked;
+  for (const stocked of stockedCandidates) {
+    if (!lockStock) return stocked;
+    const [lockedRows] = await connection.query(
+      `SELECT quantity
+       FROM vendor_products
+       WHERE id = ?
+         AND status = 'active'
+         AND quantity >= ?
+       LIMIT 1
+       ${lockExistingStockSql}`,
+      [stocked.id, quantity]
+    );
+    if (lockedRows.length) {
+      return { ...stocked, quantity: Number(lockedRows[0].quantity || stocked.quantity || 0) };
+    }
+  }
 
   const candidate = matchingRows[0];
   const startingQuantity = Math.max(quantity, 10);
@@ -4399,9 +4455,11 @@ async function resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryO
     })),
   }, connection);
 
+  const areaDeliveryCharge = money(areaPricing.delivery_charge);
+  const calculatedDeliveryCharge = money(delivery.delivery_charge);
   const deliveryCharge = deliveryOptions.selected_type === 'counter_pickup'
     ? 0
-    : money(areaPricing.delivery_charge !== null ? areaPricing.delivery_charge : delivery.delivery_charge);
+    : (areaDeliveryCharge > 0 ? areaDeliveryCharge : calculatedDeliveryCharge);
   const platformFee = money(areaPricing.platform_fee);
   const locationCommission = await LocationCommissionSetting.resolveForLocation({
     city: addressSnapshot.shippingCity || areaPricing.city || vendorOrder.city || '',
@@ -4726,9 +4784,9 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
     const pricing = await resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection });
     const vendorDeliveryCharge = pricing.deliveryCharge;
     const itemPayable = Math.max(vendorOrder.subtotal - vendorDiscount, 0);
-    const orderCommissionPercentage = money(vendorOrder.premiumCommissionPercent ?? pricing.orderCommissionPercentage);
+    const orderCommissionPercentage = money(pricing.orderCommissionPercentage);
     const vendorPlatformFee = money((itemPayable * orderCommissionPercentage) / 100);
-    const vendorTotal = itemPayable + vendorDeliveryCharge + vendorPlatformFee;
+    const vendorTotal = itemPayable + vendorDeliveryCharge;
     discountAmount += vendorDiscount;
     deliveryCharge += vendorDeliveryCharge;
     totalAmount += vendorTotal;
@@ -4747,7 +4805,8 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
       vendor_rating: await Rating.summary('vendor', vendorId, connection),
       subtotal_amount: Number(vendorOrder.subtotal.toFixed(2)),
       discount_amount: Number(vendorDiscount.toFixed(2)),
-      platform_fee: Number(vendorPlatformFee.toFixed(2)),
+      platform_fee: 0,
+      order_commission_amount: Number(vendorPlatformFee.toFixed(2)),
       delivery_charge: Number(vendorDeliveryCharge.toFixed(2)),
       delivery_type: deliveryOptions.selected_type,
       delivery_method: deliveryOptions.selected_method,
@@ -4773,7 +4832,8 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
     discount_amount: Number(discountAmount.toFixed(2)),
     savings_amount: Number(discountAmount.toFixed(2)),
     delivery_charge: Number(deliveryCharge.toFixed(2)),
-    platform_fee: Number(vendorBreakdown.reduce((sum, vendor) => sum + Number(vendor.platform_fee || 0), 0).toFixed(2)),
+    platform_fee: 0,
+    order_commission_amount: Number(vendorBreakdown.reduce((sum, vendor) => sum + Number(vendor.order_commission_amount || 0), 0).toFixed(2)),
     total_amount: Number(totalAmount.toFixed(2)),
     address: {
       id: addressSnapshot.shippingAddressId,
@@ -4969,11 +5029,11 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         const pricing = await resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryOptions, connection });
         const deliveryCharge = pricing.deliveryCharge;
         const itemPayable = Math.max(vendorSubtotal - vendorDiscount, 0);
-        const premiumOrderCommissionPercentage = money(vendorOrder.premiumCommissionPercent ?? pricing.orderCommissionPercentage);
+        const premiumOrderCommissionPercentage = money(pricing.orderCommissionPercentage);
         const orderCommissionAmount = money((itemPayable * premiumOrderCommissionPercentage) / 100);
-        const platformFee = orderCommissionAmount;
+        const platformFee = 0;
         const deliveryCommissionAmount = money((deliveryCharge * pricing.deliveryCommissionPercentage) / 100);
-        const vendorTotal = itemPayable + deliveryCharge + platformFee;
+        const vendorTotal = itemPayable + deliveryCharge;
         vendorPromotions.set(vendorId, {
           promotion,
           vendorDiscount,
@@ -6071,6 +6131,7 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
     'google_maps_default_destination',
   ]);
   const quotationSubmissionMinutes = Number(await settingValue('quotation_submission_minutes', '1440')) || 1440;
+  const biddingSettings = await BiddingSetting.list();
   const invoiceSettings = await getInvoiceSettings();
   const canRunMaintenance = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
   const canManageCommissions = canRunMaintenance;
@@ -6099,6 +6160,7 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
         maintenanceMode: false,
         quotationSubmissionMinutes,
       },
+      bidding: { settings: biddingSettings },
       email: {
         mailDriver: 'SMTP',
         host: 'smtp.example.com',
@@ -6874,8 +6936,36 @@ app.delete('/settings/delivery-partners/:id', requireAuth, requirePermission('se
 });
 
 app.get('/settings/catalog-tree', requireAuth, requirePermission('settings.manage'), catalogController.tree);
+app.get('/settings/bidding', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    return res.json({ success: true, settings: await BiddingSetting.list() });
+  } catch (error) {
+    console.error('Bidding settings load error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load bidding settings' });
+  }
+});
+async function saveBiddingSettingsRoute(req, res) {
+  try {
+    const entries = Array.isArray(req.body.settings) ? req.body.settings : [req.body];
+    for (const entry of entries) await BiddingSetting.saveOne(entry);
+    return res.json({ success: true, message: 'Bidding settings saved', settings: await BiddingSetting.list() });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save bidding settings' });
+  }
+}
+app.post('/settings/bidding', requireAuth, requirePermission('settings.manage'), saveBiddingSettingsRoute);
+app.put('/settings/bidding', requireAuth, requirePermission('settings.manage'), saveBiddingSettingsRoute);
+app.delete('/settings/bidding/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    await BiddingSetting.remove(req.params.id);
+    return res.json({ success: true, message: 'Bidding setting deleted', settings: await BiddingSetting.list() });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to delete bidding setting' });
+  }
+});
 app.get('/settings/commissions', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.list);
 app.put('/settings/commissions', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.update);
+app.patch('/settings/commissions/location/:id/status', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.setLocationActive);
 app.delete('/settings/commissions/location/:id', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.removeLocation);
 app.post('/settings/commissions/calculate', requireAuth, requirePermission('settings.manage'), requireAdminCommission, commissionController.calculate);
 app.post('/settings/categories', requireAuth, requirePermission('settings.manage'), uploadCategoryIcon.single('icon'), handleCategoryIconUploadError, catalogController.createCategory);
@@ -7122,6 +7212,15 @@ initDatabase()
     }, 15000);
     deliveryOfferTimer.unref();
 
+    const quotationExpiryTimer = setInterval(() => {
+      Quotation.closeExpiredQuotations().then((closed) => {
+        for (const quotation of closed || []) notifyQuotationParticipantsSafe({ quotationId: quotation.id });
+      }).catch((error) => {
+        console.error('Quotation expiry close error:', error);
+      });
+    }, 15000);
+    quotationExpiryTimer.unref();
+
     server.on('error', (error) => {
       if (error.code === 'EADDRINUSE') {
         console.error(`Port ${port} is already in use. Stop the existing server or start this app with a different PORT.`);
@@ -7139,6 +7238,14 @@ initDatabase()
     }
     process.exit(1);
   });
+
+
+
+
+
+
+
+
 
 
 
