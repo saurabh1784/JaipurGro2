@@ -131,9 +131,9 @@ async function list(filters = {}) {
   const where = conditions.join(' AND ');
   const fromSql = `
      FROM products p
-     INNER JOIN categories c ON c.id = p.category_id
-     INNER JOIN sub_categories s ON s.id = p.sub_category_id
-     INNER JOIN brands b ON b.id = p.brand_id`;
+     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN sub_categories s ON s.id = p.sub_category_id
+     LEFT JOIN brands b ON b.id = p.brand_id`;
   const [countRows] = await pool.query(`SELECT COUNT(*) AS total ${fromSql} WHERE ${where}`, params);
   const total = countRows[0].total;
   const [rows] = await pool.query(
@@ -174,15 +174,53 @@ async function findById(id) {
             COALESCE(sp.priority_order, 0) AS sponsored_priority,
             COALESCE(STRING_AGG(DISTINCT pk.keyword, ', '), '') AS keywords
      FROM products p
-     INNER JOIN categories c ON c.id = p.category_id
-     INNER JOIN sub_categories s ON s.id = p.sub_category_id
-     INNER JOIN brands b ON b.id = p.brand_id
+     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN sub_categories s ON s.id = p.sub_category_id
+     LEFT JOIN brands b ON b.id = p.brand_id
      LEFT JOIN sponsored_products sp ON sp.product_id = p.id
      LEFT JOIN product_keywords pk ON pk.product_id = p.id
      WHERE p.id = ? AND p.is_deleted = 0
      GROUP BY p.id, c.name, c.tax_name, c.tax_percentage, s.name, s.image_path, b.name, b.logo_path, sp.is_sponsored, sp.priority_order
      LIMIT 1`,
     [id]
+  );
+  return rows[0] ? normalizeProduct(rows[0]) : null;
+}
+
+async function findByIdOrSku(identifier) {
+  if (identifier === null || identifier === undefined) return null;
+  const str = String(identifier).trim();
+  if (!str) return null;
+
+  const matches = str.match(/\d+/);
+  const numId = matches ? parseInt(matches[0], 10) : parseInt(str, 10);
+  if (Number.isFinite(numId) && numId > 0) {
+    const product = await findById(numId);
+    if (product) return product;
+  }
+
+  return findByName(str);
+}
+
+async function findByName(name) {
+  if (!name || !String(name).trim()) return null;
+  const cleanName = String(name).trim();
+  const [rows] = await pool.query(
+    `SELECT p.*, c.name AS category_name, c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
+            s.name AS sub_category_name, s.image_path AS sub_category_image_path, b.name AS brand_name, b.logo_path AS brand_logo_path,
+            COALESCE(sp.is_sponsored, 0) AS is_sponsored,
+            COALESCE(sp.priority_order, 0) AS sponsored_priority,
+            COALESCE(STRING_AGG(DISTINCT pk.keyword, ', '), '') AS keywords
+     FROM products p
+     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN sub_categories s ON s.id = p.sub_category_id
+     LEFT JOIN brands b ON b.id = p.brand_id
+     LEFT JOIN sponsored_products sp ON sp.product_id = p.id
+     LEFT JOIN product_keywords pk ON pk.product_id = p.id
+     WHERE LOWER(TRIM(p.name)) = LOWER(TRIM(?)) AND p.is_deleted = 0
+     GROUP BY p.id, c.name, c.tax_name, c.tax_percentage, s.name, s.image_path, b.name, b.logo_path, sp.is_sponsored, sp.priority_order
+     LIMIT 1`,
+    [cleanName]
   );
   return rows[0] ? normalizeProduct(rows[0]) : null;
 }
@@ -362,6 +400,8 @@ module.exports = {
    list,
    listForImageTemplate,
    findById,
+   findByIdOrSku,
+   findByName,
    create,
    findDuplicate,
    update,

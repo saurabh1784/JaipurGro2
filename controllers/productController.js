@@ -623,23 +623,43 @@ async function bulkImageUpload(req, res) {
   for (let index = 0; index < rows.length; index += 1) {
     const rowNumber = index + 2;
     const rowData = normalizeRowForClient(rows[index]);
-    const identifier = String(getCell(rows[index], ['product id or sku', 'product id', 'sku', 'id', 'product_id'])).trim();
+
+    const rawIdentifier = getCell(rows[index], ['product id or sku', 'product id', 'sku', 'id', 'product_id', 'code', 'product code']);
+    const identifier = rawIdentifier !== null && rawIdentifier !== undefined ? String(rawIdentifier).trim() : '';
+
+    const rawName = getCell(rows[index], ['product name', 'name', 'product_name']);
+    const productName = rawName !== null && rawName !== undefined ? String(rawName).trim() : '';
+
     const sourceUrl = String(getCell(rows[index], ['image url', 'image_url', 'url'])).trim();
 
-    if (!identifier) {
-      result.skipped_or_duplicates.push({ rowNumber, reason: 'Product ID or SKU is empty', row: rowData });
+    if (!identifier && !productName) {
+      result.skipped_or_duplicates.push({
+        rowNumber,
+        reason: 'Product ID/SKU and Product Name are both missing or empty',
+        row: rowData,
+      });
       continue;
     }
-    const productId = normalizeId(identifier);
-    const productKey = productId ? `id:${productId}` : `sku:${identifier.toLowerCase()}`;
-    if (seenProductKeys.has(productKey)) {
-      result.skipped_or_duplicates.push({ rowNumber, identifier, reason: 'Duplicate product record in upload file', row: rowData });
+
+    const lookupKey = identifier ? identifier.toLowerCase() : `name:${productName.toLowerCase()}`;
+    if (seenProductKeys.has(lookupKey)) {
+      result.skipped_or_duplicates.push({
+        rowNumber,
+        identifier: identifier || productName,
+        reason: `Duplicate product record '${identifier || productName}' in upload file`,
+        row: rowData,
+      });
       continue;
     }
-    seenProductKeys.add(productKey);
+    seenProductKeys.add(lookupKey);
 
     if (!sourceUrl) {
-      result.skipped_or_duplicates.push({ rowNumber, identifier, reason: 'Image URL is empty', row: rowData });
+      result.skipped_or_duplicates.push({
+        rowNumber,
+        identifier: identifier || productName,
+        reason: 'Image URL is missing or empty',
+        row: rowData,
+      });
       continue;
     }
 
@@ -647,22 +667,40 @@ async function bulkImageUpload(req, res) {
     try {
       parsedUrl = new URL(sourceUrl);
     } catch (error) {
-      result.invalid_image_urls.push({ rowNumber, identifier, image_url: sourceUrl, reason: 'Invalid URL format', row: rowData });
+      result.invalid_image_urls.push({
+        rowNumber,
+        identifier: identifier || productName,
+        image_url: sourceUrl,
+        reason: `Invalid image URL format: '${sourceUrl}'`,
+        row: rowData,
+      });
       continue;
     }
     if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
-      result.invalid_image_urls.push({ rowNumber, identifier, image_url: sourceUrl, reason: 'Only HTTP and HTTPS URLs are supported', row: rowData });
+      result.invalid_image_urls.push({
+        rowNumber,
+        identifier: identifier || productName,
+        image_url: sourceUrl,
+        reason: 'Only HTTP and HTTPS image URLs are supported',
+        row: rowData,
+      });
       continue;
     }
 
-    if (!productId) {
-      result.products_not_found.push({ rowNumber, identifier, reason: 'Product SKU lookup is not available for this catalog', row: rowData });
-      continue;
+    let product = null;
+    if (identifier) {
+      product = await Product.findByIdOrSku(identifier);
+    } else if (productName) {
+      product = await Product.findByName(productName);
     }
 
-    const product = await Product.findById(productId);
     if (!product) {
-      result.products_not_found.push({ rowNumber, identifier, reason: 'Product not found', row: rowData });
+      result.products_not_found.push({
+        rowNumber,
+        identifier: identifier || productName,
+        reason: `Product with ID/SKU '${identifier || productName}' does not exist in database`,
+        row: rowData,
+      });
       continue;
     }
 
@@ -682,7 +720,13 @@ async function bulkImageUpload(req, res) {
       });
     } catch (error) {
       const bucket = error.invalidImage ? result.invalid_image_urls : result.failed_downloads;
-      bucket.push({ rowNumber, identifier, image_url: sourceUrl, reason: error.message || 'Unable to download image', row: rowData });
+      bucket.push({
+        rowNumber,
+        identifier: identifier || productName,
+        image_url: sourceUrl,
+        reason: error.message || 'Failed to download or save image',
+        row: rowData,
+      });
     }
   }
 
