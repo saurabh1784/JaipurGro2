@@ -169,6 +169,16 @@ async function resetSequences(client, tableNames) {
   }
 }
 
+function formatParamValue(val) {
+  if (val === null || val === undefined) {
+    return null;
+  }
+  if (typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+    return JSON.stringify(val);
+  }
+  return val;
+}
+
 async function restoreSnapshot(db, snapshotFile, options = {}) {
   const resolvedFile = path.resolve(snapshotFile);
   const snapshot = JSON.parse(fs.readFileSync(resolvedFile, 'utf8'));
@@ -209,7 +219,8 @@ async function restoreSnapshot(db, snapshotFile, options = {}) {
         const insertSql = `INSERT INTO ${quoteIdent(table.name)} (${columnSql}) VALUES (${valueSql})`;
 
         for (const row of table.rows) {
-          await client.query(insertSql, columns.map((column) => row[column]));
+          const paramValues = columns.map((column) => formatParamValue(row[column]));
+          await client.query(insertSql, paramValues);
         }
       }
 
