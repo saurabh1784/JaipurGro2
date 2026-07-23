@@ -507,6 +507,8 @@ async function rejectProduct({ product_id, rejected_by, reason }) {
      WHERE id = ? AND is_deleted = 0`,
     [rejected_by || null, reason || null, product_id]
   );
+}
+
 const _visibleProductsCache = new Map();
 const VISIBLE_PRODUCTS_CACHE_TTL = 10000;
 
