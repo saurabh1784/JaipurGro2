@@ -377,20 +377,25 @@ async function syncRolesFromUsers() {
 }
 
 const userSeeds = [
-  { name: 'Super Admin', email: 'superadmin@example.com', password: 'admin123', role: 'superadmin' },
-  { name: 'Admin User', email: 'admin@example.com', password: 'admin123', role: 'admin' },
-  { name: 'API Admin', email: 'apiadmin@example.com', phone: '9000000000', password: 'admin123', role: 'Admin' },
-  { name: 'Grocery Vendor 1', email: 'vendor1@example.com', phone: '9000000101', password: 'admin123', role: 'Vendor', business_name: 'Grocery Fresh Store', categoryNames: ['Grocery'], serviceNames: ['Home Delivery', 'Counter Pickup'] },
-  { name: 'Stationery Vendor 2', email: 'vendor2@example.com', phone: '9000000102', password: 'admin123', role: 'Vendor', business_name: 'Stationery Point', categoryNames: ['Stationery'], serviceNames: ['Counter Pickup'] },
-  { name: 'Mixed Vendor 3', email: 'vendor3@example.com', phone: '9000000103', password: 'admin123', role: 'Vendor', business_name: 'Grocery Stationery Hub', categoryNames: ['Grocery', 'Stationery', 'Pet Care'], serviceNames: ['Home Delivery', 'Counter Pickup', 'Wholesale Supply'] },
-  { name: 'Grocery Vendor 4', email: 'vendor4@example.com', phone: '9000000104', password: 'admin123', role: 'Vendor', business_name: 'Daily Grocery Mart', categoryNames: ['Grocery'], serviceNames: ['Home Delivery'] },
-  { name: 'Mixed Vendor 5', email: 'vendor5@example.com', phone: '9000000105', password: 'admin123', role: 'Vendor', business_name: 'Wholesale Supply Center', categoryNames: ['Grocery', 'Stationery', 'Pet Care'], serviceNames: ['Home Delivery', 'Counter Pickup', 'Wholesale Supply'] },
-  { name: 'Demo Client', email: 'client@example.com', phone: '9000000002', password: 'admin123', role: 'Client' },
-  { name: 'Store Manager', email: 'manager@example.com', password: 'admin123', role: 'manager' },
-  { name: 'Order Staff', email: 'staff@example.com', password: 'admin123', role: 'staff' },
-  { name: 'Santosh Nayak', email: 'delivery@example.com', phone: '9000000003', password: 'admin123', role: 'deliveryPerson', city: 'Jaipur', area: '*', vehicle_type: 'Bike', vehicle_number: 'RJ14DP0003' },
-  { name: 'Delivery Partner One', email: 'delivery1@example.com', phone: '9000000004', password: 'admin123', role: 'deliveryPerson', city: 'Jaipur', area: 'Malviya Nagar', vehicle_type: 'Bike', vehicle_number: 'RJ14DP0001' },
-  { name: 'Delivery Partner Two', email: 'delivery2@example.com', phone: '9000000005', password: 'admin123', role: 'deliveryPerson', city: 'Jaipur', area: 'Vaishali Nagar', vehicle_type: 'Scooter', vehicle_number: 'RJ14DP0002' },
+  // 1 Super Admin
+  { name: 'Super Admin', email: 'superadmin@example.com', password: 'password', role: 'superadmin' },
+
+  // 1 Admin
+  { name: 'Admin User', email: 'admin@example.com', password: 'password', role: 'admin' },
+
+  // 5 Clients
+  { name: 'Client User 1', email: 'client1@example.com', phone: '9000000001', password: 'password', role: 'Client' },
+  { name: 'Client User 2', email: 'client2@example.com', phone: '9000000002', password: 'password', role: 'Client' },
+  { name: 'Client User 3', email: 'client3@example.com', phone: '9000000003', password: 'password', role: 'Client' },
+  { name: 'Client User 4', email: 'client4@example.com', phone: '9000000004', password: 'password', role: 'Client' },
+  { name: 'Client User 5', email: 'client5@example.com', phone: '9000000005', password: 'password', role: 'Client' },
+
+  // 5 Vendors
+  { name: 'Vendor 1', email: 'vendor1@example.com', phone: '9000000101', password: 'password', role: 'Vendor', business_name: 'Vendor Store 1' },
+  { name: 'Vendor 2', email: 'vendor2@example.com', phone: '9000000102', password: 'password', role: 'Vendor', business_name: 'Vendor Store 2' },
+  { name: 'Vendor 3', email: 'vendor3@example.com', phone: '9000000103', password: 'password', role: 'Vendor', business_name: 'Vendor Store 3' },
+  { name: 'Vendor 4', email: 'vendor4@example.com', phone: '9000000104', password: 'password', role: 'Vendor', business_name: 'Vendor Store 4' },
+  { name: 'Vendor 5', email: 'vendor5@example.com', phone: '9000000105', password: 'password', role: 'Vendor', business_name: 'Vendor Store 5' },
 ];
 
 app.set('view engine', 'ejs');
@@ -2321,8 +2326,6 @@ async function initDatabase(options = {}) {
 
   await saveSetting('quotation_submission_minutes', await settingValue('quotation_submission_minutes', '1440'));
 
-  await seedGroceryCatalog();
-
   const deletedSeedRoleSlugs = new Set(await deletedRoleSlugs());
   for (const role of roleSeeds) {
     if (deletedSeedRoleSlugs.has(role.slug)) continue;
@@ -2434,10 +2437,7 @@ async function initDatabase(options = {}) {
     }
   }
 
-  console.log('Database init: seeding defaults');
-  await backfillVendorMainCategories();
-  await seedIndianProducts();
-  await VendorProduct.ensureAllProductsForAllVendors();
+  console.log('Database init: seeding default accounts');
   await Wallet.ensureForAllUsers(pool);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS schema_sync_runs (
