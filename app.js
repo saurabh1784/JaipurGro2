@@ -2345,22 +2345,36 @@ async function initDatabase(options = {}) {
   await CommissionSetting.seedForRoles(pool);
 
   for (const seedUser of userSeeds) {
-    const [existingUsers] = await pool.query('SELECT id FROM users WHERE email = ?', [seedUser.email]);
+    const seedPhone = seedUser.phone ? String(seedUser.phone).trim() : null;
+    const [existingUsers] = seedPhone
+      ? await pool.query('SELECT id FROM users WHERE email = ? OR phone = ?', [seedUser.email, seedPhone])
+      : await pool.query('SELECT id FROM users WHERE email = ?', [seedUser.email]);
     let userId = existingUsers[0] && existingUsers[0].id;
 
+    const hashedPassword = await bcrypt.hash(seedUser.password, 10);
     if (!userId) {
-      const hashedPassword = await bcrypt.hash(seedUser.password, 10);
-      const [result] = await pool.query(
-        'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
-        [seedUser.name, seedUser.email, seedUser.phone || null, hashedPassword, seedUser.role, 'active']
-      );
-      userId = result.insertId;
-      console.log(`Seeded ${seedUser.role} account: ${seedUser.email} / ${seedUser.password}`);
+      try {
+        const [result] = await pool.query(
+          'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
+          [seedUser.name, seedUser.email, seedPhone, hashedPassword, seedUser.role, 'active']
+        );
+        userId = result.insertId;
+        console.log(`Seeded ${seedUser.role} account: ${seedUser.email} / ${seedUser.password}`);
+      } catch (err) {
+        if (err.code === '23505') {
+          const [result] = await pool.query(
+            'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, NULL, ?, ?, ?)',
+            [seedUser.name, seedUser.email, hashedPassword, seedUser.role, 'active']
+          );
+          userId = result.insertId;
+        } else {
+          throw err;
+        }
+      }
     } else {
-      const hashedPassword = await bcrypt.hash(seedUser.password, 10);
-      await pool.query('UPDATE users SET role = ?, phone = COALESCE(phone, ?), password = ?, status = ?, is_deleted = 0 WHERE id = ?', [
+      await pool.query('UPDATE users SET role = ?, name = ?, password = ?, status = ?, is_deleted = 0 WHERE id = ?', [
         seedUser.role,
-        seedUser.phone || null,
+        seedUser.name,
         hashedPassword,
         'active',
         userId,

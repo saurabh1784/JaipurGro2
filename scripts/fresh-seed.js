@@ -84,12 +84,27 @@ async function resetDatabase() {
   console.log('🌱 Seeding default 12 accounts (1 Super Admin, 1 Admin, 5 Clients, 5 Vendors) with password: password ...');
 
   for (const user of DEFAULT_USERS) {
+    const userPhone = user.phone ? String(user.phone).trim() : null;
     const hashedPassword = await bcrypt.hash(user.password, 10);
-    const [res] = await pool.query(
-      'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
-      [user.name, user.email, user.phone || null, hashedPassword, user.role, 'active']
-    );
-    const userId = res.insertId;
+    let userId = null;
+
+    try {
+      const [res] = await pool.query(
+        'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
+        [user.name, user.email, userPhone, hashedPassword, user.role, 'active']
+      );
+      userId = res.insertId;
+    } catch (err) {
+      if (err.code === '23505') {
+        const [res] = await pool.query(
+          'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, NULL, ?, ?, ?)',
+          [user.name, user.email, hashedPassword, user.role, 'active']
+        );
+        userId = res.insertId;
+      } else {
+        throw err;
+      }
+    }
 
     const [roleRows] = await pool.query('SELECT id FROM roles WHERE LOWER(slug) = LOWER(?)', [user.role]);
     if (roleRows.length > 0) {
