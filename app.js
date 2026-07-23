@@ -161,7 +161,7 @@ function listManualBackupFiles() {
 
 const uploadDatabaseBackup = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: 100 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     if (/\.json$/i.test(file.originalname || '') || file.mimetype === 'application/json') {
       return cb(null, true);
@@ -3586,12 +3586,17 @@ app.post('/admin/maintenance/restore-database-backup', requireAuth, requireAdmin
 });
 
 app.post('/admin/maintenance/restore-database-upload', requireAuth, requireAdminMaintenance, (req, res) => {
+  const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
   uploadDatabaseBackup.single('backup')(req, res, async (uploadError) => {
     if (uploadError) {
-      return res.redirect(`/settings?error=${encodeURIComponent(uploadError.message || 'Invalid backup upload.')}`);
+      const msg = uploadError.message || 'Invalid backup file upload.';
+      if (wantsJson) return res.status(400).json({ success: false, message: msg });
+      return res.redirect(`/settings?error=${encodeURIComponent(msg)}`);
     }
     if (!req.file) {
-      return res.redirect(`/settings?error=${encodeURIComponent('Choose a JSON backup file to restore.')}`);
+      const msg = 'Please choose a JSON database backup file from your computer.';
+      if (wantsJson) return res.status(400).json({ success: false, message: msg });
+      return res.redirect(`/settings?error=${encodeURIComponent(msg)}`);
     }
 
     try {
@@ -3599,17 +3604,42 @@ app.post('/admin/maintenance/restore-database-upload', requireAuth, requireAdmin
       const originalBase = path.basename(req.file.originalname || 'uploaded-backup.json').replace(/[^-\w.]+/g, '-');
       const safeOriginal = isSafeBackupFileName(originalBase) ? originalBase : 'uploaded-backup.json';
       const outputFile = path.join(manualBackupDir, `uploaded-${Date.now()}-${safeOriginal}`);
-      JSON.parse(req.file.buffer.toString('utf8'));
+
+      let parsedJson;
+      try {
+        parsedJson = JSON.parse(req.file.buffer.toString('utf8'));
+      } catch (jsonErr) {
+        throw new Error('The selected file is not a valid JSON document: ' + jsonErr.message);
+      }
+
+      if (!parsedJson || typeof parsedJson !== 'object' || !Array.isArray(parsedJson.tables)) {
+        throw new Error('Selected JSON file is missing the required "tables" database structure.');
+      }
+
       fs.writeFileSync(outputFile, req.file.buffer);
       const result = await restoreDatabaseBackupFromFile(outputFile);
-      const detail = `Database restored from uploaded backup ${path.basename(outputFile)} (${result.tables || 0} table(s)).`;
+      const detail = `Database restored successfully from "${req.file.originalname}" (${result.tables || 0} table(s) restored).`;
+
+      if (wantsJson) {
+        return res.json({
+          success: true,
+          message: detail,
+          tablesRestored: result.tables || 0,
+          hash: result.hash || '',
+          fileSaved: path.basename(outputFile),
+        });
+      }
       return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
     } catch (error) {
       console.error('Admin maintenance uploaded database restore failed:', error);
       const status = Number(error.status || 500);
       const message = status === 409
         ? 'Database maintenance is already running. Please wait for it to finish.'
-        : 'Unable to restore uploaded backup. Make sure it is a valid database snapshot JSON file.';
+        : `Unable to restore backup: ${error.message}`;
+
+      if (wantsJson) {
+        return res.status(status).json({ success: false, message });
+      }
       return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
     }
   });

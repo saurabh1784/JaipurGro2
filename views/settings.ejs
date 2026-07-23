@@ -136,7 +136,7 @@
                 <pre class="update-database-log" id="updateDatabaseLog"></pre>
               </div>
               <form method="post" action="/admin/maintenance/restore-database-backup" onsubmit="return confirmRestoreBackup();">
-                <strong>Restore from saved backup</strong>
+                <strong>Restore from server saved backup</strong>
                 <select name="backup_name" required>
                   <option value="">Select backup</option>
                   <% backupList.forEach((backup) => { %>
@@ -145,11 +145,58 @@
                 </select>
                 <button class="danger-action-button" type="submit" <%= backupList.length ? '' : 'disabled' %>>Restore backup</button>
               </form>
-              <form method="post" action="/admin/maintenance/restore-database-upload" enctype="multipart/form-data" onsubmit="return confirmRestoreUpload();">
-                <strong>Upload JSON backup and restore</strong>
-                <input type="file" name="backup" accept="application/json,.json" required />
-                <button class="danger-action-button" type="submit">Upload and restore</button>
-              </form>
+
+              <!-- DIRECT PC FILE RESTORE SYSTEM -->
+              <div class="pc-restore-container" style="background:#ffffff; border:2px dashed #6366f1; border-radius:16px; padding:20px; margin:16px 0;">
+                <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+                  <div style="width:40px; height:40px; border-radius:10px; background:linear-gradient(135deg, #6366f1, #4f46e5); display:flex; align-items:center; justify-content:center; color:#fff;">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"/></svg>
+                  </div>
+                  <div>
+                    <h3 style="margin:0; font-size:17px; font-weight:700; color:#1e293b;">Direct PC Backup File Chooser</h3>
+                    <p style="margin:2px 0 0; font-size:13px; color:#64748b;">Select any database backup JSON file directly from your computer file explorer or drag & drop.</p>
+                  </div>
+                </div>
+
+                <div id="pcDropzone" style="background:#f8fafc; border:1.5px dashed #cbd5e1; border-radius:12px; padding:28px; text-align:center; cursor:pointer; transition:background 0.2s;" onclick="document.getElementById('pcBackupFileInput').click();">
+                  <input type="file" id="pcBackupFileInput" accept=".json,application/json" style="display:none;" />
+                  <svg viewBox="0 0 24 24" width="44" height="44" fill="none" stroke="#6366f1" stroke-width="1.8" style="margin:0 auto; display:block;"><path d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"/></svg>
+                  <strong style="font-size:15px; color:#1e293b; margin-top:10px; display:block;">Click to Choose Backup File from PC</strong>
+                  <span style="font-size:13px; color:#64748b; display:block; margin-top:4px;">or drag & drop your database backup .json file here</span>
+                </div>
+
+                <div id="pcInspectorCard" style="display:none; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:12px; padding:16px; margin-top:14px;">
+                  <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
+                    <span style="background:#dcfce7; color:#166534; font-size:12px; font-weight:700; padding:4px 10px; border-radius:12px; border:1px solid #bbf7d0;">✓ Valid JaipurGro Backup Snapshot</span>
+                    <strong id="inspectorFileName" style="font-size:14px; color:#0f172a;">backup.json</strong>
+                  </div>
+                  <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px; background:#fff; padding:12px; border-radius:8px; border:1px solid #e2e8f0; font-size:13px;">
+                    <div><span style="color:#64748b; display:block;">File Size:</span><strong id="inspectorFileSize" style="color:#0f172a;">0 KB</strong></div>
+                    <div><span style="color:#64748b; display:block;">Export Date:</span><strong id="inspectorExportTime" style="color:#0f172a;">-</strong></div>
+                    <div><span style="color:#64748b; display:block;">Total Tables:</span><strong id="inspectorTablesCount" style="color:#0f172a;">0</strong></div>
+                    <div><span style="color:#64748b; display:block;">Total Rows:</span><strong id="inspectorRowsCount" style="color:#0f172a;">0</strong></div>
+                  </div>
+                  <div style="margin-top:12px;">
+                    <span style="font-size:12px; font-weight:600; color:#64748b; display:block; margin-bottom:6px;">Contained Database Tables:</span>
+                    <div id="inspectorTableBadges" style="display:flex; flex-wrap:wrap; gap:4px; max-height:100px; overflow-y:auto;"></div>
+                  </div>
+                  <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
+                    <button type="button" class="danger-action-button" id="startPcRestoreBtn" style="background:#dc2626; color:#fff; padding:12px 22px; border-radius:10px; font-weight:700; border:none; cursor:pointer; font-size:14px;">
+                      ⚡ Restore Database Now from PC File
+                    </button>
+                    <button type="button" class="settings-save" onclick="document.getElementById('pcBackupFileInput').click();" style="background:#fff; color:#334155; border:1px solid #cbd5e1; padding:12px 18px; border-radius:10px; font-weight:600; cursor:pointer;">
+                      Choose Different File
+                    </button>
+                  </div>
+                </div>
+
+                <div id="pcRestoreProgress" class="update-database-progress" style="display:none; margin-top:16px;">
+                  <div class="update-database-bar"><span id="pcRestoreBarFill" style="width:0%;"></span></div>
+                  <p class="update-database-status" id="pcRestoreStatus">Preparing upload…</p>
+                  <pre class="update-database-log" id="pcRestoreLog"></pre>
+                </div>
+              </div>
+
               <form method="post" action="/admin/maintenance/clean-database" onsubmit="return confirmCleanDatabase();">
                 <strong>Drop all tables and recreate an empty/default database</strong>
                 <button class="danger-action-button" type="submit">Clean database</button>
@@ -1183,6 +1230,147 @@
       });
     })();
 
+    (function setupPcBackupRestore() {
+      const fileInput = document.getElementById('pcBackupFileInput');
+      const dropzone = document.getElementById('pcDropzone');
+      const inspector = document.getElementById('pcInspectorCard');
+      const fileNameEl = document.getElementById('inspectorFileName');
+      const fileSizeEl = document.getElementById('inspectorFileSize');
+      const exportTimeEl = document.getElementById('inspectorExportTime');
+      const tablesCountEl = document.getElementById('inspectorTablesCount');
+      const rowsCountEl = document.getElementById('inspectorRowsCount');
+      const tableBadgesEl = document.getElementById('inspectorTableBadges');
+      const restoreBtn = document.getElementById('startPcRestoreBtn');
+      const progress = document.getElementById('pcRestoreProgress');
+      const barFill = document.getElementById('pcRestoreBarFill');
+      const statusEl = document.getElementById('pcRestoreStatus');
+      const logEl = document.getElementById('pcRestoreLog');
+
+      if (!fileInput || !dropzone || !restoreBtn) return;
+
+      let selectedFile = null;
+
+      ['dragenter', 'dragover'].forEach(evt => {
+        dropzone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          dropzone.style.background = '#e0e7ff';
+        });
+      });
+      ['dragleave', 'drop'].forEach(evt => {
+        dropzone.addEventListener(evt, (e) => {
+          e.preventDefault();
+          dropzone.style.background = '#f8fafc';
+        });
+      });
+      dropzone.addEventListener('drop', (e) => {
+        if (e.dataTransfer.files && e.dataTransfer.files.length) {
+          fileInput.files = e.dataTransfer.files;
+          handleFileSelected(fileInput.files[0]);
+        }
+      });
+
+      fileInput.addEventListener('change', () => {
+        if (fileInput.files && fileInput.files[0]) {
+          handleFileSelected(fileInput.files[0]);
+        }
+      });
+
+      function handleFileSelected(file) {
+        selectedFile = file;
+        const sizeKb = (file.size / 1024).toFixed(1);
+        const sizeMb = (file.size / (1024 * 1024)).toFixed(2);
+        fileSizeEl.textContent = file.size > 1048576 ? `${sizeMb} MB` : `${sizeKb} KB`;
+        fileNameEl.textContent = file.name;
+
+        const reader = new FileReader();
+        reader.onload = (e) => {
+          try {
+            const parsedSnapshot = JSON.parse(e.target.result);
+            if (!parsedSnapshot || typeof parsedSnapshot !== 'object' || !Array.isArray(parsedSnapshot.tables)) {
+              throw new Error('JSON file is missing required "tables" array.');
+            }
+            const tables = parsedSnapshot.tables;
+            let totalRows = 0;
+            tables.forEach(t => { totalRows += (t.rows || []).length; });
+
+            exportTimeEl.textContent = parsedSnapshot.exportedAt || parsedSnapshot.timestamp || 'Ready';
+            tablesCountEl.textContent = tables.length;
+            rowsCountEl.textContent = totalRows;
+
+            tableBadgesEl.innerHTML = tables.map(t => 
+              `<span style="display:inline-block; background:#e0e7ff; color:#3730a3; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:600; margin:2px;">${t.name} (${(t.rows||[]).length})</span>`
+            ).join('');
+
+            inspector.style.display = 'block';
+            dropzone.style.display = 'none';
+          } catch (err) {
+            alert('Invalid database snapshot file: ' + err.message);
+            inspector.style.display = 'none';
+            dropzone.style.display = 'block';
+          }
+        };
+        reader.readAsText(file);
+      }
+
+      function logStep(msg) {
+        statusEl.textContent = msg;
+        logEl.textContent += `\n• ${msg}`;
+        logEl.scrollTop = logEl.scrollHeight;
+      }
+
+      restoreBtn.addEventListener('click', async () => {
+        if (!selectedFile) {
+          alert('Please select a JSON backup file from your computer first.');
+          return;
+        }
+        if (!window.confirm(`WARNING: Restoring "${selectedFile.name}" will wipe current database tables and replace them with data from this PC file. Continue?`)) {
+          return;
+        }
+
+        restoreBtn.disabled = true;
+        progress.style.display = 'block';
+        barFill.style.width = '25%';
+        logEl.textContent = '';
+        logStep(`Uploading "${selectedFile.name}" to server...`);
+
+        const formData = new FormData();
+        formData.append('backup', selectedFile);
+
+        try {
+          barFill.style.width = '55%';
+          logStep('Validating JSON schema & database tables on server...');
+
+          const response = await fetch('/admin/maintenance/restore-database-upload', {
+            method: 'POST',
+            headers: { Accept: 'application/json' },
+            body: formData,
+            credentials: 'same-origin',
+          });
+
+          barFill.style.width = '85%';
+          logStep('Restoring tables & populating database snapshot...');
+
+          const data = await response.json().catch(() => ({}));
+          if (!response.ok || !data.success) {
+            throw new Error(data.message || `Restore failed with status ${response.status}`);
+          }
+
+          barFill.style.width = '100%';
+          logStep(data.message || 'Database restored successfully!');
+          statusEl.style.color = '#166534';
+          statusEl.style.fontWeight = 'bold';
+
+          setTimeout(() => {
+            window.location.href = '/settings?message=' + encodeURIComponent(data.message || 'Database restored from PC file successfully!');
+          }, 1500);
+        } catch (err) {
+          statusEl.style.color = '#991b1b';
+          statusEl.style.fontWeight = 'bold';
+          logStep('Error: ' + err.message);
+          restoreBtn.disabled = false;
+        }
+      });
+    })();
 
     const tabs = document.querySelectorAll('.settings-tab');
     const panels = document.querySelectorAll('.settings-panel');
