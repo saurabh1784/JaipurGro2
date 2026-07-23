@@ -22,17 +22,40 @@ function row(row) {
   };
 }
 
+let _catCache = null;
+let _catCacheTime = 0;
+let _subCatCache = null;
+let _subCatCacheTime = 0;
+const CACHE_TTL_MS = 15000;
+
+function invalidateCatalogCache() {
+  _catCache = null;
+  _catCacheTime = 0;
+  _subCatCache = null;
+  _subCatCacheTime = 0;
+}
+
 async function listCategories() {
+  const now = Date.now();
+  if (_catCache && (now - _catCacheTime < CACHE_TTL_MS)) {
+    return _catCache;
+  }
   const { rows } = await pool.query(
     `SELECT id, name, slug, icon_path, tax_name, tax_percentage, status, created_at, updated_at
      FROM categories
      WHERE is_deleted = 0
      ORDER BY name ASC`
   );
-  return rows.map(row);
+  _catCache = rows.map(row);
+  _catCacheTime = now;
+  return _catCache;
 }
 
 async function listSubcategories() {
+  const now = Date.now();
+  if (_subCatCache && (now - _subCatCacheTime < CACHE_TTL_MS)) {
+    return _subCatCache;
+  }
   const { rows } = await pool.query(
     `SELECT s.id, s.category_id, s.name, s.slug, s.image_path, s.status, s.created_at, s.updated_at, c.name AS category_name
      FROM sub_categories s
@@ -40,7 +63,9 @@ async function listSubcategories() {
      WHERE s.is_deleted = 0 AND c.is_deleted = 0
      ORDER BY c.name ASC, s.name ASC`
   );
-  return rows.map(row);
+  _subCatCache = rows.map(row);
+  _subCatCacheTime = now;
+  return _subCatCache;
 }
 
 async function listBrands() {
@@ -227,10 +252,21 @@ async function cleanBrands() {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await conn.query('DELETE FROM client_order_items').catch(() => {});
+    await conn.query('DELETE FROM delivery_offer_assignments').catch(() => {});
+    await conn.query('DELETE FROM delivery_dashboard_offers').catch(() => {});
+    await conn.query('DELETE FROM delivery_partner_audit_logs').catch(() => {});
+    await conn.query('DELETE FROM client_orders').catch(() => {});
+    await conn.query('DELETE FROM vendor_client_product_prices').catch(() => {});
+    await conn.query('DELETE FROM sponsored_products').catch(() => {});
+    await conn.query('DELETE FROM product_ranking_scores').catch(() => {});
+    await conn.query('DELETE FROM product_keywords').catch(() => {});
+    await conn.query('DELETE FROM user_recent_activity WHERE product_id IS NOT NULL').catch(() => {});
     await conn.query('DELETE FROM vendor_products');
     const [prodResult] = await conn.query('DELETE FROM products');
     const [brandResult] = await conn.query('DELETE FROM brands');
     await conn.commit();
+    invalidateCatalogCache();
     return {
       deletedProducts: prodResult.affectedRows || prodResult.rowCount || 0,
       deletedBrands: brandResult.affectedRows || brandResult.rowCount || 0,
@@ -247,11 +283,22 @@ async function cleanSubcategories() {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await conn.query('DELETE FROM client_order_items').catch(() => {});
+    await conn.query('DELETE FROM delivery_offer_assignments').catch(() => {});
+    await conn.query('DELETE FROM delivery_dashboard_offers').catch(() => {});
+    await conn.query('DELETE FROM delivery_partner_audit_logs').catch(() => {});
+    await conn.query('DELETE FROM client_orders').catch(() => {});
+    await conn.query('DELETE FROM vendor_client_product_prices').catch(() => {});
+    await conn.query('DELETE FROM sponsored_products').catch(() => {});
+    await conn.query('DELETE FROM product_ranking_scores').catch(() => {});
+    await conn.query('DELETE FROM product_keywords').catch(() => {});
+    await conn.query('DELETE FROM user_recent_activity WHERE product_id IS NOT NULL').catch(() => {});
     await conn.query('DELETE FROM vendor_products');
     const [prodResult] = await conn.query('DELETE FROM products');
     const [brandResult] = await conn.query('DELETE FROM brands');
     const [subResult] = await conn.query('DELETE FROM sub_categories');
     await conn.commit();
+    invalidateCatalogCache();
     return {
       deletedProducts: prodResult.affectedRows || prodResult.rowCount || 0,
       deletedBrands: brandResult.affectedRows || brandResult.rowCount || 0,

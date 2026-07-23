@@ -3806,6 +3806,25 @@ app.get('/api/client/categories', webOrJwtAuth, requireAuthRole('Client'), async
   }
 });
 
+app.get('/api/client/categories/stream', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Transfer-Encoding', 'chunked');
+  res.setHeader('Cache-Control', 'no-cache');
+  try {
+    const categories = (await Catalog.listCategories()).filter((category) => category.status === 'active');
+    for (const category of categories) {
+      res.write(JSON.stringify(category) + '\n');
+    }
+    return res.end();
+  } catch (error) {
+    console.error('Client categories streaming error:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: 'Unable to stream categories' });
+    }
+    return res.end();
+  }
+});
+
 app.get('/api/catalog/categories', webOrJwtAuth, async (req, res) => {
   try {
     const [categories, subcategories, brands, tree] = await Promise.all([

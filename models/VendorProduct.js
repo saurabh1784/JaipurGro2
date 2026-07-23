@@ -507,9 +507,21 @@ async function rejectProduct({ product_id, rejected_by, reason }) {
      WHERE id = ? AND is_deleted = 0`,
     [rejected_by || null, reason || null, product_id]
   );
+const _visibleProductsCache = new Map();
+const VISIBLE_PRODUCTS_CACHE_TTL = 10000;
+
+function invalidateVisibleProductsCache() {
+  _visibleProductsCache.clear();
 }
 
 async function visibleForClient({ client_id, vendor_id, search, category_id, sub_category_id, brand_id, brand_name } = {}) {
+  const cacheKey = JSON.stringify({ client_id, vendor_id, search, category_id, sub_category_id, brand_id, brand_name });
+  const cached = _visibleProductsCache.get(cacheKey);
+  const now = Date.now();
+  if (cached && (now - cached.time < VISIBLE_PRODUCTS_CACHE_TTL)) {
+    return cached.data;
+  }
+
   const where = [
     "p.approval_status = 'approved'",
     "vp.status = 'active'",
@@ -628,7 +640,9 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
       search ? String(search).trim() : null,
     ]
   );
-  return rows.map(normalize);
+  const result = rows.map(normalize);
+  _visibleProductsCache.set(cacheKey, { data: result, time: now });
+  return result;
 }
 
 module.exports = {

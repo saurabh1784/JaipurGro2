@@ -334,6 +334,16 @@ async function cleanProducts() {
   const conn = await pool.getConnection();
   try {
     await conn.beginTransaction();
+    await conn.query('DELETE FROM client_order_items').catch(() => {});
+    await conn.query('DELETE FROM delivery_offer_assignments').catch(() => {});
+    await conn.query('DELETE FROM delivery_dashboard_offers').catch(() => {});
+    await conn.query('DELETE FROM delivery_partner_audit_logs').catch(() => {});
+    await conn.query('DELETE FROM client_orders').catch(() => {});
+    await conn.query('DELETE FROM vendor_client_product_prices').catch(() => {});
+    await conn.query('DELETE FROM sponsored_products').catch(() => {});
+    await conn.query('DELETE FROM product_ranking_scores').catch(() => {});
+    await conn.query('DELETE FROM product_keywords').catch(() => {});
+    await conn.query('DELETE FROM user_recent_activity WHERE product_id IS NOT NULL').catch(() => {});
     await conn.query('DELETE FROM vendor_products');
     const [result] = await conn.query('DELETE FROM products');
     await conn.commit();
