@@ -56,7 +56,9 @@
         <button class="settings-tab" type="button" data-tab="role-permissions">Role Permissions</button>
         <button class="settings-tab" type="button" data-tab="content-management">Legal Pages</button>
         <button class="settings-tab" type="button" data-tab="security">Security</button>
-        <button class="settings-tab" type="button" data-tab="debug">Debug</button>
+        <% if (isSuperAdmin) { %>
+          <button class="settings-tab" type="button" data-tab="debug">Debug</button>
+        <% } %>
       </div>
 
       <section class="settings-panel active" id="general" aria-labelledby="general-tab">
@@ -102,7 +104,8 @@
         <p class="commission-message" id="quotationSettingsMessage"></p>
       </section>
 
-      <section class="settings-panel" id="debug" aria-labelledby="debug-tab">
+      <% if (isSuperAdmin) { %>
+        <section class="settings-panel" id="debug" aria-labelledby="debug-tab">
         <div class="panel-header red-header">
           <h2>Debug Tools</h2>
           <p>Maintenance actions for testing and rebuilding the application database.</p>
@@ -308,6 +311,7 @@
           <div class="debug-delivery-list" id="deliveryPartnerTestList"></div>
         </div>
       </section>
+      <% } %>
 
       <form class="settings-panel" id="invoice" aria-labelledby="invoice-tab">
         <div class="panel-header purple-header settings-purple-header">
@@ -3757,12 +3761,12 @@
     });
     document.getElementById('roleSettingsSelect').addEventListener('change', renderRoleSettings);
     document.getElementById('googleMapsForm').addEventListener('submit', saveGoogleMapSettings);
-    document.getElementById('deliveryPartnerTestFilterForm').addEventListener('submit', (event) => {
+    document.getElementById('deliveryPartnerTestFilterForm')?.addEventListener('submit', (event) => {
       event.preventDefault();
       loadDeliveryPartnerTestPartners();
     });
-    document.getElementById('deliveryPartnerTestClear').addEventListener('click', () => {
-      document.getElementById('deliveryPartnerTestFilterForm').reset();
+    document.getElementById('deliveryPartnerTestClear')?.addEventListener('click', () => {
+      document.getElementById('deliveryPartnerTestFilterForm')?.reset();
       loadDeliveryPartnerTestPartners();
     });
     document.getElementById('deliveryCityInput').addEventListener('change', () => populateDeliveryAreaSelect('deliveryAreaInput'));

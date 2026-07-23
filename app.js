@@ -563,15 +563,15 @@ function requireAuthRole(role) {
 
 function requireAdminMaintenance(req, res, next) {
   const currentUser = req.authUser || (req.session && req.session.user);
-  if (isSuperAdminUser(currentUser) || ['admin', 'superadmin'].includes(String(currentUser && currentUser.role || '').toLowerCase())) {
+  if (isSuperAdminUser(currentUser)) {
     return next();
   }
 
   if (requestWantsJson(req)) {
-    return res.status(403).json({ success: false, message: 'Only admin users can run maintenance actions' });
+    return res.status(403).json({ success: false, message: 'Only Super Admin users can run maintenance actions' });
   }
 
-  return res.redirect('/settings?error=Only%20admin%20users%20can%20run%20maintenance%20actions');
+  return res.redirect('/settings?error=' + encodeURIComponent('Only Super Admin users can run maintenance actions'));
 }
 
 function requireSuperAdmin(req, res, next) {
@@ -6305,8 +6305,8 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
   const quotationSubmissionMinutes = Number(await settingValue('quotation_submission_minutes', '1440')) || 1440;
   const biddingSettings = await BiddingSetting.list();
   const invoiceSettings = await getInvoiceSettings();
-  const canRunMaintenance = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
-  const canManageCommissions = canRunMaintenance;
+  const canRunMaintenance = isSuperAdminUser(req.session.user);
+  const canManageCommissions = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
   let databaseBackups = [];
   if (canRunMaintenance) {
     try {
@@ -6421,7 +6421,7 @@ async function resolveAdminDebugCity(user) {
   return String((cityRows[0] && cityRows[0].city) || 'Jaipur').trim();
 }
 
-app.get('/settings/debug/delivery-partner-test/partners', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+app.get('/settings/debug/delivery-partner-test/partners', requireAuth, requireSuperAdmin, async (req, res) => {
   try {
     const filters = {
       city: String(req.query.city || '').trim(),
@@ -6514,7 +6514,7 @@ app.get('/settings/debug/delivery-partner-test/partners', requireAuth, requirePe
   }
 });
 
-app.post('/settings/debug/delivery-partner-test/:partnerId/send', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+app.post('/settings/debug/delivery-partner-test/:partnerId/send', requireAuth, requireSuperAdmin, async (req, res) => {
   const partnerId = Number(req.params.partnerId);
   if (!partnerId) {
     return res.status(422).json({ success: false, message: 'Valid delivery partner is required' });
