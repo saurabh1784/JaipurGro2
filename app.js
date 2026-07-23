@@ -7349,8 +7349,29 @@ app.get('/roles/assign/:id', requireAuth, requirePermission('roles.manage'), asy
 
 app.post('/roles/assign-user', requireAuth, requirePermission('roles.manage'), async (req, res) => {
   const { userId, roleId, assigned } = req.body;
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
 
   try {
+    const targetUser = await User.findById(userId);
+    if (targetUser && isSuperAdminUser(targetUser) && !isSuper) {
+      return res.status(403).json({ success: false, message: 'Super Admin user role assignments cannot be modified.' });
+    }
+    if (targetUser && ['admin', 'superadmin'].includes(String(targetUser.role || '').toLowerCase()) && !isSuper) {
+      return res.status(403).json({ success: false, message: 'Admins cannot modify Admin user role assignments.' });
+    }
+
+    const [roleRows] = await pool.query('SELECT slug, name FROM roles WHERE id = ?', [roleId]);
+    if (roleRows.length > 0) {
+      const slugNorm = String(roleRows[0].slug || roleRows[0].name || '').toLowerCase().replace(/[\s_-]+/g, '');
+      if (slugNorm === 'superadmin' && !isSuper) {
+        return res.status(403).json({ success: false, message: 'You do not have permission to assign Super Admin role.' });
+      }
+      if (slugNorm === 'admin' && !isSuper) {
+        return res.status(403).json({ success: false, message: 'Admins cannot assign Admin role.' });
+      }
+    }
+
     if (assigned === true || assigned === 'true') {
       await pool.query(
         'INSERT IGNORE INTO user_roles (user_id, role_id, assigned_by) VALUES (?, ?, ?)',

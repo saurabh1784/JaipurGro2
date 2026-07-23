@@ -40,6 +40,8 @@
   <div class="user-modal" id="walletModal"><div class="user-modal-card"><div class="user-modal-header"><h2>Wallet Balance</h2><button onclick="closeModal('walletModal')">Close</button></div><form id="walletForm" class="user-modal-grid"><input type="hidden" id="walletPersonId"><label>Action<select id="walletType"><option value="credit">Add money</option><option value="debit">Deduct money</option></select></label><label>Amount<input id="walletAmount" type="number" min="0.01" step="0.01" required></label><label>Reference<input id="walletReference"></label><label>Reason<textarea id="walletNote" required></textarea></label><button class="settings-save">Save Transaction</button></form></div></div>
 
   <script>
+    const isSuperAdmin = <%= Boolean(locals.isSuperAdmin) %>;
+    const adminCity = <%- JSON.stringify(locals.adminCity || '') %>;
     let people = [], page = 1, totalPages = 1, areaOptions = [];
     const el = (id) => document.getElementById(id);
     const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -50,12 +52,14 @@
     function areaKey(entry){return `${String(entry.city||'').trim().toLowerCase()}::${String(entry.area||'').trim().toLowerCase()}`;}
     function renderAreaPicker(selectedAreas=[]){
       const selected=new Set(selectedAreas.map(areaKey));
-      el('serviceAreas').innerHTML=areaOptions.length?areaOptions.map((entry,index)=>`<label class="vendor-category-option" for="deliveryArea${index}"><input id="deliveryArea${index}" type="checkbox" data-city="${esc(entry.city)}" value="${esc(entry.area)}" ${selected.has(areaKey(entry))?'checked':''}><span>${esc(entry.city)} — ${esc(entry.area)}</span></label>`).join(''):'<p>No active areas are defined. Add an area in Area Definition first.</p>';
+      const available = (!isSuperAdmin && adminCity) ? areaOptions.filter(a => String(a.city || '').trim().toLowerCase() === adminCity.toLowerCase()) : areaOptions;
+      el('serviceAreas').innerHTML=available.length?available.map((entry,index)=>`<label class="vendor-category-option" for="deliveryArea${index}"><input id="deliveryArea${index}" type="checkbox" data-city="${esc(entry.city)}" value="${esc(entry.area)}" ${selected.has(areaKey(entry))?'checked':''}><span>${esc(entry.city)} — ${esc(entry.area)}</span></label>`).join(''):'<p>No active areas are defined for this city. Add an area in Area Definition first.</p>';
     }
-    function selectedAreas(){return Array.from(document.querySelectorAll('#serviceAreas input:checked')).map(input=>({city:input.dataset.city,area:input.value}));}
-    async function loadAreaOptions(){const d=await api('/area-options');areaOptions=d.areas||[];renderAreaPicker();}
+    function selectedAreas(){return Array.from(document.querySelectorAll('#serviceAreas input:checked')).map(input=>({city:input.dataset.city || adminCity,area:input.value}));}
+    async function loadAreaOptions(){const d=await api('/area-options');areaOptions=d.areas||[]; if(!isSuperAdmin && adminCity){ el('cityFilter').value = adminCity; el('cityFilter').disabled = true; } renderAreaPicker();}
     async function load(newPage=1){
-      const q=new URLSearchParams({format:'json',page:newPage,limit:12,search:el('search').value.trim(),city:el('cityFilter').value.trim(),status:el('statusFilter').value,vehicle_type:el('vehicleFilter').value});
+      const cityVal = (!isSuperAdmin && adminCity) ? adminCity : el('cityFilter').value.trim();
+      const q=new URLSearchParams({format:'json',page:newPage,limit:12,search:el('search').value.trim(),city:cityVal,status:el('statusFilter').value,vehicle_type:el('vehicleFilter').value});
       try { const d=await api(`/delivery-persons?${q}`); people=d.deliveryPersons; page=d.pagination.page; totalPages=d.pagination.totalPages; render(); } catch(e){ el('personGrid').innerHTML=`<p>${esc(e.message)}</p>`; }
     }
     function render(){

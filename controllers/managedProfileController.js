@@ -56,7 +56,11 @@ async function getByUserId(req, res) {
 }
 
 async function updateByUserId(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const { isSuperAdminUser, getAssignedUserCity } = require('./userController');
+  const isSuper = isSuperAdminUser(currentUser);
   const userId = Number(req.params.userId);
+
   if (!userId) {
     return res.status(422).json({ success: false, message: 'Valid user ID is required' });
   }
@@ -66,7 +70,28 @@ async function updateByUserId(req, res) {
     return res.status(404).json({ success: false, message: 'User not found' });
   }
 
+  if (isSuperAdminUser(user) && !isSuper) {
+    return res.status(403).json({ success: false, message: 'Super Admin profiles cannot be edited or modified.' });
+  }
+
+  if (['admin', 'superadmin'].includes(String(user.role || '').toLowerCase()) && !isSuper) {
+    return res.status(403).json({ success: false, message: 'Admins cannot edit or modify Admin profiles.' });
+  }
+
+  if (!isSuper) {
+    const adminCity = await getAssignedUserCity(currentUser);
+    const targetCity = await getAssignedUserCity(user);
+    if (adminCity && targetCity && adminCity.toLowerCase() !== targetCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only manage profiles in their assigned city (${adminCity}).` });
+    }
+  }
+
   const update = sanitizeProfileUpdate(user.role, req.body);
+  if (!isSuper && update.city) {
+    const adminCity = await getAssignedUserCity(currentUser);
+    update.city = adminCity;
+  }
+
   if (Object.keys(update).length === 0) {
     return res.status(422).json({ success: false, message: `No profile fields were provided for ${user.role}` });
   }

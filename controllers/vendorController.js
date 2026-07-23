@@ -3,6 +3,7 @@ const Vendor = require('../models/Vendor');
 const Catalog = require('../models/Catalog');
 const { validateStatus } = require('../middleware/validators');
 const { flattenLocationOptions, isValidLocation, locationTree } = require('../utils/locationOptions');
+const { isSuperAdminUser, getAssignedUserCity } = require('./userController');
 
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
@@ -82,9 +83,16 @@ function validateVendor(body, { requirePassword = false } = {}) {
 }
 
 async function index(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+  const filterCity = isSuper ? (req.query.city || '') : adminCity;
+
   if (!wantsJson(req)) {
     return res.render('vendors', {
       user: req.session.user,
+      isSuperAdmin: isSuper,
+      adminCity,
       locationOptions: flattenLocationOptions(),
       categories: await Catalog.listCategories(),
       canManagePremiumVendors: canManagePremiumVendors(req),
@@ -99,7 +107,7 @@ async function index(req, res) {
       status: req.query.status,
       country: req.query.country,
       state: req.query.state,
-      city: req.query.city,
+      city: filterCity,
     });
     if (!canManagePremiumVendors(req)) {
       result.vendors = (result.vendors || []).map((vendor) => {
@@ -109,7 +117,7 @@ async function index(req, res) {
         return clone;
       });
     }
-    return res.json({ success: true, ...result });
+    return res.json({ success: true, isSuperAdmin: isSuper, adminCity, ...result });
   } catch (error) {
     console.error('Vendor list error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch vendors' });
@@ -117,10 +125,19 @@ async function index(req, res) {
 }
 
 async function show(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+
   const vendor = await Vendor.findById(Number(req.params.id));
   if (!vendor) {
     return res.status(404).json({ success: false, message: 'Vendor not found' });
   }
+
+  if (!isSuper && adminCity && vendor.city && vendor.city.toLowerCase() !== adminCity.toLowerCase()) {
+    return res.status(403).json({ success: false, message: `Admins can only view vendors in their assigned city (${adminCity}).` });
+  }
+
   if (!canManagePremiumVendors(req)) {
     delete vendor.is_premium_vendor;
     delete vendor.premium_commission_percent;
@@ -129,6 +146,17 @@ async function show(req, res) {
 }
 
 async function create(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+
+  if (!isSuper && adminCity) {
+    if (req.body.city && String(req.body.city).trim().toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only create vendors for their assigned city (${adminCity}).` });
+    }
+    req.body.city = adminCity;
+  }
+
   const { errors, data } = validateVendor(req.body, { requirePassword: true });
   if (!canManagePremiumVendors(req)) {
     data.is_premium_vendor = false;
@@ -148,7 +176,7 @@ async function create(req, res) {
     const id = await Vendor.create(data);
     return res.status(201).json({ success: true, message: 'Vendor created', vendor: await Vendor.findById(id) });
   } catch (error) {
-    if (error.code === 'ER_DUP_ENTRY') {
+    if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
       return res.status(409).json({ success: false, message: 'A user with this email or phone already exists' });
     }
     console.error('Vendor create error:', error);
@@ -157,7 +185,11 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
   const id = Number(req.params.id);
+
   if (!id) {
     return res.status(422).json({ success: false, message: 'Valid vendor ID is required' });
   }
@@ -165,6 +197,13 @@ async function update(req, res) {
   const existing = await Vendor.findById(id);
   if (!existing) {
     return res.status(404).json({ success: false, message: 'Vendor not found' });
+  }
+
+  if (!isSuper && adminCity) {
+    if (existing.city && existing.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only manage vendors in their assigned city (${adminCity}).` });
+    }
+    req.body.city = adminCity;
   }
 
   if (Object.keys(req.body).length === 1 && req.body.status !== undefined) {
@@ -206,7 +245,11 @@ async function update(req, res) {
 }
 
 async function destroy(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
   const id = Number(req.params.id);
+
   if (!id) {
     return res.status(422).json({ success: false, message: 'Valid vendor ID is required' });
   }
@@ -214,6 +257,12 @@ async function destroy(req, res) {
   const existing = await Vendor.findById(id);
   if (!existing) {
     return res.status(404).json({ success: false, message: 'Vendor not found' });
+  }
+
+  if (!isSuper && adminCity) {
+    if (existing.city && existing.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only delete vendors in their assigned city (${adminCity}).` });
+    }
   }
 
   await Vendor.softDelete(id);

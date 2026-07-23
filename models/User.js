@@ -70,36 +70,58 @@ async function updateBasic(id, data) {
   await pool.query(`UPDATE users SET ${fields.join(', ')} WHERE id = $${values.length}`, values);
 }
 
-async function list({ page = 1, limit = 10, search = '', role = '' }) {
+async function list({ page = 1, limit = 10, search = '', role = '', isSuperAdmin = true, adminCity = '' } = {}) {
   const currentPage = Math.max(parseInt(page, 10) || 1, 1);
   const pageSize = Math.min(Math.max(parseInt(limit, 10) || 10, 1), 100);
   const offset = (currentPage - 1) * pageSize;
-  const where = ['is_deleted = 0'];
+  const where = ['u.is_deleted = 0'];
   const values = [];
 
+  if (!isSuperAdmin) {
+    where.push("LOWER(u.role) NOT IN ('superadmin', 'super admin')");
+  }
+
   if (search) {
-    where.push('(name ILIKE $' + (values.length + 1) + ' OR email ILIKE $' + (values.length + 2) + ')');
+    where.push('(u.name ILIKE $' + (values.length + 1) + ' OR u.email ILIKE $' + (values.length + 2) + ')');
     values.push(`%${search}%`, `%${search}%`);
   }
 
   if (role) {
-    where.push('role = $' + (values.length + 1));
+    where.push('u.role = $' + (values.length + 1));
     values.push(role);
   }
 
+  if (!isSuperAdmin && adminCity) {
+    where.push('LOWER(TRIM(COALESCE(ap.city, cp.city, vp.city, dpp.city, \'\'))) = LOWER(TRIM($' + (values.length + 1) + '))');
+    values.push(adminCity);
+  }
+
   const whereSql = where.join(' AND ');
-  const { rows: countRows } = await pool.query(`SELECT COUNT(*) as total FROM users WHERE ${whereSql}`, values);
+  const fromJoinSql = `
+    FROM users u
+    LEFT JOIN admin_profiles ap ON ap.user_id = u.id
+    LEFT JOIN client_profiles cp ON cp.user_id = u.id
+    LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+    LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+  `;
+
+  const { rows: countRows } = await pool.query(`SELECT COUNT(DISTINCT u.id) as total ${fromJoinSql} WHERE ${whereSql}`, values);
   const { rows } = await pool.query(
-    `SELECT id, name, email, phone, role, status, theme_mode, is_deleted, created_at, updated_at
-     FROM users
+    `SELECT DISTINCT u.id, u.name, u.email, u.phone, u.role, u.status, u.theme_mode, u.is_deleted, u.created_at, u.updated_at,
+            COALESCE(ap.city, cp.city, vp.city, dpp.city, '') AS city
+     FROM users u
+     LEFT JOIN admin_profiles ap ON ap.user_id = u.id
+     LEFT JOIN client_profiles cp ON cp.user_id = u.id
+     LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+     LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
      WHERE ${whereSql}
-     ORDER BY created_at DESC, id DESC
+     ORDER BY u.created_at DESC, u.id DESC
      LIMIT $${values.length + 1} OFFSET $${values.length + 2}`,
     [...values, pageSize, offset]
   );
 
   return {
-    users: rows.map(publicUser),
+    users: rows.map((r) => ({ ...publicUser(r), city: r.city || '' })),
     pagination: {
       page: currentPage,
       limit: pageSize,

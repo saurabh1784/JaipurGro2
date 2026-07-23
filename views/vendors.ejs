@@ -207,6 +207,8 @@
   </div>
 
   <script>
+    const isSuperAdmin = <%= Boolean(locals.isSuperAdmin) %>;
+    const adminCity = <%- JSON.stringify(locals.adminCity || '') %>;
     const locationOptions = <%- JSON.stringify(locationOptions) %>;
     const availableCategories = <%- JSON.stringify((categories || []).filter((category) => category.status === 'active')) %>;
     const availableServices = ['Home Delivery', 'Counter Pickup', 'Wholesale Supply', 'Express Delivery'];
@@ -278,12 +280,18 @@
         : [];
       const citySelect = document.getElementById('vendorCity');
       citySelect.innerHTML = optionList(cities, 'Select City');
-      if (selectedCity) citySelect.value = selectedCity;
+      const targetCity = (!isSuperAdmin && adminCity) ? adminCity : (selectedCity || citySelect.value);
+      if (targetCity && Array.from(citySelect.options).some(o => o.value.toLowerCase() === targetCity.toLowerCase())) {
+        citySelect.value = targetCity;
+      }
+      if (!isSuperAdmin && adminCity) {
+        citySelect.disabled = true;
+      }
       updateAreaOptions();
     }
 
     function updateAreaOptions(selectedArea = pendingVendorArea) {
-      const city = document.getElementById('vendorCity').value.trim().toLowerCase();
+      const city = ((!isSuperAdmin && adminCity) ? adminCity : document.getElementById('vendorCity').value).trim().toLowerCase();
       const areas = areaOptions
         .filter((item) => String(item.city || '').trim().toLowerCase() === city)
         .map((item) => item.area);

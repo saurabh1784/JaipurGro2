@@ -44,34 +44,49 @@
         </div>
       </div>
       <div class="products-action-band">
-        <form id="productForm" class="product-form">
-          <div class="product-form-header">
+        <form id="productForm" class="product-form" style="background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%); border: 1px solid #7dd3fc; border-radius: 14px; padding: 14px 18px; box-shadow: 0 4px 20px -2px rgba(56, 189, 248, 0.18), 0 2px 6px rgba(14, 165, 233, 0.08); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 14px;">
+          <div class="product-form-header" style="grid-column: 1 / -1; display: flex; justify-content: space-between; align-items: center; padding-bottom: 8px; border-bottom: 1px solid #bae6fd; margin-bottom: 2px;">
             <div>
-              <h2 id="productFormTitle">Single Product</h2>
-              <p>Create and update product catalog entries without inventory fields.</p>
+              <h2 id="productFormTitle" style="margin:0; color:#0369a1; font-size:1.02rem; font-weight:800; font-family:Inter, sans-serif;">Single Product</h2>
+              <p style="margin:2px 0 0; color:#0284c7; font-size:0.75rem;">Create & edit catalog entries with live linked image preview.</p>
             </div>
-            <button class="product-secondary-button" type="button" id="resetProductForm">Clear</button>
+            <button class="product-secondary-button" type="button" id="resetProductForm" style="background:#bae6fd; color:#0369a1; border:none; padding:4px 12px; font-weight:700; border-radius:6px; cursor:pointer;">Clear</button>
           </div>
           <input type="hidden" id="productId" />
-          <label class="settings-wide">
+
+          <!-- Linked Product Image Preview Container -->
+          <div id="productImagePreviewWrapper" style="grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; background: #ffffff; padding: 8px 12px; border-radius: 10px; border: 1px solid #7dd3fc; box-shadow: 0 2px 6px rgba(56, 189, 248, 0.12);">
+            <div style="position: relative; width: 56px; height: 56px; flex-shrink: 0; background: #e0f2fe; border-radius: 8px; overflow: hidden; border: 1px solid #7dd3fc; display: flex; align-items: center; justify-content: center;">
+              <img id="productImagePreview" src="/default.png" alt="Linked Product Image" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.onerror=null; this.src='/default.png';" />
+            </div>
+            <div style="flex: 1; min-width: 0;">
+              <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
+                <strong style="font-size: 0.78rem; color: #0369a1; font-weight: 700;">Linked Product Image</strong>
+                <span id="productImageStatusBadge" style="font-size: 0.68rem; padding: 2px 8px; border-radius: 10px; background: #f1f5f9; color: #64748b; font-weight: 700;">No Image</span>
+              </div>
+              <div id="productImageUrlDisplay" style="font-size: 0.72rem; color: #0284c7; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-top: 2px;" title="No image linked yet">No image linked yet</div>
+            </div>
+          </div>
+
+          <label class="settings-wide" style="grid-column: 1 / -1; font-size:0.76rem; font-weight:700; color:#0369a1;">
             Name
-            <input id="productName" type="text" required minlength="2" />
+            <input id="productName" type="text" required minlength="2" style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;" />
           </label>
-          <label class="settings-wide">
+          <label class="settings-wide" style="grid-column: 1 / -1; font-size:0.76rem; font-weight:700; color:#0369a1;">
             Description
-            <textarea id="productDescription" rows="3"></textarea>
+            <textarea id="productDescription" rows="2" style="width:100%; min-height:46px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff; resize:vertical;"></textarea>
           </label>
-          <label>
-            Price
-            <input id="productPrice" type="number" min="0" step="0.01" required />
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Price (₹)
+            <input id="productPrice" type="number" min="0" step="0.01" required style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;" />
           </label>
-          <label>
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
             Weight
-            <input id="productWeightValue" type="number" min="0" step="0.001" placeholder="Used for delivery charges" />
+            <input id="productWeightValue" type="number" min="0" step="0.001" placeholder="Delivery weight" style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;" />
           </label>
-          <label>
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
             Weight Unit
-            <select id="productWeightUnit">
+            <select id="productWeightUnit" style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;">
               <option value="g">Gram (g)</option>
               <option value="kg" selected>Kilogram (kg)</option>
               <option value="L">Liter (L)</option>
@@ -79,46 +94,45 @@
               <option value="other">Other</option>
             </select>
           </label>
-          <label>
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
             Tax Name
-            <input id="productTaxName" type="text" placeholder="Uses category tax if blank" />
+            <input id="productTaxName" type="text" placeholder="Category tax default" style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;" />
           </label>
-          <label>
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
             Tax %
-            <input id="productTaxPercentage" type="number" min="0" max="100" step="0.01" placeholder="Category default" />
+            <input id="productTaxPercentage" type="number" min="0" max="100" step="0.01" placeholder="Category default" style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;" />
           </label>
-          <label>
-            Product Image File
-            <input id="productImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-            <span class="image-helper">Upload file from computer</span>
-          </label>
-          <label>
-            Product Image URL (Paste Link)
-            <input id="productImageUrl" type="url" placeholder="https://example.com/image.jpg" />
-            <span class="image-helper">Or paste an image URL (auto-downloaded & saved)</span>
-          </label>
-
-          <label>
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
             Main Category
-            <select id="productCategory" required></select>
+            <select id="productCategory" required style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;"></select>
           </label>
-          <label>
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
             Subcategory
-            <select id="productSubcategory" required></select>
+            <select id="productSubcategory" required style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;"></select>
           </label>
-          <label>
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
             Brand
-            <select id="productBrand" required></select>
+            <select id="productBrand" required style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;"></select>
           </label>
-          <label class="product-sponsored-field">
-            <span>Sponsored</span>
-            <input id="productSponsored" type="checkbox" />
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Product Image File
+            <input id="productImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;" />
           </label>
-          <label>
-            Sponsored Priority
-            <input id="productSponsoredPriority" type="number" step="1" value="0" />
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Product Image URL (Link)
+            <input id="productImageUrl" type="url" placeholder="https://example.com/image.jpg" style="width:100%; min-height:34px; padding:6px 10px; font-size:0.85rem; border-radius:8px; border:1px solid #7dd3fc; background:#fff;" />
           </label>
-          <button class="settings-save" type="submit" id="productSubmit">Save Product</button>
+          <div style="grid-column: 1 / -1; display:flex; align-items:center; gap:16px; margin-top:2px; background:#ffffff; padding:6px 12px; border-radius:8px; border:1px solid #7dd3fc;">
+            <label class="product-sponsored-field" style="display:inline-flex; align-items:center; gap:6px; font-size:0.78rem; font-weight:700; color:#0369a1; cursor:pointer; margin:0;">
+              <input id="productSponsored" type="checkbox" style="width:16px; height:16px; cursor:pointer;" />
+              <span>Sponsored</span>
+            </label>
+            <label style="display:inline-flex; align-items:center; gap:6px; font-size:0.78rem; font-weight:700; color:#0369a1; margin:0;">
+              Sponsored Priority:
+              <input id="productSponsoredPriority" type="number" step="1" value="0" style="width:70px; min-height:30px; padding:2px 6px; font-size:0.82rem; border-radius:6px; border:1px solid #7dd3fc;" />
+            </label>
+          </div>
+          <button class="settings-save" type="submit" id="productSubmit" style="grid-column: 1 / -1; min-height:38px; font-size:0.88rem; font-weight:700; background:linear-gradient(135deg, #0284c7, #0369a1); color:#fff; border:none; border-radius:8px; cursor:pointer; box-shadow:0 3px 10px rgba(2,132,199,0.3); margin-top:4px;">Save Product</button>
         </form>
 
         <div class="product-bulk-stack">
@@ -749,6 +763,39 @@
       nextPage.disabled = currentPage >= totalPages;
     }
 
+    function updateProductImagePreview(src) {
+      const imgEl = document.getElementById('productImagePreview');
+      const displayEl = document.getElementById('productImageUrlDisplay');
+      const badgeEl = document.getElementById('productImageStatusBadge');
+
+      if (!imgEl || !displayEl || !badgeEl) return;
+
+      if (src instanceof File) {
+        const blobUrl = URL.createObjectURL(src);
+        imgEl.src = blobUrl;
+        displayEl.textContent = `File selected: ${src.name}`;
+        displayEl.title = src.name;
+        badgeEl.textContent = 'Selected File';
+        badgeEl.style.background = '#dcfce7';
+        badgeEl.style.color = '#15803d';
+      } else if (src && typeof src === 'string' && src.trim()) {
+        const cleanSrc = src.trim();
+        imgEl.src = cleanSrc;
+        displayEl.textContent = cleanSrc;
+        displayEl.title = cleanSrc;
+        badgeEl.textContent = 'Linked Image';
+        badgeEl.style.background = '#e0f2fe';
+        badgeEl.style.color = '#0369a1';
+      } else {
+        imgEl.src = '/default.png';
+        displayEl.textContent = 'No image linked yet';
+        displayEl.title = 'No image linked yet';
+        badgeEl.textContent = 'No Image';
+        badgeEl.style.background = '#f1f5f9';
+        badgeEl.style.color = '#64748b';
+      }
+    }
+
     function resetForm() {
       productForm.reset();
       document.getElementById('productId').value = '';
@@ -758,6 +805,7 @@
       document.getElementById('productSponsoredPriority').value = 0;
       updateProductSubcategories();
       updateProductBrands();
+      updateProductImagePreview('');
     }
 
     function editProduct(id) {
@@ -772,6 +820,9 @@
       document.getElementById('productTaxName').value = product.tax_name || '';
       document.getElementById('productTaxPercentage').value = product.tax_percentage === null || product.tax_percentage === undefined ? '' : Number(product.tax_percentage).toFixed(2);
       document.getElementById('productImage').value = '';
+      const currentImg = product.image_url || product.image || product.image_path || '';
+      document.getElementById('productImageUrl').value = currentImg;
+      updateProductImagePreview(currentImg);
       document.getElementById('productCategory').value = product.category_id;
       updateProductSubcategories(product.sub_category_id);
       updateProductBrands(product.brand_id);
@@ -1207,8 +1258,28 @@
       updateProductSubcategories();
       updateProductBrands();
     });
-    document.getElementById('productSubcategory').addEventListener('change', () => updateProductBrands());
     document.getElementById('resetProductForm').addEventListener('click', resetForm);
+    const productImageInput = document.getElementById('productImage');
+    const productImageUrlInput = document.getElementById('productImageUrl');
+    if (productImageInput) {
+      productImageInput.addEventListener('change', function () {
+        if (this.files && this.files[0]) {
+          updateProductImagePreview(this.files[0]);
+        } else {
+          updateProductImagePreview(productImageUrlInput ? productImageUrlInput.value : '');
+        }
+      });
+    }
+    if (productImageUrlInput) {
+      const onUrlChange = () => {
+        const hasFile = productImageInput && productImageInput.files && productImageInput.files[0];
+        if (!hasFile) {
+          updateProductImagePreview(productImageUrlInput.value);
+        }
+      };
+      productImageUrlInput.addEventListener('input', onUrlChange);
+      productImageUrlInput.addEventListener('change', onUrlChange);
+    }
     document.getElementById('clearFilters').addEventListener('click', () => {
       nameFilter.value = '';
       categoryFilter.value = '';

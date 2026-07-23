@@ -3,6 +3,7 @@ const pool = require('../db');
 const DeliveryPerson = require('../models/DeliveryPerson');
 const Wallet = require('../models/Wallet');
 const Rating = require('../models/Rating');
+const { isSuperAdminUser, getAssignedUserCity } = require('./userController');
 
 const text = (value) => String(value || '').trim();
 const actor = (req) => req.authUser || req.session.user;
@@ -42,10 +43,18 @@ async function validateAreaAssignments(body, connection) {
 }
 
 async function index(req, res) {
-  if (!req.query.format && req.accepts(['html', 'json']) !== 'json') return res.render('delivery-persons', { user: req.session.user });
+  const currentActor = actor(req);
+  const isSuper = isSuperAdminUser(currentActor);
+  const adminCity = await getAssignedUserCity(currentActor);
+  const filterCity = isSuper ? (req.query.city || '') : adminCity;
+
+  if (!req.query.format && req.accepts(['html', 'json']) !== 'json') {
+    return res.render('delivery-persons', { user: req.session.user, isSuperAdmin: isSuper, adminCity });
+  }
+
   try {
-    const result = await DeliveryPerson.list({ ...req.query, vehicleType: req.query.vehicle_type });
-    res.json({ success: true, ...result });
+    const result = await DeliveryPerson.list({ ...req.query, city: filterCity, vehicleType: req.query.vehicle_type });
+    res.json({ success: true, isSuperAdmin: isSuper, adminCity, ...result });
   } catch (error) {
     console.error('Delivery person list error:', error);
     res.status(500).json({ success: false, message: 'Unable to load delivery persons' });
@@ -61,9 +70,18 @@ async function showPage(req, res) {
 
 async function show(req, res) {
   try {
+    const currentActor = actor(req);
+    const isSuper = isSuperAdminUser(currentActor);
+    const adminCity = await getAssignedUserCity(currentActor);
+
     const id = Number(req.params.id);
     const person = await DeliveryPerson.findById(id);
     if (!person) return res.status(404).json({ success: false, message: 'Delivery person not found' });
+
+    if (!isSuper && adminCity && person.city && person.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only view delivery partners in their assigned city (${adminCity}).` });
+    }
+
     person.rating_summary = await Rating.summary('delivery_person', id);
     const [orders, offers, walletData, activity] = await Promise.all([DeliveryPerson.orders(id), DeliveryPerson.offers(id), Wallet.transactionsByUserId(id, { limit: 100 }), DeliveryPerson.activity(id)]);
     res.json({ success: true, person, orders, offers, wallet: walletData.wallet, walletTransactions: walletData.transactions, activity });
@@ -74,6 +92,17 @@ async function show(req, res) {
 }
 
 async function create(req, res) {
+  const currentActor = actor(req);
+  const isSuper = isSuperAdminUser(currentActor);
+  const adminCity = await getAssignedUserCity(currentActor);
+
+  if (!isSuper && adminCity) {
+    if (req.body.city && text(req.body.city).toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only create delivery partners for their assigned city (${adminCity}).` });
+    }
+    req.body.city = adminCity;
+  }
+
   const errorMessage = validate(req.body, true);
   if (errorMessage) return res.status(422).json({ success: false, message: errorMessage });
   const connection = await pool.getConnection();
@@ -107,14 +136,26 @@ async function create(req, res) {
 }
 
 async function update(req, res) {
+  const currentActor = actor(req);
+  const isSuper = isSuperAdminUser(currentActor);
+  const adminCity = await getAssignedUserCity(currentActor);
+  const id = Number(req.params.id);
+
+  const current = await DeliveryPerson.findById(id);
+  if (!current) return res.status(404).json({ success: false, message: 'Delivery person not found' });
+
+  if (!isSuper && adminCity) {
+    if (current.city && current.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only manage delivery partners in their assigned city (${adminCity}).` });
+    }
+    req.body.city = adminCity;
+  }
+
   const errorMessage = validate(req.body, false);
   if (errorMessage) return res.status(422).json({ success: false, message: errorMessage });
-  const id = Number(req.params.id);
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    const current = await DeliveryPerson.findById(id);
-    if (!current) { const e = new Error('Delivery person not found'); e.status = 404; throw e; }
     const email = text(req.body.login_id || req.body.email).toLowerCase();
     const phone = text(req.body.phone);
     const [duplicates] = await connection.query('SELECT id FROM users WHERE is_deleted = 0 AND id <> ? AND (email = ? OR phone = ?) LIMIT 1', [id, email, phone]);
@@ -142,12 +183,18 @@ async function update(req, res) {
 }
 
 async function setStatus(req, res) {
+  const currentActor = actor(req);
+  const isSuper = isSuperAdminUser(currentActor);
+  const adminCity = await getAssignedUserCity(currentActor);
   const id = Number(req.params.id);
   const status = text(req.body.status).toLowerCase();
   if (!['active', 'blocked'].includes(status)) return res.status(422).json({ success: false, message: 'Status must be active or blocked' });
   try {
     const person = await DeliveryPerson.findById(id);
     if (!person) return res.status(404).json({ success: false, message: 'Delivery person not found' });
+    if (!isSuper && adminCity && person.city && person.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only update status for delivery partners in their assigned city (${adminCity}).` });
+    }
     await pool.query('UPDATE users SET status = ? WHERE id = ?', [status, id]);
     await pool.query('UPDATE delivery_partner_settings SET is_active = ? WHERE user_id = ?', [status === 'active' ? 1 : 0, id]);
     await DeliveryPerson.log({ deliveryPersonId: id, actorId: actor(req).id, action: status === 'active' ? 'account_unblocked' : 'account_blocked', description: status === 'active' ? 'Account enabled' : 'Account blocked from accepting new orders' });
@@ -156,11 +203,17 @@ async function setStatus(req, res) {
 }
 
 async function resetPassword(req, res) {
+  const currentActor = actor(req);
+  const isSuper = isSuperAdminUser(currentActor);
+  const adminCity = await getAssignedUserCity(currentActor);
   const id = Number(req.params.id);
   const password = text(req.body.password) || `Gro${Math.random().toString(36).slice(2, 8)}!${Math.floor(Math.random() * 90 + 10)}`;
   if (password.length < 6) return res.status(422).json({ success: false, message: 'Password must be at least 6 characters' });
   const person = await DeliveryPerson.findById(id);
   if (!person) return res.status(404).json({ success: false, message: 'Delivery person not found' });
+  if (!isSuper && adminCity && person.city && person.city.toLowerCase() !== adminCity.toLowerCase()) {
+    return res.status(403).json({ success: false, message: `Admins can only reset password for delivery partners in their assigned city (${adminCity}).` });
+  }
   await pool.query('UPDATE users SET password = ? WHERE id = ?', [await bcrypt.hash(password, 10), id]);
   await DeliveryPerson.log({ deliveryPersonId: id, actorId: actor(req).id, action: 'password_reset', description: 'Login password reset by administrator' });
   res.json({ success: true, message: 'Password reset successfully', generatedPassword: password });
@@ -168,7 +221,15 @@ async function resetPassword(req, res) {
 
 async function adjustWallet(req, res) {
   try {
+    const currentActor = actor(req);
+    const isSuper = isSuperAdminUser(currentActor);
+    const adminCity = await getAssignedUserCity(currentActor);
     const id = Number(req.params.id);
+    const person = await DeliveryPerson.findById(id);
+    if (!person) return res.status(404).json({ success: false, message: 'Delivery person not found' });
+    if (!isSuper && adminCity && person.city && person.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only adjust wallet for delivery partners in their assigned city (${adminCity}).` });
+    }
     const wallet = await Wallet.adjustBalance({ userId: id, type: req.body.type, amount: req.body.amount, note: req.body.note, reference: req.body.reference, createdBy: actor(req).id });
     await DeliveryPerson.log({ deliveryPersonId: id, actorId: actor(req).id, action: req.body.type === 'debit' ? 'wallet_debited' : 'wallet_credited', description: `${req.body.type === 'debit' ? 'Deducted' : 'Added'} INR ${Number(req.body.amount).toFixed(2)}`, metadata: { amount: Number(req.body.amount), balance: wallet.balance } });
     res.json({ success: true, message: 'Wallet updated successfully', wallet });

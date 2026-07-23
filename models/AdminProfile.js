@@ -10,10 +10,24 @@ async function findByUserId(userId) {
 }
 
 async function update(userId, data) {
-  if (!Object.prototype.hasOwnProperty.call(data, 'permissions')) return;
+  const fields = [];
+  const values = [];
+  const allowed = ['permissions', 'city', 'state', 'country', 'area'];
 
-  const permissions = Array.isArray(data.permissions) ? JSON.stringify(data.permissions) : data.permissions;
-  await pool.query('UPDATE admin_profiles SET permissions = $1 WHERE user_id = $2', [permissions, userId]);
+  for (const key of allowed) {
+    if (Object.prototype.hasOwnProperty.call(data, key)) {
+      let val = data[key];
+      if (key === 'permissions' && Array.isArray(val)) {
+        val = JSON.stringify(val);
+      }
+      fields.push(`${key} = $${values.length + 1}`);
+      values.push(val);
+    }
+  }
+
+  if (fields.length === 0) return;
+  values.push(userId);
+  await pool.query(`UPDATE admin_profiles SET ${fields.join(', ')} WHERE user_id = $${values.length}`, values);
 }
 
 module.exports = { createEmpty, findByUserId, update };

@@ -2780,8 +2780,12 @@ svg {
 .product-form {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 16px;
-  padding: 18px;
+  gap: 10px 14px;
+  padding: 16px 20px;
+  background: linear-gradient(135deg, #e0f2fe 0%, #f0f9ff 100%);
+  border: 1px solid #7dd3fc;
+  border-radius: 14px;
+  box-shadow: 0 4px 20px -2px rgba(56, 189, 248, 0.18), 0 2px 6px rgba(14, 165, 233, 0.08);
 }
 
 .product-form-header {
@@ -2789,52 +2793,59 @@ svg {
   display: flex;
   justify-content: space-between;
   gap: 12px;
-  align-items: start;
+  align-items: center;
+  padding-bottom: 8px;
+  border-bottom: 1px solid #bae6fd;
+  margin-bottom: 2px;
 }
 
-.product-form h2,
-.bulk-upload-panel h2 {
-  margin: 0 0 5px;
-  color: #4f5963;
-  font-size: 1rem;
-  font-weight: 500;
-}
-
-.product-form p,
-.bulk-upload-panel p {
+.product-form h2 {
   margin: 0;
-  color: #9aa2a9;
+  color: #0369a1;
+  font-size: 1.05rem;
+  font-weight: 800;
+  font-family: Inter, sans-serif;
+}
+
+.product-form p {
+  margin: 2px 0 0;
+  color: #0284c7;
+  font-size: 0.75rem;
+  line-height: 1.4;
+}
+
+.product-form label {
+  margin: 0;
+  color: #0369a1;
   font-size: 0.76rem;
-  line-height: 1.5;
-}
-
-.product-form label,
-.bulk-upload-panel label,
-.products-filter-bar label {
-  margin: 0;
-  color: #60717d;
-  font-size: 0.78rem;
   font-weight: 700;
 }
 
 .product-form input,
 .product-form select,
-.product-form textarea,
-.bulk-upload-panel input,
-.products-filter-bar select {
+.product-form textarea {
   width: 100%;
-  min-height: 40px;
-  margin: 7px 0 0;
-  padding: 0.72rem 0.85rem;
-  border: 1px solid #dfe4e8;
-  border-radius: 2px;
-  background: #fff;
-  color: #3c4858;
-  font-size: 0.9rem;
+  min-height: 34px;
+  margin: 4px 0 0;
+  padding: 0.45rem 0.65rem;
+  border: 1px solid #7dd3fc;
+  border-radius: 8px;
+  background: #ffffff;
+  color: #0c4a6e;
+  font-size: 0.85rem;
+  transition: border-color 0.2s, box-shadow 0.2s;
+}
+
+.product-form input:focus,
+.product-form select:focus,
+.product-form textarea:focus {
+  border-color: #0284c7;
+  box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.25);
+  outline: none;
 }
 
 .product-form textarea {
-  min-height: 88px;
+  min-height: 48px;
   resize: vertical;
 }
 

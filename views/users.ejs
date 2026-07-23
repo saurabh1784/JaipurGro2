@@ -116,6 +116,8 @@
   </div>
 
   <script>
+    const isSuperAdmin = <%= Boolean(locals.isSuperAdmin) %>;
+    const adminCity = <%- JSON.stringify(locals.adminCity || '') %>;
     let currentPage = 1;
     let totalPages = 1;
     let users = [];
@@ -171,7 +173,19 @@
     }
 
     function renderRoleSelects(extraRole = '') {
-      const uniqueRoles = [...new Set([...(roleOptions || []), extraRole].filter(Boolean))];
+      let filteredRoles = (roleOptions || []).filter((r) => {
+        const lower = String(r).toLowerCase().replace(/[\s_-]+/g, '');
+        if (lower === 'superadmin') return false;
+        if (!isSuperAdmin && (lower === 'admin' || lower === 'superadmin')) return false;
+        return true;
+      });
+      const uniqueRoles = [...new Set([...filteredRoles, extraRole].filter(Boolean))].filter((r) => {
+        const lower = String(r).toLowerCase().replace(/[\s_-]+/g, '');
+        if (lower === 'superadmin') return false;
+        if (!isSuperAdmin && (lower === 'admin' || lower === 'superadmin')) return false;
+        return true;
+      });
+
       const filterValue = roleFilter.value;
       roleFilter.innerHTML = '<option value="">All Roles</option>' + uniqueRoles.map((role) => (
         `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`
@@ -190,7 +204,12 @@
       if (users.length === 0) {
         tableBody.innerHTML = '<tr><td colspan="7">No users found</td></tr>';
       } else {
-        tableBody.innerHTML = users.map((user) => `
+        tableBody.innerHTML = users.map((user) => {
+          const roleLower = String(user.role || '').toLowerCase().replace(/[\s_-]+/g, '');
+          const isTargetProtected = roleLower === 'superadmin' || roleLower === 'admin';
+          const canManageTarget = isSuperAdmin || (!isTargetProtected);
+
+          return `
           <tr>
             <td>#${user.id}</td>
             <td>${escapeHtml(user.name)}</td>
@@ -200,13 +219,14 @@
             <td>${formatDate(user.created_at)}</td>
             <td>
               <div class="user-actions">
-                <button type="button" onclick="openEditUser(${user.id})">Edit</button>
+                ${canManageTarget ? `<button type="button" onclick="openEditUser(${user.id})">Edit</button>` : ''}
                 <button type="button" onclick="openProfile(${user.id})">Profile</button>
-                <button type="button" onclick="deleteUser(${user.id})">Delete</button>
+                ${canManageTarget ? `<button type="button" onclick="deleteUser(${user.id})">Delete</button>` : ''}
               </div>
             </td>
           </tr>
-        `).join('');
+        `;
+        }).join('');
       }
 
       pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
