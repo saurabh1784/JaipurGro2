@@ -6,17 +6,23 @@ const { uploadProductImage, handleProductImageUploadError } = require('../middle
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 5 * 1024 * 1024 },
+  limits: { fileSize: 25 * 1024 * 1024 },
   fileFilter: (req, file, cb) => {
     const allowed = [
       'text/csv',
       'application/vnd.ms-excel',
       'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/webp',
+      'application/zip',
+      'application/x-zip-compressed',
     ];
-    if (allowed.includes(file.mimetype) || /\.(csv|xls|xlsx)$/i.test(file.originalname)) {
+    if (allowed.includes(file.mimetype) || /\.(csv|xls|xlsx|jpg|jpeg|png|webp|zip)$/i.test(file.originalname)) {
       return cb(null, true);
     }
-    return cb(new Error('Only CSV or Excel files are allowed'));
+    return cb(new Error('Only CSV, Excel, Image (JPG/PNG/WebP), or ZIP files are allowed'));
   },
 });
 
@@ -28,6 +34,8 @@ router.post('/', uploadProductImage.single('image'), handleProductImageUploadErr
 router.post('/bulk-upload', upload.single('file'), productController.bulkUpload);
 router.get('/image-upload-template', productController.downloadImageTemplate);
 router.post('/bulk-image-upload', upload.single('file'), productController.bulkImageUpload);
+router.post('/bulk-image', upload.single('file'), productController.bulkImageUpload);
+router.post('/image-upload', upload.single('file'), productController.bulkImageUpload);
 router.post('/bulk-delete', productController.bulkDeleteProducts);
 router.delete('/bulk', productController.bulkDeleteProducts);
 router.put('/:id/approval-status', productController.updateApprovalStatus);
@@ -44,6 +52,10 @@ router.use((error, req, res, next) => {
     return res.status(422).json({ success: false, message: error.message || 'Invalid upload' });
   }
   return next();
+});
+
+router.use((req, res) => {
+  return res.status(404).json({ success: false, message: `Endpoint ${req.originalUrl} not found.` });
 });
 
 module.exports = router;
