@@ -1,6 +1,6 @@
 const User = require('../models/User');
 const Profile = require('../models/Profile');
-const { vendorSignaturePath } = require('../middleware/vendorSignatureUpload');
+const { processUploadedFile } = require('../services/imageProcessingService');
 
 function sanitizeProfileUpdate(role, body) {
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : body;
@@ -101,7 +101,7 @@ async function uploadVendorSignature(req, res) {
     return res.status(422).json({ success: false, message: 'Signature image is required' });
   }
 
-  const signaturePath = vendorSignaturePath(req.file);
+  const signaturePath = await processUploadedFile(req.file, 'signature', 'vendor-' + user.id + '-signature');
   await Profile.createEmptyForRole(user.id, user.role);
   await Profile.updateByRole(user.id, user.role, { signature_path: signaturePath });
   const profile = await Profile.findByRole(user.id, user.role);

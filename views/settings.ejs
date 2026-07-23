@@ -13,7 +13,9 @@
     locationSettings.countries = locationSettings.countries || [];
     locationSettings.states = locationSettings.states || [];
     locationSettings.cities = locationSettings.cities || [];
+    const isSuperAdmin = Boolean(user && (String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin'));
   %>
+
 
   <main class="system-main">
     <header class="topbar">
@@ -161,6 +163,57 @@
                 <button class="settings-save" type="submit">Reset vendor prices</button>
               </form>
             </div>
+
+            <% if (isSuperAdmin) { %>
+              <div class="debug-clean-section-card">
+                <div class="debug-clean-section-header">
+                  <div class="debug-clean-badge">
+                    <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+                  </div>
+                  <div>
+                    <h3>Database Table Clean Tools (Super Admin)</h3>
+                    <p>Wipe specific application database tables and all dependent linked data safely with confirmation card modals.</p>
+                  </div>
+                </div>
+
+                <div class="debug-clean-grid">
+                  <div class="debug-clean-box">
+                    <div class="debug-clean-box-info">
+                      <strong>Product DB Table</strong>
+                      <p>Permanently deletes all master catalog entries (products) and linked vendor prices (vendor_products).</p>
+                    </div>
+                    <button type="button" class="danger-action-button clean-db-trigger" data-clean-target="products">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      Clean Product DB
+                    </button>
+                  </div>
+
+                  <div class="debug-clean-box">
+                    <div class="debug-clean-box-info">
+                      <strong>SubCategory DB Table</strong>
+                      <p>Permanently deletes all subcategories (sub_categories), child brands, master products, and vendor listings.</p>
+                    </div>
+                    <button type="button" class="danger-action-button clean-db-trigger" data-clean-target="subcategories">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      Clean SubCategory DB
+                    </button>
+                  </div>
+
+                  <div class="debug-clean-box">
+                    <div class="debug-clean-box-info">
+                      <strong>Brand DB Table</strong>
+                      <p>Permanently deletes all brand entries (brands), master products under these brands, and vendor product listings.</p>
+                    </div>
+                    <button type="button" class="danger-action-button clean-db-trigger" data-clean-target="brands">
+                      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6m3 0V4a2 2 0 012-2h4a2 2 0 012 2v2"/></svg>
+                      Clean Brand DB
+                    </button>
+                  </div>
+                </div>
+              </div>
+            <% } %>
+
+
             <% if (backupList.length) { %>
               <div class="database-backup-list">
                 <h3>Saved backups</h3>
@@ -561,8 +614,105 @@
             <button class="settings-save" type="button" onclick="openCatalogModal('category')">Add Main Category</button>
             <button class="settings-save" type="button" onclick="openCatalogModal('subcategory')">Add Subcategory</button>
             <button class="settings-save" type="button" onclick="openCatalogModal('brand')">Add Brand</button>
+            <button class="product-secondary-button" type="button" id="downloadSelectedSubcategories">Download Subcategories</button>
+            <button class="product-secondary-button" type="button" id="downloadSelectedBrands">Download Brands</button>
           </div>
         </div>
+
+        <div class="catalog-bulk-grid">
+          <form id="subcategoryBulkUploadForm" class="catalog-bulk-upload-card" data-bulk-label="Subcategory" data-bulk-endpoint="/subcategories-bulk-upload">
+            <div>
+              <h3>Bulk Subcategory Upload</h3>
+              <p>Select a main category above, then upload CSV columns: name, code, status, image_filename.</p>
+            </div>
+            <label>
+              Subcategory CSV
+              <input id="subcategoryBulkFile" name="file" type="file" accept=".csv,.xls,.xlsx" required />
+            </label>
+            <div class="bulk-actions">
+              <button class="settings-save" type="submit">Upload Subcategories</button>
+              <button class="product-secondary-button" type="button" id="downloadSubcategoryBulkTemplate">Template CSV</button>
+            </div>
+            <div id="subcategoryBulkResult" class="product-message" aria-live="polite"></div>
+          </form>
+
+          <form id="brandBulkUploadForm" class="catalog-bulk-upload-card" data-bulk-label="Brand" data-bulk-endpoint="/brands-bulk-upload">
+            <div>
+              <h3>Bulk Brand Upload</h3>
+              <p>Select a main category above, then upload CSV columns: subcategory, subcategory_code, name, code, status, image_filename.</p>
+            </div>
+            <label>
+              Brand CSV
+              <input id="brandBulkFile" name="file" type="file" accept=".csv,.xls,.xlsx" required />
+            </label>
+            <div class="bulk-actions">
+              <button class="settings-save" type="submit">Upload Brands</button>
+              <button class="product-secondary-button" type="button" id="downloadBrandBulkTemplate">Template CSV</button>
+            </div>
+            <div id="brandBulkResult" class="product-message" aria-live="polite"></div>
+          </form>
+
+          <form id="subcategoryImageBulkUploadForm" class="catalog-bulk-upload-card" data-bulk-label="Subcategory images" data-bulk-endpoint="/subcategories-image-bulk-upload" data-image-upload="true">
+            <div>
+              <h3>Bulk Subcategory Image Upload</h3>
+              <p>Select a main category above. Image filenames must match a unique subcategory name, code, or image_filename from the CSV.</p>
+            </div>
+            <label>
+              Subcategory Images
+              <input id="subcategoryImageBulkFiles" name="images" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple required />
+            </label>
+            <div class="bulk-actions">
+              <button class="settings-save" type="submit">Upload Images</button>
+            </div>
+            <div id="subcategoryImageBulkResult" class="product-message" aria-live="polite"></div>
+          </form>
+
+          <form id="brandImageBulkUploadForm" class="catalog-bulk-upload-card" data-bulk-label="Brand images" data-bulk-endpoint="/brands-image-bulk-upload" data-image-upload="true">
+            <div>
+              <h3>Bulk Brand Image Upload</h3>
+              <p>Select a main category above. Image filenames must match a unique brand name, code, or image_filename from the CSV.</p>
+            </div>
+            <label>
+              Brand Images
+              <input id="brandImageBulkFiles" name="images" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple required />
+            </label>
+            <div class="bulk-actions">
+              <button class="settings-save" type="submit">Upload Images</button>
+            </div>
+            <div id="brandImageBulkResult" class="product-message" aria-live="polite"></div>
+          <form id="subcategoryImageUrlBulkUploadForm" class="catalog-bulk-upload-card" data-bulk-label="Subcategory Image URLs CSV" data-bulk-endpoint="/subcategories/bulk-image-url-upload">
+            <div>
+              <h3>Bulk Subcategory Image CSV (by URL)</h3>
+              <p>Download CSV template with subcategory IDs, paste image URLs into the CSV, and upload to replace subcategory images.</p>
+            </div>
+            <label>
+              Subcategory Image URL CSV
+              <input id="subcategoryImageUrlBulkFile" name="file" type="file" accept=".csv,.xls,.xlsx" required />
+            </label>
+            <div class="bulk-actions">
+              <button class="settings-save" type="submit">Upload Image CSV</button>
+              <a href="/subcategories/image-upload-template" class="product-secondary-button" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">Template CSV</a>
+            </div>
+            <div id="subcategoryImageUrlBulkResult" class="product-message" aria-live="polite"></div>
+          </form>
+
+          <form id="brandImageUrlBulkUploadForm" class="catalog-bulk-upload-card" data-bulk-label="Brand Image URLs CSV" data-bulk-endpoint="/brands/bulk-image-url-upload">
+            <div>
+              <h3>Bulk Brand Image CSV (by URL)</h3>
+              <p>Download CSV template with brand IDs, paste image URLs into the CSV, and upload to replace brand images.</p>
+            </div>
+            <label>
+              Brand Image URL CSV
+              <input id="brandImageUrlBulkFile" name="file" type="file" accept=".csv,.xls,.xlsx" required />
+            </label>
+            <div class="bulk-actions">
+              <button class="settings-save" type="submit">Upload Image CSV</button>
+              <a href="/brands/image-upload-template" class="product-secondary-button" style="text-decoration:none; display:inline-flex; align-items:center; justify-content:center;">Template CSV</a>
+            </div>
+            <div id="brandImageUrlBulkResult" class="product-message" aria-live="polite"></div>
+          </form>
+        </div>
+
 
         <div class="catalog-layout">
           <aside class="catalog-tree" id="catalogTree">Loading catalog...</aside>
@@ -611,6 +761,8 @@
           </div>
           <div class="catalog-table-card catalog-table-panel" id="brandTablePanel">
             <h3>Brand Table</h3>
+
+
             <table class="catalog-table">
               <thead>
                 <tr>
@@ -1404,9 +1556,14 @@
           <input id="catalogTaxPercentageInput" type="number" min="0" max="100" step="0.01" />
         </label>
         <label class="catalog-logo-field" id="catalogLogoField">
-          Picture / Logo
+          Picture / Logo File
           <input id="catalogLogoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
         </label>
+        <label class="catalog-logo-field" id="catalogUrlField">
+          Picture / Logo URL (Paste Link)
+          <input id="catalogUrlInput" type="url" placeholder="https://example.com/image.jpg" />
+        </label>
+
         <label class="settings-toggle">
           <input id="catalogActiveInput" type="checkbox" checked />
           Active
@@ -1756,7 +1913,10 @@
       document.getElementById('catalogLogoField').style.display = 'block';
       document.getElementById('catalogTaxNameField').style.display = type === 'category' ? 'block' : 'none';
       document.getElementById('catalogTaxPercentageField').style.display = type === 'category' ? 'block' : 'none';
-      document.getElementById('catalogLogoInput').value = '';
+      const catalogLogoInput = document.getElementById('catalogLogoInput');
+      catalogLogoInput.value = '';
+      catalogLogoInput.dataset.imagePreset = type === 'category' ? 'category' : (type === 'subcategory' ? 'subcategory' : 'brand');
+      document.getElementById('catalogUrlInput').value = item && (item.image_url || item.image_path || item.logo_path || item.logo) ? (item.image_url || item.image_path || item.logo_path || item.logo) : '';
       document.getElementById('catalogCategoryInput').value = item && item.category_id ? item.category_id : '';
       updateCatalogSubcategoryInput(item && (item.sub_category_id || item.subcategory_id) ? (item.sub_category_id || item.subcategory_id) : '');
       modal.classList.add('active');
@@ -1767,6 +1927,75 @@
     }
 
     document.getElementById('catalogCategoryInput').addEventListener('change', () => updateCatalogSubcategoryInput());
+    function selectedCatalogCategoryId() {
+      const categoryId = document.getElementById('catalogCategoryFilter').value;
+      if (!categoryId) alert('Please select a main category first.');
+      return categoryId;
+    }
+
+    document.getElementById('downloadSelectedSubcategories').addEventListener('click', () => {
+      const categoryId = selectedCatalogCategoryId();
+      if (categoryId) window.location.href = `/catalog-subcategories-download?category_id=${encodeURIComponent(categoryId)}`;
+    });
+
+    document.getElementById('downloadSelectedBrands').addEventListener('click', () => {
+      const categoryId = selectedCatalogCategoryId();
+      if (categoryId) window.location.href = `/catalog-brands-download?category_id=${encodeURIComponent(categoryId)}`;
+    });
+
+    document.getElementById('downloadSubcategoryBulkTemplate').addEventListener('click', () => {
+      window.location.href = '/subcategories-bulk-template';
+    });
+
+    document.getElementById('downloadBrandBulkTemplate').addEventListener('click', () => {
+      window.location.href = '/brands-bulk-template';
+    });
+
+    function attachCatalogBulkForm(formId, resultId) {
+      const form = document.getElementById(formId);
+      form.addEventListener('submit', async (event) => {
+        event.preventDefault();
+        const categoryId = selectedCatalogCategoryId();
+        const label = form.dataset.bulkLabel || 'Catalog';
+        const result = document.getElementById(resultId);
+        if (!categoryId) return;
+        const formData = new FormData(form);
+        formData.set('category_id', categoryId);
+        result.innerHTML = `<article class="upload-result-card"><p>Uploading ${escapeCatalog(label.toLowerCase())}...</p></article>`;
+        if (typeof showBulkUploadProgressModal === 'function') {
+          showBulkUploadProgressModal({
+            title: `Uploading Bulk ${label} Data`,
+            subtitle: `Processing file and syncing ${label.toLowerCase()} entries...`,
+            message: `Reading uploaded ${label.toLowerCase()} file, validating structure, and saving entries into database.`
+          });
+        }
+        try {
+          const response = await fetch(form.dataset.bulkEndpoint, {
+            method: 'POST',
+            headers: { Accept: 'application/json' },
+            body: formData,
+          });
+          const data = await response.json();
+          result.innerHTML = renderCatalogBulkResult(data, label);
+          if ((data.created_count || 0) > 0 || (data.updated_count || 0) > 0) {
+            form.reset();
+            loadCatalog();
+          }
+        } catch (error) {
+          result.innerHTML = renderCatalogBulkResult({ success: false, message: error.message || `${label} upload failed` }, label);
+        } finally {
+          if (typeof hideBulkUploadProgressModal === 'function') {
+            hideBulkUploadProgressModal();
+          }
+        }
+      });
+    }
+
+
+    attachCatalogBulkForm('subcategoryBulkUploadForm', 'subcategoryBulkResult');
+    attachCatalogBulkForm('brandBulkUploadForm', 'brandBulkResult');
+    attachCatalogBulkForm('subcategoryImageBulkUploadForm', 'subcategoryImageBulkResult');
+    attachCatalogBulkForm('brandImageBulkUploadForm', 'brandImageBulkResult');
 
     document.getElementById('catalogForm').addEventListener('submit', async (event) => {
       event.preventDefault();
@@ -1783,9 +2012,10 @@
         payload.tax_name = document.getElementById('catalogTaxNameInput').value;
         payload.tax_percentage = document.getElementById('catalogTaxPercentageInput').value;
       }
+      const catalogUrlVal = document.getElementById('catalogUrlInput').value.trim();
       const selectedLogo = document.getElementById('catalogLogoInput').files[0];
       const processedLogo = selectedLogo ? await fitImageForCatalogIcon(selectedLogo) : null;
-      const needsMultipart = type === 'brand' || type === 'subcategory' || (type === 'category' && processedLogo);
+      const needsMultipart = type === 'brand' || type === 'subcategory' || (type === 'category' && processedLogo) || catalogUrlVal;
 
       if (needsMultipart) {
         payload.category_id = document.getElementById('catalogCategoryInput').value;
@@ -1794,11 +2024,15 @@
         }
         const formData = new FormData();
         Object.entries(payload).forEach(([key, value]) => formData.append(key, value));
+        if (catalogUrlVal) {
+          formData.append(type === 'subcategory' ? 'image_url' : (type === 'brand' ? 'logo_url' : 'icon_url'), catalogUrlVal);
+        }
         if (processedLogo) {
           formData.append(type === 'subcategory' ? 'image' : (type === 'brand' ? 'logo' : 'icon'), processedLogo);
         }
         payload = formData;
       }
+
 
       const response = await fetch(`${catalogEndpoint(type)}${id ? `/${id}` : ''}`, {
         method: id ? 'PUT' : 'POST',
@@ -1833,6 +2067,99 @@
         '"': '&quot;',
         "'": '&#039;',
       }[char]));
+    }
+
+    function catalogCsvCell(value) {
+      const text = String(value === null || value === undefined ? '' : value);
+      return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    }
+
+    function catalogCsvFromRows(rows, fallbackHeaders) {
+      const headers = fallbackHeaders && fallbackHeaders.length
+        ? fallbackHeaders
+        : Array.from(rows.reduce((set, row) => {
+            Object.keys(row || {}).forEach((key) => set.add(key));
+            return set;
+          }, new Set()));
+      return [headers.join(','), ...rows.map((row) => headers.map((key) => catalogCsvCell(row ? row[key] : '')).join(','))].join('\n');
+    }
+
+    function copyCatalogBulkReport(button) {
+      const target = document.getElementById(button.dataset.copyTarget);
+      if (!target) return;
+      target.select();
+      navigator.clipboard.writeText(target.value).then(() => {
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = 'Copy Error Text'; }, 1400);
+      }).catch(() => document.execCommand('copy'));
+    }
+
+    function catalogBulkErrorLine(item) {
+      const reason = item.reason || (item.errors || []).join('; ') || 'Unable to upload';
+      return `Row ${item.rowNumber || '-'} | ${item.identifier || '-'} | Error: ${reason}`;
+    }
+
+    function catalogBulkErrorCsv(items) {
+      const rows = (items || []).map((item) => item.row || {
+        row: item.rowNumber || '',
+        catalog_item: item.identifier || '',
+        error: item.reason || (item.errors || []).join('; ') || '',
+      });
+      return catalogCsvFromRows(rows, ['row', 'catalog_item', 'error']);
+    }
+
+    function renderCatalogBulkResult(data, label = 'Catalog') {
+      const reportId = `catalogBulkErrorCsv-${label.toLowerCase().replace(/[^a-z0-9]+/g, '-')}`;
+      const failed = data.failed || [];
+      const skipped = data.skipped || [];
+      const created = data.created || {};
+      const createdCount = Number(data.created_count || 0);
+      const updated = data.updated || {};
+      const updatedCount = Number(data.updated_count || 0);
+      const requestError = data.success === false && failed.length === 0 && skipped.length === 0;
+      const issueRows = requestError
+        ? [{ rowNumber: '-', identifier: 'Upload request', errors: [data.message || 'Catalog upload failed'] }]
+        : [...failed, ...skipped];
+      const hasIssues = issueRows.length > 0;
+      const lines = issueRows.map(catalogBulkErrorLine);
+      const title = requestError
+        ? `${label} upload failed`
+        : hasIssues
+          ? `${label} upload needs attention: ${issueRows.length}`
+          : `${label} upload successful`;
+      const summary = [
+        { label: 'Created', value: createdCount, tone: 'success' },
+        { label: 'Images Updated', value: updatedCount || ((updated.subcategories || []).length + (updated.brands || []).length), tone: 'success' },
+        { label: 'Skipped', value: skipped.length, tone: skipped.length ? 'warning' : 'success' },
+        { label: 'Errors', value: failed.length, tone: failed.length ? 'error' : 'success' },
+      ];
+      return `
+        <article class="upload-result-card ${hasIssues ? 'error' : 'success'}">
+          <div class="upload-result-header">
+            <div>
+              <span>${hasIssues ? 'Needs Attention' : 'Upload Complete'}</span>
+              <strong>${escapeCatalog(title)}</strong>
+            </div>
+          </div>
+          <p>${escapeCatalog(hasIssues ? 'Review the items below, fix them, and upload again.' : (data.message || `${createdCount + updatedCount} item(s) processed`))}</p>
+          <div class="upload-result-summary">
+            ${summary.map((item) => `
+              <div class="upload-result-stat ${escapeCatalog(item.tone)}">
+                <span>${escapeCatalog(item.label)}</span>
+                <strong>${escapeCatalog(item.value)}</strong>
+              </div>
+            `).join('')}
+          </div>
+          ${hasIssues ? `<ul class="upload-error-list">${lines.slice(0, 12).map((line) => `<li>${escapeCatalog(line)}</li>`).join('')}</ul>` : ''}
+          ${lines.length > 12 ? `<small>${lines.length - 12} more row(s) are in the copy box.</small>` : ''}
+          ${hasIssues ? `
+            <div class="bulk-error-tools">
+              <button class="bulk-error-copy" type="button" data-copy-target="${escapeCatalog(reportId)}" onclick="copyCatalogBulkReport(this)">Copy Error Text</button>
+            </div>
+            <textarea id="${escapeCatalog(reportId)}" class="bulk-error-textarea" spellcheck="false">${escapeCatalog(requestError ? lines.join('\n') : catalogBulkErrorCsv(issueRows))}</textarea>
+          ` : ''}
+        </article>
+      `;
     }
 
     let biddingSettings = <%- JSON.stringify(settings.bidding && settings.bidding.settings || []) %>;
@@ -3882,26 +4209,9 @@
       }
     }
   </style>
+  <script src="/image-upload-editor.js"></script>
+  <%- include('partials/clean_modal') %>
+  <%- include('partials/bulk_upload_progress_modal') %>
 </body>
 </html>
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
 

@@ -5,7 +5,7 @@ const DeliveryPerson = require('../models/DeliveryPerson');
 const Wallet = require('../models/Wallet');
 const pool = require('../db');
 const { ensureInvoice } = require('../services/invoiceService');
-const { deliveryProfileImagePath } = require('../middleware/deliveryProfileImageUpload');
+const { processUploadedFile } = require('../services/imageProcessingService');
 const DeliveryType = require('../models/DeliveryType');
 const Rating = require('../models/Rating');
 
@@ -573,7 +573,7 @@ async function uploadDeliveryProfileImage(req, res) {
     return res.status(403).json({ success: false, message: 'Delivery partner access required' });
   }
 
-  const imagePath = deliveryProfileImagePath(req.file);
+  const imagePath = await processUploadedFile(req.file, 'profile', 'delivery-' + currentUser.id);
   if (!imagePath) {
     return res.status(422).json({ success: false, message: 'Profile picture is required' });
   }

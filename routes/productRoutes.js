@@ -26,6 +26,8 @@ router.get('/sponsored', productController.sponsoredIndex);
 router.post('/sponsored', productController.sponsoredCreate);
 router.post('/', uploadProductImage.single('image'), handleProductImageUploadError, productController.create);
 router.post('/bulk-upload', upload.single('file'), productController.bulkUpload);
+router.get('/image-upload-template', productController.downloadImageTemplate);
+router.post('/bulk-image-upload', upload.single('file'), productController.bulkImageUpload);
 router.put('/:id/approval-status', productController.updateApprovalStatus);
 router.put('/:id/search-settings', productController.updateSearchSettings);
 router.put('/:id/featured', productController.setFeatured);

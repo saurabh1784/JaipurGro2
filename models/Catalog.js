@@ -223,11 +223,79 @@ async function deleteBrand(id) {
   await pool.query("UPDATE brands SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE id = ?", [id]);
 }
 
+async function cleanBrands() {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM vendor_products');
+    const [prodResult] = await conn.query('DELETE FROM products');
+    const [brandResult] = await conn.query('DELETE FROM brands');
+    await conn.commit();
+    return {
+      deletedProducts: prodResult.affectedRows || prodResult.rowCount || 0,
+      deletedBrands: brandResult.affectedRows || brandResult.rowCount || 0,
+    };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+async function cleanSubcategories() {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM vendor_products');
+    const [prodResult] = await conn.query('DELETE FROM products');
+    const [brandResult] = await conn.query('DELETE FROM brands');
+    const [subResult] = await conn.query('DELETE FROM sub_categories');
+    await conn.commit();
+    return {
+      deletedProducts: prodResult.affectedRows || prodResult.rowCount || 0,
+      deletedBrands: brandResult.affectedRows || brandResult.rowCount || 0,
+      deletedSubcategories: subResult.affectedRows || subResult.rowCount || 0,
+    };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+async function findSubcategoryById(id) {
+  const { rows } = await pool.query(
+    `SELECT s.id, s.category_id, s.name, s.slug, s.image_path, s.status, c.name AS category_name
+     FROM sub_categories s
+     INNER JOIN categories c ON c.id = s.category_id
+     WHERE s.id = ? AND s.is_deleted = 0 AND c.is_deleted = 0`,
+    [id]
+  );
+  return rows[0] ? row(rows[0]) : null;
+}
+
+async function findBrandById(id) {
+  const { rows } = await pool.query(
+    `SELECT b.id, b.category_id, b.sub_category_id, b.name, b.slug, b.logo_path, b.status,
+            s.name AS sub_category_name, c.name AS category_name
+     FROM brands b
+     INNER JOIN categories c ON c.id = b.category_id
+     INNER JOIN sub_categories s ON s.id = b.sub_category_id
+     WHERE b.id = ? AND b.is_deleted = 0 AND c.is_deleted = 0 AND s.is_deleted = 0`,
+    [id]
+  );
+  return rows[0] ? { ...row(rows[0]), subcategory_id: rows[0].sub_category_id, subcategory_name: rows[0].sub_category_name } : null;
+}
+
 module.exports = {
   slugify,
   listCategories,
   listSubcategories,
   listBrands,
+  findSubcategoryById,
+  findBrandById,
   getTree,
   createCategory,
   updateCategory,
@@ -238,4 +306,8 @@ module.exports = {
   createBrand,
   updateBrand,
   deleteBrand,
+  cleanBrands,
+  cleanSubcategories,
 };
+
+

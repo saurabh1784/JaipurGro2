@@ -2,7 +2,7 @@ const VendorProduct = require('../models/VendorProduct');
 const Product = require('../models/Product');
 const ProductSearch = require('../models/ProductSearch');
 const Vendor = require('../models/Vendor');
-const { productImagePath } = require('../middleware/productImageUpload');
+const { processUploadedFile } = require('../services/imageProcessingService');
 
 function isSuperAdmin(user) {
   return String((user && (user.role || user.roleName)) || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin';
@@ -52,9 +52,13 @@ function normalizeWeightUnit(value) {
   return unit.slice(0, 20);
 }
 
-function requestPayload(req, existing = {}) {
+async function requestPayload(req, existing = {}) {
   const files = Array.isArray(req.files) ? req.files : [];
-  const imagePaths = files.map(productImagePath).filter(Boolean);
+  const imagePaths = [];
+  for (let index = 0; index < files.length; index += 1) {
+    const imagePath = await processUploadedFile(files[index], 'product', `${req.body.name || 'vendor-product'}-${index + 1}`);
+    if (imagePath) imagePaths.push(imagePath);
+  }
   const hasWeightValue = req.body.weight_value !== undefined && req.body.weight_value !== '';
   const weightValue = hasWeightValue ? toNumber(req.body.weight_value) : toNumber(req.body.weight_kg || 0);
   const weightUnit = normalizeWeightUnit(req.body.weight_unit || 'kg');
@@ -170,11 +174,11 @@ async function requestProduct(req, res) {
   if (!isVendor(req.authUser)) {
     return res.status(403).json({ success: false, message: 'Only vendors can request new products' });
   }
-  const { data, errors } = requestPayload(req);
-  if (errors.length) {
-    return res.status(422).json({ success: false, message: errors.join(', '), errors });
-  }
   try {
+    const { data, errors } = await requestPayload(req);
+    if (errors.length) {
+      return res.status(422).json({ success: false, message: errors.join(', '), errors });
+    }
     const vendorProduct = await VendorProduct.createProductRequest(data);
     return res.status(201).json({
       success: true,
@@ -193,12 +197,12 @@ async function resubmitProductRequest(req, res) {
   if (!isVendor(req.authUser)) {
     return res.status(403).json({ success: false, message: 'Only vendors can resubmit product requests' });
   }
-  const existing = await Product.findById(Number(req.params.productId));
-  const { data, errors } = requestPayload(req, existing || {});
-  if (errors.length) {
-    return res.status(422).json({ success: false, message: errors.join(', '), errors });
-  }
   try {
+    const existing = await Product.findById(Number(req.params.productId));
+    const { data, errors } = await requestPayload(req, existing || {});
+    if (errors.length) {
+      return res.status(422).json({ success: false, message: errors.join(', '), errors });
+    }
     const vendorProduct = await VendorProduct.resubmitProductRequest(req.params.productId, data);
     return res.json({
       success: true,
@@ -450,5 +454,3 @@ module.exports = {
   suggestions,
   trackActivity,
 };
-
-

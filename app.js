@@ -22,6 +22,7 @@ const vendorProductRoutes = require('./routes/vendorProductRoutes');
 const orderRoutes = require('./routes/orderRoutes');
 const deliveryPersonRoutes = require('./routes/deliveryPersonRoutes');
 const deliveryTypeRoutes = require('./routes/deliveryTypeRoutes');
+const appSettingsRoutes = require('./routes/appSettingsRoutes');
 const orderController = require('./controllers/orderController');
 const walletController = require('./controllers/walletController');
 const userController = require('./controllers/userController');
@@ -168,6 +169,18 @@ const uploadDatabaseBackup = multer({
     return cb(new Error('Only JSON database backup files are allowed'));
   },
 });
+
+const uploadCsvFile = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/\.(csv|xls|xlsx)$/i.test(file.originalname || '')) {
+      return cb(null, true);
+    }
+    return cb(new Error('Only CSV or Excel files are allowed'));
+  },
+});
+
 
 const permissionLabels = {
   all: 'All Access',
@@ -554,6 +567,19 @@ function requireAdminMaintenance(req, res, next) {
   }
 
   return res.redirect('/settings?error=Only%20admin%20users%20can%20run%20maintenance%20actions');
+}
+
+function requireSuperAdmin(req, res, next) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  if (isSuperAdminUser(currentUser)) {
+    return next();
+  }
+
+  if (requestWantsJson(req)) {
+    return res.status(403).json({ success: false, message: 'Only Super Admin users can perform table cleaning actions' });
+  }
+
+  return res.redirect('/settings?error=' + encodeURIComponent('Only Super Admin users can perform table cleaning actions'));
 }
 
 function requireAdminCommission(req, res, next) {
@@ -2555,6 +2581,7 @@ function buildShell(user, activePath = '/dashboard') {
       navItem('Coupon History', '/coupons/history', 'coupon_history.view', 'reports', activePath.startsWith('/coupons/history')),
     ]),
     navItem('Advertisements', '/advertisements', 'advertisements.view', 'discounts', activePath.startsWith('/advertisements')),
+    navItem('App Settings', '/app-settings', 'settings.manage', 'settings', activePath.startsWith('/app-settings')),
     navItem('Reports', '#', 'reports.view', 'reports', false),
     navItem('Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings')),
   ]
@@ -2910,8 +2937,31 @@ async function buildDashboardData(user, activePath = '/dashboard') {
     }
   }
 
+  try {
+
+    const [catalogRows] = await pool.query(
+      `SELECT
+         (SELECT COUNT(*) FROM categories WHERE is_deleted = 0) AS category_count,
+         (SELECT COUNT(*) FROM sub_categories WHERE is_deleted = 0) AS subcategory_count,
+         (SELECT COUNT(*) FROM brands WHERE is_deleted = 0) AS brand_count,
+         (SELECT COUNT(*) FROM products WHERE is_deleted = 0) AS product_count,
+         (SELECT COUNT(*) FROM products WHERE is_deleted = 0 AND approval_status = 'pending') AS pending_products`
+    );
+    const catalogStats = catalogRows[0] || {};
+    dashboard.catalogStats = {
+      categories: Number(catalogStats.category_count || 0),
+      subcategories: Number(catalogStats.subcategory_count || 0),
+      brands: Number(catalogStats.brand_count || 0),
+      products: Number(catalogStats.product_count || 0),
+      pendingProducts: Number(catalogStats.pending_products || 0),
+    };
+  } catch (error) {
+    console.error('Error fetching dashboard catalog stats:', error);
+  }
+
   return dashboard;
 }
+
 
 async function getAdminMaintenanceStats() {
   const [maintenanceRows] = await pool.query(
@@ -3414,6 +3464,61 @@ app.post('/admin/maintenance/clean-database', requireAuth, requireAdminMaintenan
     return res.redirect(`/settings?error=${encodeURIComponent(message)}`);
   }
 });
+
+app.post('/admin/maintenance/clean-products', requireAuth, requireSuperAdmin, async (req, res) => {
+  const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
+  try {
+    const result = await Product.cleanProducts();
+    const detail = `Products table cleaned successfully. Deleted ${result.deletedProducts} product(s) and all linked vendor products.`;
+    if (wantsJson) {
+      return res.json({ success: true, message: detail, result });
+    }
+    return res.redirect(`/products?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Clean Products DB failed:', error);
+    if (wantsJson) {
+      return res.status(500).json({ success: false, message: 'Failed to clean products table: ' + error.message });
+    }
+    return res.redirect(`/products?error=${encodeURIComponent('Failed to clean products table.')}`);
+  }
+});
+
+app.post('/admin/maintenance/clean-subcategories', requireAuth, requireSuperAdmin, async (req, res) => {
+  const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
+  try {
+    const result = await Catalog.cleanSubcategories();
+    const detail = `SubCategories table cleaned successfully. Deleted ${result.deletedSubcategories} subcategory(ies), ${result.deletedBrands} brand(s), ${result.deletedProducts} product(s) and all linked vendor products.`;
+    if (wantsJson) {
+      return res.json({ success: true, message: detail, result });
+    }
+    return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Clean SubCategories DB failed:', error);
+    if (wantsJson) {
+      return res.status(500).json({ success: false, message: 'Failed to clean subcategories table: ' + error.message });
+    }
+    return res.redirect(`/settings?error=${encodeURIComponent('Failed to clean subcategories table.')}`);
+  }
+});
+
+app.post('/admin/maintenance/clean-brands', requireAuth, requireSuperAdmin, async (req, res) => {
+  const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
+  try {
+    const result = await Catalog.cleanBrands();
+    const detail = `Brands table cleaned successfully. Deleted ${result.deletedBrands} brand(s), ${result.deletedProducts} product(s) and all linked vendor products.`;
+    if (wantsJson) {
+      return res.json({ success: true, message: detail, result });
+    }
+    return res.redirect(`/settings?message=${encodeURIComponent(detail)}`);
+  } catch (error) {
+    console.error('Clean Brands DB failed:', error);
+    if (wantsJson) {
+      return res.status(500).json({ success: false, message: 'Failed to clean brands table: ' + error.message });
+    }
+    return res.redirect(`/settings?error=${encodeURIComponent('Failed to clean brands table.')}`);
+  }
+});
+
 
 app.post('/admin/maintenance/update-database', requireAuth, requireAdminMaintenance, async (req, res) => {
   const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
@@ -4101,6 +4206,7 @@ app.use('/api/orders/vendor', webOrJwtAuth, orderRoutes.vendorRouter);
 app.use('/api/orders/client', webOrJwtAuth, orderRoutes.clientRouter);
 app.use('/api/orders/delivery', webOrJwtAuth, orderRoutes.deliveryRouter);
 app.use('/api/delivery-types', webOrJwtAuth, deliveryTypeRoutes);
+app.use('/', appSettingsRoutes);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
@@ -6993,6 +7099,15 @@ app.post('/brands', requireAuth, requirePermission('settings.manage'), uploadBra
 app.get('/brands', requireAuth, requirePermission('settings.manage'), catalogController.listBrands);
 app.put('/brands/:id', requireAuth, requirePermission('settings.manage'), uploadBrandLogo.single('logo'), handleUploadError, catalogController.updateBrand);
 app.delete('/brands/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteBrand);
+
+app.get('/subcategories/image-upload-template', requireAuth, requirePermission('settings.manage'), catalogController.downloadSubcategoryImageTemplate);
+app.post('/subcategories/bulk-image-url-upload', requireAuth, requirePermission('settings.manage'), uploadCsvFile.single('file'), catalogController.bulkUploadSubcategoryImageUrls);
+app.get('/brands/image-upload-template', requireAuth, requirePermission('settings.manage'), catalogController.downloadBrandImageTemplate);
+app.post('/brands/bulk-image-url-upload', requireAuth, requirePermission('settings.manage'), uploadCsvFile.single('file'), catalogController.bulkUploadBrandImageUrls);
+app.get('/catalog-subcategories-download', requireAuth, requirePermission('settings.manage'), catalogController.downloadSubcategoryList);
+app.get('/catalog-brands-download', requireAuth, requirePermission('settings.manage'), catalogController.downloadBrandList);
+
+
 
 app.get('/roles/create', requireAuth, requirePermission('roles.manage'), async (req, res) => {
   try {

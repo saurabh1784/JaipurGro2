@@ -21,7 +21,9 @@
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
         </label>
       </div>
+
     </header>
+
 
     <section class="product-management-shell">
       <div class="products-action-band">
@@ -69,10 +71,16 @@
             <input id="productTaxPercentage" type="number" min="0" max="100" step="0.01" placeholder="Category default" />
           </label>
           <label>
-            Product Image
+            Product Image File
             <input id="productImage" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
-            <span class="image-helper">Images are fitted to the product card without cutting edges.</span>
+            <span class="image-helper">Upload file from computer</span>
           </label>
+          <label>
+            Product Image URL (Paste Link)
+            <input id="productImageUrl" type="url" placeholder="https://example.com/image.jpg" />
+            <span class="image-helper">Or paste an image URL (auto-downloaded & saved)</span>
+          </label>
+
           <label>
             Main Category
             <select id="productCategory" required></select>
@@ -96,21 +104,43 @@
           <button class="settings-save" type="submit" id="productSubmit">Save Product</button>
         </form>
 
-        <form id="bulkUploadForm" class="bulk-upload-panel">
-          <div>
-            <h2>Bulk Upload</h2>
-            <p>Upload CSV, XLS, or XLSX with name, description, price, weight_value, weight_unit, tax_name, tax_percentage, category, subcategory, brand.</p>
-          </div>
-          <label>
-            File
-            <input id="bulkFile" name="file" type="file" accept=".csv,.xls,.xlsx" required />
-          </label>
-          <div class="bulk-actions">
-            <button class="settings-save" type="submit">Upload</button>
-            <button class="product-secondary-button" type="button" id="downloadTemplate">Template CSV</button>
-          </div>
-          <div id="bulkResult" class="product-message" aria-live="polite"></div>
-        </form>
+        <div class="product-bulk-stack">
+          <form id="bulkUploadForm" class="bulk-upload-panel">
+            <div>
+              <h2>Bulk Upload</h2>
+              <p>Select a main category, then upload CSV, XLS, or XLSX with name, description, price, weight_value, weight_unit, tax_name, tax_percentage, subcategory, brand, and image_url.</p>
+            </div>
+            <label>
+              Main Category
+              <select id="bulkCategory" required></select>
+            </label>
+            <label>
+              File
+              <input id="bulkFile" name="file" type="file" accept=".csv,.xls,.xlsx" required />
+            </label>
+            <div class="bulk-actions">
+              <button class="settings-save" type="submit">Upload</button>
+              <button class="product-secondary-button" type="button" id="downloadTemplate">Template CSV</button>
+            </div>
+            <div id="bulkResult" class="product-message" aria-live="polite"></div>
+          </form>
+
+          <form id="imageUploadForm" class="bulk-upload-panel">
+            <div>
+              <h2>Bulk Image Upload</h2>
+              <p>Download the prefilled CSV, add Image URL values, then upload it to link JPG, JPEG, PNG, or WebP images to products.</p>
+            </div>
+            <label>
+              Image CSV
+              <input id="imageUploadFile" name="file" type="file" accept=".csv" required />
+            </label>
+            <div class="bulk-actions">
+              <button class="settings-save" type="submit">Upload Images</button>
+              <button class="product-secondary-button" type="button" id="downloadImageTemplate">Image Template CSV</button>
+            </div>
+            <div id="imageUploadResult" class="product-message image-upload-result" aria-live="polite"></div>
+          </form>
+        </div>
       </div>
 
       <div class="product-approval-tabs" role="tablist" aria-label="Product approval views">
@@ -318,6 +348,7 @@
 
     const productForm = document.getElementById('productForm');
     const bulkUploadForm = document.getElementById('bulkUploadForm');
+    const imageUploadForm = document.getElementById('imageUploadForm');
     const tableBody = document.getElementById('productsTableBody');
     const nameFilter = document.getElementById('nameFilter');
     const categoryFilter = document.getElementById('categoryFilter');
@@ -445,6 +476,7 @@
 
     function renderCatalogSelects() {
       document.getElementById('productCategory').innerHTML = optionList(catalog.categories, 'Select Main Category');
+      document.getElementById('bulkCategory').innerHTML = optionList(catalog.categories, 'Select Main Category');
       categoryFilter.innerHTML = optionList(catalog.categories, 'All Main Categories');
       updateProductSubcategories();
       updateProductBrands();
@@ -762,8 +794,11 @@
       payload.append('brand_id', document.getElementById('productBrand').value);
       payload.append('is_sponsored', document.getElementById('productSponsored').checked ? 'true' : 'false');
       payload.append('sponsored_priority', document.getElementById('productSponsoredPriority').value || '0');
+      const imageUrlVal = document.getElementById('productImageUrl').value.trim();
+      if (imageUrlVal) payload.append('image_url', imageUrlVal);
       const image = document.getElementById('productImage').files[0];
       if (image) payload.append('image', await fitImageForProductCard(image));
+
       const response = await fetch(`/products${id ? `/${id}` : ''}`, {
         method: id ? 'PUT' : 'POST',
         headers: { Accept: 'application/json' },
@@ -778,23 +813,259 @@
       loadProducts(id ? currentPage : 1);
     });
 
+
+    function csvCell(value) {
+      const text = String(value === null || value === undefined ? '' : value);
+      return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+    }
+
+    function csvFromRows(rows, fallbackHeaders) {
+      const headers = fallbackHeaders && fallbackHeaders.length
+        ? fallbackHeaders
+        : Array.from(rows.reduce((set, row) => {
+            Object.keys(row || {}).forEach((key) => set.add(key));
+            return set;
+          }, new Set()));
+      return [headers.join(','), ...rows.map((row) => headers.map((key) => csvCell(row ? row[key] : '')).join(','))].join('\n');
+    }
+
+    function copyBulkReport(button) {
+      const target = document.getElementById(button.dataset.copyTarget);
+      if (!target) return;
+      target.select();
+      navigator.clipboard.writeText(target.value).then(() => {
+        button.textContent = 'Copied';
+        setTimeout(() => { button.textContent = 'Copy Error Text'; }, 1400);
+      }).catch(() => document.execCommand('copy'));
+    }
+
+    function downloadBulkReport(button) {
+      const target = document.getElementById(button.dataset.copyTarget);
+      if (!target) return;
+      const link = document.createElement('a');
+      link.href = URL.createObjectURL(new Blob([target.value], { type: 'text/csv' }));
+      link.download = button.dataset.filename || 'bulk-upload-errors.csv';
+      link.click();
+      URL.revokeObjectURL(link.href);
+    }
+
+    function errorLine(item) {
+      const id = item.product_id || item.identifier || (item.row && (item.row['Product ID or SKU'] || item.row.product_id || item.row.id)) || '-';
+      const name = item.product_name || (item.row && (item.row.name || item.row['Product Name'])) || '-';
+      const reason = item.reason || (item.errors || []).join('; ') || 'Unable to upload';
+      return `Row ${item.rowNumber || '-'} | ID/SKU: ${id} | Product: ${name} | Error: ${reason}`;
+    }
+
+    function editableErrorCsv(items, fallbackHeaders) {
+      const rows = (items || []).map((item) => item.row || {
+        row: item.rowNumber || '',
+        product_id_or_sku: item.product_id || item.identifier || '',
+        product_name: item.product_name || '',
+        image_url: item.image_url || '',
+        error: item.reason || (item.errors || []).join('; ') || '',
+      });
+      return csvFromRows(rows, fallbackHeaders);
+    }
+
+    function renderEditableErrorReport({ title, message, lines, csv, textareaId, tone = 'error', summary = [] }) {
+      const safeLines = lines || [];
+      const hasErrors = safeLines.length > 0;
+      const summaryHtml = summary.length ? `
+        <div class="upload-result-summary">
+          ${summary.map((item) => `
+            <div class="upload-result-stat ${escapeHtml(item.tone || '')}">
+              <span>${escapeHtml(item.label)}</span>
+              <strong>${escapeHtml(item.value)}</strong>
+            </div>
+          `).join('')}
+        </div>
+      ` : '';
+      const list = hasErrors ? `<ul class="upload-error-list">${safeLines.slice(0, 12).map((line) => `<li>${escapeHtml(line)}</li>`).join('')}</ul>` : '';
+      const more = safeLines.length > 12 ? `<small>${safeLines.length - 12} more error row(s) are in the copy box.</small>` : '';
+      const tools = hasErrors ? `
+        <div class="bulk-error-tools">
+          <button class="bulk-error-copy" type="button" data-copy-target="${escapeHtml(textareaId)}" onclick="copyBulkReport(this)">Copy Error Text</button>
+          <button class="bulk-error-copy" type="button" data-copy-target="${escapeHtml(textareaId)}" data-filename="${escapeHtml(textareaId)}.csv" onclick="downloadBulkReport(this)">Download CSV</button>
+        </div>
+        <textarea id="${escapeHtml(textareaId)}" class="bulk-error-textarea" spellcheck="false">${escapeHtml(csv)}</textarea>
+      ` : '';
+      return `
+        <article class="upload-result-card ${escapeHtml(tone)}">
+          <div class="upload-result-header">
+            <div>
+              <span>${hasErrors ? 'Needs Attention' : 'Upload Complete'}</span>
+              <strong>${escapeHtml(title)}</strong>
+            </div>
+          </div>
+          <p>${escapeHtml(message)}</p>
+          ${summaryHtml}${list}${more}${tools}
+        </article>
+      `;
+    }
+
+    function renderUploadRequestError(title, error, textareaId) {
+      const message = error && error.message ? error.message : 'Upload request failed';
+      return renderEditableErrorReport({
+        title,
+        message,
+        lines: [message],
+        csv: message,
+        textareaId,
+        tone: 'error',
+      });
+    }
+
+    function renderProductBulkResult(data) {
+      const failed = data.failed || [];
+      const duplicates = data.duplicate_products_skipped || [];
+      const imageWarnings = data.image_warnings || [];
+      const notUploaded = [...failed, ...duplicates];
+      const createdCount = Number(data.created_count || data.total_products_uploaded || 0);
+      const requestError = data.success === false && notUploaded.length === 0 && imageWarnings.length === 0;
+      const requestLines = requestError ? [data.message || 'Upload failed'] : notUploaded.map(errorLine);
+      const card = renderEditableErrorReport({
+        title: requestError ? 'Product upload failed' : (notUploaded.length ? `Product upload completed with issues: ${notUploaded.length}` : 'Product upload successful'),
+        message: requestError ? 'The upload could not be processed.' : (notUploaded.length ? 'Download the failed rows, correct them, and upload again.' : (imageWarnings.length ? 'Products were uploaded, but some image URLs could not be downloaded.' : (data.message || 'Upload complete'))),
+        lines: requestLines,
+        csv: requestError ? requestLines.join('\n') : editableErrorCsv(notUploaded, ['name', 'description', 'price', 'weight_value', 'weight_unit', 'tax_name', 'tax_percentage', 'subcategory', 'subcategory_code', 'brand', 'brand_code', 'image_url']),
+        textareaId: 'productBulkErrorCsv',
+        tone: requestError || notUploaded.length ? 'error' : (imageWarnings.length ? 'warning' : 'success'),
+        summary: [
+          { label: 'Products', value: createdCount, tone: 'success' },
+          { label: 'New Subcategories', value: data.new_subcategories_count || 0, tone: 'success' },
+          { label: 'New Brands', value: data.new_brands_count || 0, tone: 'success' },
+          { label: 'Images', value: data.images_uploaded_count || 0, tone: 'success' },
+          { label: 'Duplicates', value: data.duplicate_products_skipped_count || duplicates.length, tone: duplicates.length ? 'warning' : 'success' },
+          { label: 'Errors', value: failed.length, tone: failed.length ? 'error' : 'success' },
+          { label: 'Image Warnings', value: imageWarnings.length, tone: imageWarnings.length ? 'warning' : 'success' },
+        ],
+      });
+      const warnings = imageWarnings.length
+        ? `<div class="image-upload-group"><strong>Image warnings: ${imageWarnings.length}</strong><ul class="upload-error-list compact">${imageWarnings.slice(0, 8).map((item) => `<li>${escapeHtml(errorLine(item))}</li>`).join('')}</ul>${imageWarnings.length > 8 ? `<small>${imageWarnings.length - 8} more image warning(s).</small>` : ''}</div>`
+        : '';
+      return card.replace('</article>', `${warnings}</article>`);
+    }
+
+    function imageResultItems(items) {
+      return (items || []).slice(0, 8).map((item) => {
+        const label = item.product_name || item.identifier || item.product_id || `row ${item.rowNumber}`;
+        const reason = item.reason ? ` - ${item.reason}` : item.action ? ` - ${item.action}` : '';
+        return `<li>Row ${escapeHtml(item.rowNumber)}: ${escapeHtml(label)}${escapeHtml(reason)}</li>`;
+      }).join('');
+    }
+
+    function renderImageUploadResult(data) {
+      const requestError = data.success === false
+        && !(data.successful_uploads || []).length
+        && !(data.invalid_image_urls || []).length
+        && !(data.failed_downloads || []).length
+        && !(data.products_not_found || []).length
+        && !(data.skipped_or_duplicates || []).length;
+      if (requestError) {
+        const message = data.message || 'Image upload failed';
+        return renderEditableErrorReport({
+          title: 'Image upload failed',
+          message: 'The image upload could not be processed.',
+          lines: [message],
+          csv: message,
+          textareaId: 'imageBulkErrorCsv',
+          tone: 'error',
+        });
+      }
+      const groups = [
+        ['Uploaded', data.successful_uploads, 'success'],
+        ['Invalid URLs', data.invalid_image_urls, 'error'],
+        ['Download Failed', data.failed_downloads, 'error'],
+        ['Not Found', data.products_not_found, 'error'],
+        ['Skipped', data.skipped_or_duplicates, 'warning'],
+      ];
+      const problemRows = [
+        ...(data.invalid_image_urls || []),
+        ...(data.failed_downloads || []),
+        ...(data.products_not_found || []),
+        ...(data.skipped_or_duplicates || []),
+      ];
+      const detailHtml = groups.map(([title, items]) => {
+        const count = (items || []).length;
+        if (!count) return '';
+        const details = `<ul class="upload-error-list compact">${imageResultItems(items)}</ul>`;
+        const more = count > 8 ? `<small>${count - 8} more row(s) are in the copy box.</small>` : '';
+        return `<div class="image-upload-group"><strong>${escapeHtml(title)}: ${count}</strong>${details}${more}</div>`;
+      }).join('');
+      const card = renderEditableErrorReport({
+        title: problemRows.length ? `Image upload errors: ${problemRows.length}` : 'Image upload successful',
+        message: problemRows.length ? 'Fix the image rows below and upload the corrected CSV again.' : (data.message || 'Image upload complete'),
+        lines: problemRows.map(errorLine),
+        csv: editableErrorCsv(problemRows, ['Product ID or SKU', 'Product Name', 'Brand Name', 'Weight', 'Image URL']),
+        textareaId: 'imageBulkErrorCsv',
+        tone: problemRows.length ? 'error' : 'success',
+        summary: groups.map(([title, items, tone]) => ({ label: title, value: (items || []).length, tone })),
+      });
+      return card.replace('</article>', `${detailHtml}</article>`);
+    }
     bulkUploadForm.addEventListener('submit', async (event) => {
       event.preventDefault();
       const result = document.getElementById('bulkResult');
-      const formData = new FormData(bulkUploadForm);
-      result.textContent = 'Uploading...';
-      const response = await fetch('/products/bulk-upload', { method: 'POST', headers: { Accept: 'application/json' }, body: formData });
-      const data = await readJsonResponse(response);
-      result.textContent = data.message || 'Upload complete';
-      if (data.failed && data.failed.length) {
-        result.textContent += ` | Failed rows: ${data.failed.map((item) => item.rowNumber).join(', ')}`;
+      const categoryId = document.getElementById('bulkCategory').value;
+      if (!categoryId) {
+        result.innerHTML = renderUploadRequestError('Product upload failed', new Error('Select a main category before uploading products.'), 'productBulkRequestError');
+        return;
       }
-      if (data.created_count) {
-        bulkUploadForm.reset();
-        loadProducts(1);
+      const formData = new FormData(bulkUploadForm);
+      formData.set('category_id', categoryId);
+      result.innerHTML = '<article class="upload-result-card"><p>Uploading products... checking subcategories, brands, and image URLs.</p></article>';
+      if (typeof showBulkUploadProgressModal === 'function') {
+        showBulkUploadProgressModal({
+          title: 'Uploading Products Bulk Data',
+          subtitle: 'Processing CSV rows, subcategories, brands & product entries...',
+          message: 'Reading uploaded product file, validating product columns, creating new subcategories/brands, and writing product catalog entries into the database.'
+        });
+      }
+      try {
+        const response = await fetch('/products/bulk-upload', { method: 'POST', headers: { Accept: 'application/json' }, body: formData });
+        const data = await readJsonResponse(response);
+        result.innerHTML = renderProductBulkResult(data);
+        if (data.created_count) {
+          bulkUploadForm.reset();
+          loadCatalog().then(() => loadProducts(1));
+        }
+      } catch (error) {
+        result.innerHTML = renderUploadRequestError('Product upload failed', error, 'productBulkRequestError');
+      } finally {
+        if (typeof hideBulkUploadProgressModal === 'function') {
+          hideBulkUploadProgressModal();
+        }
       }
     });
 
+    imageUploadForm.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const result = document.getElementById('imageUploadResult');
+      const formData = new FormData(imageUploadForm);
+      result.innerHTML = '<article class="upload-result-card"><p>Uploading images...</p></article>';
+      if (typeof showBulkUploadProgressModal === 'function') {
+        showBulkUploadProgressModal({
+          title: 'Uploading Bulk Product Images',
+          subtitle: 'Processing and optimizing product image files...',
+          message: 'Uploading image files, scaling dimensions, and matching product image associations in the database.'
+        });
+      }
+      try {
+        const response = await fetch('/products/bulk-image-upload', { method: 'POST', headers: { Accept: 'application/json' }, body: formData });
+        const data = await readJsonResponse(response);
+        result.innerHTML = renderImageUploadResult(data);
+        if (data.successful_uploads && data.successful_uploads.length) {
+          imageUploadForm.reset();
+          loadProducts(currentPage);
+        }
+      } catch (error) {
+        result.innerHTML = renderUploadRequestError('Image upload failed', error, 'imageBulkRequestError');
+      } finally {
+        if (typeof hideBulkUploadProgressModal === 'function') {
+          hideBulkUploadProgressModal();
+        }
+      }
+    });
     document.getElementById('productCategory').addEventListener('change', () => {
       updateProductSubcategories();
       updateProductBrands();
@@ -835,12 +1106,16 @@
       document.getElementById('deleteModal').classList.remove('active');
     });
     document.getElementById('downloadTemplate').addEventListener('click', () => {
-      const csv = 'name,description,price,weight_value,weight_unit,tax_name,tax_percentage,category,subcategory,brand\nSample Rice,Long grain rice,120,5,kg,GST,5,Grains & Staples,Rice,Fortune\n';
+      const csv = 'name,description,price,weight_value,weight_unit,tax_name,tax_percentage,subcategory,subcategory_code,brand,brand_code,image_url\nSample Rice,Long grain rice,120,5,kg,GST,5,Rice,rice,Fortune,fortune,https://example.com/sample-rice.jpg\n';
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       link.download = 'product-upload-template.csv';
       link.click();
       URL.revokeObjectURL(link.href);
+    });
+
+    document.getElementById('downloadImageTemplate').addEventListener('click', () => {
+      window.location.href = '/products/image-upload-template';
     });
 
     loadCatalog()
@@ -849,5 +1124,8 @@
         tableBody.innerHTML = `<tr><td colspan="12">${escapeHtml(error.message)}</td></tr>`;
       });
   </script>
+  <script src="/image-upload-editor.js"></script>
+  <%- include('partials/clean_modal') %>
+  <%- include('partials/bulk_upload_progress_modal') %>
 </body>
 </html>

@@ -1,0 +1,153 @@
+<div id="cleanDataModalOverlay" class="clean-modal-overlay" hidden>
+  <div class="clean-modal-card" role="dialog" aria-modal="true" aria-labelledby="cleanModalTitle">
+    <div class="clean-modal-header">
+      <div class="clean-modal-icon-badge">
+        <svg viewBox="0 0 24 24" width="28" height="28" fill="none" stroke="currentColor" stroke-width="2"><path d="M10.29 3.86L1.82 18a2 2 0 001.71 3h16.94a2 2 0 001.71-3L13.71 3.86a2 2 0 00-3.42 0z"/><line x1="12" y1="9" x2="12" y2="13"/><line x1="12" y1="17" x2="12.01" y2="17"/></svg>
+      </div>
+      <div>
+        <h2 id="cleanModalTitle" class="clean-modal-title">Confirm Data Clean</h2>
+        <p class="clean-modal-subtitle">Super Admin Action Required</p>
+      </div>
+    </div>
+    <div class="clean-modal-body">
+      <p id="cleanModalTargetDesc">You are about to clean the database table.</p>
+      <div class="clean-modal-affected-box">
+        <strong>Linked Data That Will Be Wiped:</strong>
+        <ul id="cleanModalLinkedItems"></ul>
+      </div>
+      <div class="clean-modal-warning">
+        <span>⚠️ <strong>Warning:</strong> This action permanently deletes data in PostgreSQL. It cannot be undone.</span>
+      </div>
+      <div class="clean-modal-verify-group">
+        <label for="cleanModalConfirmInput">Type <strong id="cleanModalTypeWord">CLEAN</strong> to confirm deletion:</label>
+        <input type="text" id="cleanModalConfirmInput" placeholder="Type CLEAN here" autocomplete="off" />
+      </div>
+    </div>
+    <div class="clean-modal-footer">
+      <button type="button" class="clean-modal-cancel-btn" id="cleanModalCancelBtn">Cancel</button>
+      <button type="button" class="clean-modal-confirm-btn" id="cleanModalSubmitBtn" disabled>Confirm & Clean Data</button>
+    </div>
+  </div>
+</div>
+
+<script>
+(function() {
+  const targetsConfig = {
+    products: {
+      title: 'Clean Products DB Table',
+      description: 'You are about to clean the Master Products table (products).',
+      url: '/admin/maintenance/clean-products',
+      linkedItems: [
+        'All master products in the catalog (products)',
+        'All vendor product listings and prices (vendor_products)'
+      ]
+    },
+    subcategories: {
+      title: 'Clean SubCategories DB Table',
+      description: 'You are about to clean the SubCategories table (sub_categories).',
+      url: '/admin/maintenance/clean-subcategories',
+      linkedItems: [
+        'All subcategories (sub_categories)',
+        'All brands under these subcategories (brands)',
+        'All master products under these subcategories (products)',
+        'All vendor product listings and prices (vendor_products)'
+      ]
+    },
+    brands: {
+      title: 'Clean Brands DB Table',
+      description: 'You are about to clean the Brands table (brands).',
+      url: '/admin/maintenance/clean-brands',
+      linkedItems: [
+        'All brands (brands)',
+        'All master products under these brands (products)',
+        'All vendor product listings and prices (vendor_products)'
+      ]
+    }
+  };
+
+  let activeTarget = null;
+  const overlay = document.getElementById('cleanDataModalOverlay');
+  const titleEl = document.getElementById('cleanModalTitle');
+  const descEl = document.getElementById('cleanModalTargetDesc');
+  const linkedUl = document.getElementById('cleanModalLinkedItems');
+  const inputEl = document.getElementById('cleanModalConfirmInput');
+  const cancelBtn = document.getElementById('cleanModalCancelBtn');
+  const submitBtn = document.getElementById('cleanModalSubmitBtn');
+
+  if (!overlay || !submitBtn || !cancelBtn || !inputEl) return;
+
+  function openCleanModal(targetKey) {
+    const config = targetsConfig[targetKey];
+    if (!config) return;
+    activeTarget = config;
+
+    titleEl.textContent = config.title;
+    descEl.textContent = config.description;
+    linkedUl.innerHTML = config.linkedItems.map(item => '<li>' + item + '</li>').join('');
+    inputEl.value = '';
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Confirm & Clean Data';
+    overlay.removeAttribute('hidden');
+    inputEl.focus();
+  }
+
+  function closeCleanModal() {
+    overlay.setAttribute('hidden', '');
+    activeTarget = null;
+    inputEl.value = '';
+  }
+
+  document.addEventListener('click', function(e) {
+    const btn = e.target.closest('.clean-db-trigger');
+    if (btn) {
+      e.preventDefault();
+      const targetKey = btn.getAttribute('data-clean-target');
+      openCleanModal(targetKey);
+    }
+  });
+
+  cancelBtn.addEventListener('click', closeCleanModal);
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) {
+      closeCleanModal();
+    }
+  });
+
+  inputEl.addEventListener('input', function() {
+    const val = inputEl.value.trim().toUpperCase();
+    submitBtn.disabled = val !== 'CLEAN';
+  });
+
+  submitBtn.addEventListener('click', async function() {
+    if (!activeTarget || inputEl.value.trim().toUpperCase() !== 'CLEAN') return;
+
+    submitBtn.disabled = true;
+    submitBtn.textContent = 'Cleaning Data...';
+
+    try {
+      const response = await fetch(activeTarget.url, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json'
+        }
+      });
+      const data = await response.json();
+      if (response.ok && data.success) {
+        closeCleanModal();
+        alert('Data Clean Successful!\n' + data.message);
+        window.location.reload();
+      } else {
+        alert('Clean Failed: ' + (data.message || 'Unknown error occurred.'));
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Confirm & Clean Data';
+      }
+    } catch (err) {
+      alert('Network / Server Error: ' + err.message);
+      submitBtn.disabled = false;
+      submitBtn.textContent = 'Confirm & Clean Data';
+    }
+  });
+})();
+</script>

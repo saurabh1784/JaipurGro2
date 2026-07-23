@@ -296,15 +296,73 @@ async function softDelete(id) {
    return rows.map(normalizeProduct);
  }
 
+async function findDuplicate({ category_id, sub_category_id, brand_id, name }) {
+  const trimmedName = String(name || '').trim();
+  const [rows] = await pool.query(
+    `SELECT id, name FROM products
+     WHERE category_id = ?
+       AND LOWER(TRIM(name)) = LOWER(?)
+       AND is_deleted = 0
+     LIMIT 1`,
+    [category_id, trimmedName]
+  );
+  return rows[0] || null;
+}
+
+
+async function updateImage(id, image_url) {
+  await pool.query(
+    'UPDATE products SET image_url = ? WHERE id = ? AND is_deleted = 0',
+    [image_url || null, id]
+  );
+}
+
+async function listForImageTemplate() {
+  const [rows] = await pool.query(
+    `SELECT p.id, p.name, p.image_url, c.name AS category_name, s.name AS sub_category_name, b.name AS brand_name
+     FROM products p
+     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN sub_categories s ON s.id = p.sub_category_id
+     LEFT JOIN brands b ON b.id = p.brand_id
+     WHERE p.is_deleted = 0
+     ORDER BY p.id ASC`
+  );
+  return rows;
+}
+
+async function cleanProducts() {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM vendor_products');
+    const [result] = await conn.query('DELETE FROM products');
+    await conn.commit();
+    return {
+      deletedProducts: result.affectedRows || result.rowCount || 0,
+    };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
 module.exports = {
    list,
+   listForImageTemplate,
    findById,
    create,
+   findDuplicate,
    update,
+   updateImage,
    updatePrice,
    updateApprovalStatus,
    softDelete,
+   cleanProducts,
    validateRelation,
    resolveRelation,
    listApproved,
  };
+
+

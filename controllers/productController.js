@@ -1,9 +1,12 @@
+const http = require('http');
+const https = require('https');
+const path = require('path');
 const xlsx = require('xlsx');
 const Catalog = require('../models/Catalog');
 const Product = require('../models/Product');
 const ProductSearch = require('../models/ProductSearch');
 const VendorProduct = require('../models/VendorProduct');
-const { productImagePath } = require('../middleware/productImageUpload');
+const { processImageBuffer, processUploadedFile, deleteLocalImageFile } = require('../services/imageProcessingService');
 
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
@@ -102,11 +105,13 @@ function validateProductPayload(body) {
       weight_kg: weightKg,
       tax_name: taxName,
       tax_percentage: taxPercentage,
+      image_url: body.image_url ? String(body.image_url).trim() : null,
       category_id,
       sub_category_id,
       brand_id,
     },
   };
+
 }
 
 async function index(req, res) {
@@ -188,6 +193,31 @@ async function notifyProductRequester(product, status) {
   }
 }
 
+async function resolveProductImage(file, imageUrlInput, baseName, existingImagePath = null) {
+  let imagePath = await processUploadedFile(file, 'product', baseName);
+
+  if (!imagePath && imageUrlInput && typeof imageUrlInput === 'string' && imageUrlInput.trim()) {
+    const rawUrl = imageUrlInput.trim();
+    if (rawUrl.startsWith('http://') || rawUrl.startsWith('https://')) {
+      try {
+        const downloaded = await downloadImage(rawUrl);
+        const processed = await processImageBuffer(downloaded.buffer, 'product', baseName);
+        imagePath = processed.path;
+      } catch (err) {
+        console.error(`Unable to download product image from URL ${rawUrl}:`, err.message);
+      }
+    } else if (rawUrl.startsWith('/uploads/')) {
+      imagePath = rawUrl;
+    }
+  }
+
+  if (imagePath && existingImagePath && existingImagePath !== imagePath) {
+    deleteLocalImageFile(existingImagePath);
+  }
+
+  return imagePath;
+}
+
 async function create(req, res) {
   const { errors, data } = validateProductPayload(req.body);
   if (errors.length) {
@@ -199,7 +229,8 @@ async function create(req, res) {
   }
 
   try {
-    data.image_url = productImagePath(req.file);
+    const imageUrlInput = req.body.image_url || req.body.imageUrl || req.body.image_link;
+    data.image_url = await resolveProductImage(req.file, imageUrlInput, data.name);
     const id = await Product.create(data);
     if (hasSponsoredPayload(req.body)) {
       const payload = sponsoredPayload(req.body);
@@ -247,9 +278,11 @@ async function update(req, res) {
     return res.status(422).json({ success: false, message: 'Selected category, subcategory, and brand do not match' });
   }
 
-  const uploadedImage = productImagePath(req.file);
-  if (uploadedImage) data.image_url = uploadedImage;
+  const imageUrlInput = req.body.image_url || req.body.imageUrl || req.body.image_link;
+  const newImage = await resolveProductImage(req.file, imageUrlInput, data.name, existing.image_url);
+  if (newImage) data.image_url = newImage;
   await Product.update(id, data);
+
   if (hasSponsoredPayload(req.body)) {
     const payload = sponsoredPayload(req.body, existing.is_sponsored);
     await ProductSearch.setSponsored({
@@ -289,16 +322,127 @@ function getCell(row, names) {
     lookup[String(key).trim().toLowerCase()] = row[key];
   }
   for (const name of names) {
-    const value = lookup[name];
+    const value = lookup[String(name).trim().toLowerCase()];
     if (value !== undefined && String(value).trim() !== '') return value;
   }
   return '';
 }
 
-async function normalizeBulkRow(row, rowNumber) {
-  const categoryId = normalizeId(getCell(row, ['category_id', 'category id']));
-  const subcategoryId = normalizeId(getCell(row, ['sub_category_id', 'subcategory_id', 'sub category id', 'subcategory id']));
-  const brandId = normalizeId(getCell(row, ['brand_id', 'brand id']));
+function bulkRowIdentifier(row) {
+  const id = String(getCell(row, ['product id or sku', 'product id', 'product_id', 'sku', 'id'])).trim();
+  const name = String(getCell(row, ['name', 'product name'])).trim();
+  return id || name || '';
+}
+
+function normalizeRowForClient(row) {
+  const normalized = {};
+  for (const key of Object.keys(row || {})) {
+    normalized[String(key).trim()] = row[key];
+  }
+  return normalized;
+}
+function activeFromUpload(value) {
+  const text = String(value === undefined || value === null ? '' : value).trim().toLowerCase();
+  if (!text) return true;
+  return !['inactive', 'false', '0', 'no', 'n', 'disabled'].includes(text);
+}
+
+function catalogCode(value) {
+  return Catalog.slugify(String(value || '').replace(/\.[^.]+$/, ''));
+}
+
+function mapCatalogByCategory(items, categoryId) {
+  const map = new Map();
+  for (const item of items.filter((entry) => Number(entry.category_id) === Number(categoryId))) {
+    for (const key of [item.name, item.slug]) {
+      const normalized = catalogCode(key);
+      if (normalized) map.set(normalized, item);
+    }
+  }
+  return map;
+}
+
+function mapBrandsByCategory(items, categoryId) {
+  const map = new Map();
+  for (const item of items.filter((entry) => Number(entry.category_id) === Number(categoryId))) {
+    for (const key of [item.name, item.slug]) {
+      const normalized = catalogCode(key);
+      if (normalized) {
+        map.set(`${item.sub_category_id || item.subcategory_id}:${normalized}`, item);
+        map.set(`category:${normalized}`, item);
+      }
+    }
+  }
+  return map;
+}
+
+async function ensureSmartSubcategory({ row, rowNumber, category, subcategoryMap, report }) {
+  const name = String(getCell(row, ['subcategory', 'sub category', 'subcategory name', 'sub_category'])).trim();
+  const code = String(getCell(row, ['subcategory_code', 'sub category code', 'sub_category_code', 'subcategory slug', 'subcategory_slug'])).trim();
+  const key = catalogCode(code || name);
+  const byName = catalogCode(name);
+  const existing = subcategoryMap.get(key) || subcategoryMap.get(byName);
+  if (existing) return existing;
+  if (!name || name.length < 2) {
+    const error = new Error('Subcategory is required and must be at least 2 characters');
+    error.validation = true;
+    throw error;
+  }
+
+
+  const id = await Catalog.createSubcategory({
+    category_id: category.id,
+    name,
+    slug: code || name,
+    image_path: null,
+    is_active: activeFromUpload(getCell(row, ['subcategory_status', 'sub category status'])),
+  });
+  const created = { id, category_id: category.id, category_name: category.name, name, slug: Catalog.slugify(code || name), image_path: '' };
+  subcategoryMap.set(catalogCode(name), created);
+  subcategoryMap.set(catalogCode(code || name), created);
+  report.new_subcategories_created.push({ rowNumber, id, name, code: created.slug });
+  return created;
+}
+
+async function ensureSmartBrand({ row, rowNumber, category, subcategory, brandMap, report }) {
+  const name = String(getCell(row, ['brand', 'brand name', 'brand_name'])).trim();
+  const code = String(getCell(row, ['brand_code', 'brand code', 'brand slug', 'brand_slug'])).trim();
+  const key = `${subcategory.id}:${catalogCode(code || name)}`;
+  const byName = `${subcategory.id}:${catalogCode(name)}`;
+  const existing = brandMap.get(key) || brandMap.get(byName);
+  if (existing) return existing;
+
+  const categoryExisting = brandMap.get(`category:${catalogCode(code || name)}`) || brandMap.get(`category:${catalogCode(name)}`);
+  if (categoryExisting) return categoryExisting;
+
+  if (!name || name.length < 2) {
+    const error = new Error('Brand is required and must be at least 2 characters');
+    error.validation = true;
+    throw error;
+  }
+
+
+
+  const id = await Catalog.createBrand({
+    category_id: category.id,
+    sub_category_id: subcategory.id,
+    name,
+    slug: code || name,
+    logo_path: null,
+    is_active: activeFromUpload(getCell(row, ['brand_status', 'brand status'])),
+  });
+  const created = { id, category_id: category.id, sub_category_id: subcategory.id, subcategory_id: subcategory.id, name, slug: Catalog.slugify(code || name), logo_path: '' };
+  brandMap.set(`${subcategory.id}:${catalogCode(name)}`, created);
+  brandMap.set(`${subcategory.id}:${catalogCode(code || name)}`, created);
+  brandMap.set(`category:${catalogCode(name)}`, created);
+  brandMap.set(`category:${catalogCode(code || name)}`, created);
+  report.new_brands_created.push({ rowNumber, id, name, code: created.slug, subcategory: subcategory.name });
+  return created;
+}
+
+async function normalizeSmartBulkRow({ row, rowNumber, category, subcategoryMap, brandMap, report }) {
+  const subcategory = await ensureSmartSubcategory({ row, rowNumber, category, subcategoryMap, report });
+  const brand = await ensureSmartBrand({ row, rowNumber, category, subcategory, brandMap, report });
   const product = {
     name: String(getCell(row, ['name', 'product name'])).trim(),
     description: String(getCell(row, ['description', 'desc'])).trim(),
@@ -308,29 +452,257 @@ async function normalizeBulkRow(row, rowNumber) {
     weight_kg: getCell(row, ['weight_kg', 'weight kg']),
     tax_name: String(getCell(row, ['tax_name', 'tax name', 'gst name'])).trim(),
     tax_percentage: getCell(row, ['tax_percentage', 'tax percentage', 'gst percentage', 'gst %']),
-    category_id: categoryId,
-    sub_category_id: subcategoryId,
-    brand_id: brandId,
+    image_url: String(getCell(row, ['image_url', 'image url', 'product_image_url', 'product image url'])).trim(),
+    category_id: category.id,
+    sub_category_id: subcategory.id,
+    brand_id: brand.id,
   };
 
-  if (!product.category_id || !product.sub_category_id || !product.brand_id) {
-    const relation = await Product.resolveRelation({
-      category: String(getCell(row, ['category', 'category name'])).trim(),
-      subcategory: String(getCell(row, ['subcategory', 'sub category', 'subcategory name'])).trim(),
-      brand: String(getCell(row, ['brand', 'brand name'])).trim(),
-    });
-    if (relation) Object.assign(product, relation);
-  }
 
   const { errors, data } = validateProductPayload(product);
   if (errors.length) return { rowNumber, errors };
-  if (!(await Product.validateRelation(data))) {
-    return { rowNumber, errors: ['Selected category, subcategory, and brand do not match'] };
-  }
+
   return { rowNumber, data };
 }
+function csvEscape(value) {
+  const text = String(value === null || value === undefined ? '' : value);
+  return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
 
+function csvResponse(res, filename, rows) {
+  const csv = rows.map((row) => row.map(csvEscape).join(',')).join('\r\n') + '\r\n';
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  return res.send(csv);
+}
+
+function safeFileBase(value) {
+  return String(value || 'product')
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 60) || 'product';
+}
+
+function imageExtensionFromContentType(contentType) {
+  const type = String(contentType || '').split(';')[0].trim().toLowerCase();
+  if (type === 'image/jpeg' || type === 'image/jpg') return '.jpg';
+  if (type === 'image/png') return '.png';
+  if (type === 'image/webp') return '.webp';
+  return '';
+}
+
+function imageExtensionFromUrl(url) {
+  try {
+    const pathname = new URL(url).pathname.toLowerCase();
+    const extension = path.extname(pathname);
+    return ['.jpg', '.jpeg', '.png', '.webp'].includes(extension) ? extension : '';
+  } catch (error) {
+    return '';
+  }
+}
+
+function imageExtensionFromBuffer(buffer) {
+  if (!Buffer.isBuffer(buffer) || buffer.length < 12) return '';
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) return '.jpg';
+  if (buffer.slice(0, 8).equals(Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]))) return '.png';
+  if (buffer.slice(0, 4).toString('ascii') === 'RIFF' && buffer.slice(8, 12).toString('ascii') === 'WEBP') return '.webp';
+  return '';
+}
+
+function downloadImage(url, redirectCount = 0) {
+  return new Promise((resolve, reject) => {
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch (error) {
+      reject(new Error('Invalid URL'));
+      return;
+    }
+
+    if (!['http:', 'https:'].includes(parsed.protocol)) {
+      reject(new Error('Only HTTP and HTTPS image URLs are supported'));
+      return;
+    }
+
+    const client = parsed.protocol === 'https:' ? https : http;
+    const request = client.get(parsed, { timeout: 15000 }, (response) => {
+      const status = response.statusCode || 0;
+      if ([301, 302, 303, 307, 308].includes(status) && response.headers.location) {
+        response.resume();
+        if (redirectCount >= 3) {
+          reject(new Error('Too many redirects'));
+          return;
+        }
+        const nextUrl = new URL(response.headers.location, parsed).toString();
+        downloadImage(nextUrl, redirectCount + 1).then(resolve).catch(reject);
+        return;
+      }
+
+      if (status < 200 || status >= 300) {
+        response.resume();
+        reject(new Error(`Download returned HTTP ${status}`));
+        return;
+      }
+
+      const chunks = [];
+      let total = 0;
+      const maxBytes = 5 * 1024 * 1024;
+      response.on('data', (chunk) => {
+        total += chunk.length;
+        if (total > maxBytes) {
+          request.destroy(new Error('Image is larger than 5 MB'));
+          return;
+        }
+        chunks.push(chunk);
+      });
+      response.on('end', () => resolve({ buffer: Buffer.concat(chunks), contentType: response.headers['content-type'] || '' }));
+    });
+
+    request.on('timeout', () => request.destroy(new Error('Download timed out')));
+    request.on('error', reject);
+  });
+}
+
+async function downloadImageToProduct(product, sourceUrl, rowNumber) {
+  const downloaded = await downloadImage(sourceUrl);
+  const contentTypeExtension = imageExtensionFromContentType(downloaded.contentType);
+  const urlExtension = imageExtensionFromUrl(sourceUrl);
+  const bufferExtension = imageExtensionFromBuffer(downloaded.buffer);
+  const extension = bufferExtension || contentTypeExtension || urlExtension;
+  if (!['.jpg', '.jpeg', '.png', '.webp'].includes(extension)) {
+    const error = new Error('URL did not return a supported JPG, JPEG, PNG, or WebP image');
+    error.invalidImage = true;
+    throw error;
+  }
+
+  const processed = await processImageBuffer(downloaded.buffer, 'product', `${product.name}-${product.id}-${rowNumber}`);
+  return processed.path;
+}
+
+async function downloadImageTemplate(req, res) {
+  try {
+    const products = await Product.listForImageTemplate();
+    const rows = [['Product ID', 'Product Name', 'Brand Name', 'Weight', 'Current Image URL', 'Image URL']];
+    for (const product of products) {
+      rows.push([product.id, product.name, product.brand_name || '', product.weight_label || '', product.image_url || '', '']);
+    }
+    return csvResponse(res, 'product-image-upload-template.csv', rows);
+  } catch (error) {
+    console.error('Product image template error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to download image upload template' });
+  }
+}
+
+async function bulkImageUpload(req, res) {
+  if (!req.file) {
+    return res.status(422).json({ success: false, message: 'CSV file is required' });
+  }
+
+  let rows = [];
+  try {
+    rows = readRowsFromWorkbook(req.file.buffer);
+  } catch (error) {
+    return res.status(422).json({ success: false, message: 'Unable to read uploaded CSV file' });
+  }
+
+  if (!rows.length) {
+    return res.status(422).json({ success: 422, message: 'Upload file has no image rows' });
+  }
+
+  const result = {
+    successful_uploads: [],
+    invalid_image_urls: [],
+    failed_downloads: [],
+    products_not_found: [],
+    skipped_or_duplicates: [],
+  };
+  const seenProductKeys = new Set();
+
+  for (let index = 0; index < rows.length; index += 1) {
+    const rowNumber = index + 2;
+    const rowData = normalizeRowForClient(rows[index]);
+    const identifier = String(getCell(rows[index], ['product id or sku', 'product id', 'sku', 'id', 'product_id'])).trim();
+    const sourceUrl = String(getCell(rows[index], ['image url', 'image_url', 'url'])).trim();
+
+    if (!identifier) {
+      result.skipped_or_duplicates.push({ rowNumber, reason: 'Product ID or SKU is empty', row: rowData });
+      continue;
+    }
+    const productId = normalizeId(identifier);
+    const productKey = productId ? `id:${productId}` : `sku:${identifier.toLowerCase()}`;
+    if (seenProductKeys.has(productKey)) {
+      result.skipped_or_duplicates.push({ rowNumber, identifier, reason: 'Duplicate product record in upload file', row: rowData });
+      continue;
+    }
+    seenProductKeys.add(productKey);
+
+    if (!sourceUrl) {
+      result.skipped_or_duplicates.push({ rowNumber, identifier, reason: 'Image URL is empty', row: rowData });
+      continue;
+    }
+
+    let parsedUrl;
+    try {
+      parsedUrl = new URL(sourceUrl);
+    } catch (error) {
+      result.invalid_image_urls.push({ rowNumber, identifier, image_url: sourceUrl, reason: 'Invalid URL format', row: rowData });
+      continue;
+    }
+    if (!['http:', 'https:'].includes(parsedUrl.protocol)) {
+      result.invalid_image_urls.push({ rowNumber, identifier, image_url: sourceUrl, reason: 'Only HTTP and HTTPS URLs are supported', row: rowData });
+      continue;
+    }
+
+    if (!productId) {
+      result.products_not_found.push({ rowNumber, identifier, reason: 'Product SKU lookup is not available for this catalog', row: rowData });
+      continue;
+    }
+
+    const product = await Product.findById(productId);
+    if (!product) {
+      result.products_not_found.push({ rowNumber, identifier, reason: 'Product not found', row: rowData });
+      continue;
+    }
+
+    try {
+      const savedPath = await downloadImageToProduct(product, sourceUrl, rowNumber);
+      if (product.image_url && product.image_url !== savedPath) {
+        deleteLocalImageFile(product.image_url);
+      }
+      await Product.updateImage(product.id, savedPath);
+      result.successful_uploads.push({
+        rowNumber,
+        product_id: product.id,
+        product_name: product.name,
+        previous_image_url: product.image_url || '',
+        image_url: savedPath,
+        action: product.image_url && product.image_url !== '/default.png' ? 'updated' : 'uploaded',
+      });
+    } catch (error) {
+      const bucket = error.invalidImage ? result.invalid_image_urls : result.failed_downloads;
+      bucket.push({ rowNumber, identifier, image_url: sourceUrl, reason: error.message || 'Unable to download image', row: rowData });
+    }
+  }
+
+  const uploadedCount = result.successful_uploads.length;
+  const issueCount = result.invalid_image_urls.length
+    + result.failed_downloads.length
+    + result.products_not_found.length
+    + result.skipped_or_duplicates.length;
+
+  return res.status(uploadedCount ? 200 : 422).json({
+    success: issueCount === 0,
+    message: `${uploadedCount} image(s) uploaded${issueCount ? `, ${issueCount} row(s) need attention` : ''}`,
+    ...result,
+  });
+}
 async function bulkUpload(req, res) {
+  const categoryId = normalizeId(req.body.category_id || req.body.categoryId);
+  if (!categoryId) {
+    return res.status(422).json({ success: false, message: 'Select a valid main category before uploading products' });
+  }
   if (!req.file) {
     return res.status(422).json({ success: false, message: 'CSV or Excel file is required' });
   }
@@ -346,33 +718,156 @@ async function bulkUpload(req, res) {
     return res.status(422).json({ success: false, message: 'Upload file has no product rows' });
   }
 
+  const [categories, subcategories, brands] = await Promise.all([
+    Catalog.listCategories(),
+    Catalog.listSubcategories(),
+    Catalog.listBrands(),
+  ]);
+  const category = categories.find((item) => Number(item.id) === Number(categoryId));
+  if (!category) {
+    return res.status(422).json({ success: false, message: 'Selected main category was not found' });
+  }
+
+  const subcategoryMap = mapCatalogByCategory(subcategories, category.id);
+  const brandMap = mapBrandsByCategory(brands, category.id);
   const created = [];
   const failed = [];
+  const duplicateProducts = [];
+  const imageWarnings = [];
+  const backgroundImageJobs = [];
+  const seenProductKeys = new Set();
+
+  const report = {
+    new_subcategories_created: [],
+    new_brands_created: [],
+    images_uploaded: [],
+  };
+
   for (let index = 0; index < rows.length; index += 1) {
-    const normalized = await normalizeBulkRow(rows[index], index + 2);
-    if (normalized.errors) {
-      failed.push(normalized);
+    const row = rows[index];
+    const rowNumber = index + 2;
+    const rowData = normalizeRowForClient(row);
+
+    let normalized;
+    try {
+      normalized = await normalizeSmartBulkRow({
+        row,
+        rowNumber,
+        category,
+        subcategoryMap,
+        brandMap,
+        report,
+      });
+    } catch (error) {
+      failed.push({
+        rowNumber,
+        identifier: bulkRowIdentifier(row),
+        errors: [error.message || 'Unable to prepare product row'],
+        row: rowData,
+      });
       continue;
     }
+
+    if (normalized.errors) {
+      failed.push({
+        ...normalized,
+        identifier: bulkRowIdentifier(row),
+        row: rowData,
+      });
+      continue;
+    }
+
+    const productKey = [
+      normalized.data.category_id,
+      normalized.data.sub_category_id,
+      normalized.data.brand_id,
+      String(normalized.data.name || '').trim().toLowerCase(),
+    ].join('::');
+    if (seenProductKeys.has(productKey)) {
+      duplicateProducts.push({ rowNumber, identifier: normalized.data.name, reason: 'Duplicate product row in upload file', row: rowData });
+      continue;
+    }
+    seenProductKeys.add(productKey);
+
+    const duplicate = await Product.findDuplicate(normalized.data);
+    if (duplicate) {
+      duplicateProducts.push({ rowNumber, identifier: normalized.data.name, product_id: duplicate.id, reason: 'Product already exists in selected category, subcategory, and brand', row: rowData });
+      continue;
+    }
+
+    const imageUrl = String(getCell(row, ['image_url', 'image url', 'product_image_url', 'product image url'])).trim();
+    let imageWarning = null;
+    if (imageUrl) {
+      let parsedUrl = null;
+      try {
+        parsedUrl = new URL(imageUrl);
+      } catch (error) {
+        imageWarning = 'Invalid image URL format';
+      }
+      if (!imageWarning && !['http:', 'https:'].includes(parsedUrl.protocol)) {
+        imageWarning = 'Only HTTP and HTTPS image URLs are supported';
+      }
+    }
+
     try {
+
       const id = await Product.create(normalized.data);
-      created.push(id);
+      const uploaded = { id, rowNumber, identifier: normalized.data.name, image_url: normalized.data.image_url || imageUrl || '/default.png' };
+      if (imageUrl && !imageWarning) {
+        backgroundImageJobs.push({ id, name: normalized.data.name, imageUrl, rowNumber });
+      }
+      created.push(uploaded);
     } catch (error) {
-      failed.push({ rowNumber: normalized.rowNumber, errors: ['Unable to save product'] });
+      failed.push({
+        rowNumber: normalized.rowNumber,
+        identifier: normalized.data.name,
+        errors: [error.message || 'Unable to save product'],
+        row: rowData,
+      });
     }
   }
+
   if (created.length) {
     await VendorProduct.ensureAllProductsForAllVendors();
   }
 
-  return res.status(failed.length && !created.length ? 422 : 201).json({
-    success: failed.length === 0,
-    message: `${created.length} product(s) uploaded${failed.length ? `, ${failed.length} failed` : ''}`,
-    created_count: created.length,
-    failed,
-  });
-}
+  if (backgroundImageJobs.length > 0) {
+    setImmediate(async () => {
+      for (const job of backgroundImageJobs) {
+        try {
+          const savedPath = await downloadImageToProduct({ id: job.id, name: job.name, image_url: '' }, job.imageUrl, job.rowNumber);
+          if (savedPath) {
+            await Product.updateImage(job.id, savedPath);
+          }
+        } catch (error) {
+          // Ignore background download errors as product already has valid external image_url stored
+        }
+      }
+    });
+  }
 
+  const issueCount = failed.length + duplicateProducts.length + imageWarnings.length;
+  const statusCode = created.length ? 201 : (failed.length ? 422 : 200);
+  return res.status(statusCode).json({
+    success: failed.length === 0,
+    message: `${created.length} product(s) uploaded successfully, ${report.new_subcategories_created.length} subcategor${report.new_subcategories_created.length === 1 ? 'y' : 'ies'} created, ${report.new_brands_created.length} brand(s) created${backgroundImageJobs.length ? `, ${backgroundImageJobs.length} image(s) downloading in background` : ''}${issueCount ? `, ${issueCount} item(s) need attention` : ''}`,
+    created_count: created.length,
+    total_products_uploaded: created.length,
+    new_subcategories_count: report.new_subcategories_created.length,
+    new_brands_count: report.new_brands_created.length,
+    images_uploaded_count: report.images_uploaded.length,
+    duplicate_products_skipped_count: duplicateProducts.length,
+    created,
+    new_subcategories_created: report.new_subcategories_created,
+    new_brands_created: report.new_brands_created,
+    images_uploaded: report.images_uploaded,
+    duplicate_products_skipped: duplicateProducts,
+    image_warnings: imageWarnings,
+    failed,
+    products_not_uploaded: failed,
+  });
+
+}
 async function catalog(req, res) {
   try {
     const [categories, subcategories, brands] = await Promise.all([
@@ -573,6 +1068,8 @@ module.exports = {
   updateApprovalStatus,
   destroy,
   bulkUpload,
+  downloadImageTemplate,
+  bulkImageUpload,
   catalog,
   updateSearchSettings,
   setFeatured,

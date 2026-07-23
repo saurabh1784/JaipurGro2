@@ -43,6 +43,7 @@ function handleProductImageUploadError(error, req, res, next) {
 
 module.exports = {
   uploadProductImage,
+  productImageUploadDir: uploadDir,
   productImagePath,
   handleProductImageUploadError,
 };
