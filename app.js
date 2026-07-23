@@ -56,6 +56,7 @@ const VendorCategoryRequest = require('./models/VendorCategoryRequest');
 const AreaDefinition = require('./models/AreaDefinition');
 const DeliveryType = require('./models/DeliveryType');
 const ContentPage = require('./models/ContentPage');
+const LocationOption = require('./models/LocationOption');
 const { findOrCreateGoogleClient, publicGoogleConfig } = require('./services/googleClientAuthService');
 const { firebaseAdminStatus } = require('./services/firebaseAdminService');
 const {
@@ -666,6 +667,14 @@ async function settingValue(key, fallback = '') {
   }
 }
 
+
+async function getLocationSettings() {
+  return LocationOption.list();
+}
+
+async function saveLocationSettings(payload) {
+  return LocationOption.replaceAll(payload);
+}
 async function settingGroup(keys) {
   const values = {};
   for (const key of keys) {
@@ -1016,6 +1025,12 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('users', 'status', "VARCHAR(20) NOT NULL DEFAULT 'active' AFTER role");
   await addColumnIfMissing('users', 'theme_mode', "VARCHAR(20) NOT NULL DEFAULT 'light' AFTER status");
   await addColumnIfMissing('users', 'is_deleted', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER status');
+  await addColumnIfMissing('users', 'country', 'VARCHAR(80) DEFAULT NULL AFTER status');
+  await addColumnIfMissing('users', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
+  await addColumnIfMissing('users', 'city', 'VARCHAR(100) DEFAULT NULL AFTER state');
+  await addColumnIfMissing('users', 'area', 'VARCHAR(120) DEFAULT NULL AFTER city');
+  await addColumnIfMissing('users', 'assigned_admin_id', 'INT UNSIGNED DEFAULT NULL AFTER area');
+  await addColumnIfMissing('users', 'created_by', 'INT UNSIGNED DEFAULT NULL AFTER assigned_admin_id');
   await addColumnIfMissing('users', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
   await addUniqueIndexIfMissing('users', 'idx_users_phone_unique', 'phone');
 
@@ -1213,7 +1228,6 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_delivery_addresses', 'area', 'VARCHAR(120) DEFAULT NULL AFTER address');
   await addColumnIfMissing('client_delivery_addresses', 'latitude', 'DECIMAL(10,7) DEFAULT NULL AFTER pincode');
   await addColumnIfMissing('client_delivery_addresses', 'longitude', 'DECIMAL(10,7) DEFAULT NULL AFTER latitude');
-
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_profiles (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1225,6 +1239,29 @@ async function initDatabase(options = {}) {
       CONSTRAINT fk_admin_profile_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await addColumnIfMissing('admin_profiles', 'country', 'VARCHAR(80) DEFAULT NULL AFTER permissions');
+  await addColumnIfMissing('admin_profiles', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
+  await addColumnIfMissing('admin_profiles', 'city', 'VARCHAR(100) DEFAULT NULL AFTER state');
+  await addColumnIfMissing('admin_profiles', 'area', 'VARCHAR(120) DEFAULT NULL AFTER city');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS user_audit_logs (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      actor_id INT UNSIGNED DEFAULT NULL,
+      target_user_id INT UNSIGNED DEFAULT NULL,
+      action VARCHAR(80) NOT NULL,
+      details JSON DEFAULT NULL,
+      ip_address VARCHAR(80) DEFAULT NULL,
+      user_agent TEXT DEFAULT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_user_audit_actor_date (actor_id, created_at),
+      KEY idx_user_audit_target_date (target_user_id, created_at),
+      KEY idx_user_audit_action (action),
+      CONSTRAINT fk_user_audit_actor FOREIGN KEY (actor_id) REFERENCES users(id) ON DELETE SET NULL,
+      CONSTRAINT fk_user_audit_target FOREIGN KEY (target_user_id) REFERENCES users(id) ON DELETE SET NULL
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
+
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS categories (
@@ -2149,6 +2186,8 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('area_definitions', 'order_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
   await addColumnIfMissing('area_definitions', 'delivery_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER order_commission_percentage');
   await addColumnIfMissing('area_definitions', 'cod_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER delivery_commission_percentage');
+  await LocationOption.ensureTable(pool);
+  await LocationOption.seedDefaultsIfEmpty(pool);
   await LocationCommissionSetting.ensureTable(pool);
   await BiddingSetting.ensureTable(pool);
   await pool.query(`
@@ -4193,6 +4232,8 @@ app.put('/theme', webOrJwtAuth, updateThemePreference);
 app.put('/api/theme', webOrJwtAuth, updateThemePreference);
 
 app.get('/users', webOrJwtAuth, requireUserManagement, userController.index);
+app.post('/users', webOrJwtAuth, requireUserManagement, userController.create);
+app.get('/users/:id', webOrJwtAuth, requireUserManagement, userController.show);
 app.put('/users/:id', webOrJwtAuth, requireUserManagement, userController.update);
 app.delete('/users/:id', webOrJwtAuth, requireUserManagement, userController.destroy);
 app.get('/profiles/:userId', webOrJwtAuth, requireProfileAccess, (req, res, next) => {
@@ -5429,6 +5470,7 @@ function cityKey(value) {
 }
 
 async function promotionCityOptions() {
+  const savedLocations = await getLocationSettings();
   const [cityRows] = await pool.query(
     `SELECT DISTINCT city FROM delivery_partner_settings WHERE city IS NOT NULL AND TRIM(city) <> ''
      UNION
@@ -5439,7 +5481,7 @@ async function promotionCityOptions() {
      SELECT DISTINCT city FROM delivery_charge_rules WHERE city IS NOT NULL AND TRIM(city) <> ''
      ORDER BY city`
   );
-  return cityRows.map((row) => normalizeCityName(row.city)).filter(Boolean);
+  return [...new Set([...savedLocations.cities, ...cityRows.map((row) => normalizeCityName(row.city))].filter(Boolean))].sort((left, right) => left.localeCompare(right));
 }
 
 async function advertisementAreaOptions() {
@@ -6305,6 +6347,7 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
   const quotationSubmissionMinutes = Number(await settingValue('quotation_submission_minutes', '1440')) || 1440;
   const biddingSettings = await BiddingSetting.list();
   const invoiceSettings = await getInvoiceSettings();
+  const locationSettings = await getLocationSettings();
   const canRunMaintenance = isSuperAdminUser(req.session.user);
   const canManageCommissions = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
   let databaseBackups = [];
@@ -6369,16 +6412,30 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
         loginAttempts: 5,
         accountVerification: false,
       },
-      locations: {
-        countries: ['India', 'United States'],
-        states: ['Rajasthan', 'Maharashtra', 'California'],
-        cities: ['Jaipur', 'Mumbai', 'San Francisco'],
-      },
+      locations: locationSettings,
       invoice: invoiceSettings,
     },
   });
 });
 
+
+app.get('/settings/locations', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    res.json({ success: true, locations: await getLocationSettings() });
+  } catch (error) {
+    console.error('Location settings load error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load location settings' });
+  }
+});
+
+app.put('/settings/locations', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const locations = await saveLocationSettings(req.body.locations || req.body);
+    res.json({ success: true, message: 'Location settings saved', locations });
+  } catch (error) {
+    res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save location settings' });
+  }
+});
 app.put('/settings/quotations', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
     const minutes = Math.max(5, Math.min(10080, Math.round(Number(req.body.submissionMinutes || 0))));
@@ -7444,6 +7501,9 @@ initDatabase()
     }
     process.exit(1);
   });
+
+
+
 
 
 

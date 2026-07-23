@@ -2,7 +2,7 @@ const bcrypt = require('bcryptjs');
 const Vendor = require('../models/Vendor');
 const Catalog = require('../models/Catalog');
 const { validateStatus } = require('../middleware/validators');
-const { flattenLocationOptions, isValidLocation, locationTree } = require('../utils/locationOptions');
+const { flattenLocationOptionsFromDb, isValidLocation, locationTree } = require('../utils/locationOptions');
 const { isSuperAdminUser, getAssignedUserCity } = require('./userController');
 
 function wantsJson(req) {
@@ -39,7 +39,7 @@ function canManagePremiumVendors(req) {
   return isAdminUser(req.authUser || (req.session && req.session.user));
 }
 
-function validateVendor(body, { requirePassword = false } = {}) {
+function validateVendor(body, { requirePassword = false, locationOptions = null } = {}) {
   const errors = [];
   const password = body.password ? String(body.password) : '';
   const data = {
@@ -68,11 +68,12 @@ function validateVendor(body, { requirePassword = false } = {}) {
   if (!requirePassword && data.password && data.password.length < 6) errors.push('Password must be at least 6 characters');
   if (!validateStatus(data.status)) errors.push('Status must be active or inactive');
   if (data.business_name.length < 2) errors.push('Business name must be at least 2 characters');
-  if (!locationTree[data.country]) errors.push('Country is required');
-  if (!data.country || !locationTree[data.country] || !locationTree[data.country][data.state]) {
+  const optionTree = (locationOptions && locationOptions.tree) || locationTree;
+  if (!optionTree[data.country]) errors.push('Country is required');
+  if (!data.country || !optionTree[data.country] || !optionTree[data.country][data.state]) {
     errors.push('State is required');
   }
-  if (!isValidLocation(data)) {
+  if (!isValidLocation(data, locationOptions || { tree: optionTree })) {
     errors.push('City is required');
   }
   if (!Number.isFinite(data.premium_commission_percent)) {
@@ -93,7 +94,7 @@ async function index(req, res) {
       user: req.session.user,
       isSuperAdmin: isSuper,
       adminCity,
-      locationOptions: flattenLocationOptions(),
+      locationOptions: await flattenLocationOptionsFromDb(),
       categories: await Catalog.listCategories(),
       canManagePremiumVendors: canManagePremiumVendors(req),
     });
@@ -157,7 +158,8 @@ async function create(req, res) {
     req.body.city = adminCity;
   }
 
-  const { errors, data } = validateVendor(req.body, { requirePassword: true });
+  const locationOptions = await flattenLocationOptionsFromDb();
+  const { errors, data } = validateVendor(req.body, { requirePassword: true, locationOptions });
   if (!canManagePremiumVendors(req)) {
     data.is_premium_vendor = false;
     data.premium_commission_percent = 0;
@@ -214,7 +216,8 @@ async function update(req, res) {
     return res.json({ success: true, message: 'Vendor status updated', vendor: await Vendor.findById(id) });
   }
 
-  const { errors, data } = validateVendor(req.body);
+  const locationOptions = await flattenLocationOptionsFromDb();
+  const { errors, data } = validateVendor(req.body, { locationOptions });
   if (!canManagePremiumVendors(req)) {
     data.is_premium_vendor = existing.is_premium_vendor;
     data.premium_commission_percent = existing.premium_commission_percent;
@@ -276,3 +279,5 @@ module.exports = {
   update,
   destroy,
 };
+
+

@@ -74,6 +74,9 @@ function normalizeAdvertisement(row) {
     title: row.title || '',
     description: row.description || '',
     image_path: row.image_path || '',
+    image_url: row.image_path || '',
+    banner_image_url: row.image_path || '',
+    media_url: row.image_path || '',
     ad_type: normalizeKey(row.ad_type || 'page_banner'),
     start_at: row.start_at,
     end_at: row.end_at,
@@ -455,6 +458,7 @@ module.exports = {
   recordClick,
   expireEnded,
 };
+
 
 
 

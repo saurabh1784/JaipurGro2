@@ -1,7 +1,7 @@
 const bcrypt = require('bcryptjs');
 const Client = require('../models/Client');
 const { validateStatus } = require('../middleware/validators');
-const { flattenLocationOptions, isValidLocation, locationTree } = require('../utils/locationOptions');
+const { flattenLocationOptionsFromDb, isValidLocation, locationTree } = require('../utils/locationOptions');
 
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
@@ -15,7 +15,7 @@ function isPhone(value) {
   return /^[0-9+\-\s()]{7,20}$/.test(value);
 }
 
-function validateClient(body, { requirePassword = false } = {}) {
+function validateClient(body, { requirePassword = false, locationOptions = null } = {}) {
   const errors = [];
   const password = body.password ? String(body.password) : '';
   const ageValue = body.age === undefined || body.age === '' ? '' : Number(body.age);
@@ -42,9 +42,10 @@ function validateClient(body, { requirePassword = false } = {}) {
   if (requirePassword && data.password.length < 6) errors.push('Password must be at least 6 characters');
   if (!requirePassword && data.password && data.password.length < 6) errors.push('Password must be at least 6 characters');
   if (!validateStatus(data.status)) errors.push('Status must be active or inactive');
-  if (!locationTree[data.country]) errors.push('Country is required');
-  if (!data.country || !locationTree[data.country] || !locationTree[data.country][data.state]) errors.push('State is required');
-  if (!isValidLocation(data)) errors.push('City is required');
+  const optionTree = (locationOptions && locationOptions.tree) || locationTree;
+  if (!optionTree[data.country]) errors.push('Country is required');
+  if (!data.country || !optionTree[data.country] || !optionTree[data.country][data.state]) errors.push('State is required');
+  if (!isValidLocation(data, locationOptions || { tree: optionTree })) errors.push('City is required');
   if (!Number.isFinite(data.cod_limit)) errors.push('COD limit must be a valid number');
   if (data.age !== '' && (!Number.isInteger(data.age) || data.age < 1 || data.age > 120)) {
     errors.push('Age must be between 1 and 120');
@@ -57,7 +58,7 @@ async function index(req, res) {
   if (!wantsJson(req)) {
     return res.render('clients', {
       user: req.session.user,
-      locationOptions: flattenLocationOptions(),
+      locationOptions: await flattenLocationOptionsFromDb(),
     });
   }
 
@@ -85,7 +86,8 @@ async function show(req, res) {
 }
 
 async function create(req, res) {
-  const { errors, data } = validateClient(req.body, { requirePassword: true });
+  const locationOptions = await flattenLocationOptionsFromDb();
+  const { errors, data } = validateClient(req.body, { requirePassword: true, locationOptions });
   if (errors.length) return res.status(422).json({ success: false, message: 'Validation failed', errors });
 
   const duplicate = await Client.emailOrPhoneTaken({ email: data.email, phone: data.phone });
@@ -120,7 +122,8 @@ async function update(req, res) {
       return res.json({ success: true, message: 'Client status updated', client: await Client.findById(id) });
     }
 
-    const { errors, data } = validateClient(req.body);
+    const locationOptions = await flattenLocationOptionsFromDb();
+    const { errors, data } = validateClient(req.body, { locationOptions });
     if (errors.length) return res.status(422).json({ success: false, message: 'Validation failed', errors });
 
     const duplicate = await Client.emailOrPhoneTaken({ id, email: data.email, phone: data.phone });
@@ -156,3 +159,5 @@ module.exports = {
   update,
   destroy,
 };
+
+

@@ -1,35 +1,32 @@
-const locationTree = {
-  India: {
-    Rajasthan: ['Jaipur'],
-    Maharashtra: ['Mumbai'],
-  },
-  'United States': {
-    California: ['San Francisco'],
-  },
-};
+const LocationOption = require('../models/LocationOption');
+
+const locationTree = LocationOption.DEFAULT_LOCATION_TREE;
 
 function flattenLocationOptions() {
-  return {
-    countries: Object.keys(locationTree),
-    states: [...new Set(Object.values(locationTree).flatMap((states) => Object.keys(states)))],
-    cities: [...new Set(Object.values(locationTree).flatMap((states) => Object.values(states).flat()))],
-    tree: locationTree,
-  };
+  return LocationOption.flattenTree(locationTree);
 }
 
-function isValidLocation({ country, state, city }) {
-  return Boolean(
-    country &&
-      state &&
-      city &&
-      locationTree[country] &&
-      locationTree[country][state] &&
-      locationTree[country][state].includes(city)
-  );
+async function flattenLocationOptionsFromDb() {
+  try {
+    return await LocationOption.list();
+  } catch (error) {
+    console.error('Location options load error:', error);
+    return flattenLocationOptions();
+  }
+}
+
+function isValidLocation({ country, state, city }, options = flattenLocationOptions()) {
+  const tree = options.tree || locationTree;
+  const countryStates = tree[country];
+  if (!countryStates) return false;
+  const stateCities = countryStates[state];
+  if (!Array.isArray(stateCities)) return false;
+  return stateCities.includes(city);
 }
 
 module.exports = {
   locationTree,
   flattenLocationOptions,
+  flattenLocationOptionsFromDb,
   isValidLocation,
 };

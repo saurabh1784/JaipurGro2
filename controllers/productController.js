@@ -8,6 +8,12 @@ const ProductSearch = require('../models/ProductSearch');
 const VendorProduct = require('../models/VendorProduct');
 const { processImageBuffer, processUploadedFile, deleteLocalImageFile } = require('../services/imageProcessingService');
 
+function refreshVisibleProductsCache() {
+  if (VendorProduct.invalidateVisibleProductsCache) {
+    VendorProduct.invalidateVisibleProductsCache();
+  }
+}
+
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
 }
@@ -241,6 +247,7 @@ async function create(req, res) {
       });
     }
     await VendorProduct.ensureProductForAllVendors(id);
+    refreshVisibleProductsCache();
     const product = await Product.findById(id);
     return res.status(201).json({ success: true, message: 'Product created', product });
   } catch (error) {
@@ -282,6 +289,7 @@ async function update(req, res) {
   const newImage = await resolveProductImage(req.file, imageUrlInput, data.name, existing.image_url);
   if (newImage) data.image_url = newImage;
   await Product.update(id, data);
+  refreshVisibleProductsCache();
 
   if (hasSponsoredPayload(req.body)) {
     const payload = sponsoredPayload(req.body, existing.is_sponsored);
@@ -740,6 +748,7 @@ async function bulkImageUpload(req, res) {
         deleteLocalImageFile(product.image_url);
       }
       await Product.updateImage(product.id, savedPath);
+      refreshVisibleProductsCache();
       result.successful_uploads.push({
         rowNumber,
         product_id: product.id,
@@ -808,7 +817,6 @@ async function bulkUpload(req, res) {
   const failed = [];
   const duplicateProducts = [];
   const imageWarnings = [];
-  const backgroundImageJobs = [];
   const seenProductKeys = new Set();
 
   const report = {
@@ -884,12 +892,45 @@ async function bulkUpload(req, res) {
     }
 
     try {
-
+      normalized.data.image_url = null;
       const id = await Product.create(normalized.data);
-      const uploaded = { id, rowNumber, identifier: normalized.data.name, image_url: normalized.data.image_url || imageUrl || '/default.png' };
-      if (imageUrl && !imageWarning) {
-        backgroundImageJobs.push({ id, name: normalized.data.name, imageUrl, rowNumber });
+      const uploaded = { id, rowNumber, identifier: normalized.data.name, image_url: '/default.png' };
+
+      if (imageUrl) {
+        if (imageWarning) {
+          imageWarnings.push({
+            rowNumber,
+            product_id: id,
+            identifier: normalized.data.name,
+            image_url: imageUrl,
+            reason: imageWarning,
+            row: rowData,
+          });
+        } else {
+          try {
+            const savedPath = await downloadImageToProduct({ id, name: normalized.data.name, image_url: '' }, imageUrl, rowNumber);
+            await Product.updateImage(id, savedPath);
+            uploaded.image_url = savedPath;
+            report.images_uploaded.push({
+              rowNumber,
+              product_id: id,
+              product_name: normalized.data.name,
+              source_image_url: imageUrl,
+              image_url: savedPath,
+            });
+          } catch (error) {
+            imageWarnings.push({
+              rowNumber,
+              product_id: id,
+              identifier: normalized.data.name,
+              image_url: imageUrl,
+              reason: error.message || 'Failed to download or save image',
+              row: rowData,
+            });
+          }
+        }
       }
+
       created.push(uploaded);
     } catch (error) {
       failed.push({
@@ -903,28 +944,14 @@ async function bulkUpload(req, res) {
 
   if (created.length) {
     await VendorProduct.ensureAllProductsForAllVendors();
-  }
-
-  if (backgroundImageJobs.length > 0) {
-    setImmediate(async () => {
-      for (const job of backgroundImageJobs) {
-        try {
-          const savedPath = await downloadImageToProduct({ id: job.id, name: job.name, image_url: '' }, job.imageUrl, job.rowNumber);
-          if (savedPath) {
-            await Product.updateImage(job.id, savedPath);
-          }
-        } catch (error) {
-          // Ignore background download errors as product already has valid external image_url stored
-        }
-      }
-    });
+    refreshVisibleProductsCache();
   }
 
   const issueCount = failed.length + duplicateProducts.length + imageWarnings.length;
   const statusCode = created.length ? 201 : (failed.length ? 422 : 200);
   return res.status(statusCode).json({
     success: failed.length === 0,
-    message: `${created.length} product(s) uploaded successfully, ${report.new_subcategories_created.length} subcategor${report.new_subcategories_created.length === 1 ? 'y' : 'ies'} created, ${report.new_brands_created.length} brand(s) created${backgroundImageJobs.length ? `, ${backgroundImageJobs.length} image(s) downloading in background` : ''}${issueCount ? `, ${issueCount} item(s) need attention` : ''}`,
+    message: `${created.length} product(s) uploaded successfully, ${report.new_subcategories_created.length} subcategor${report.new_subcategories_created.length === 1 ? 'y' : 'ies'} created, ${report.new_brands_created.length} brand(s) created${report.images_uploaded.length ? `, ${report.images_uploaded.length} image(s) saved to uploads/products` : ''}${issueCount ? `, ${issueCount} item(s) need attention` : ''}`,
     created_count: created.length,
     total_products_uploaded: created.length,
     new_subcategories_count: report.new_subcategories_created.length,

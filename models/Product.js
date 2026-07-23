@@ -26,6 +26,7 @@ function formatWeightLabel(value, unit) {
 function normalizeProduct(row) {
   const weightUnit = cleanWeightUnit(row.weight_unit || 'kg');
   const weightValue = Number(row.weight_value ?? row.weight_kg ?? 0);
+  const imageVersion = row.image_version || row.updated_at || row.created_at || '';
   return {
     ...row,
     price: Number(row.price),
@@ -43,6 +44,7 @@ function normalizeProduct(row) {
     is_sponsored: Boolean(row.is_sponsored),
     keywords: row.keywords || '',
     image_url: row.image_url || '/default.png',
+    image_version: imageVersion ? new Date(imageVersion).getTime() : 0,
   };
 }
 
@@ -295,11 +297,11 @@ async function update(id, data) {
   }
 
   values.push(id);
-  await pool.query(`UPDATE products SET ${fields.join(', ')} WHERE id = ? AND is_deleted = 0`, values);
+  await pool.query(`UPDATE products SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0`, values);
 }
 
 async function updatePrice(id, price) {
-  await pool.query('UPDATE products SET price = ? WHERE id = ? AND is_deleted = 0', [price, id]);
+  await pool.query('UPDATE products SET price = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0', [price, id]);
 }
 
 async function updateApprovalStatus(id, { status, actor_id, rejection_reason }) {
@@ -378,7 +380,7 @@ async function findDuplicate({ category_id, sub_category_id, brand_id, name }) {
 
 async function updateImage(id, image_url) {
   await pool.query(
-    'UPDATE products SET image_url = ? WHERE id = ? AND is_deleted = 0',
+    'UPDATE products SET image_url = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0',
     [image_url || null, id]
   );
 }

@@ -5,6 +5,21 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>User Management</title>
   <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .users-toolbar { align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+    .users-toolbar-actions { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .users-filter-grid { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
+    .users-filter-grid label, .user-modal-grid label { display: grid; gap: 6px; }
+    .new-user-button { border: 0; border-radius: 8px; padding: 11px 16px; background: #111827; color: #fff; font-weight: 700; cursor: pointer; }
+    .user-modal-card.wide { max-width: 880px; }
+    .user-modal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .user-modal-grid .full-span { grid-column: 1 / -1; }
+    .user-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .user-detail-grid div { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; background: #fff; }
+    .user-detail-grid span { display: block; color: #6b7280; font-size: 12px; margin-bottom: 4px; }
+    .user-actions { flex-wrap: wrap; }
+    @media (max-width: 900px) { .users-filter-grid, .user-modal-grid, .user-detail-grid { grid-template-columns: 1fr; } }
+  </style>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -17,7 +32,7 @@
       </div>
       <div class="topbar-actions">
         <label class="system-search" aria-label="Search users">
-          <input id="userSearch" type="search" placeholder="Search name or email" />
+          <input id="userSearch" type="search" placeholder="Search name, email, or phone" />
           <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
         </label>
       </div>
@@ -27,17 +42,19 @@
       <div class="users-toolbar">
         <div>
           <h2>All Users</h2>
-          <p>Search, filter, edit, delete, and manage role-based profiles.</p>
+          <p>Manage accounts, roles, locations, status, and assigned Admin ownership.</p>
         </div>
-        <label>
-          Role
-          <select id="roleFilter">
-            <option value="">All Roles</option>
-            <% roleOptions.forEach((role) => { %>
-              <option value="<%= role %>"><%= role %></option>
-            <% }) %>
-          </select>
-        </label>
+        <div class="users-toolbar-actions">
+          <button type="button" class="new-user-button" id="newUserButton">New User</button>
+        </div>
+      </div>
+
+      <div class="users-filter-grid">
+        <label>Role<select id="roleFilter"><option value="">All Roles</option></select></label>
+        <label>Status<select id="statusFilter"><option value="">All Statuses</option><option value="active">active</option><option value="inactive">inactive</option></select></label>
+        <label>City<select id="cityFilter"><option value="">All Cities</option></select></label>
+        <label>Area<select id="areaFilter"><option value="">All Areas</option></select></label>
+        <label>Assigned Admin<select id="assignedAdminFilter"><option value="">All Admins</option></select></label>
       </div>
 
       <div class="users-table-card">
@@ -47,17 +64,15 @@
               <th>ID</th>
               <th>Name</th>
               <th>Email</th>
+              <th>Phone</th>
               <th>Role</th>
+              <th>Location</th>
               <th>Status</th>
-              <th>Created Date</th>
+              <th>Assigned Admin</th>
               <th>Actions</th>
             </tr>
           </thead>
-          <tbody id="usersTableBody">
-            <tr>
-              <td colspan="7">Loading users...</td>
-            </tr>
-          </tbody>
+          <tbody id="usersTableBody"><tr><td colspan="9">Loading users...</td></tr></tbody>
         </table>
       </div>
 
@@ -69,328 +84,273 @@
     </section>
   </main>
 
-  <div class="user-modal" id="editUserModal" aria-hidden="true">
-    <div class="user-modal-card">
+  <div class="user-modal" id="userFormModal" aria-hidden="true">
+    <div class="user-modal-card wide">
       <div class="user-modal-header">
-        <h2>Edit User</h2>
-        <button type="button" onclick="closeModal('editUserModal')">Close</button>
+        <h2 id="userFormTitle">New User</h2>
+        <button type="button" onclick="closeModal('userFormModal')">Close</button>
       </div>
-      <form id="editUserForm" class="user-modal-grid">
-        <input type="hidden" id="editUserId" />
-        <label>
-          Name
-          <input id="editName" type="text" required />
-        </label>
-        <label>
-          Email
-          <input id="editEmail" type="email" required />
-        </label>
-        <label>
-          Role
-          <select id="editRole" required>
-            <% roleOptions.forEach((role) => { %>
-              <option value="<%= role %>"><%= role %></option>
-            <% }) %>
-          </select>
-        </label>
-        <label>
-          Status
-          <select id="editStatus" required>
-            <option value="active">active</option>
-            <option value="inactive">inactive</option>
-          </select>
-        </label>
-        <button class="settings-save" type="submit">Update User</button>
+      <form id="userForm" class="user-modal-grid">
+        <input type="hidden" id="formUserId" />
+        <label>Full name<input id="formName" type="text" required /></label>
+        <label>Email address<input id="formEmail" type="email" required /></label>
+        <label>Phone number<input id="formPhone" type="tel" /></label>
+        <label>Role<select id="formRole" required></select></label>
+        <label>Password<input id="formPassword" type="password" autocomplete="new-password" /></label>
+        <label>Confirm password<input id="formConfirmPassword" type="password" autocomplete="new-password" /></label>
+        <label>Country<input id="formCountry" type="text" /></label>
+        <label>State<input id="formState" type="text" /></label>
+        <label>City<input id="formCity" type="text" /></label>
+        <label>Area<input id="formArea" type="text" /></label>
+        <label>Status<select id="formStatus" required><option value="active">active</option><option value="inactive">inactive</option></select></label>
+        <label>Assigned Admin<select id="formAssignedAdmin"><option value="">None</option></select></label>
+        <p id="adminLocationNote" class="full-span" style="display:none;margin:0;color:#4b5563;"></p>
+        <button class="settings-save full-span" type="submit">Save User</button>
       </form>
     </div>
   </div>
 
-  <div class="user-modal" id="profileModal" aria-hidden="true">
-    <div class="user-modal-card">
+  <div class="user-modal" id="viewUserModal" aria-hidden="true">
+    <div class="user-modal-card wide">
       <div class="user-modal-header">
-        <h2 id="profileTitle">Profile</h2>
-        <button type="button" onclick="closeModal('profileModal')">Close</button>
+        <h2>User Details</h2>
+        <button type="button" onclick="closeModal('viewUserModal')">Close</button>
       </div>
-      <form id="profileForm" class="user-modal-grid"></form>
+      <div id="userDetails" class="user-detail-grid"></div>
     </div>
   </div>
 
   <script>
     const isSuperAdmin = <%= Boolean(locals.isSuperAdmin) %>;
-    const adminCity = <%- JSON.stringify(locals.adminCity || '') %>;
+    const adminLocation = <%- JSON.stringify(locals.adminLocation || {}) %>;
     let currentPage = 1;
     let totalPages = 1;
     let users = [];
     let roleOptions = <%- JSON.stringify(roleOptions || []) %>;
-    let activeProfileUserId = null;
-    let activeProfileRole = null;
+    let filterOptions = <%- JSON.stringify(filterOptions || { cities: [], areas: [], admins: [] }) %>;
+    let formMode = 'create';
 
     const tableBody = document.getElementById('usersTableBody');
     const userSearch = document.getElementById('userSearch');
     const roleFilter = document.getElementById('roleFilter');
+    const statusFilter = document.getElementById('statusFilter');
+    const cityFilter = document.getElementById('cityFilter');
+    const areaFilter = document.getElementById('areaFilter');
+    const assignedAdminFilter = document.getElementById('assignedAdminFilter');
     const pageInfo = document.getElementById('pageInfo');
     const prevPage = document.getElementById('prevPage');
     const nextPage = document.getElementById('nextPage');
 
-    function debounce(fn, delay) {
-      let timer;
-      return (...args) => {
-        clearTimeout(timer);
-        timer = setTimeout(() => fn(...args), delay);
-      };
+    function debounce(fn, delay) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); }; }
+    function escapeHtml(value) { return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char])); }
+    function formatDate(value) { return value ? new Date(value).toLocaleDateString() : 'N/A'; }
+    function normalizeRole(value) { return String(value || '').toLowerCase().replace(/[\s_-]+/g, ''); }
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+    function setOptions(select, values, firstLabel, valueKey, labelKey) {
+      const current = select.value;
+      const opts = [`<option value="">${escapeHtml(firstLabel)}</option>`].concat((values || []).map((item) => {
+        const value = valueKey ? item[valueKey] : item;
+        const label = labelKey ? item[labelKey] : item;
+        return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+      }));
+      select.innerHTML = opts.join('');
+      select.value = Array.from(select.options).some((option) => option.value === current) ? current : '';
     }
 
-    function formatDate(value) {
-      if (!value) return 'N/A';
-      return new Date(value).toLocaleDateString();
+    function renderOptions() {
+      const roles = [...new Set(roleOptions || [])].filter((role) => {
+        const normalized = normalizeRole(role);
+        return normalized && (isSuperAdmin || (normalized !== 'superadmin' && normalized !== 'admin'));
+      });
+      setOptions(roleFilter, roles, 'All Roles');
+      setOptions(cityFilter, filterOptions.cities || [], 'All Cities');
+      setOptions(areaFilter, filterOptions.areas || [], 'All Areas');
+      setOptions(assignedAdminFilter, filterOptions.admins || [], 'All Admins', 'id', 'name');
+
+      const roleSelect = document.getElementById('formRole');
+      const roleValue = roleSelect.value;
+      roleSelect.innerHTML = roles.map((role) => `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`).join('');
+      roleSelect.value = roles.includes(roleValue) ? roleValue : (roles[0] || '');
+
+      setOptions(document.getElementById('formAssignedAdmin'), filterOptions.admins || [], 'None', 'id', 'name');
     }
 
     async function loadUsers(page = 1) {
       const params = new URLSearchParams({
-        format: 'json',
-        page,
-        limit: 10,
-        search: userSearch.value.trim(),
-        role: roleFilter.value,
+        format: 'json', page, limit: 10,
+        search: userSearch.value.trim(), role: roleFilter.value,
+        status: statusFilter.value, city: cityFilter.value,
+        area: areaFilter.value, assigned_admin_id: assignedAdminFilter.value,
       });
-
       const response = await fetch(`/users?${params.toString()}`);
       const data = await response.json();
-
-      if (!data.success) {
-        tableBody.innerHTML = `<tr><td colspan="7">${data.message || 'Unable to load users'}</td></tr>`;
-        return;
-      }
-
-      users = data.users;
-      if (Array.isArray(data.roleOptions) && data.roleOptions.length) {
-        roleOptions = data.roleOptions;
-        renderRoleSelects();
-      }
+      if (!data.success) { tableBody.innerHTML = `<tr><td colspan="9">${escapeHtml(data.message || 'Unable to load users')}</td></tr>`; return; }
+      users = data.users || [];
+      roleOptions = data.roleOptions || roleOptions;
+      filterOptions = data.filterOptions || filterOptions;
       currentPage = data.pagination.page;
       totalPages = data.pagination.totalPages;
+      renderOptions();
       renderUsers();
     }
 
-    function renderRoleSelects(extraRole = '') {
-      let filteredRoles = (roleOptions || []).filter((r) => {
-        const lower = String(r).toLowerCase().replace(/[\s_-]+/g, '');
-        if (lower === 'superadmin') return false;
-        if (!isSuperAdmin && (lower === 'admin' || lower === 'superadmin')) return false;
-        return true;
-      });
-      const uniqueRoles = [...new Set([...filteredRoles, extraRole].filter(Boolean))].filter((r) => {
-        const lower = String(r).toLowerCase().replace(/[\s_-]+/g, '');
-        if (lower === 'superadmin') return false;
-        if (!isSuperAdmin && (lower === 'admin' || lower === 'superadmin')) return false;
-        return true;
-      });
-
-      const filterValue = roleFilter.value;
-      roleFilter.innerHTML = '<option value="">All Roles</option>' + uniqueRoles.map((role) => (
-        `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`
-      )).join('');
-      roleFilter.value = uniqueRoles.includes(filterValue) ? filterValue : '';
-
-      const editRole = document.getElementById('editRole');
-      const editValue = editRole.value || extraRole;
-      editRole.innerHTML = uniqueRoles.map((role) => (
-        `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`
-      )).join('');
-      editRole.value = uniqueRoles.includes(editValue) ? editValue : '';
+    function locationText(user) { return [user.area, user.city, user.state, user.country].filter(Boolean).join(', ') || 'N/A'; }
+    function canManage(user) {
+      const role = normalizeRole(user.role);
+      return isSuperAdmin || (role !== 'superadmin' && role !== 'admin');
     }
 
     function renderUsers() {
-      if (users.length === 0) {
-        tableBody.innerHTML = '<tr><td colspan="7">No users found</td></tr>';
+      if (!users.length) {
+        tableBody.innerHTML = '<tr><td colspan="9">No users found</td></tr>';
       } else {
-        tableBody.innerHTML = users.map((user) => {
-          const roleLower = String(user.role || '').toLowerCase().replace(/[\s_-]+/g, '');
-          const isTargetProtected = roleLower === 'superadmin' || roleLower === 'admin';
-          const canManageTarget = isSuperAdmin || (!isTargetProtected);
-
-          return `
+        tableBody.innerHTML = users.map((user) => `
           <tr>
             <td>#${user.id}</td>
             <td>${escapeHtml(user.name)}</td>
             <td>${escapeHtml(user.email)}</td>
+            <td>${escapeHtml(user.phone || 'N/A')}</td>
             <td><span class="user-role-pill">${escapeHtml(user.role)}</span></td>
+            <td>${escapeHtml(locationText(user))}</td>
             <td><span class="user-status-pill ${user.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(user.status)}</span></td>
-            <td>${formatDate(user.created_at)}</td>
-            <td>
-              <div class="user-actions">
-                ${canManageTarget ? `<button type="button" onclick="openEditUser(${user.id})">Edit</button>` : ''}
-                <button type="button" onclick="openProfile(${user.id})">Profile</button>
-                ${canManageTarget ? `<button type="button" onclick="deleteUser(${user.id})">Delete</button>` : ''}
-              </div>
-            </td>
-          </tr>
-        `;
-        }).join('');
+            <td>${escapeHtml(user.assigned_admin_name || 'N/A')}</td>
+            <td><div class="user-actions">
+              <button type="button" onclick="viewUser(${user.id})">View</button>
+              ${canManage(user) ? `<button type="button" onclick="openEditUser(${user.id})">Edit</button>` : ''}
+              ${canManage(user) ? `<button type="button" onclick="toggleStatus(${user.id})">${user.status === 'active' ? 'Deactivate' : 'Activate'}</button>` : ''}
+              ${canManage(user) ? `<button type="button" onclick="deleteUser(${user.id})">Delete</button>` : ''}
+            </div></td>
+          </tr>`).join('');
       }
-
       pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
       prevPage.disabled = currentPage <= 1;
       nextPage.disabled = currentPage >= totalPages;
     }
 
-    function escapeHtml(value) {
-      return String(value || '').replace(/[&<>"']/g, (char) => ({
-        '&': '&amp;',
-        '<': '&lt;',
-        '>': '&gt;',
-        '"': '&quot;',
-        "'": '&#039;',
-      }[char]));
+    function applyAdminLocationLock() {
+      const note = document.getElementById('adminLocationNote');
+      const fields = ['formCountry', 'formState', 'formCity', 'formArea'];
+      fields.forEach((id) => { document.getElementById(id).disabled = !isSuperAdmin; });
+      document.getElementById('formAssignedAdmin').disabled = !isSuperAdmin;
+      if (!isSuperAdmin) {
+        document.getElementById('formCountry').value = adminLocation.country || '';
+        document.getElementById('formState').value = adminLocation.state || '';
+        document.getElementById('formCity').value = adminLocation.city || '';
+        document.getElementById('formArea').value = adminLocation.area || '';
+        document.getElementById('formAssignedAdmin').value = '';
+        note.textContent = `Location is locked to your assigned Admin city: ${adminLocation.city || 'not assigned'}.`;
+        note.style.display = 'block';
+      } else {
+        note.style.display = 'none';
+      }
     }
 
-    function openModal(id) {
-      document.getElementById(id).classList.add('active');
-    }
-
-    function closeModal(id) {
-      document.getElementById(id).classList.remove('active');
+    function resetForm() {
+      formMode = 'create';
+      document.getElementById('userFormTitle').textContent = 'New User';
+      document.getElementById('userForm').reset();
+      document.getElementById('formUserId').value = '';
+      document.getElementById('formPassword').required = true;
+      document.getElementById('formConfirmPassword').required = true;
+      renderOptions();
+      applyAdminLocationLock();
     }
 
     function openEditUser(id) {
-      const user = users.find((item) => item.id === id);
+      const user = users.find((item) => Number(item.id) === Number(id));
       if (!user) return;
-
-      document.getElementById('editUserId').value = user.id;
-      document.getElementById('editName').value = user.name;
-      document.getElementById('editEmail').value = user.email;
-      renderRoleSelects(user.role);
-      document.getElementById('editRole').value = user.role;
-      document.getElementById('editStatus').value = user.status;
-      openModal('editUserModal');
+      formMode = 'edit';
+      document.getElementById('userFormTitle').textContent = 'Edit User';
+      renderOptions();
+      document.getElementById('formUserId').value = user.id;
+      document.getElementById('formName').value = user.name || '';
+      document.getElementById('formEmail').value = user.email || '';
+      document.getElementById('formPhone').value = user.phone || '';
+      document.getElementById('formRole').value = user.role || '';
+      document.getElementById('formStatus').value = user.status || 'active';
+      document.getElementById('formCountry').value = user.country || '';
+      document.getElementById('formState').value = user.state || '';
+      document.getElementById('formCity').value = user.city || '';
+      document.getElementById('formArea').value = user.area || '';
+      document.getElementById('formAssignedAdmin').value = user.assigned_admin_id || '';
+      document.getElementById('formPassword').value = '';
+      document.getElementById('formConfirmPassword').value = '';
+      document.getElementById('formPassword').required = false;
+      document.getElementById('formConfirmPassword').required = false;
+      applyAdminLocationLock();
+      openModal('userFormModal');
     }
 
-    async function deleteUser(id) {
-      if (!confirm('Delete this user? This will soft delete the account.')) return;
-
-      const response = await fetch(`/users/${id}`, { method: 'DELETE' });
+    async function viewUser(id) {
+      const response = await fetch(`/users/${id}`);
       const data = await response.json();
-      if (!data.success) {
-        alert(data.message || 'Unable to delete user');
-        return;
-      }
+      if (!data.success) { alert(data.message || 'Unable to load user'); return; }
+      const user = data.user;
+      const fields = [
+        ['Full name', user.name], ['Email', user.email], ['Phone', user.phone || 'N/A'], ['Role', user.role],
+        ['Status', user.status], ['Country', user.country || 'N/A'], ['State', user.state || 'N/A'], ['City', user.city || 'N/A'],
+        ['Area', user.area || 'N/A'], ['Assigned Admin', user.assigned_admin_name || 'N/A'], ['Created', formatDate(user.created_at)], ['Updated', formatDate(user.updated_at)],
+      ];
+      document.getElementById('userDetails').innerHTML = fields.map(([label, value]) => `<div><span>${escapeHtml(label)}</span>${escapeHtml(value)}</div>`).join('');
+      openModal('viewUserModal');
+    }
 
+    async function toggleStatus(id) {
+      const user = users.find((item) => Number(item.id) === Number(id));
+      if (!user) return;
+      const nextStatus = user.status === 'active' ? 'inactive' : 'active';
+      const payload = { ...user, status: nextStatus };
+      const response = await fetch(`/users/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await response.json();
+      if (!data.success) { alert(data.message || 'Unable to update status'); return; }
       loadUsers(currentPage);
     }
 
-    function profileFields(role, profile) {
-      if (role === 'Vendor') {
-        return [
-          ['business_name', 'Business Name', profile.business_name || ''],
-          ['address', 'Address', profile.address || ''],
-          ['gst_number', 'GST Number', profile.gst_number || ''],
-          ['services', 'Services', Array.isArray(profile.services) ? profile.services.join(', ') : profile.services || ''],
-        ];
-      }
-
-      if (role === 'Client') {
-        return [
-          ['address', 'Address', profile.address || ''],
-          ['age', 'Age', profile.age || ''],
-          ['gender', 'Gender', profile.gender || ''],
-          ['notes', 'Notes', profile.notes || ''],
-        ];
-      }
-
-      if (role === 'Admin') {
-        return [
-          ['permissions', 'Permissions', Array.isArray(profile.permissions) ? profile.permissions.join(', ') : profile.permissions || ''],
-        ];
-      }
-
-      return [];
-    }
-
-    async function openProfile(id) {
-      const response = await fetch(`/profiles/${id}?format=json`);
+    async function deleteUser(id) {
+      if (!confirm('Delete this user? This will deactivate and soft delete the account.')) return;
+      const response = await fetch(`/users/${id}`, { method: 'DELETE' });
       const data = await response.json();
-      if (!data.success) {
-        alert(data.message || 'Unable to load profile');
-        return;
-      }
-
-      activeProfileUserId = id;
-      activeProfileRole = data.profileRole;
-      const profile = data.profile || {};
-      document.getElementById('profileTitle').textContent = `${data.user.name} Profile (${data.profileRole})`;
-      const fields = profileFields(data.profileRole, profile);
-      const form = document.getElementById('profileForm');
-
-      if (fields.length === 0) {
-        form.innerHTML = '<p>This role does not have a dedicated profile form yet.</p>';
-      } else {
-        form.innerHTML = fields.map(([name, label, value]) => `
-          <label>
-            ${escapeHtml(label)}
-            <textarea name="${name}">${escapeHtml(value)}</textarea>
-          </label>
-        `).join('') + '<button class="settings-save" type="submit">Update Profile</button>';
-      }
-
-      openModal('profileModal');
+      if (!data.success) { alert(data.message || 'Unable to delete user'); return; }
+      loadUsers(currentPage);
     }
 
-    document.getElementById('editUserForm').addEventListener('submit', async (event) => {
+    document.getElementById('newUserButton').addEventListener('click', () => { resetForm(); openModal('userFormModal'); });
+    document.getElementById('userForm').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const id = document.getElementById('editUserId').value;
+      const id = document.getElementById('formUserId').value;
       const payload = {
-        name: document.getElementById('editName').value,
-        email: document.getElementById('editEmail').value,
-        role: document.getElementById('editRole').value,
-        status: document.getElementById('editStatus').value,
+        name: document.getElementById('formName').value,
+        email: document.getElementById('formEmail').value,
+        phone: document.getElementById('formPhone').value,
+        role: document.getElementById('formRole').value,
+        status: document.getElementById('formStatus').value,
+        country: document.getElementById('formCountry').value,
+        state: document.getElementById('formState').value,
+        city: document.getElementById('formCity').value,
+        area: document.getElementById('formArea').value,
+        assigned_admin_id: document.getElementById('formAssignedAdmin').value,
+        password: document.getElementById('formPassword').value,
+        confirm_password: document.getElementById('formConfirmPassword').value,
       };
-
-      const response = await fetch(`/users/${id}`, {
-        method: 'PUT',
+      const response = await fetch(formMode === 'edit' ? `/users/${id}` : '/users', {
+        method: formMode === 'edit' ? 'PUT' : 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
       const data = await response.json();
-
-      if (!data.success) {
-        alert(data.message || 'Unable to update user');
-        return;
-      }
-
-      closeModal('editUserModal');
-      loadUsers(currentPage);
-    });
-
-    document.getElementById('profileForm').addEventListener('submit', async (event) => {
-      event.preventDefault();
-      const formData = new FormData(event.target);
-      const profile = {};
-      for (const [key, value] of formData.entries()) {
-        profile[key] = key === 'services' || key === 'permissions'
-          ? value.split(',').map((item) => item.trim()).filter(Boolean)
-          : value;
-      }
-
-      const response = await fetch(`/profiles/${activeProfileUserId}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ profile }),
-      });
-      const data = await response.json();
-
-      if (!data.success) {
-        alert(data.message || 'Unable to update profile');
-        return;
-      }
-
-      closeModal('profileModal');
+      if (!data.success) { alert(data.errors ? data.errors.join('\n') : (data.message || 'Unable to save user')); return; }
+      closeModal('userFormModal');
+      loadUsers(formMode === 'edit' ? currentPage : 1);
     });
 
     userSearch.addEventListener('input', debounce(() => loadUsers(1), 300));
-    roleFilter.addEventListener('change', () => loadUsers(1));
+    [roleFilter, statusFilter, cityFilter, areaFilter, assignedAdminFilter].forEach((filter) => filter.addEventListener('change', () => loadUsers(1)));
     prevPage.addEventListener('click', () => loadUsers(currentPage - 1));
     nextPage.addEventListener('click', () => loadUsers(currentPage + 1));
 
+    renderOptions();
     loadUsers();
   </script>
 </body>

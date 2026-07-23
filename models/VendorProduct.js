@@ -39,6 +39,7 @@ function normalize(row) {
     image_url: row.image_url || '/default.png',
     vendor_image_url: row.vendor_image_url || '',
     product_image_url: row.product_image_url || '',
+    image_version: Number(row.image_version || 0) || new Date(row.vendor_product_updated_at || row.product_updated_at || row.updated_at || 0).getTime() || 0,
     client_id: row.client_id,
     custom_price: row.custom_price === undefined || row.custom_price === null ? null : Number(row.custom_price),
     visible_price: defaultPrice === undefined
@@ -123,6 +124,7 @@ async function list({ vendor_id, approval_status, status, search, category_id, s
             ) AS image_url,
             NULLIF(NULLIF(vp.image_url, ''), '/default.png') AS vendor_image_url,
             NULLIF(NULLIF(p.image_url, ''), '/default.png') AS product_image_url,
+            p.updated_at AS product_updated_at, vp.updated_at AS vendor_product_updated_at,
             p.name AS product_name, p.description, p.price AS default_price,
             p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.rejection_reason, p.category_id, p.sub_category_id, p.brand_id,
@@ -158,6 +160,7 @@ async function findById(id) {
             ) AS image_url,
             NULLIF(NULLIF(vp.image_url, ''), '/default.png') AS vendor_image_url,
             NULLIF(NULLIF(p.image_url, ''), '/default.png') AS product_image_url,
+            p.updated_at AS product_updated_at, vp.updated_at AS vendor_product_updated_at,
             p.name AS product_name, p.description, p.price AS default_price,
             p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.rejection_reason, p.category_id, p.sub_category_id, p.brand_id,
@@ -236,6 +239,7 @@ async function create(data) {
       [productId, vendorId, quantity, price, status]
     );
     await connection.commit();
+    invalidateVisibleProductsCache();
     return findById(result.insertId || (await findExistingId(productId, vendorId)));
   } catch (error) {
     await connection.rollback();
@@ -291,6 +295,7 @@ async function createProductRequest(data) {
       [productId, vendorId, quantity, price, data.image_url || null]
     );
     await connection.commit();
+    invalidateVisibleProductsCache();
     return findById(await findExistingId(productId, vendorId));
   } catch (error) {
     await connection.rollback();
@@ -335,6 +340,7 @@ async function resubmitProductRequest(productId, data) {
 
   await Product.update(id, { ...data, price });
   await Product.updateApprovalStatus(id, { status: 'pending', actor_id: vendorId });
+  invalidateVisibleProductsCache();
   const vendorProductId = await findExistingId(id, vendorId);
   if (vendorProductId) {
     await update(vendorProductId, {
@@ -404,11 +410,13 @@ async function update(id, data) {
   if (!fields.length) return findById(id);
   values.push(id);
   await pool.query(`UPDATE vendor_products SET ${fields.join(', ')} WHERE id = ?`, values);
+  invalidateVisibleProductsCache();
   return findById(id);
 }
 
 async function remove(id) {
   await pool.query('DELETE FROM vendor_products WHERE id = ?', [id]);
+  invalidateVisibleProductsCache();
 }
 
 async function setClientPrice({ product_id, vendor_id, client_id, custom_price }) {
@@ -454,6 +462,7 @@ async function ensureAllProductsForAllVendors(connection = pool) {
      WHERE p.is_deleted = 0
      ON CONFLICT (product_id, vendor_id) DO NOTHING`
   );
+  invalidateVisibleProductsCache();
   return Number(result.affectedRows || result.rowCount || 0);
 }
 
@@ -468,6 +477,7 @@ async function ensureProductForAllVendors(productId, connection = pool) {
      ON CONFLICT (product_id, vendor_id) DO NOTHING`,
     [productId]
   );
+  invalidateVisibleProductsCache();
   return Number(result.affectedRows || result.rowCount || 0);
 }
 
@@ -482,6 +492,7 @@ async function ensureVendorHasAllProducts(vendorId, connection = pool) {
      ON CONFLICT (product_id, vendor_id) DO NOTHING`,
     [vendorId]
   );
+  invalidateVisibleProductsCache();
   return Number(result.affectedRows || result.rowCount || 0);
 }
 
@@ -582,6 +593,10 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
             ) AS image_url,
             MAX(NULLIF(NULLIF(vp.image_url, ''), '/default.png')) AS vendor_image_url,
             NULLIF(NULLIF(p.image_url, ''), '/default.png') AS product_image_url,
+            GREATEST(
+              EXTRACT(EPOCH FROM COALESCE(MAX(vp.updated_at), MAX(p.updated_at))),
+              EXTRACT(EPOCH FROM COALESCE(MAX(p.updated_at), MAX(vp.updated_at)))
+            )::BIGINT AS image_version,
             p.name AS product_name, p.description, p.price AS default_price,
             p.weight_value, p.weight_unit, p.weight_kg,
             p.approval_status, p.category_id, p.sub_category_id, p.brand_id,
@@ -663,4 +678,10 @@ module.exports = {
   approveProduct,
   rejectProduct,
   visibleForClient,
+  invalidateVisibleProductsCache,
 };
+
+
+
+
+

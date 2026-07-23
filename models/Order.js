@@ -498,6 +498,13 @@ async function getOrderItems(orderId) {
             p.name AS product_name,
             p.weight_value,
             p.weight_unit,
+            COALESCE(NULLIF(NULLIF(vp.image_url, ''), '/default.png'), NULLIF(NULLIF(p.image_url, ''), '/default.png'), '/default.png') AS image_url,
+            NULLIF(NULLIF(vp.image_url, ''), '/default.png') AS vendor_image_url,
+            NULLIF(NULLIF(p.image_url, ''), '/default.png') AS product_image_url,
+            GREATEST(
+              EXTRACT(EPOCH FROM COALESCE(vp.updated_at, p.updated_at)),
+              EXTRACT(EPOCH FROM COALESCE(p.updated_at, vp.updated_at))
+            )::BIGINT AS image_version,
             vp.vendor_id,
             v.name AS vendor_name,
             vprof.business_name AS vendor_business_name
@@ -518,6 +525,10 @@ async function getOrderItems(orderId) {
     product_name: row.product_name,
     weight_value: row.weight_value === undefined || row.weight_value === null ? null : Number(row.weight_value || 0),
     weight_unit: row.weight_unit || '',
+    image_url: row.image_url || '/default.png',
+    vendor_image_url: row.vendor_image_url || '',
+    product_image_url: row.product_image_url || '',
+    image_version: Number(row.image_version || 0),
     quantity: Number(row.quantity || 0),
     unit_price: Number(row.unit_price || 0),
     line_total: Number(row.unit_price * row.quantity || 0).toFixed(2),

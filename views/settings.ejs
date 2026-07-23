@@ -13,6 +13,8 @@
     locationSettings.countries = locationSettings.countries || [];
     locationSettings.states = locationSettings.states || [];
     locationSettings.cities = locationSettings.cities || [];
+    locationSettings.stateEntries = locationSettings.stateEntries || locationSettings.states.map((state) => ({ name: state, country: locationSettings.countries[0] || '' }));
+    locationSettings.cityEntries = locationSettings.cityEntries || locationSettings.cities.map((city) => ({ name: city, state: locationSettings.states[0] || '', country: locationSettings.countries[0] || '' }));
     const isSuperAdmin = Boolean(user && (String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin'));
   %>
 
@@ -557,6 +559,11 @@
           <p>Add and review service locations used across vendor and client profiles.</p>
         </div>
 
+        <div class="settings-toolbar" style="margin-bottom:14px;">
+          <button class="settings-save" type="button" onclick="saveLocationSettings()">Save Location Settings</button>
+          <span class="commission-message" id="locationSettingsMessage"></span>
+        </div>
+
         <div class="location-manager">
           <section class="location-card">
             <h3>Add Country</h3>
@@ -571,7 +578,7 @@
             <button class="settings-save" type="button" onclick="addLocation('country')">Add Country</button>
             <div class="location-list" id="countryList">
               <% locationSettings.countries.forEach((country) => { %>
-                <div class="location-row">
+                <div class="location-row" data-type="country" data-value="<%= country %>">
                   <span><%= country %></span>
                   <div class="location-actions">
                     <button type="button" onclick="editLocation(this)">Edit</button>
@@ -598,9 +605,9 @@
             </label>
             <button class="settings-save" type="button" onclick="addLocation('state')">Add State</button>
             <div class="location-list" id="stateList">
-              <% locationSettings.states.forEach((state) => { %>
-                <div class="location-row">
-                  <span><%= state %></span>
+              <% locationSettings.stateEntries.forEach((state) => { %>
+                <div class="location-row" data-type="state" data-country="<%= state.country %>" data-value="<%= state.name %>">
+                  <span><%= state.name %></span>
                   <div class="location-actions">
                     <button type="button" onclick="editLocation(this)">Edit</button>
                     <button type="button" onclick="deleteLocation(this)">Delete</button>
@@ -615,8 +622,8 @@
             <label>
               State
               <select id="cityState">
-                <% locationSettings.states.forEach((state) => { %>
-                  <option><%= state %></option>
+                <% locationSettings.stateEntries.forEach((state) => { %>
+                  <option value="<%= state.name %>" data-country="<%= state.country %>"><%= state.name %><%= locationSettings.stateEntries.filter((item) => item.name === state.name).length > 1 ? ' (' + state.country + ')' : '' %></option>
                 <% }) %>
               </select>
             </label>
@@ -626,9 +633,9 @@
             </label>
             <button class="settings-save" type="button" onclick="addLocation('city')">Add City</button>
             <div class="location-list" id="cityList">
-              <% locationSettings.cities.forEach((city) => { %>
-                <div class="location-row">
-                  <span><%= city %></span>
+              <% locationSettings.cityEntries.forEach((city) => { %>
+                <div class="location-row" data-type="city" data-country="<%= city.country %>" data-state="<%= city.state %>" data-value="<%= city.name %>">
+                  <span><%= city.name %></span>
                   <div class="location-actions">
                     <button type="button" onclick="editLocation(this)">Edit</button>
                     <button type="button" onclick="deleteLocation(this)">Delete</button>
@@ -1674,9 +1681,13 @@
       });
     });
 
-    function createLocationRow(value) {
+    function createLocationRow({ type, value, country = '', state = '' }) {
       const row = document.createElement('div');
       row.className = 'location-row';
+      row.dataset.type = type;
+      row.dataset.value = value;
+      if (country) row.dataset.country = country;
+      if (state) row.dataset.state = state;
       row.innerHTML = `
         <span></span>
         <div class="location-actions">
@@ -1688,32 +1699,55 @@
       return row;
     }
 
+    function locationRows(type) {
+      return Array.from(document.querySelectorAll(`.location-row[data-type="${type}"]`));
+    }
+
+    function escapeLocationOption(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+    }
+
+    function syncLocationSelects() {
+      const countries = locationRows('country').map((row) => row.dataset.value || row.querySelector('span').textContent.trim()).filter(Boolean);
+      const stateRows = locationRows('state');
+      const states = stateRows.map((row) => ({ name: row.dataset.value || row.querySelector('span').textContent.trim(), country: row.dataset.country || '' })).filter((state) => state.name);
+      const stateCountry = document.getElementById('stateCountry');
+      const cityState = document.getElementById('cityState');
+      const currentCountry = stateCountry.value;
+      const currentState = cityState.value;
+      stateCountry.innerHTML = countries.map((country) => `<option value="${escapeLocationOption(country)}">${escapeLocationOption(country)}</option>`).join('');
+      const duplicateStates = states.reduce((map, state) => { map[state.name] = (map[state.name] || 0) + 1; return map; }, {});
+      cityState.innerHTML = states.map((state) => `<option value="${escapeLocationOption(state.name)}" data-country="${escapeLocationOption(state.country)}">${escapeLocationOption(state.name)}${duplicateStates[state.name] > 1 ? ` (${escapeLocationOption(state.country)})` : ''}</option>`).join('');
+      if (countries.includes(currentCountry)) stateCountry.value = currentCountry;
+      if (states.some((state) => state.name === currentState)) cityState.value = currentState;
+    }
+
     function addLocation(type) {
       const config = {
-        country: { input: 'countryName', code: 'countryCode', list: 'countryList', select: 'stateCountry' },
-        state: { input: 'stateName', list: 'stateList', select: 'cityState' },
+        country: { input: 'countryName', code: 'countryCode', list: 'countryList' },
+        state: { input: 'stateName', list: 'stateList' },
         city: { input: 'cityName', list: 'cityList' },
       }[type];
 
       const input = document.getElementById(config.input);
       const value = input.value.trim();
       if (!value) return;
+      const country = type === 'state' ? document.getElementById('stateCountry').value.trim() : '';
+      const cityStateSelect = document.getElementById('cityState');
+      const state = type === 'city' ? cityStateSelect.value.trim() : '';
+      const cityCountry = type === 'city' && cityStateSelect.selectedOptions[0] ? cityStateSelect.selectedOptions[0].dataset.country || '' : '';
+      if (type === 'state' && !country) return alert('Add or select a country first.');
+      if (type === 'city' && !state) return alert('Add or select a state first.');
+      const exists = locationRows(type).some((row) => String(row.dataset.value || '').trim().toLowerCase() === value.toLowerCase()
+        && String(row.dataset.country || '').trim().toLowerCase() === (type === 'city' ? cityCountry : country).toLowerCase()
+        && String(row.dataset.state || '').trim().toLowerCase() === state.toLowerCase());
+      if (exists) return alert('This location already exists.');
 
-      const label = type === 'country' && document.getElementById(config.code).value.trim()
-        ? `${value} (${document.getElementById(config.code).value.trim().toUpperCase()})`
-        : value;
-
-      document.getElementById(config.list).appendChild(createLocationRow(label));
-
-      if (config.select) {
-        const option = document.createElement('option');
-        option.textContent = value;
-        option.value = value;
-        document.getElementById(config.select).appendChild(option);
-      }
-
+      document.getElementById(config.list).appendChild(createLocationRow({ type, value, country: type === 'city' ? cityCountry : country, state }));
       input.value = '';
       if (config.code) document.getElementById(config.code).value = '';
+      syncLocationSelects();
+      saveLocationSettings();
     }
 
     function editLocation(button) {
@@ -1721,15 +1755,83 @@
       const label = row.querySelector('span');
       const nextValue = prompt('Update location name', label.textContent);
       if (nextValue && nextValue.trim()) {
-        label.textContent = nextValue.trim();
+        const oldValue = row.dataset.value || label.textContent.trim();
+        const cleanValue = nextValue.trim();
+        row.dataset.value = cleanValue;
+        label.textContent = cleanValue;
+        if (row.dataset.type === 'country') {
+          locationRows('state').filter((item) => item.dataset.country === oldValue).forEach((item) => { item.dataset.country = cleanValue; });
+          locationRows('city').filter((item) => item.dataset.country === oldValue).forEach((item) => { item.dataset.country = cleanValue; });
+        }
+        if (row.dataset.type === 'state') {
+          locationRows('city').filter((item) => item.dataset.state === oldValue && item.dataset.country === row.dataset.country).forEach((item) => { item.dataset.state = cleanValue; });
+        }
+        syncLocationSelects();
+        saveLocationSettings();
       }
     }
 
     function deleteLocation(button) {
       if (confirm('Delete this location?')) {
-        button.closest('.location-row').remove();
+        const row = button.closest('.location-row');
+        const type = row.dataset.type;
+        const value = row.dataset.value;
+        const country = row.dataset.country;
+        if (type === 'country') {
+          locationRows('state').filter((item) => item.dataset.country === value).forEach((item) => item.remove());
+          locationRows('city').filter((item) => item.dataset.country === value).forEach((item) => item.remove());
+        }
+        if (type === 'state') {
+          locationRows('city').filter((item) => item.dataset.state === value && item.dataset.country === country).forEach((item) => item.remove());
+        }
+        row.remove();
+        syncLocationSelects();
+        saveLocationSettings();
       }
     }
+
+    function collectLocationSettings() {
+      const tree = {};
+      locationRows('country').forEach((row) => { tree[row.dataset.value] = tree[row.dataset.value] || {}; });
+      locationRows('state').forEach((row) => {
+        const country = row.dataset.country || document.getElementById('stateCountry').value || Object.keys(tree)[0] || '';
+        if (!country) return;
+        tree[country] = tree[country] || {};
+        tree[country][row.dataset.value] = tree[country][row.dataset.value] || [];
+      });
+      locationRows('city').forEach((row) => {
+        const state = row.dataset.state || '';
+        let country = row.dataset.country || '';
+        if (!country) {
+          const stateRow = locationRows('state').find((item) => item.dataset.value === state);
+          country = stateRow ? stateRow.dataset.country : Object.keys(tree)[0] || '';
+        }
+        if (!country || !state) return;
+        tree[country] = tree[country] || {};
+        tree[country][state] = tree[country][state] || [];
+        if (!tree[country][state].includes(row.dataset.value)) tree[country][state].push(row.dataset.value);
+      });
+      return { tree };
+    }
+
+    async function saveLocationSettings() {
+      const message = document.getElementById('locationSettingsMessage');
+      message.textContent = 'Saving locations...';
+      try {
+        const response = await fetch('/settings/locations', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ locations: collectLocationSettings() }),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save locations');
+        message.textContent = data.message || 'Location settings saved.';
+      } catch (error) {
+        message.textContent = error.message;
+      }
+    }
+
+    syncLocationSelects();
   </script>
 
   <div class="user-modal" id="catalogModal" aria-hidden="true">
@@ -4569,4 +4671,8 @@
   <%- include('partials/bulk_upload_progress_modal') %>
 </body>
 </html>
+
+
+
+
 
