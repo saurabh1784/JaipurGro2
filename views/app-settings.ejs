@@ -50,7 +50,7 @@
     
     .logo-preview-box {
       width: 100%;
-      height: 150px;
+      height: 160px;
       border-radius: 12px;
       background: #f8fafc;
       border: 2px dashed #cbd5e1;
@@ -60,12 +60,48 @@
       margin-bottom: 18px;
       overflow: hidden;
       position: relative;
+      cursor: pointer;
+      transition: border-color 0.2s, background 0.2s;
+    }
+    .logo-preview-box:hover {
+      border-color: #6366f1;
+      background: #f1f5f9;
     }
     .logo-preview-box img {
       max-width: 85%;
       max-height: 85%;
       object-fit: contain;
     }
+    .logo-placeholder-text {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      color: #64748b;
+      font-size: 13.5px;
+      font-weight: 600;
+      text-align: center;
+      width: 100%;
+      height: 100%;
+      padding: 16px;
+      box-sizing: border-box;
+    }
+    .logo-placeholder-text svg {
+      stroke: #94a3b8;
+      transition: stroke 0.2s, transform 0.2s;
+    }
+    .logo-preview-box:hover .logo-placeholder-text svg {
+      stroke: #6366f1;
+      transform: translateY(-2px);
+    }
+    .logo-placeholder-text span {
+      color: #64748b;
+    }
+    .logo-preview-box:hover .logo-placeholder-text span {
+      color: #4f46e5;
+    }
+
     .form-section-title {
       font-size: 13px;
       font-weight: 700;
@@ -181,13 +217,23 @@
             </div>
           </div>
           
-          <div class="logo-preview-box">
-            <img id="previewClient" src="<%= settings.clientAppLogo || '/assets/images/GroLogo.png' %>" alt="Client App Logo" onerror="this.src='/assets/images/GroLogo.png'" />
+          <div class="logo-preview-box" onclick="document.getElementById('client_app_logo').click();" title="Click to upload logo">
+            <img id="previewClient" 
+                 src="<%= settings.clientAppLogo || '' %>" 
+                 alt="Client App Logo" 
+                 onload="handleLogoLoad(this, 'placeholderClient')" 
+                 onerror="handleLogoError(this, 'placeholderClient')" 
+                 style="<%= settings.clientAppLogo ? '' : 'display:none;' %>" />
+            
+            <div id="placeholderClient" class="logo-placeholder-text" style="<%= settings.clientAppLogo ? 'display:none;' : 'display:flex;' %>">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span>Upload a new logo</span>
+            </div>
           </div>
           
           <div class="file-input-wrapper">
             <label for="client_app_logo">Upload Logo Image File (PNG, JPG, SVG)</label>
-            <input type="file" id="client_app_logo" name="client_app_logo" accept="image/*" onchange="previewImage(this, 'previewClient')" style="font-size:13px;" />
+            <input type="file" id="client_app_logo" name="client_app_logo" accept="image/*" onchange="previewImage(this, 'previewClient', 'placeholderClient')" style="font-size:13px;" />
           </div>
           
           <div class="file-input-wrapper">
@@ -216,13 +262,23 @@
             </div>
           </div>
           
-          <div class="logo-preview-box">
-            <img id="previewVendor" src="<%= settings.vendorAppLogo || '/assets/images/GroLogo.png' %>" alt="Vendor App Logo" onerror="this.src='/assets/images/GroLogo.png'" />
+          <div class="logo-preview-box" onclick="document.getElementById('vendor_app_logo').click();" title="Click to upload logo">
+            <img id="previewVendor" 
+                 src="<%= settings.vendorAppLogo || '' %>" 
+                 alt="Vendor App Logo" 
+                 onload="handleLogoLoad(this, 'placeholderVendor')" 
+                 onerror="handleLogoError(this, 'placeholderVendor')" 
+                 style="<%= settings.vendorAppLogo ? '' : 'display:none;' %>" />
+            
+            <div id="placeholderVendor" class="logo-placeholder-text" style="<%= settings.vendorAppLogo ? 'display:none;' : 'display:flex;' %>">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span>Upload a new logo</span>
+            </div>
           </div>
           
           <div class="file-input-wrapper">
             <label for="vendor_app_logo">Upload Logo Image File (PNG, JPG, SVG)</label>
-            <input type="file" id="vendor_app_logo" name="vendor_app_logo" accept="image/*" onchange="previewImage(this, 'previewVendor')" style="font-size:13px;" />
+            <input type="file" id="vendor_app_logo" name="vendor_app_logo" accept="image/*" onchange="previewImage(this, 'previewVendor', 'placeholderVendor')" style="font-size:13px;" />
           </div>
           
           <div class="file-input-wrapper">
@@ -251,13 +307,23 @@
             </div>
           </div>
           
-          <div class="logo-preview-box">
-            <img id="previewDelivery" src="<%= settings.deliveryAppLogo || '/assets/images/GroLogo.png' %>" alt="Delivery App Logo" onerror="this.src='/assets/images/GroLogo.png'" />
+          <div class="logo-preview-box" onclick="document.getElementById('delivery_app_logo').click();" title="Click to upload logo">
+            <img id="previewDelivery" 
+                 src="<%= settings.deliveryAppLogo || '' %>" 
+                 alt="Delivery App Logo" 
+                 onload="handleLogoLoad(this, 'placeholderDelivery')" 
+                 onerror="handleLogoError(this, 'placeholderDelivery')" 
+                 style="<%= settings.deliveryAppLogo ? '' : 'display:none;' %>" />
+            
+            <div id="placeholderDelivery" class="logo-placeholder-text" style="<%= settings.deliveryAppLogo ? 'display:none;' : 'display:flex;' %>">
+              <svg viewBox="0 0 24 24" width="36" height="36" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z"/></svg>
+              <span>Upload a new logo</span>
+            </div>
           </div>
           
           <div class="file-input-wrapper">
             <label for="delivery_app_logo">Upload Logo Image File (PNG, JPG, SVG)</label>
-            <input type="file" id="delivery_app_logo" name="delivery_app_logo" accept="image/*" onchange="previewImage(this, 'previewDelivery')" style="font-size:13px;" />
+            <input type="file" id="delivery_app_logo" name="delivery_app_logo" accept="image/*" onchange="previewImage(this, 'previewDelivery', 'placeholderDelivery')" style="font-size:13px;" />
           </div>
           
           <div class="file-input-wrapper">
@@ -289,11 +355,31 @@
   </main>
 
   <script>
-    function previewImage(input, previewId) {
+    function handleLogoError(imgEl, placeholderId) {
+      imgEl.style.display = 'none';
+      const placeholder = document.getElementById(placeholderId);
+      if (placeholder) placeholder.style.display = 'flex';
+    }
+
+    function handleLogoLoad(imgEl, placeholderId) {
+      if (imgEl.naturalWidth > 0 && imgEl.naturalHeight > 0) {
+        imgEl.style.display = 'block';
+        const placeholder = document.getElementById(placeholderId);
+        if (placeholder) placeholder.style.display = 'none';
+      } else {
+        handleLogoError(imgEl, placeholderId);
+      }
+    }
+
+    function previewImage(input, previewId, placeholderId) {
       if (input.files && input.files[0]) {
         const reader = new FileReader();
         reader.onload = function(e) {
-          document.getElementById(previewId).src = e.target.result;
+          const img = document.getElementById(previewId);
+          const placeholder = document.getElementById(placeholderId);
+          img.src = e.target.result;
+          img.style.display = 'block';
+          if (placeholder) placeholder.style.display = 'none';
         }
         reader.readAsDataURL(input.files[0]);
       }
