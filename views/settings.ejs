@@ -1980,6 +1980,20 @@
       updateCategoryBulkDeleteUI();
     }
 
+    async function readJsonResponse(response) {
+      const text = await response.text();
+      try {
+        return text ? JSON.parse(text) : {};
+      } catch (error) {
+        return {
+          success: false,
+          message: response.redirected || response.status === 401
+            ? 'Login required. Please sign in again.'
+            : `Server returned a non-JSON response (${response.status}).`,
+        };
+      }
+    }
+
     async function deleteSelectedCategories() {
       const ids = Array.from(selectedCategoryIds);
       if (!ids.length) return;
