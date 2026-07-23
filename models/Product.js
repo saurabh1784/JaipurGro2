@@ -94,9 +94,29 @@ async function list(filters = {}) {
    const conditions = ['p.is_deleted = 0'];
    const params = [];
 
-   if (filters.name) {
-     conditions.push('p.name LIKE ?');
-     params.push(`%${String(filters.name).trim()}%`);
+   const searchTerm = String(filters.name || filters.search || filters.q || '').trim();
+   if (searchTerm) {
+     const searchClauses = ['p.name ILIKE ?'];
+     const searchParams = [`%${searchTerm}%`];
+
+     const matches = searchTerm.match(/\d+/);
+     const numId = matches ? parseInt(matches[0], 10) : parseInt(searchTerm, 10);
+     if (Number.isFinite(numId) && numId > 0) {
+       searchClauses.push('p.id = ?');
+       searchParams.push(numId);
+     }
+
+     searchClauses.push('b.name ILIKE ?');
+     searchParams.push(`%${searchTerm}%`);
+
+     searchClauses.push('s.name ILIKE ?');
+     searchParams.push(`%${searchTerm}%`);
+
+     searchClauses.push('c.name ILIKE ?');
+     searchParams.push(`%${searchTerm}%`);
+
+     conditions.push(`(${searchClauses.join(' OR ')})`);
+     params.push(...searchParams);
    }
    if (filters.category_id) {
      conditions.push('p.category_id = ?');

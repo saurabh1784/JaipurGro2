@@ -318,18 +318,26 @@ function readRowsFromWorkbook(buffer) {
 
 function getCell(row, names) {
   const lookup = {};
-  for (const key of Object.keys(row)) {
-    lookup[String(key).trim().toLowerCase()] = row[key];
+  for (const key of Object.keys(row || {})) {
+    const cleanKey = String(key)
+      .replace(/^\uFEFF/, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toLowerCase();
+    lookup[cleanKey] = row[key];
   }
   for (const name of names) {
-    const value = lookup[String(name).trim().toLowerCase()];
+    const targetKey = String(name)
+      .replace(/^\uFEFF/, '')
+      .replace(/[^a-zA-Z0-9]/g, '')
+      .toLowerCase();
+    const value = lookup[targetKey];
     if (value !== undefined && String(value).trim() !== '') return value;
   }
   return '';
 }
 
 function bulkRowIdentifier(row) {
-  const id = String(getCell(row, ['product id or sku', 'product id', 'product_id', 'sku', 'id'])).trim();
+  const id = String(getCell(row, ['product id or sku', 'product id', 'product_id', 'sku', 'id', 'code'])).trim();
   const name = String(getCell(row, ['name', 'product name'])).trim();
   return id || name || '';
 }
@@ -337,7 +345,10 @@ function bulkRowIdentifier(row) {
 function normalizeRowForClient(row) {
   const normalized = {};
   for (const key of Object.keys(row || {})) {
-    normalized[String(key).trim()] = row[key];
+    const cleanKey = String(key).replace(/^\uFEFF/, '').trim();
+    if (!cleanKey.startsWith('__EMPTY')) {
+      normalized[cleanKey] = row[key];
+    }
   }
   return normalized;
 }
