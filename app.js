@@ -4235,7 +4235,10 @@ app.use('/api/orders/admin', webOrJwtAuth, orderRoutes.adminRouter);
 app.use('/api/orders/vendor', webOrJwtAuth, orderRoutes.vendorRouter);
 app.use('/api/orders/client', webOrJwtAuth, orderRoutes.clientRouter);
 app.use('/api/orders/delivery', webOrJwtAuth, orderRoutes.deliveryRouter);
-app.use('/api/delivery-types', webOrJwtAuth, deliveryTypeRoutes);
+app.use('/app-settings', requireAuth, (req, res, next) => {
+  req.shell = buildShell(req.session.user || req.user, '/app-settings');
+  next();
+});
 app.use('/', appSettingsRoutes);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
