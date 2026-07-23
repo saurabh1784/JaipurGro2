@@ -816,6 +816,21 @@ async function deleteCategory(req, res) {
   }
 }
 
+async function bulkDeleteCategories(req, res) {
+  const ids = req.body && Array.isArray(req.body.ids) ? req.body.ids : [];
+  if (!ids.length) {
+    return res.status(400).json({ success: false, message: 'No category IDs provided for deletion' });
+  }
+
+  try {
+    const deletedCount = await Catalog.bulkDeleteCategories(ids);
+    res.json({ success: true, message: `${deletedCount} category(ies) deleted successfully`, deletedCount });
+  } catch (error) {
+    console.error('Bulk delete categories error:', error);
+    res.status(500).json({ success: false, message: 'Unable to delete selected categories' });
+  }
+}
+
 async function listSubcategories(req, res) {
   const subcategories = await Catalog.listSubcategories();
   res.json({ success: true, subcategories });
@@ -900,6 +915,21 @@ async function updateSubcategory(req, res) {
 async function deleteSubcategory(req, res) {
   await Catalog.deleteSubcategory(req.params.id);
   res.json({ success: true, message: 'Subcategory deleted' });
+}
+
+async function bulkDeleteSubcategories(req, res) {
+  const ids = req.body && Array.isArray(req.body.ids) ? req.body.ids : [];
+  if (!ids.length) {
+    return res.status(400).json({ success: false, message: 'No subcategory IDs provided for deletion' });
+  }
+
+  try {
+    const deletedCount = await Catalog.bulkDeleteSubcategories(ids);
+    res.json({ success: true, message: `${deletedCount} subcategory(ies) deleted successfully`, deletedCount });
+  } catch (error) {
+    console.error('Bulk delete subcategories error:', error);
+    res.status(500).json({ success: false, message: 'Unable to delete selected subcategories' });
+  }
 }
 
 async function listBrands(req, res) {
@@ -988,10 +1018,12 @@ module.exports = {
   createCategory,
   updateCategory,
   deleteCategory,
+  bulkDeleteCategories,
   listSubcategories,
   createSubcategory,
   updateSubcategory,
   deleteSubcategory,
+  bulkDeleteSubcategories,
   listBrands,
   createBrand,
   updateBrand,

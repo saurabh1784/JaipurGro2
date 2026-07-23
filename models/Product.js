@@ -327,8 +327,16 @@ async function updateApprovalStatus(id, { status, actor_id, rejection_reason }) 
 }
 
 async function softDelete(id) {
-   await pool.query('UPDATE products SET is_deleted = 1 WHERE id = ?', [id]);
- }
+  await pool.query('UPDATE products SET is_deleted = 1 WHERE id = ?', [id]);
+}
+
+async function bulkSoftDelete(ids = []) {
+  const validIds = [...new Set([].concat(ids || []).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!validIds.length) return 0;
+  const placeholders = validIds.map(() => '?').join(',');
+  const [result] = await pool.query(`UPDATE products SET is_deleted = 1 WHERE id IN (${placeholders})`, validIds);
+  return result.affectedRows || result.rowCount || validIds.length;
+}
 
  async function listApproved(limit = 100, categoryIds = null) {
    const hasCategoryFilter = Array.isArray(categoryIds);
@@ -429,6 +437,7 @@ module.exports = {
    updatePrice,
    updateApprovalStatus,
    softDelete,
+   bulkSoftDelete,
    cleanProducts,
    validateRelation,
    resolveRelation,

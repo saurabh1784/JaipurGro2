@@ -309,6 +309,25 @@ async function destroy(req, res) {
   return res.json({ success: true, message: 'Product deleted' });
 }
 
+async function bulkDeleteProducts(req, res) {
+  const ids = req.body && Array.isArray(req.body.ids) ? req.body.ids : [];
+  if (!ids.length) {
+    return res.status(400).json({ success: false, message: 'No product IDs provided for deletion' });
+  }
+
+  try {
+    const deletedCount = await Product.bulkSoftDelete(ids);
+    return res.json({
+      success: true,
+      message: `${deletedCount} product(s) deleted successfully`,
+      deletedCount,
+    });
+  } catch (error) {
+    console.error('Bulk delete products error:', error);
+    return res.status(500).json({ success: false, message: 'Failed to delete selected products' });
+  }
+}
+
 function readRowsFromWorkbook(buffer) {
   const workbook = xlsx.read(buffer, { type: 'buffer' });
   const firstSheetName = workbook.SheetNames[0];
@@ -1122,6 +1141,7 @@ module.exports = {
   update,
   updateApprovalStatus,
   destroy,
+  bulkDeleteProducts,
   bulkUpload,
   downloadImageTemplate,
   bulkImageUpload,

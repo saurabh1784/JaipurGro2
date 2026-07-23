@@ -149,26 +149,36 @@
         <button class="product-approval-tab" type="button" data-product-tab="rejected">Rejected Products</button>
       </div>
 
-      <div class="products-filter-bar">
-        <label>
-          Main Category
-          <select id="categoryFilter"></select>
-        </label>
-        <label>
-          Subcategory
-          <select id="subcategoryFilter"></select>
-        </label>
-        <label>
-          Brand
-          <select id="brandFilter"></select>
-        </label>
-        <button class="product-secondary-button" type="button" id="clearFilters">Clear Filters</button>
+      <div class="products-filter-bar" style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <label>
+            Main Category
+            <select id="categoryFilter"></select>
+          </label>
+          <label>
+            Subcategory
+            <select id="subcategoryFilter"></select>
+          </label>
+          <label>
+            Brand
+            <select id="brandFilter"></select>
+          </label>
+          <button class="product-secondary-button" type="button" id="clearFilters">Clear Filters</button>
+        </div>
+        <div id="productBulkDeleteContainer">
+          <button type="button" id="deleteSelectedProductsBtn" style="display:none; background:#ef4444; color:#fff; font-weight:700; padding:9px 16px; border-radius:8px; border:none; cursor:pointer; align-items:center; gap:6px;" onclick="deleteSelectedProducts()">
+            <span>🗑️</span> Delete Selected (<span id="selectedProductCount">0</span>)
+          </button>
+        </div>
       </div>
 
       <div class="users-table-card products-table-card">
         <table class="users-table products-table">
           <thead>
             <tr>
+              <th style="width:38px; text-align:center;">
+                <input type="checkbox" id="selectAllProducts" style="width:18px; height:18px; cursor:pointer;" title="Select all products" onchange="toggleSelectAllProducts(this.checked)" />
+              </th>
               <th>ID</th>
               <th>Name</th>
               <th>Image</th>
@@ -185,7 +195,7 @@
             </tr>
           </thead>
           <tbody id="productsTableBody">
-            <tr><td colspan="13">Loading products...</td></tr>
+            <tr><td colspan="14">Loading products...</td></tr>
           </tbody>
         </table>
       </div>
@@ -345,6 +355,74 @@
     let totalPages = 1;
     let pendingDeleteId = null;
     let activeProductTab = 'approved';
+    let selectedProductIds = new Set();
+
+    function updateProductBulkDeleteUI() {
+      const btn = document.getElementById('deleteSelectedProductsBtn');
+      const countSpan = document.getElementById('selectedProductCount');
+      const count = selectedProductIds.size;
+
+      if (countSpan) countSpan.textContent = count;
+      if (btn) btn.style.display = count > 0 ? 'inline-flex' : 'none';
+
+      const selectAllCb = document.getElementById('selectAllProducts');
+      if (selectAllCb) {
+        const visibleCbs = Array.from(document.querySelectorAll('.product-select-cb'));
+        selectAllCb.checked = visibleCbs.length > 0 && visibleCbs.every(cb => cb.checked);
+      }
+    }
+
+    function toggleProductSelection(id, checked) {
+      const strId = String(id);
+      if (checked) {
+        selectedProductIds.add(strId);
+      } else {
+        selectedProductIds.delete(strId);
+      }
+      const row = document.getElementById(`product-row-${id}`);
+      if (row) {
+        row.classList.toggle('selected-row', checked);
+      }
+      updateProductBulkDeleteUI();
+    }
+
+    function toggleSelectAllProducts(checked) {
+      document.querySelectorAll('.product-select-cb').forEach(cb => {
+        cb.checked = checked;
+        const id = cb.getAttribute('data-id');
+        if (id) {
+          if (checked) selectedProductIds.add(String(id));
+          else selectedProductIds.delete(String(id));
+          const row = document.getElementById(`product-row-${id}`);
+          if (row) row.classList.toggle('selected-row', checked);
+        }
+      });
+      updateProductBulkDeleteUI();
+    }
+
+    async function deleteSelectedProducts() {
+      const ids = Array.from(selectedProductIds);
+      if (!ids.length) return;
+      if (!confirm(`Are you sure you want to delete ${ids.length} selected product(s) from the database?`)) return;
+
+      try {
+        const response = await fetch('/products/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ ids }),
+        });
+        const data = await readJsonResponse(response);
+        if (data.success) {
+          alert(data.message || `${ids.length} product(s) deleted successfully`);
+          selectedProductIds.clear();
+          loadProducts(currentPage);
+        } else {
+          alert(data.message || 'Failed to delete selected products');
+        }
+      } catch (err) {
+        alert('Error deleting selected products: ' + err.message);
+      }
+    }
 
     const productForm = document.getElementById('productForm');
     const bulkUploadForm = document.getElementById('bulkUploadForm');
@@ -545,10 +623,13 @@
 
     function renderProducts() {
       if (!products.length) {
-        tableBody.innerHTML = '<tr><td colspan="13">No products found</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="14">No products found</td></tr>';
       } else {
         tableBody.innerHTML = products.map((product) => `
-          <tr>
+          <tr id="product-row-${product.id}" class="${selectedProductIds.has(String(product.id)) ? 'selected-row' : ''}">
+            <td style="text-align:center;">
+              <input type="checkbox" class="product-select-cb" data-id="${product.id}" ${selectedProductIds.has(String(product.id)) ? 'checked' : ''} style="width:18px; height:18px; cursor:pointer;" onchange="toggleProductSelection(${product.id}, this.checked)" />
+            </td>
             <td>#${product.id}</td>
             <td>${escapeHtml(product.name)}</td>
             <td><img class="product-thumb" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.name)}" loading="lazy" /></td>
@@ -607,6 +688,7 @@
           </tr>
         `).join('');
       }
+      updateProductBulkDeleteUI();
       pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
       prevPage.disabled = currentPage <= 1;
       nextPage.disabled = currentPage >= totalPages;

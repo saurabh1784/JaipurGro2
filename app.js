@@ -7150,7 +7150,11 @@ app.delete('/sub-categories/:id', requireAuth, requirePermission('settings.manag
 app.post('/brands', requireAuth, requirePermission('settings.manage'), uploadBrandLogo.single('logo'), handleUploadError, catalogController.createBrand);
 app.get('/brands', requireAuth, requirePermission('settings.manage'), catalogController.listBrands);
 app.put('/brands/:id', requireAuth, requirePermission('settings.manage'), uploadBrandLogo.single('logo'), handleUploadError, catalogController.updateBrand);
-app.delete('/brands/:id', requireAuth, requirePermission('settings.manage'), catalogController.deleteBrand);
+app.post('/categories/bulk-delete', requireAuth, requirePermission('settings.manage'), catalogController.bulkDeleteCategories);
+app.delete('/categories/bulk', requireAuth, requirePermission('settings.manage'), catalogController.bulkDeleteCategories);
+app.post('/sub-categories/bulk-delete', requireAuth, requirePermission('settings.manage'), catalogController.bulkDeleteSubcategories);
+app.post('/subcategories/bulk-delete', requireAuth, requirePermission('settings.manage'), catalogController.bulkDeleteSubcategories);
+app.delete('/sub-categories/bulk', requireAuth, requirePermission('settings.manage'), catalogController.bulkDeleteSubcategories);
 
 app.get('/subcategories/image-upload-template', requireAuth, requirePermission('settings.manage'), catalogController.downloadSubcategoryImageTemplate);
 app.post('/subcategories/bulk-image-url-upload', requireAuth, requirePermission('settings.manage'), uploadCsvFile.single('file'), catalogController.bulkUploadSubcategoryImageUrls);

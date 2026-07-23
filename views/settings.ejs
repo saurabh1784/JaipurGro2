@@ -770,10 +770,18 @@
             <button class="catalog-inner-tab" type="button" data-catalog-tab="brandTablePanel">Brand</button>
           </div>
           <div class="catalog-table-card catalog-table-panel active" id="categoryTablePanel">
-            <h3>Main Category Table</h3>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+              <h3 style="margin:0;">Main Category Table</h3>
+              <button type="button" id="deleteSelectedCategoriesBtn" style="display:none; background:#ef4444; color:#fff; font-weight:700; padding:6px 14px; border-radius:6px; border:none; cursor:pointer; align-items:center; gap:6px;" onclick="deleteSelectedCategories()">
+                <span>🗑️</span> Delete Selected (<span id="selectedCategoryCount">0</span>)
+              </button>
+            </div>
             <table class="catalog-table">
               <thead>
                 <tr>
+                  <th style="width:36px; text-align:center;">
+                    <input type="checkbox" id="selectAllCategories" style="width:16px; height:16px; cursor:pointer;" title="Select all categories" onchange="toggleSelectAllCategories(this.checked)" />
+                  </th>
                   <th>ID</th>
                   <th>Name</th>
                   <th>Slug</th>
@@ -784,15 +792,23 @@
                 </tr>
               </thead>
               <tbody id="categoryTableBody">
-                <tr><td colspan="6">Loading...</td></tr>
+                <tr><td colspan="8">Loading...</td></tr>
               </tbody>
             </table>
           </div>
           <div class="catalog-table-card catalog-table-panel" id="subcategoryTablePanel">
-            <h3>SubCategory Table</h3>
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
+              <h3 style="margin:0;">SubCategory Table</h3>
+              <button type="button" id="deleteSelectedSubcategoriesBtn" style="display:none; background:#ef4444; color:#fff; font-weight:700; padding:6px 14px; border-radius:6px; border:none; cursor:pointer; align-items:center; gap:6px;" onclick="deleteSelectedSubcategories()">
+                <span>🗑️</span> Delete Selected (<span id="selectedSubcategoryCount">0</span>)
+              </button>
+            </div>
             <table class="catalog-table">
               <thead>
                 <tr>
+                  <th style="width:36px; text-align:center;">
+                    <input type="checkbox" id="selectAllSubcategories" style="width:16px; height:16px; cursor:pointer;" title="Select all subcategories" onchange="toggleSelectAllSubcategories(this.checked)" />
+                  </th>
                   <th>ID</th>
                   <th>Main Category</th>
                   <th>Name</th>
@@ -1925,6 +1941,129 @@
       });
     }
 
+    let selectedCategoryIds = new Set();
+    let selectedSubcategoryIds = new Set();
+
+    function updateCategoryBulkDeleteUI() {
+      const btn = document.getElementById('deleteSelectedCategoriesBtn');
+      const countSpan = document.getElementById('selectedCategoryCount');
+      const count = selectedCategoryIds.size;
+      if (countSpan) countSpan.textContent = count;
+      if (btn) btn.style.display = count > 0 ? 'inline-flex' : 'none';
+      const selectAllCb = document.getElementById('selectAllCategories');
+      if (selectAllCb) {
+        const cbs = Array.from(document.querySelectorAll('.category-select-cb'));
+        selectAllCb.checked = cbs.length > 0 && cbs.every(cb => cb.checked);
+      }
+    }
+
+    function toggleCategorySelection(id, checked) {
+      const strId = String(id);
+      if (checked) selectedCategoryIds.add(strId);
+      else selectedCategoryIds.delete(strId);
+      const row = document.getElementById(`category-row-${id}`);
+      if (row) row.classList.toggle('selected-row', checked);
+      updateCategoryBulkDeleteUI();
+    }
+
+    function toggleSelectAllCategories(checked) {
+      document.querySelectorAll('.category-select-cb').forEach(cb => {
+        cb.checked = checked;
+        const id = cb.getAttribute('data-id');
+        if (id) {
+          if (checked) selectedCategoryIds.add(String(id));
+          else selectedCategoryIds.delete(String(id));
+          const row = document.getElementById(`category-row-${id}`);
+          if (row) row.classList.toggle('selected-row', checked);
+        }
+      });
+      updateCategoryBulkDeleteUI();
+    }
+
+    async function deleteSelectedCategories() {
+      const ids = Array.from(selectedCategoryIds);
+      if (!ids.length) return;
+      if (!confirm(`Are you sure you want to delete ${ids.length} selected main category(ies) from the database?`)) return;
+
+      try {
+        const response = await fetch('/categories/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ ids }),
+        });
+        const data = await readJsonResponse(response);
+        if (data.success) {
+          alert(data.message || `${ids.length} category(ies) deleted successfully`);
+          selectedCategoryIds.clear();
+          loadCatalog();
+        } else {
+          alert(data.message || 'Failed to delete selected categories');
+        }
+      } catch (err) {
+        alert('Error deleting selected categories: ' + err.message);
+      }
+    }
+
+    function updateSubcategoryBulkDeleteUI() {
+      const btn = document.getElementById('deleteSelectedSubcategoriesBtn');
+      const countSpan = document.getElementById('selectedSubcategoryCount');
+      const count = selectedSubcategoryIds.size;
+      if (countSpan) countSpan.textContent = count;
+      if (btn) btn.style.display = count > 0 ? 'inline-flex' : 'none';
+      const selectAllCb = document.getElementById('selectAllSubcategories');
+      if (selectAllCb) {
+        const cbs = Array.from(document.querySelectorAll('.subcategory-select-cb'));
+        selectAllCb.checked = cbs.length > 0 && cbs.every(cb => cb.checked);
+      }
+    }
+
+    function toggleSubcategorySelection(id, checked) {
+      const strId = String(id);
+      if (checked) selectedSubcategoryIds.add(strId);
+      else selectedSubcategoryIds.delete(strId);
+      const row = document.getElementById(`subcategory-row-${id}`);
+      if (row) row.classList.toggle('selected-row', checked);
+      updateSubcategoryBulkDeleteUI();
+    }
+
+    function toggleSelectAllSubcategories(checked) {
+      document.querySelectorAll('.subcategory-select-cb').forEach(cb => {
+        cb.checked = checked;
+        const id = cb.getAttribute('data-id');
+        if (id) {
+          if (checked) selectedSubcategoryIds.add(String(id));
+          else selectedSubcategoryIds.delete(String(id));
+          const row = document.getElementById(`subcategory-row-${id}`);
+          if (row) row.classList.toggle('selected-row', checked);
+        }
+      });
+      updateSubcategoryBulkDeleteUI();
+    }
+
+    async function deleteSelectedSubcategories() {
+      const ids = Array.from(selectedSubcategoryIds);
+      if (!ids.length) return;
+      if (!confirm(`Are you sure you want to delete ${ids.length} selected subcategory(ies) from the database?`)) return;
+
+      try {
+        const response = await fetch('/subcategories/bulk-delete', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ ids }),
+        });
+        const data = await readJsonResponse(response);
+        if (data.success) {
+          alert(data.message || `${ids.length} subcategory(ies) deleted successfully`);
+          selectedSubcategoryIds.clear();
+          loadCatalog();
+        } else {
+          alert(data.message || 'Failed to delete selected subcategories');
+        }
+      } catch (err) {
+        alert('Error deleting selected subcategories: ' + err.message);
+      }
+    }
+
     function renderCatalogFilters() {
       const categoryFilter = document.getElementById('catalogCategoryFilter');
       const subcategoryFilter = document.getElementById('catalogSubcategoryFilter');
@@ -2030,7 +2169,10 @@
 
       document.getElementById('categoryTableBody').innerHTML = categories.length
         ? categories.map((row) => `
-          <tr>
+          <tr id="category-row-${row.id}" class="${selectedCategoryIds.has(String(row.id)) ? 'selected-row' : ''}">
+            <td style="text-align:center;">
+              <input type="checkbox" class="category-select-cb" data-id="${row.id}" ${selectedCategoryIds.has(String(row.id)) ? 'checked' : ''} style="width:16px; height:16px; cursor:pointer;" onchange="toggleCategorySelection(${row.id}, this.checked)" />
+            </td>
             <td>${row.id}</td>
             <td>${escapeCatalog(row.name)}</td>
             <td>${escapeCatalog(row.slug)}</td>
@@ -2045,11 +2187,15 @@
             </td>
           </tr>
         `).join('')
-        : '<tr><td colspan="7">No categories found</td></tr>';
+        : '<tr><td colspan="8">No categories found</td></tr>';
+      updateCategoryBulkDeleteUI();
 
       document.getElementById('subcategoryTableBody').innerHTML = subcategories.length
         ? subcategories.map((row) => `
-          <tr>
+          <tr id="subcategory-row-${row.id}" class="${selectedSubcategoryIds.has(String(row.id)) ? 'selected-row' : ''}">
+            <td style="text-align:center;">
+              <input type="checkbox" class="subcategory-select-cb" data-id="${row.id}" ${selectedSubcategoryIds.has(String(row.id)) ? 'checked' : ''} style="width:16px; height:16px; cursor:pointer;" onchange="toggleSubcategorySelection(${row.id}, this.checked)" />
+            </td>
             <td>${row.id}</td>
             <td>${escapeCatalog(row.category_name)}</td>
             <td>${escapeCatalog(row.name)}</td>
@@ -2065,6 +2211,7 @@
           </tr>
         `).join('')
         : '<tr><td colspan="7">No subcategories found</td></tr>';
+      updateSubcategoryBulkDeleteUI();
 
       document.getElementById('brandTableBody').innerHTML = brands.length
         ? brands.map((row) => `

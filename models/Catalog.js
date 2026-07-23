@@ -226,6 +226,24 @@ async function deleteSubcategory(id) {
   await pool.query("UPDATE brands SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE sub_category_id = ?", [id]);
 }
 
+async function bulkDeleteCategories(ids = []) {
+  const validIds = [...new Set([].concat(ids || []).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!validIds.length) return 0;
+  for (const id of validIds) {
+    await deleteCategory(id);
+  }
+  return validIds.length;
+}
+
+async function bulkDeleteSubcategories(ids = []) {
+  const validIds = [...new Set([].concat(ids || []).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!validIds.length) return 0;
+  for (const id of validIds) {
+    await deleteSubcategory(id);
+  }
+  return validIds.length;
+}
+
 async function createBrand({ category_id, sub_category_id, subcategory_id, name, slug, logo_path, is_active }) {
   const status = activeToStatus(is_active);
   const subId = sub_category_id || subcategory_id;
@@ -347,9 +365,11 @@ module.exports = {
   createCategory,
   updateCategory,
   deleteCategory,
+  bulkDeleteCategories,
   createSubcategory,
   updateSubcategory,
   deleteSubcategory,
+  bulkDeleteSubcategories,
   createBrand,
   updateBrand,
   deleteBrand,
