@@ -1,7 +1,7 @@
 const pool = require('../db');
 const Product = require('../models/Product');
 const Catalog = require('../models/Catalog');
-const { processUploadedFile, deleteLocalImageFile } = require('../services/imageProcessingService');
+const { processUploadedFile, deleteLocalImageFile, cleanupProductImages } = require('../services/imageProcessingService');
 
 async function getProductImagesPage(req, res) {
   try {
@@ -237,6 +237,26 @@ async function deleteProductImage(req, res) {
 
 async function bulkDeleteProductImages(req, res) {
   try {
+    const isWipeAllSystem = Boolean(req.body && (req.body.select_all || req.body.wipe_all || req.body.all || req.body.all_pages));
+
+    if (isWipeAllSystem) {
+      const [rows] = await pool.query(`SELECT id, image_url FROM products WHERE is_deleted = 0 AND image_url IS NOT NULL AND TRIM(image_url) <> '' AND image_url <> '/default.png'`).catch(() => [[]]);
+      const targetCount = rows ? rows.length : 0;
+
+      await pool.query(`UPDATE products SET image_url = '/default.png', updated_at = CURRENT_TIMESTAMP WHERE is_deleted = 0 AND image_url IS NOT NULL AND TRIM(image_url) <> '' AND image_url <> '/default.png'`);
+
+      const cleanupStats = await cleanupProductImages(null, pool);
+      const deletedFiles = cleanupStats.deletedFilesCount || 0;
+
+      return res.json({
+        success: true,
+        message: `Successfully reset images for all ${targetCount} product(s) in system and cleaned ${deletedFiles} file(s) from server storage.`,
+        deletedCount: targetCount,
+        deletedFiles,
+        wipe_all: true,
+      });
+    }
+
     const rawIds = req.body ? (req.body.ids || req.body.product_ids || req.body.productIds || (Array.isArray(req.body) ? req.body : [])) : [];
     const idsArray = Array.isArray(rawIds) ? rawIds : [rawIds];
     const ids = idsArray.map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0);
