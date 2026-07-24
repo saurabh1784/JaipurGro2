@@ -1711,6 +1711,17 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_orders', 'order_type', "VARCHAR(20) NOT NULL DEFAULT 'direct' AFTER discount_label");
   await addColumnIfMissing('client_orders', 'payment_method', "VARCHAR(20) NOT NULL DEFAULT 'wallet' AFTER order_type");
   await addColumnIfMissing('client_orders', 'payment_status', "VARCHAR(20) NOT NULL DEFAULT 'paid' AFTER payment_method");
+  await addColumnIfMissing('client_orders', 'total_weight_kg', 'DECIMAL(10,3) DEFAULT 0.000 AFTER delivery_charge');
+  await addColumnIfMissing('client_orders', 'distance_km', 'DECIMAL(10,2) DEFAULT 0.00 AFTER total_weight_kg');
+  await addColumnIfMissing('client_orders', 'delivery_rule_id', 'INT UNSIGNED DEFAULT NULL AFTER distance_km');
+  await addColumnIfMissing('client_orders', 'delivery_rule_name', 'VARCHAR(150) DEFAULT NULL AFTER delivery_rule_id');
+  await addColumnIfMissing('client_orders', 'delivery_rule_snapshot', 'JSON DEFAULT NULL AFTER delivery_rule_name');
+  await addColumnIfMissing('client_orders', 'accepted_bid_amount', 'DECIMAL(12,2) DEFAULT 0.00 AFTER subtotal_amount');
+  await addColumnIfMissing('client_orders', 'tax_amount', 'DECIMAL(12,2) DEFAULT 0.00 AFTER platform_fee');
+  await addColumnIfMissing('client_orders', 'other_charges', 'DECIMAL(12,2) DEFAULT 0.00 AFTER tax_amount');
+  await addColumnIfMissing('client_orders', 'admin_earning', 'DECIMAL(12,2) DEFAULT 0.00 AFTER delivery_earning');
+  await addColumnIfMissing('client_orders', 'payment_transaction_id', 'VARCHAR(120) DEFAULT NULL AFTER payment_status');
+  await addColumnIfMissing('client_orders', 'wallet_transaction_ids', 'JSON DEFAULT NULL AFTER payment_transaction_id');
   await addColumnIfMissing('client_orders', 'invoice_number', 'VARCHAR(80) DEFAULT NULL AFTER order_type');
   await addColumnIfMissing('client_orders', 'invoice_pdf_path', 'VARCHAR(255) DEFAULT NULL AFTER invoice_number');
   await addColumnIfMissing('client_orders', 'invoice_generated_at', 'TIMESTAMP NULL DEFAULT NULL AFTER invoice_pdf_path');

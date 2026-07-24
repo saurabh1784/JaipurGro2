@@ -1,4 +1,4 @@
-﻿const pool = require('../db');
+const pool = require('../db');
 const Promotion = require('./Promotion');
 const DeliveryType = require('./DeliveryType');
 const Rating = require('./Rating');
@@ -1085,7 +1085,6 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
         throw error;
       }
     }
-
     const purchasableItems = items.filter((item) => item.status !== 'not_available' && item.vendor_product_status !== 'unavailable');
     if (!purchasableItems.length) {
       const error = new Error('Quotation has no available items to order');
@@ -1116,7 +1115,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       'SELECT u.name, u.phone, cp.address, cp.area, cp.country, cp.state, cp.city, cp.cod_limit FROM users u LEFT JOIN client_profiles cp ON cp.user_id = u.id WHERE u.id = ? LIMIT 1',
       [clientId]
     );
-    const client = clientRows[0];
+    const client = clientRows[0] || {};
     const clientAddress = [client.address, client.city, client.state, client.country].filter(Boolean).join(', ');
     const shippingName = client.name || null;
     const shippingPhone = client.phone || null;
@@ -1176,7 +1175,17 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     );
     const orderCommissionAmount = money((itemPayable * orderCommissionPercentage) / 100);
     const deliveryCommissionAmount = money((deliveryCharge * deliveryCommissionPercentage) / 100);
-    const totalAmount = Number((itemPayable + deliveryCharge + platformFee).toFixed(2));
+
+    let totalTaxAmount = 0;
+    for (const item of purchasableItems) {
+      const lineTotal = Number(item.line_total || (Number(item.unit_price || 0) * Number(item.quantity || 0)));
+      const taxPercentage = Math.max(0, Number(item.tax_percentage || 0));
+      const taxAmount = taxPercentage > 0 ? (lineTotal * taxPercentage) / (100 + taxPercentage) : 0;
+      totalTaxAmount += taxAmount;
+    }
+    totalTaxAmount = money(totalTaxAmount);
+
+    const totalAmount = Number((itemPayable + deliveryCharge + platformFee + totalTaxAmount).toFixed(2));
     if (normalizedPaymentMethod === 'cod') {
       const cod = codEligibility({ areaPricing, client, totalAmount });
       if (!cod.available) {
@@ -1188,19 +1197,30 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
       await OrderWalletSettlement.assertSufficientBalance(clientId, totalAmount, connection);
     }
 
+    const deliveryRule = delivery.rule || {};
+    const deliveryRuleName = deliveryRule.rule_name || deliveryRule.city || 'Standard Rule';
+
     const { result: orderResult, orderNumber } = await insertClientOrderWithOrderNumber(
       connection,
       `INSERT INTO client_orders 
-       (order_number, user_id, vendor_id, subtotal_amount, discount_amount, savings_amount, delivery_charge, platform_fee, order_commission_amount, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, payment_method, payment_status, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (order_number, user_id, vendor_id, subtotal_amount, accepted_bid_amount, discount_amount, savings_amount, delivery_charge, platform_fee, tax_amount, other_charges, total_weight_kg, distance_km, delivery_rule_id, delivery_rule_name, delivery_rule_snapshot, order_commission_amount, delivery_commission_amount, platform_charge, area_definition_id, area_pricing_snapshot, coupon_id, coupon_code, discount_id, discount_label, order_type, payment_method, payment_status, total_amount, status, delivery_status, delivery_method, delivery_type, client_name, client_phone, client_address, shipping_name, shipping_phone, shipping_address, shipping_city, shipping_state, shipping_country)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         recipient.vendor_id,
+        subtotalAmount,
         subtotalAmount,
         discountAmount,
         savingsAmount,
         deliveryCharge,
         platformFee,
+        totalTaxAmount,
+        0,
+        delivery.total_weight_kg || 0,
+        delivery.distance_km || 0,
+        deliveryRule.id || null,
+        deliveryRuleName,
+        JSON.stringify(deliveryRule),
         orderCommissionAmount,
         deliveryCommissionAmount,
         orderCommissionAmount,
@@ -1258,7 +1278,7 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
     for (const item of purchasableItems) {
       const lineTotal = Number(item.line_total || (Number(item.unit_price || 0) * Number(item.quantity || 0)));
       const taxPercentage = Math.max(0, Number(item.tax_percentage || 0));
-      const taxAmount = taxPercentage > 0 ? lineTotal * taxPercentage / (100 + taxPercentage) : 0;
+      const taxAmount = taxPercentage > 0 ? (lineTotal * taxPercentage) / (100 + taxPercentage) : 0;
       const taxableAmount = lineTotal - taxAmount;
       await connection.query(
         `INSERT INTO client_order_items

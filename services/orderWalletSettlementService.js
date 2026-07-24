@@ -63,7 +63,9 @@ async function assertSufficientBalance(userId, requiredAmount, connection) {
 async function settleOrderPlacement({ orderId, actorId, connection }) {
   const [rows] = await connection.query(
     `SELECT id, order_number, user_id, vendor_id, total_amount, subtotal_amount,
-            discount_amount, delivery_charge, platform_fee, order_commission_amount, area_pricing_snapshot
+            accepted_bid_amount, discount_amount, delivery_charge, platform_fee,
+            tax_amount, other_charges, order_commission_amount, area_pricing_snapshot,
+            wallet_settled_at, payment_method, payment_status
      FROM client_orders WHERE id = ? FOR UPDATE`,
     [orderId]
   );
@@ -75,7 +77,9 @@ async function settleOrderPlacement({ orderId, actorId, connection }) {
   const platformFee = Math.min(money(order.platform_fee), totalPaid);
   const displayOrder = order.order_number || order.id;
 
-  await Wallet.applyLedgerEntry({
+  const transactionIds = [];
+
+  const clientPaymentTx = await Wallet.applyLedgerEntry({
     userId: order.user_id,
     orderId: order.id,
     type: 'debit',
@@ -83,12 +87,114 @@ async function settleOrderPlacement({ orderId, actorId, connection }) {
     component: 'client_order_payment',
     ledgerKey: `ORDER:${order.id}:CLIENT:PAYMENT`,
     reference: `ORDER_${order.id}`,
-    note: `Payment for order #${displayOrder}, including delivery charge INR ${deliveryCharge.toFixed(2)}`,
+    note: `Payment for order #${displayOrder}, total paid INR ${totalPaid.toFixed(2)}`,
     createdBy: actorId || order.user_id,
     connection,
   });
 
-  return { totalPaid, deliveryCharge, platformFee };
+  if (clientPaymentTx && clientPaymentTx.id) {
+    transactionIds.push(clientPaymentTx.id);
+  }
+
+  const vendorGross = money(Math.max(totalPaid - deliveryCharge - platformFee, 0));
+  const setting = await CommissionSetting.getOrderCommission(connection);
+  const orderCommission = Math.min(
+    resolvedCommissionAmount({
+      order,
+      storedAmount: order.order_commission_amount,
+      setting,
+      basisAmount: vendorGross,
+    }),
+    vendorGross
+  );
+  const vendorEarning = money(vendorGross - orderCommission);
+  const adminEarning = money(platformFee + orderCommission);
+  const admin = await platformAdmin(connection);
+
+  if (platformFee > 0) {
+    const adminFeeTx = await Wallet.applyLedgerEntry({
+      userId: admin.id,
+      orderId: order.id,
+      type: 'credit',
+      amount: platformFee,
+      component: 'admin_platform_fee',
+      ledgerKey: `ORDER:${order.id}:ADMIN:PLATFORM_FEE`,
+      reference: `ORDER_${order.id}`,
+      note: `Platform fee for order #${displayOrder}`,
+      createdBy: actorId || order.user_id,
+      allowZero: true,
+      connection,
+    });
+    if (adminFeeTx && adminFeeTx.id) transactionIds.push(adminFeeTx.id);
+  }
+
+  if (orderCommission > 0) {
+    const adminCommTx = await Wallet.applyLedgerEntry({
+      userId: admin.id,
+      orderId: order.id,
+      type: 'credit',
+      amount: orderCommission,
+      component: 'admin_order_commission',
+      ledgerKey: `ORDER:${order.id}:ADMIN:ORDER_COMMISSION`,
+      reference: `ORDER_${order.id}`,
+      note: `Order commission for order #${displayOrder}`,
+      createdBy: actorId || order.user_id,
+      commissionSettingId: setting ? setting.id : null,
+      commissionAmount: orderCommission,
+      allowZero: true,
+      connection,
+    });
+    if (adminCommTx && adminCommTx.id) transactionIds.push(adminCommTx.id);
+  }
+
+  if (order.vendor_id && vendorEarning > 0) {
+    const vendorTx = await Wallet.applyLedgerEntry({
+      userId: order.vendor_id,
+      orderId: order.id,
+      type: 'credit',
+      amount: vendorEarning,
+      component: 'vendor_order_earning',
+      ledgerKey: `ORDER:${order.id}:VENDOR:EARNING`,
+      reference: `ORDER_${order.id}`,
+      note: `Vendor product earning for order #${displayOrder} after commission INR ${orderCommission.toFixed(2)}`,
+      createdBy: actorId || order.user_id,
+      commissionSettingId: setting ? setting.id : null,
+      commissionAmount: orderCommission,
+      allowZero: true,
+      connection,
+    });
+    if (vendorTx && vendorTx.id) transactionIds.push(vendorTx.id);
+  }
+
+  await connection.query(
+    `UPDATE client_orders
+     SET platform_charge = ?, vendor_earning = ?, admin_earning = ?,
+         payment_transaction_id = ?, wallet_transaction_ids = ?,
+         wallet_settled_at = CURRENT_TIMESTAMP, payment_status = 'paid',
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [
+      orderCommission,
+      vendorEarning,
+      adminEarning,
+      clientPaymentTx ? String(clientPaymentTx.id) : null,
+      JSON.stringify(transactionIds),
+      order.id,
+    ]
+  );
+
+  return {
+    totalPaid,
+    deliveryCharge,
+    platformFee,
+    vendorGross,
+    orderCommission,
+    vendorEarning,
+    adminEarning,
+    adminUserId: admin.id,
+    paymentTransactionId: clientPaymentTx ? clientPaymentTx.id : null,
+    walletTransactionIds: transactionIds,
+  };
 }
 
 async function settleOrderCompletion({ orderId, actorId, connection }) {
