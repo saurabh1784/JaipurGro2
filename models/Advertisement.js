@@ -14,6 +14,7 @@ const PLATFORM_VALUES = [
 ];
 
 const PAGE_VALUES = [
+  'all',
   'app_start',
   'home',
   'products',
@@ -51,11 +52,26 @@ function parseJsonList(value) {
 }
 
 function normalizeKey(value) {
-  return String(value || '').trim().toLowerCase();
+  return String(value || '').trim().toLowerCase().replace(/[\s-]+/g, '_');
 }
 
 function uniqueList(value) {
   return [...new Set(parseJsonList(value))];
+}
+
+function normalizedKeyList(value) {
+  return uniqueList(value).map((item) => normalizeKey(item)).filter(Boolean);
+}
+
+function normalizePageKey(value) {
+  const key = normalizeKey(value);
+  if (key === 'all_page' || key === 'all_pages') return 'all';
+  if (key.endsWith('_page')) return key.slice(0, -5);
+  return key;
+}
+
+function normalizedPageList(value) {
+  return uniqueList(value).map((item) => normalizePageKey(item)).filter(Boolean);
 }
 
 function normalizeStatus(row) {
@@ -82,8 +98,8 @@ function normalizeAdvertisement(row) {
     end_at: row.end_at,
     countdown_seconds: Number(row.countdown_seconds || 0),
     priority: Number(row.priority || 0),
-    target_platforms: parseJsonList(row.target_platforms),
-    target_pages: parseJsonList(row.target_pages),
+    target_platforms: normalizedKeyList(row.target_platforms),
+    target_pages: normalizedPageList(row.target_pages),
     target_category_id: Number(row.target_category_id || 0),
     target_category_name: row.target_category_name || '',
     click_action_type: normalizeKey(row.click_action_type || 'none'),
@@ -92,7 +108,7 @@ function normalizeAdvertisement(row) {
     click_count: Number(row.click_count || 0),
     city_scope: row.city_scope || 'all',
     city: row.city || '',
-    areas: parseJsonList(row.areas),
+    areas: normalizedKeyList(row.areas),
     status: normalizeStatus(row),
     advertiser_name: row.advertiser_name || '',
     advertiser_email: row.advertiser_email || '',
@@ -136,7 +152,7 @@ function validatePayload(data) {
   }
 
   const targetPages = uniqueList(data.target_pages)
-    .map((page) => normalizeKey(page))
+    .map((page) => normalizePageKey(page))
     .filter((page) => PAGE_VALUES.includes(page));
   if (!targetPages.length) {
     const error = new Error('Select at least one target page');
@@ -458,7 +474,6 @@ module.exports = {
   recordClick,
   expireEnded,
 };
-
 
 
 

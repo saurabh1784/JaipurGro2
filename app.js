@@ -3921,6 +3921,27 @@ app.get('/api/catalog/categories', webOrJwtAuth, async (req, res) => {
   }
 });
 
+app.get('/api/catalog/subcategories/stream', webOrJwtAuth, async (req, res) => {
+  res.setHeader('Content-Type', 'application/x-ndjson');
+  res.setHeader('Transfer-Encoding', 'chunked');
+  res.setHeader('Cache-Control', 'no-cache');
+  try {
+    const categoryId = Number(req.query.category_id || req.query.categoryId || 0);
+    const subcategories = (await Catalog.listSubcategories())
+      .filter((subcategory) => subcategory.status === 'active')
+      .filter((subcategory) => !categoryId || Number(subcategory.category_id) === categoryId);
+    for (const subcategory of subcategories) {
+      res.write(JSON.stringify(subcategory) + '\n');
+    }
+    return res.end();
+  } catch (error) {
+    console.error('Catalog subcategories streaming error:', error);
+    if (!res.headersSent) {
+      return res.status(500).json({ success: false, message: 'Unable to stream subcategories' });
+    }
+    return res.end();
+  }
+});
 app.get('/api/catalog/subcategories', webOrJwtAuth, async (req, res) => {
   try {
     const categoryId = Number(req.query.category_id || req.query.categoryId || 0);
@@ -7501,6 +7522,7 @@ initDatabase()
     }
     process.exit(1);
   });
+
 
 
 
