@@ -92,48 +92,58 @@
           <div class="products-grid" id="products-grid">
             <% products.forEach(function(product) { %>
               <div class="product-card" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>">
-                <div class="product-card-checkbox">
-                  <input type="checkbox" class="product-select-checkbox" data-id="<%= product.id %>" onchange="onProductSelectChange(event)" />
+                <div class="product-card-header">
+                  <div class="product-card-checkbox">
+                    <input type="checkbox" class="product-select-checkbox" data-id="<%= product.id %>" onchange="onProductSelectChange(event)" />
+                  </div>
+                  <span class="status-pill status-<%= product.status %>">
+                    <span class="status-dot"></span>
+                    <%= product.status %>
+                  </span>
+                  <div class="product-img-wrapper">
+                    <img class="product-thumb-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+                  </div>
                 </div>
-                <img class="product-thumb-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
-                <div class="product-info">
-                  <h3 class="product-name"><%= product.product_name %></h3>
+                <div class="product-card-body">
+                  <div class="product-tags">
+                    <span class="product-tag-cat"><%= product.category_name %></span>
+                    <% if (product.brand_name) { %>
+                      <span class="product-tag-brand"><%= product.brand_name %></span>
+                    <% } %>
+                  </div>
+                  <h3 class="product-title"><%= product.product_name %></h3>
                   <% if (product.description) { %>
-                    <p class="product-description"><%= product.description %></p>
+                    <p class="product-desc"><%= product.description %></p>
                   <% } %>
-                  <div class="product-meta">
-                    <span class="product-category"><%= product.category_name %></span>
-                    <span class="product-brand"><%= product.brand_name %></span>
-                  </div>
-                  <div class="product-price">
-                    <strong>₹<%= product.price.toFixed(2) %></strong>
-                  </div>
-                  <div class="product-stock">
-                    <span class="stock-badge <%= product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock' %>">
+                  <div class="product-price-stock-row">
+                    <div class="product-price-container">
+                      <span class="price-currency">₹</span>
+                      <span class="price-value"><%= product.price.toFixed(2) %></span>
+                    </div>
+                    <div class="stock-pill stock-<%= product.quantity > 10 ? 'in' : product.quantity > 0 ? 'low' : 'out' %>">
+                      <span class="stock-dot"></span>
                       <%= product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock' %>
-                    </span>
+                    </div>
                   </div>
-                  <div class="product-status">
-                    <span class="status-badge <%= product.status === 'active' ? 'status-active' : product.status === 'unavailable' ? 'status-unavailable' : 'status-inactive' %>">
-                      <%= product.status %>
-                    </span>
-                    <button
-                      type="button"
-                      class="status-toggle-btn <%= product.status === 'active' ? 'status-toggle-active' : 'status-toggle-inactive' %>"
-                      onclick="toggleVendorProductStatus(<%= product.id %>)">
-                      Set <%= product.status === 'active' ? 'Inactive' : 'Active' %>
-                    </button>
-                    <button
-                      type="button"
-                      class="status-toggle-btn <%= product.status === 'unavailable' ? 'status-toggle-inactive' : 'status-toggle-unavailable' %>"
-                      onclick="setVendorProductAvailability(<%= product.id %>)">
-                      <%= product.status === 'unavailable' ? 'Make Available' : 'Unavailable' %>
-                    </button>
+                  <div class="product-quantity-row">
+                    <label class="qty-label">Stock Qty:</label>
+                    <div class="qty-input-group">
+                      <input type="number" min="0" step="0.01" value="<%= Number(product.quantity || 0) %>" class="qty-input" />
+                      <button type="button" class="qty-save-btn" onclick="saveProductQuantity(<%= product.id %>, this)">Save</button>
+                    </div>
                   </div>
                 </div>
-                <div class="product-actions">
-                  <button type="button" class="btn-edit" onclick="openEditModal(<%= product.id %>)">Edit</button>
-                  <button type="button" class="btn-delete" onclick="deleteVendorProduct(<%= product.id %>)">Delete</button>
+                <div class="product-card-footer">
+                  <button type="button" class="action-btn btn-edit-modern" onclick="openEditModal(<%= product.id %>)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    Edit
+                  </button>
+                  <button type="button" class="action-btn btn-toggle-modern" onclick="toggleVendorProductStatus(<%= product.id %>)">
+                    <%= product.status === 'active' ? 'Deactivate' : 'Activate' %>
+                  </button>
+                  <button type="button" class="action-btn btn-delete-modern" title="Delete product" onclick="deleteVendorProduct(<%= product.id %>)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
                 </div>
               </div>
             <% }); %>
@@ -152,39 +162,33 @@
                   <% if (product.description) { %>
                     <p class="product-row-description"><%= product.description %></p>
                   <% } %>
-                  <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-                    <span class="product-row-category"><%= product.category_name %></span>
-                    <span class="product-row-brand"><%= product.brand_name %></span>
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+                    <span class="product-tag-cat"><%= product.category_name %></span>
+                    <% if (product.brand_name) { %>
+                      <span class="product-tag-brand"><%= product.brand_name %></span>
+                    <% } %>
                   </div>
                 </div>
                 <div class="product-row-price">
                   ₹<%= product.price.toFixed(2) %>
                 </div>
                 <div class="product-row-stock">
-                  <span class="stock-badge <%= product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock' %>">
+                  <span class="stock-pill stock-<%= product.quantity > 10 ? 'in' : product.quantity > 0 ? 'low' : 'out' %>">
+                    <span class="stock-dot"></span>
                     <%= product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock' %>
                   </span>
                 </div>
                 <div class="product-row-status">
-                  <span class="status-badge <%= product.status === 'active' ? 'status-active' : product.status === 'unavailable' ? 'status-unavailable' : 'status-inactive' %>">
+                  <span class="status-pill status-<%= product.status %>">
+                    <span class="status-dot"></span>
                     <%= product.status %>
                   </span>
-                  <button
-                    type="button"
-                    class="status-toggle-btn <%= product.status === 'active' ? 'status-toggle-active' : 'status-toggle-inactive' %>"
-                    onclick="toggleVendorProductStatus(<%= product.id %>)">
-                    Set <%= product.status === 'active' ? 'Inactive' : 'Active' %>
-                  </button>
-                  <button
-                    type="button"
-                    class="status-toggle-btn <%= product.status === 'unavailable' ? 'status-toggle-inactive' : 'status-toggle-unavailable' %>"
-                    onclick="setVendorProductAvailability(<%= product.id %>)">
-                    <%= product.status === 'unavailable' ? 'Make Available' : 'Unavailable' %>
-                  </button>
                 </div>
                 <div class="product-row-actions">
-                  <button type="button" class="btn-edit" onclick="openEditModal(<%= product.id %>)">Edit</button>
-                  <button type="button" class="btn-delete" onclick="deleteVendorProduct(<%= product.id %>)">Delete</button>
+                  <button type="button" class="action-btn btn-edit-modern" onclick="openEditModal(<%= product.id %>)">Edit</button>
+                  <button type="button" class="action-btn btn-delete-modern" onclick="deleteVendorProduct(<%= product.id %>)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
                 </div>
               </div>
             <% }); %>
@@ -570,60 +574,354 @@
       pointer-events: none;
     }
 
-    .products-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(320px, 1fr)); gap: 18px; }
-    .product-card { display: flex; flex-direction: column; background: #fff; border: 1px solid rgba(204, 210, 215, 0.75); border-radius: 8px; padding: 16px; box-shadow: 0 2px 6px rgba(32, 42, 54, 0.08); }
-    .product-thumb-image { width: 100%; height: 150px; object-fit: contain; border-radius: 6px; border: 1px solid #edf0f2; background: #fff; margin-bottom: 12px; }
-    .product-info { flex: 1; }
-    .product-name { margin: 0 0 6px; color: #3c4858; font-size: 1.1rem; }
-    .product-description { margin: 0 0 10px; color: #606a73; font-size: 0.85rem; }
-    .product-meta { display: flex; gap: 12px; margin-bottom: 10px; }
-    .product-meta span { padding: 2px 8px; background: #f1f5f9; border-radius: 4px; font-size: 0.75rem; color: #475569; }
-    .product-price { margin-bottom: 10px; }
-    .product-price strong { font-size: 1.2rem; color: #059669; }
-    .stock-badge, .status-badge { display: inline-block; padding: 4px 10px; border-radius: 4px; font-size: 0.75rem; font-weight: 600; }
-    .in-stock { background: #dcfce7; color: #166534; }
-    .low-stock { background: #fef3c7; color: #92400e; }
-    .out-stock { background: #fee2e2; color: #991b1b; }
-    .vendor-quantity-editor { display: grid; gap: 8px; align-items: start; }
-    .vendor-quantity-controls { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
-    .vendor-quantity-controls input {
-      width: 96px;
-      min-height: 32px;
-      padding: 6px 8px;
+    /* Modern Product Grid & Card */
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+      gap: 22px;
+    }
+
+    .product-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .product-card:hover {
+      transform: translateY(-4px);
+      border-color: #cbd5e1;
+      box-shadow: 0 20px 30px -10px rgba(15, 23, 42, 0.12), 0 8px 15px -4px rgba(15, 23, 42, 0.06);
+    }
+
+    .product-card-header {
+      position: relative;
+      height: 170px;
+      width: 100%;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .product-card-checkbox {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(4px);
+      padding: 4px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .product-card-checkbox input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #2563eb;
+    }
+
+    .status-pill {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 10;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: capitalize;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+    }
+
+    .status-pill.status-active {
+      background: rgba(220, 252, 231, 0.95);
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+    }
+    .status-pill.status-active .status-dot {
+      background: #22c55e;
+      box-shadow: 0 0 6px #22c55e;
+    }
+
+    .status-pill.status-inactive {
+      background: rgba(254, 226, 226, 0.95);
+      color: #b91c1c;
+      border: 1px solid #fca5a5;
+    }
+    .status-pill.status-inactive .status-dot {
+      background: #ef4444;
+    }
+
+    .status-pill.status-unavailable {
+      background: rgba(254, 243, 199, 0.95);
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+    .status-pill.status-unavailable .status-dot {
+      background: #f59e0b;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .product-img-wrapper {
+      width: 100%;
+      height: 100%;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .product-thumb-image {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .product-card:hover .product-thumb-image {
+      transform: scale(1.06);
+    }
+
+    .product-card-body {
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .product-tags {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .product-tag-cat, .product-tag-brand {
+      padding: 3px 10px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      font-size: 0.72rem;
+      font-weight: 600;
+      border-radius: 20px;
+    }
+
+    .product-tag-brand {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #dbeafe;
+    }
+
+    .product-title {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .product-desc {
+      margin: 0;
+      font-size: 0.82rem;
+      color: #64748b;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .product-price-stock-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 4px;
+      padding-top: 10px;
+      border-top: 1px dashed #e2e8f0;
+    }
+
+    .product-price-container {
+      display: flex;
+      align-items: baseline;
+      gap: 2px;
+    }
+
+    .price-currency {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #059669;
+    }
+
+    .price-value {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #059669;
+      letter-spacing: -0.02em;
+    }
+
+    .stock-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 0.74rem;
+      font-weight: 700;
+    }
+
+    .stock-pill.stock-in {
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+    .stock-pill.stock-in .stock-dot { background: #22c55e; }
+
+    .stock-pill.stock-low {
+      background: #fffbeb;
+      color: #92400e;
+      border: 1px solid #fde68a;
+    }
+    .stock-pill.stock-low .stock-dot { background: #f59e0b; }
+
+    .stock-pill.stock-out {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+    .stock-pill.stock-out .stock-dot { background: #ef4444; }
+
+    .product-quantity-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: #f8fafc;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid #f1f5f9;
+    }
+
+    .qty-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #475569;
+    }
+
+    .qty-input-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .qty-input {
+      width: 72px;
+      padding: 4px 8px;
       border: 1px solid #cbd5e1;
       border-radius: 6px;
-      font-size: 0.86rem;
+      font-size: 0.84rem;
       font-weight: 700;
-      color: #263238;
+      color: #0f172a;
+      background: #fff;
     }
-    .quantity-save-btn {
-      min-height: 32px;
-      padding: 6px 10px;
+    .qty-input:focus {
+      outline: none;
+      border-color: #2563eb;
+    }
+
+    .qty-save-btn {
+      padding: 4px 10px;
       border: none;
       border-radius: 6px;
       background: #2563eb;
-      color: #fff;
-      font-size: 0.78rem;
-      font-weight: 800;
+      color: #ffffff;
+      font-size: 0.76rem;
+      font-weight: 700;
       cursor: pointer;
+      transition: background 0.15s ease;
     }
-    .quantity-save-btn:disabled { opacity: 0.65; cursor: not-allowed; }
-    .status-active { background: #dcfce7; color: #166534; }
-    .status-inactive { background: #fee2e2; color: #991b1b; }
-    .status-unavailable { background: #fef3c7; color: #92400e; }
-    .status-toggle-btn { display: inline-flex; align-items: center; justify-content: center; margin-top: 8px; padding: 5px 9px; border: none; border-radius: 4px; color: #fff; font-size: 0.74rem; font-weight: 700; cursor: pointer; }
-    .status-toggle-active { background: #64748b; }
-    .status-toggle-active:hover { background: #475569; }
-    .status-toggle-inactive { background: #16a34a; }
-    .status-toggle-inactive:hover { background: #15803d; }
-    .status-toggle-unavailable { background: #d97706; }
-    .status-toggle-unavailable:hover { background: #b45309; }
-    .product-actions { margin-top: 16px; padding-top: 12px; border-top: 1px solid #edf0f2; }
-    .btn-edit, .btn-delete { width: 100%; padding: 8px; color: #fff; border: none; border-radius: 4px; cursor: pointer; }
-    .btn-edit { background: #26bcd4; }
-    .btn-edit:hover { background: #18a7be; }
-    .btn-delete { margin-top: 8px; background: #dc2626; }
-    .btn-delete:hover { background: #b91c1c; }
+    .qty-save-btn:hover { background: #1d4ed8; }
+
+    .product-card-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border-top: 1px solid #f1f5f9;
+    }
+
+    .action-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-edit-modern {
+      flex: 1;
+      background: #0284c7;
+      color: #ffffff;
+      border: none;
+    }
+    .btn-edit-modern:hover { background: #0369a1; }
+
+    .btn-toggle-modern {
+      padding: 8px 10px;
+      background: #ffffff;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+    }
+    .btn-toggle-modern:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    .btn-delete-modern {
+      width: 36px;
+      height: 34px;
+      padding: 0;
+      background: #ffffff;
+      color: #dc2626;
+      border: 1px solid #fca5a5;
+      flex-shrink: 0;
+    }
+    .btn-delete-modern:hover {
+      background: #fef2f2;
+      border-color: #ef4444;
+    }
+
     .empty-state { text-align: center; padding: 40px; background: #fff; border-radius: 8px; }
     .empty-state p { color: #64748b; margin-bottom: 16px; }
     .user-modal-grid { display: grid; gap: 12px; }
@@ -639,20 +937,21 @@
 
     .product-row {
       display: grid;
-      grid-template-columns: 64px 3fr 2fr 1fr 1fr 100px;
+      grid-template-columns: 32px 72px 2.5fr 1.2fr 1.5fr 1fr 120px;
       align-items: center;
       gap: 16px;
-      padding: 16px;
-      background: #fff;
-      border: 1px solid rgba(204, 210, 215, 0.75);
-      border-radius: 8px;
-      box-shadow: 0 2px 6px rgba(32, 42, 54, 0.08);
-      transition: transform 0.15s ease, box-shadow 0.15s ease;
+      padding: 14px 18px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+      transition: all 0.2s ease;
     }
 
     .product-row:hover {
       transform: translateY(-2px);
-      box-shadow: 0 4px 12px rgba(32, 42, 54, 0.12);
+      border-color: #cbd5e1;
+      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
     }
 
     .product-row-info {
@@ -666,16 +965,16 @@
       width: 56px;
       height: 56px;
       object-fit: contain;
-      border-radius: 6px;
-      border: 1px solid #edf0f2;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
       background: #fff;
     }
 
     .product-row-name {
       margin: 0;
-      color: #3c4858;
+      color: #0f172a;
       font-size: 1rem;
-      font-weight: 600;
+      font-weight: 700;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
@@ -683,26 +982,16 @@
 
     .product-row-description {
       margin: 0;
-      color: #606a73;
+      color: #64748b;
       font-size: 0.82rem;
       white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
     }
 
-    .product-row-category,
-    .product-row-brand {
-      padding: 2px 8px;
-      background: #f1f5f9;
-      border-radius: 4px;
-      font-size: 0.75rem;
-      color: #475569;
-      display: inline-block;
-    }
-
     .product-row-price {
       font-size: 1.15rem;
-      font-weight: 600;
+      font-weight: 800;
       color: #059669;
     }
 
@@ -716,22 +1005,8 @@
 
     .product-row-actions {
       display: flex;
-      flex-direction: column;
-      justify-content: center;
+      align-items: center;
       gap: 8px;
-    }
-
-    .product-row-actions .btn-edit {
-      width: auto;
-      padding: 6px 12px;
-      font-size: 0.8rem;
-    }
-
-    .product-row-actions .btn-delete {
-      width: auto;
-      margin-top: 0;
-      padding: 6px 12px;
-      font-size: 0.8rem;
     }
 
     /* Responsive */
@@ -1035,24 +1310,54 @@
 
       grid.innerHTML = vendorProducts.map((product) => `
         <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}">
-          <div class="product-card-checkbox">
-            <input type="checkbox" class="product-select-checkbox" data-id="${product.id}" ${selectedProductIds.has(Number(product.id)) ? 'checked' : ''} onchange="onProductSelectChange(event)" />
-          </div>
-          <img class="product-thumb-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
-          <div class="product-info">
-            <h3 class="product-name">${escapeHtml(product.product_name)}</h3>
-            ${product.description ? `<p class="product-description">${escapeHtml(product.description)}</p>` : ''}
-            <div class="product-meta">
-              <span class="product-category">${escapeHtml(product.category_name)}</span>
-              <span class="product-brand">${escapeHtml(product.brand_name)}</span>
+          <div class="product-card-header">
+            <div class="product-card-checkbox">
+              <input type="checkbox" class="product-select-checkbox" data-id="${product.id}" ${selectedProductIds.has(Number(product.id)) ? 'checked' : ''} onchange="onProductSelectChange(event)" />
             </div>
-            <div class="product-price"><strong>${money(unitPrice(product))}</strong></div>
-            <div class="product-stock">${quantityEditorMarkup(product)}</div>
-            <div class="product-status">${statusMarkup(product)}</div>
+            <span class="status-pill status-${product.status}">
+              <span class="status-dot"></span>
+              ${escapeHtml(product.status)}
+            </span>
+            <div class="product-img-wrapper">
+              <img class="product-thumb-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+            </div>
           </div>
-          <div class="product-actions">
-            <button type="button" class="btn-edit" onclick="openEditModal(${product.id})">Edit</button>
-            <button type="button" class="btn-delete" onclick="deleteVendorProduct(${product.id})">Delete</button>
+          <div class="product-card-body">
+            <div class="product-tags">
+              <span class="product-tag-cat">${escapeHtml(product.category_name || '')}</span>
+              ${product.brand_name ? `<span class="product-tag-brand">${escapeHtml(product.brand_name)}</span>` : ''}
+            </div>
+            <h3 class="product-title">${escapeHtml(product.product_name)}</h3>
+            ${product.description ? `<p class="product-desc">${escapeHtml(product.description)}</p>` : ''}
+            <div class="product-price-stock-row">
+              <div class="product-price-container">
+                <span class="price-currency">₹</span>
+                <span class="price-value">${Number(unitPrice(product)).toFixed(2)}</span>
+              </div>
+              <div class="stock-pill stock-${product.quantity > 10 ? 'in' : product.quantity > 0 ? 'low' : 'out'}">
+                <span class="stock-dot"></span>
+                ${product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock'}
+              </div>
+            </div>
+            <div class="product-quantity-row">
+              <label class="qty-label">Stock Qty:</label>
+              <div class="qty-input-group">
+                <input type="number" min="0" step="0.01" value="${Number(product.quantity || 0)}" class="qty-input" />
+                <button type="button" class="qty-save-btn" onclick="saveProductQuantity(${product.id}, this)">Save</button>
+              </div>
+            </div>
+          </div>
+          <div class="product-card-footer">
+            <button type="button" class="action-btn btn-edit-modern" onclick="openEditModal(${product.id})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              Edit
+            </button>
+            <button type="button" class="action-btn btn-toggle-modern" onclick="toggleVendorProductStatus(${product.id})">
+              ${product.status === 'active' ? 'Deactivate' : 'Activate'}
+            </button>
+            <button type="button" class="action-btn btn-delete-modern" title="Delete product" onclick="deleteVendorProduct(${product.id})">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
           </div>
         </div>
       `).join('');
@@ -1066,17 +1371,29 @@
           <div class="product-row-info">
             <h3 class="product-row-name">${escapeHtml(product.product_name)}</h3>
             ${product.description ? `<p class="product-row-description">${escapeHtml(product.description)}</p>` : ''}
-            <div style="display: flex; gap: 8px; flex-wrap: wrap;">
-              <span class="product-row-category">${escapeHtml(product.category_name)}</span>
-              <span class="product-row-brand">${escapeHtml(product.brand_name)}</span>
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+              <span class="product-tag-cat">${escapeHtml(product.category_name || '')}</span>
+              ${product.brand_name ? `<span class="product-tag-brand">${escapeHtml(product.brand_name)}</span>` : ''}
             </div>
           </div>
-          <div class="product-row-price">${money(unitPrice(product))}</div>
-          <div class="product-row-stock">${quantityEditorMarkup(product)}</div>
-          <div class="product-row-status">${statusMarkup(product)}</div>
+          <div class="product-row-price">₹${Number(unitPrice(product)).toFixed(2)}</div>
+          <div class="product-row-stock">
+            <span class="stock-pill stock-${product.quantity > 10 ? 'in' : product.quantity > 0 ? 'low' : 'out'}">
+              <span class="stock-dot"></span>
+              ${product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock'}
+            </span>
+          </div>
+          <div class="product-row-status">
+            <span class="status-pill status-${product.status}">
+              <span class="status-dot"></span>
+              ${escapeHtml(product.status)}
+            </span>
+          </div>
           <div class="product-row-actions">
-            <button type="button" class="btn-edit" onclick="openEditModal(${product.id})">Edit</button>
-            <button type="button" class="btn-delete" onclick="deleteVendorProduct(${product.id})">Delete</button>
+            <button type="button" class="action-btn btn-edit-modern" onclick="openEditModal(${product.id})">Edit</button>
+            <button type="button" class="action-btn btn-delete-modern" onclick="deleteVendorProduct(${product.id})">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
           </div>
         </div>
       `).join('');
