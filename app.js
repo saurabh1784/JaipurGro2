@@ -2994,12 +2994,34 @@ async function buildDashboardData(user, activePath = '/dashboard') {
        WHERE vendor_id = ? AND status = 'active'`,
       [user.id]
     );
+    const [totalQuotationRows] = await pool.query(
+      `SELECT COUNT(*) AS total FROM quotation_vendor_recipients WHERE vendor_id = ?`,
+      [user.id]
+    );
+    const [totalOrderRows] = await pool.query(
+      `SELECT COUNT(*) AS total FROM client_orders WHERE vendor_id = ?`,
+      [user.id]
+    );
+    const [walletRows] = await pool.query(
+      `SELECT COALESCE(balance, 0) AS balance FROM wallets WHERE user_id = ? LIMIT 1`,
+      [user.id]
+    );
 
     const quotationStats = quotationRows[0] || {};
     const healthMinimum = 200;
     const activeProducts = Number(productRows[0] && productRows[0].active_products ? productRows[0].active_products : 0);
+    const totalQuotations = Number(totalQuotationRows[0] && totalQuotationRows[0].total ? totalQuotationRows[0].total : 0);
+    const totalOrders = Number(totalOrderRows[0] && totalOrderRows[0].total ? totalOrderRows[0].total : 0);
+    const walletBalance = Number(walletRows[0] && walletRows[0].balance ? walletRows[0].balance : 0);
     const healthScore = Math.min(100, Math.round((activeProducts / healthMinimum) * 100));
     const healthTone = healthScore >= 75 ? 'good' : healthScore >= 40 ? 'fair' : 'low';
+
+    dashboard.vendorCards = {
+      totalProducts: activeProducts,
+      totalQuotations,
+      totalOrders,
+      walletBalance,
+    };
 
     dashboard.vendorStats = {
       quotations: [
