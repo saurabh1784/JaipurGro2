@@ -23,15 +23,16 @@
 
     <section class="area-definition-shell">
       <aside class="area-definition-panel">
+        <div class="area-panel-heading"><span class="area-panel-icon">&#8982;</span><div><p>Service coverage</p><h2>Configure area boundary</h2><small>Select an existing location area and manage its delivery setup.</small></div></div>
         <form id="areaForm" class="settings-grid">
           <input id="areaId" type="hidden" />
           <label>
             Area Name
-            <input id="areaName" type="text" placeholder="Mansarovar Zone A" required />
+            <select id="areaName" required><option value="">Select an area</option></select>
           </label>
           <label>
             City
-            <input id="areaCity" type="text" list="cityOptions" value="Jaipur" />
+            <input id="areaCity" type="text" value="" placeholder="Selected automatically" readonly />
           </label>
           <label class="settings-wide area-toggle-row">
             <input id="ownDeliveryActive" type="checkbox" />
@@ -71,12 +72,12 @@
         <div class="area-help-card">
           <h2>How to mark an area</h2>
           <ol>
-            <li>Enter the area name and city.</li>
+            <li>Select an existing area. Its city and saved settings load automatically.</li>
             <li>Click Mark Points, then click on the map to add boundary points. You can also hold Ctrl and click.</li>
             <li>Add at least three points. The green shape shows the selected area.</li>
             <li>Drag any point on the shape to adjust the boundary.</li>
             <li>Use Undo Point or Clear Polygon if the boundary needs correction.</li>
-            <li>Turn on Own Delivery active, then click Save Area.</li>
+            <li>Review availability and fees, then click Save Area.</li>
           </ol>
         </div>
 
@@ -494,7 +495,7 @@
     }
 
     function resetForm() {
-      const currentCity = document.getElementById('areaCity').value.trim() || 'Jaipur';
+      const currentCity = '';
       document.getElementById('areaId').value = '';
       document.getElementById('areaName').value = '';
       document.getElementById('areaCity').value = currentCity;
@@ -526,6 +527,7 @@
         const data = await response.json();
         if (!data.success) throw new Error(data.message || 'Unable to load areas');
         areas = data.areas || [];
+        syncAreaNameOptions();
         syncCityOptionsFromAreas();
         const requestedAreaId = Number(new URLSearchParams(window.location.search).get('area_id') || 0);
         const requestedArea = areas.find((area) => Number(area.id) === requestedAreaId);
@@ -541,6 +543,13 @@
       }
     }
 
+    function syncAreaNameOptions() {
+      const select = document.getElementById('areaName');
+      const selectedId = String(document.getElementById('areaId').value || '');
+      const grouped = [...areas].sort((a, b) => String(a.city || '').localeCompare(String(b.city || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+      select.innerHTML = '<option value="">Select an area</option>' + grouped.map((area) => `<option value="${Number(area.id)}">${escapeHtml(area.name)} — ${escapeHtml(area.city || 'No city')}</option>`).join('');
+      if (selectedId && grouped.some((area) => String(area.id) === selectedId)) select.value = selectedId;
+    }
     function selectedAreaCity() {
       return String(document.getElementById('areaCity').value || '').trim().toLowerCase();
     }
@@ -772,7 +781,7 @@
       const area = areas.find((item) => Number(item.id) === Number(id));
       if (!area) return;
       document.getElementById('areaId').value = area.id;
-      document.getElementById('areaName').value = area.name;
+      document.getElementById('areaName').value = String(area.id);
       document.getElementById('areaCity').value = area.city || '';
       document.getElementById('ownDeliveryActive').checked = Boolean(area.own_delivery_active);
       document.getElementById('codEnabled').checked = Boolean(area.cod_enabled);
@@ -787,7 +796,7 @@
 
     async function saveArea() {
       const payload = {
-        name: document.getElementById('areaName').value.trim(),
+        name: (areas.find((area) => Number(area.id) === Number(document.getElementById('areaId').value)) || {}).name || '',
         city: document.getElementById('areaCity').value.trim(),
         polygon: selectedPath,
         platform_fee: Number(document.getElementById('areaPlatformFee').value || 0),
@@ -799,6 +808,8 @@
         is_active: document.getElementById('areaActive').checked,
       };
       const id = document.getElementById('areaId').value;
+      if (!id) { setStatus('Please select an area.', true); return; }
+      if (selectedPath.length < 3) { setStatus('Please draw a valid polygon with at least three points.', true); return; }
       const url = id ? `/area-definitions/${encodeURIComponent(id)}` : '/area-definitions';
       const method = id ? 'PUT' : 'POST';
       try {
@@ -838,8 +849,10 @@
     document.getElementById('toggleMarking').addEventListener('click', toggleManualMarking);
     document.getElementById('undoPoint').addEventListener('click', () => drawPath(selectedPath.slice(0, -1)));
     document.getElementById('clearPolygon').addEventListener('click', () => drawPath([]));
-    document.getElementById('areaCity').addEventListener('input', refreshVisibleAreas);
-    document.getElementById('areaCity').addEventListener('change', refreshVisibleAreas);
+    document.getElementById('areaName').addEventListener('change', (event) => {
+      const id = Number(event.target.value || 0);
+      if (id) editArea(id); else resetForm();
+    });
     bindMarkerUi();
     loadAreas();
     ensureMapScript();
@@ -1138,6 +1151,39 @@
         min-height: 520px;
       }
     }
+
+    /* Modern area editor */
+    .area-definition-shell { grid-template-columns: minmax(380px, 480px) minmax(0, 1fr); gap: 24px; }
+    .area-definition-panel { padding: 0; border: 1px solid #e2e8f0; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 48px rgba(15, 23, 42, .08); }
+    .area-panel-heading { display: flex; gap: 14px; align-items: center; padding: 22px 24px; color: #fff; background: linear-gradient(135deg, #0f766e, #0891b2); }
+    .area-panel-icon { display: grid; place-items: center; width: 46px; height: 46px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.35); border-radius: 14px; background: rgba(255,255,255,.16); font-size: 27px; }
+    .area-panel-heading p { margin: 0 0 3px; font-size: 11px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; opacity: .78; }
+    .area-panel-heading h2 { margin: 0; color: #fff; font-size: 20px; line-height: 1.2; }
+    .area-panel-heading small { display: block; margin-top: 5px; color: rgba(255,255,255,.84); font-weight: 600; line-height: 1.35; }
+    #areaForm { padding: 22px 24px 10px; gap: 16px; }
+    #areaForm > label { position: relative; gap: 8px; color: #334155; font-size: 13px; font-weight: 800; }
+    #areaForm input[type="text"], #areaForm input[type="number"], #areaForm select { min-height: 46px; width: 100%; border: 1px solid #d7e0ea; border-radius: 11px; background: #f8fafc; color: #0f172a; font-size: 14px; transition: border-color .2s, box-shadow .2s, background .2s; }
+    #areaForm select { appearance: none; padding-right: 42px; cursor: pointer; background-image: linear-gradient(45deg,transparent 50%,#0f766e 50%),linear-gradient(135deg,#0f766e 50%,transparent 50%); background-position: calc(100% - 18px) 20px,calc(100% - 13px) 20px; background-size: 5px 5px,5px 5px; background-repeat: no-repeat; }
+    #areaForm input:focus, #areaForm select:focus { outline: 0; border-color: #0d9488; background-color: #fff; box-shadow: 0 0 0 4px rgba(13,148,136,.12); }
+    #areaForm input[readonly] { color: #64748b; background: #eef2f6; cursor: not-allowed; }
+    .area-toggle-row { min-height: 58px; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+    .area-toggle-row:hover { border-color: #99f6e4; background: #f0fdfa; }
+    .area-toggle-row input { appearance: none; position: relative; width: 42px; height: 24px; flex: 0 0 42px; border: 0; border-radius: 999px; background: #cbd5e1; cursor: pointer; transition: .2s; }
+    .area-toggle-row input::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(15,23,42,.24); transition: .2s; }
+    .area-toggle-row input:checked { background: #0d9488; }
+    .area-toggle-row input:checked::after { transform: translateX(18px); }
+    .area-map-actions { padding-top: 4px; }
+    .area-map-actions button { min-height: 42px; border-radius: 10px; font-weight: 800; }
+    #toggleMarking { background: linear-gradient(135deg,#0891b2,#0d9488); box-shadow: 0 8px 18px rgba(13,148,136,.2); }
+    .area-help-card { margin: 12px 24px 0; padding: 16px 18px; border-color: #bae6fd; border-radius: 13px; background: linear-gradient(145deg,#f0f9ff,#ecfeff); }
+    .area-help-card h2 { color: #0e7490; }
+    .area-help-card ol { color: #155e75; }
+    .area-definition-status { margin: 14px 24px; border-radius: 10px; }
+    .area-point-list { margin: -4px 24px 16px; border: 1px solid #e2e8f0; border-radius: 10px; }
+    .area-list-card { margin: 0 24px 24px; border-radius: 12px; }
+    .area-map-card { border: 1px solid #e2e8f0; border-radius: 18px; box-shadow: 0 18px 48px rgba(15,23,42,.08); }
+    @media (max-width: 980px) { .area-definition-shell { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) { .area-panel-heading, #areaForm { padding-left: 16px; padding-right: 16px; } .area-help-card, .area-definition-status, .area-list-card { margin-left: 16px; margin-right: 16px; } }
   </style>
 </body>
 </html>
