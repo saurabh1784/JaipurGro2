@@ -107,7 +107,7 @@
           <label>Country<input id="formCountry" type="text" readonly /></label>
           <label>State<input id="formState" type="text" readonly /></label>
           <label>City<input id="formCity" type="text" readonly /></label>
-          <label>Area<input id="formArea" type="text" readonly /></label>
+          <label>Area<select id="formArea"></select></label>
         <% } %>
         <label>Status<select id="formStatus" required><option value="active">active</option><option value="inactive">inactive</option></select></label>
         <label>Assigned Admin<select id="formAssignedAdmin"><option value="">None</option></select></label>
@@ -221,16 +221,16 @@
       const select = document.getElementById('formArea');
       if (!select || select.tagName !== 'SELECT') return;
       const city = document.getElementById('formCity').value;
+      const isAdminRole = normalizeRole(document.getElementById('formRole').value) === 'admin';
       let areas = (city && locationData.cityAreas && locationData.cityAreas[city]) ? locationData.cityAreas[city] : [];
       areas = [...areas].sort((a, b) => a.localeCompare(b));
-      if (selectedArea && !areas.includes(selectedArea)) {
-        areas.unshift(selectedArea);
-      }
-      const opts = ['<option value="">-- Select Area --</option>'].concat(
-        areas.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`)
-      );
+      const normalizedSelection = (selectedArea === '*' || String(selectedArea).toLowerCase() === 'all areas') ? '*' : selectedArea;
+      if (normalizedSelection && normalizedSelection !== '*' && !areas.includes(normalizedSelection)) areas.unshift(normalizedSelection);
+      const opts = ['<option value="">-- Select Area --</option>'];
+      if (isAdminRole) opts.push('<option value="*">All Areas (whole city)</option>');
+      opts.push(...areas.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`));
       select.innerHTML = opts.join('');
-      select.value = areas.includes(selectedArea) ? selectedArea : '';
+      select.value = isAdminRole && (!normalizedSelection || normalizedSelection === '*') ? '*' : normalizedSelection;
     }
 
     function initLocationDropdowns(country = '', state = '', city = '', area = '') {
@@ -279,7 +279,8 @@
       renderUsers();
     }
 
-    function locationText(user) { return [user.area, user.city, user.state, user.country].filter(Boolean).join(', ') || 'N/A'; }
+    function areaLabel(area) { return area === '*' ? 'All Areas' : (area || 'N/A'); }
+    function locationText(user) { return [areaLabel(user.area), user.city, user.state, user.country].filter((value) => value && value !== 'N/A').join(', ') || 'N/A'; }
     function canManage(user) {
       const role = normalizeRole(user.role);
       return isSuperAdmin || (role !== 'superadmin' && role !== 'admin');
@@ -312,18 +313,18 @@
       nextPage.disabled = currentPage >= totalPages;
     }
 
-    function applyAdminLocationLock() {
+    function applyAdminLocationLock(selectedArea = '') {
       const note = document.getElementById('adminLocationNote');
-      const fields = ['formCountry', 'formState', 'formCity', 'formArea'];
-      fields.forEach((id) => { document.getElementById(id).disabled = !isSuperAdmin; });
+      ['formCountry', 'formState', 'formCity'].forEach((id) => { document.getElementById(id).disabled = !isSuperAdmin; });
+      document.getElementById('formArea').disabled = !isSuperAdmin && adminLocation.area !== '*';
       document.getElementById('formAssignedAdmin').disabled = !isSuperAdmin;
       if (!isSuperAdmin) {
         document.getElementById('formCountry').value = adminLocation.country || '';
         document.getElementById('formState').value = adminLocation.state || '';
         document.getElementById('formCity').value = adminLocation.city || '';
-        document.getElementById('formArea').value = adminLocation.area || '';
+        populateAreaDropdown(adminLocation.area === '*' ? selectedArea : (adminLocation.area || selectedArea));
         document.getElementById('formAssignedAdmin').value = '';
-        note.textContent = `Location is locked to your assigned Admin city: ${adminLocation.city || 'not assigned'}.`;
+        note.textContent = adminLocation.area === '*' ? `All Areas access: you can assign users anywhere in ${adminLocation.city || 'your city'}.` : `Location is locked to ${adminLocation.area || 'your assigned area'}, ${adminLocation.city || 'city not assigned'}.`;
         note.style.display = 'block';
       } else {
         note.style.display = 'none';
@@ -370,7 +371,7 @@
         document.getElementById('formState').value = user.state || '';
         document.getElementById('formCity').value = user.city || '';
         document.getElementById('formArea').value = user.area || '';
-        applyAdminLocationLock();
+        applyAdminLocationLock(user.area || '');
       }
       openModal('userFormModal');
     }
@@ -383,7 +384,7 @@
       const fields = [
         ['Full name', user.name], ['Email', user.email], ['Phone', user.phone || 'N/A'], ['Role', user.role],
         ['Status', user.status], ['Country', user.country || 'N/A'], ['State', user.state || 'N/A'], ['City', user.city || 'N/A'],
-        ['Area', user.area || 'N/A'], ['Assigned Admin', user.assigned_admin_name || 'N/A'], ['Created', formatDate(user.created_at)], ['Updated', formatDate(user.updated_at)],
+        ['Area', areaLabel(user.area)], ['Assigned Admin', user.assigned_admin_name || 'N/A'], ['Created', formatDate(user.created_at)], ['Updated', formatDate(user.updated_at)],
       ];
       document.getElementById('userDetails').innerHTML = fields.map(([label, value]) => `<div><span>${escapeHtml(label)}</span>${escapeHtml(value)}</div>`).join('');
       openModal('viewUserModal');
@@ -432,6 +433,11 @@
         });
       }
     }
+
+    document.getElementById('formRole').addEventListener('change', () => {
+      const currentArea = document.getElementById('formArea').value;
+      populateAreaDropdown(normalizeRole(document.getElementById('formRole').value) === 'admin' ? '*' : (currentArea === '*' ? '' : currentArea));
+    });
 
     document.getElementById('newUserButton').addEventListener('click', () => { resetForm(); openModal('userFormModal'); });
     document.getElementById('userForm').addEventListener('submit', async (event) => {

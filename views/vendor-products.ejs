@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title><%= shell.roleTitle %> - My Products</title>
   <link rel="stylesheet" href="/styles.css" />
+  <script src="/product-image-fallback.js"></script>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -78,7 +79,7 @@
           <div class="products-grid" id="products-grid">
             <% products.forEach(function(product) { %>
               <div class="product-card" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>">
-                <img class="product-thumb-image" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+                <img class="product-thumb-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
                 <div class="product-info">
                   <h3 class="product-name"><%= product.product_name %></h3>
                   <% if (product.description) { %>
@@ -126,7 +127,7 @@
           <div class="products-list" id="products-list" style="display:none">
             <% products.forEach(function(product) { %>
               <div class="product-row" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>">
-                <img class="product-row-image" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+                <img class="product-row-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
                 <div class="product-row-info">
                   <h3 class="product-row-name"><%= product.product_name %></h3>
                   <% if (product.description) { %>
@@ -667,7 +668,7 @@
 
       grid.innerHTML = vendorProducts.map((product) => `
         <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}">
-          <img class="product-thumb-image" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+          <img class="product-thumb-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
           <div class="product-info">
             <h3 class="product-name">${escapeHtml(product.product_name)}</h3>
             ${product.description ? `<p class="product-description">${escapeHtml(product.description)}</p>` : ''}
@@ -688,7 +689,7 @@
 
       list.innerHTML = vendorProducts.map((product) => `
         <div class="product-row" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}">
-          <img class="product-row-image" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+          <img class="product-row-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
           <div class="product-row-info">
             <h3 class="product-row-name">${escapeHtml(product.product_name)}</h3>
             ${product.description ? `<p class="product-row-description">${escapeHtml(product.description)}</p>` : ''}

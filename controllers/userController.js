@@ -9,6 +9,16 @@ const { editableUserRoles, validateStatus } = require('../middleware/validators'
 
 const BUILT_IN_ROLES = ['superadmin', 'Admin', 'Staff', 'Provider', 'Client', 'Delivery Partner', 'Vendor', 'deliveryPerson', 'manager', 'staff'];
 const ADMIN_BLOCKED_ROLES = ['superadmin', 'admin'];
+const ALL_AREAS_VALUE = '*';
+
+function isAllAreas(value) {
+  const normalized = String(value || '').trim().toLowerCase();
+  return normalized === ALL_AREAS_VALUE || normalized === 'all' || normalized === 'all areas';
+}
+
+function normalizeAdminArea(value) {
+  return isAllAreas(value) || !cleanText(value) ? ALL_AREAS_VALUE : cleanText(value);
+}
 
 async function getLocationData() {
   try {
@@ -91,7 +101,7 @@ async function validateDependentLocation(body) {
     }
   }
 
-  if (cleanArea) {
+  if (cleanArea && !isAllAreas(cleanArea)) {
     if (!cleanCity) {
       errors.push('City is required when area is specified.');
     } else {
@@ -295,9 +305,12 @@ function canAdminAccessTarget(adminLocation, targetUser, adminId) {
   if (!targetUser) return false;
   const targetRole = normalizeRole(targetUser.role);
   if (targetRole === 'superadmin' || targetRole === 'admin') return false;
-  const adminCity = String(adminLocation.city || '').toLowerCase();
-  const targetCity = String(targetUser.city || '').toLowerCase();
-  return Boolean(adminCity && targetCity && adminCity === targetCity && Number(targetUser.assigned_admin_id) === Number(adminId));
+  const adminCity = String(adminLocation.city || '').trim().toLowerCase();
+  const targetCity = String(targetUser.city || '').trim().toLowerCase();
+  const adminArea = String(adminLocation.area || '').trim().toLowerCase();
+  const targetArea = String(targetUser.area || '').trim().toLowerCase();
+  const areaAllowed = isAllAreas(adminArea) || Boolean(adminArea && targetArea && adminArea === targetArea);
+  return Boolean(adminCity && targetCity && adminCity === targetCity && areaAllowed && Number(targetUser.assigned_admin_id) === Number(adminId));
 }
 
 function locationFromRequest(body) {
@@ -374,6 +387,7 @@ async function index(req, res) {
       assignedAdminId: req.query.assigned_admin_id,
       isSuperAdmin: isSuper,
       adminCity: adminLocation.city,
+      adminArea: adminLocation.area,
       adminId: currentUser && currentUser.id,
     });
 
@@ -438,7 +452,16 @@ async function create(req, res) {
     }
   }
 
-  const location = isSuper ? locationFromRequest(req.body) : { ...adminLocation };
+  let location = isSuper ? locationFromRequest(req.body) : {
+    ...adminLocation,
+    area: isAllAreas(adminLocation.area) ? cleanText(req.body.area) : adminLocation.area,
+  };
+  if (requestedRoleNorm === 'admin') location.area = normalizeAdminArea(location.area);
+  if (!isSuper) {
+    if (!location.area) return res.status(422).json({ success: false, message: 'Please select an area for this user.' });
+    const scopedLocationErrors = await validateDependentLocation(location);
+    if (scopedLocationErrors.length > 0) return res.status(422).json({ success: false, message: 'Validation failed', errors: scopedLocationErrors });
+  }
   if (isSuper && requestedRoleNorm === 'admin' && !location.city) {
     return res.status(422).json({ success: false, message: 'Admins must have an assigned city.' });
   }
@@ -527,12 +550,18 @@ async function update(req, res) {
     }
   }
 
-  const location = isSuper ? locationFromRequest(req.body) : {
+  let location = isSuper ? locationFromRequest(req.body) : {
     country: existingUser.country || adminLocation.country,
     state: existingUser.state || adminLocation.state,
     city: adminLocation.city,
-    area: existingUser.area || adminLocation.area,
+    area: isAllAreas(adminLocation.area) ? cleanText(req.body.area) : adminLocation.area,
   };
+  if (requestedRoleNorm === 'admin') location.area = normalizeAdminArea(location.area);
+  if (!isSuper) {
+    if (!location.area) return res.status(422).json({ success: false, message: 'Please select an area for this user.' });
+    const scopedLocationErrors = await validateDependentLocation(location);
+    if (scopedLocationErrors.length > 0) return res.status(422).json({ success: false, message: 'Validation failed', errors: scopedLocationErrors });
+  }
   if (isSuper && requestedRoleNorm === 'admin' && !location.city) {
     return res.status(422).json({ success: false, message: 'Admins must have an assigned city.' });
   }

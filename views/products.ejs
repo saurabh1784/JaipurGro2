@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Product Management</title>
   <link rel="stylesheet" href="/styles.css" />
+  <script src="/product-image-fallback.js"></script>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -57,7 +58,7 @@
           <!-- Linked Product Image Preview Container -->
           <div id="productImagePreviewWrapper" style="grid-column: 1 / -1; display: flex; align-items: center; gap: 12px; background: #ffffff; padding: 8px 12px; border-radius: 10px; border: 1px solid #7dd3fc; box-shadow: 0 2px 6px rgba(56, 189, 248, 0.12);">
             <div style="position: relative; width: 56px; height: 56px; flex-shrink: 0; background: #e0f2fe; border-radius: 8px; overflow: hidden; border: 1px solid #7dd3fc; display: flex; align-items: center; justify-content: center;">
-              <img id="productImagePreview" src="/default.png" alt="Linked Product Image" style="width: 100%; height: 100%; object-fit: cover;" onerror="this.onerror=null; this.src='/default.png';" />
+              <img id="productImagePreview" data-product-placeholder src="/default.png" alt="Linked Product Image" style="width: 100%; height: 100%; object-fit: cover;" />
             </div>
             <div style="flex: 1; min-width: 0;">
               <div style="display: flex; align-items: center; justify-content: space-between; gap: 8px;">
@@ -702,7 +703,7 @@
             </td>
             <td>#${product.id}</td>
             <td>${escapeHtml(product.name)}</td>
-            <td><img class="product-thumb" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.name)}" loading="lazy" /></td>
+            <td><img class="product-thumb" data-product-placeholder data-product-name="${escapeHtml(product.name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.name)}" loading="lazy" /></td>
             <td class="product-description-cell">${escapeHtml(product.description || '-')}</td>
             <td>${escapeHtml(product.category_name)}</td>
             <td>${escapeHtml(product.sub_category_name)}</td>

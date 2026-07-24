@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title><%= shell.roleTitle %> - Product Catalog</title>
   <link rel="stylesheet" href="/styles.css" />
+  <script src="/product-image-fallback.js"></script>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -104,7 +105,7 @@
         <% products.forEach(function(product) { %>
           <div class="product-card" data-product-id="<%= product.id %>" data-master-product-id="<%= product.product_id %>" data-product-name="<%= product.product_name.toLowerCase() %>" data-product-description="<%= (product.description || '').toLowerCase() %>">
             <div class="product-media">
-              <img class="product-thumb-image" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+              <img class="product-thumb-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
             </div>
             <div class="product-info">
               <div class="product-title-row">
@@ -312,7 +313,7 @@
       return `
         <div class="product-card" data-product-id="${product.id}" data-master-product-id="${product.product_id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}" data-product-description="${escapeHtml(product.description || '').toLowerCase()}">
           <div class="product-media">
-            <img class="product-thumb-image" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+            <img class="product-thumb-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
           </div>
           <div class="product-info">
             <div class="product-title-row">

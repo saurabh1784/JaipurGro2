@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Product Images - Admin Panel</title>
   <link rel="stylesheet" href="/styles.css" />
+  <script src="/product-image-fallback.js"></script>
   <style>
     /* CSS System & Responsive 5xN Grid */
     .img-mgr-shell {
@@ -659,7 +660,7 @@
     <div class="img-modal-card">
       <div class="preview-body">
         <div class="preview-img-container">
-          <img id="previewImage" src="/default.png" alt="Product Image Preview" />
+          <img id="previewImage" data-product-placeholder src="/default.png" alt="Product Image Preview" />
         </div>
         <h2 id="previewTitle" class="preview-title">Product Name</h2>
         <div id="previewSubtitle" class="preview-subtitle">Category • ₹0.00</div>
@@ -848,7 +849,7 @@
             <div class="img-card ${isSelected ? 'selected' : ''}" data-id="${item.id}">
               <input type="checkbox" class="img-card-checkbox" data-id="${item.id}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleSelect(${item.id});" />
               <div class="img-card-frame" onclick="openPreview(${item.id})">
-                <img src="${item.image_url}" alt="${escapeHtml(item.product_name)}" onerror="this.onerror=null;this.src='/default.png';" />
+                <img data-product-placeholder data-product-name="${escapeHtml(item.product_name)}" src="${item.image_url || '/default.png'}" alt="${escapeHtml(item.product_name)}" />
                 <span class="img-type-badge ${item.is_default ? 'badge-default' : 'badge-main'}">
                   ${item.is_default ? 'Placeholder' : 'Main Image'}
                 </span>

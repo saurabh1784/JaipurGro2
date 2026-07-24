@@ -126,6 +126,7 @@ async function list({
   assignedAdminId = '',
   isSuperAdmin = true,
   adminCity = '',
+  adminArea = '',
   adminId = null,
 } = {}) {
   const currentPage = Math.max(parseInt(page, 10) || 1, 1);
@@ -159,9 +160,10 @@ async function list({
     values.push(scopedCity);
   }
 
-  if (area) {
+  const scopedArea = !isSuperAdmin && adminArea && adminArea !== '*' ? adminArea : area;
+  if (scopedArea) {
     where.push('LOWER(TRIM(COALESCE(NULLIF(u.area, \'\'), ap.area, cp.area, vp.area, dpp.area, \'\'))) = LOWER(TRIM($' + (values.length + 1) + '))');
-    values.push(area);
+    values.push(scopedArea);
   }
 
   if (!isSuperAdmin && adminId) {
@@ -171,7 +173,6 @@ async function list({
     where.push('u.assigned_admin_id = $' + (values.length + 1));
     values.push(Number(assignedAdminId));
   }
-
   const whereSql = where.join(' AND ');
   const fromJoinSql = `
     FROM users u
