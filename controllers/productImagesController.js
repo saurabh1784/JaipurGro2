@@ -237,7 +237,10 @@ async function deleteProductImage(req, res) {
 
 async function bulkDeleteProductImages(req, res) {
   try {
-    const ids = req.body && Array.isArray(req.body.ids) ? req.body.ids.map((id) => parseInt(id, 10)).filter(Boolean) : [];
+    const rawIds = req.body ? (req.body.ids || req.body.product_ids || req.body.productIds || (Array.isArray(req.body) ? req.body : [])) : [];
+    const idsArray = Array.isArray(rawIds) ? rawIds : [rawIds];
+    const ids = idsArray.map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0);
+
     if (!ids.length) {
       return res.status(400).json({ success: false, message: 'No product IDs provided for bulk image deletion' });
     }

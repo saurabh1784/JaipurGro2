@@ -32,11 +32,11 @@ const upload = multer({
 router.get('/images', productImagesController.getProductImagesPage);
 router.get('/images/api/list', productImagesController.listProductImages);
 router.get('/images/list', productImagesController.listProductImages);
+router.post('/images/bulk-delete', productImagesController.bulkDeleteProductImages);
+router.delete('/images/bulk-delete', productImagesController.bulkDeleteProductImages);
 router.put('/images/:id', uploadProductImage.single('image'), handleProductImageUploadError, productImagesController.replaceProductImage);
 router.post('/images/:id', uploadProductImage.single('image'), handleProductImageUploadError, productImagesController.replaceProductImage);
 router.delete('/images/:id', productImagesController.deleteProductImage);
-router.post('/images/bulk-delete', productImagesController.bulkDeleteProductImages);
-router.delete('/images/bulk-delete', productImagesController.bulkDeleteProductImages);
 
 router.get('/', productController.index);
 router.get('/catalog', productController.catalog);
