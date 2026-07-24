@@ -66,9 +66,6 @@ async function signup(req, res) {
       await DeliveryPerson.upsertProfile(userId, { city, area: '*', status: 'active', is_available: true }, connection);
     }
     await Wallet.ensureForUser(userId, connection);
-    if (role === 'Vendor') {
-      await VendorProduct.ensureVendorHasAllProducts(userId, connection);
-    }
     await connection.commit();
 
     const user = await User.findById(userId);

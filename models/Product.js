@@ -390,10 +390,10 @@ async function bulkSoftDelete(ids = []) {
   }
 }
 
- async function listApproved(limit = 100, categoryIds = null) {
-   const hasCategoryFilter = Array.isArray(categoryIds);
-   const ids = [...new Set([].concat(categoryIds || []).map((id) => parseInt(id, 10)).filter(Boolean))];
-   if (hasCategoryFilter && ids.length === 0) return [];
+ async function listApproved(limit = 2000, categoryIds = null) {
+   const ids = Array.isArray(categoryIds)
+     ? [...new Set(categoryIds.map((id) => parseInt(id, 10)).filter(Boolean))]
+     : [];
    const categorySql = ids.length ? ` AND p.category_id IN (${ids.map(() => '?').join(',')})` : '';
    const [rows] = await pool.query(
      `SELECT p.id, p.name, p.description, p.price, p.weight_value, p.weight_unit, p.weight_kg, p.image_url, p.tax_name, p.tax_percentage, p.category_id, p.sub_category_id, p.brand_id,

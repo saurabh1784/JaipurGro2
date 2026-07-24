@@ -164,9 +164,6 @@ async function updateApprovalStatus(req, res) {
       actor_id: actor.id,
       rejection_reason: req.body.rejection_reason || req.body.reason || '',
     });
-    if (status === 'approved') {
-      await VendorProduct.ensureProductForAllVendors(id);
-    }
     const product = await Product.findById(id);
     await notifyProductRequester(product, status);
     return res.json({ success: true, message: 'Product approval status updated', product });
@@ -246,7 +243,6 @@ async function create(req, res) {
         priorityOrder: payload.priorityOrder,
       });
     }
-    await VendorProduct.ensureProductForAllVendors(id);
     refreshVisibleProductsCache();
     const product = await Product.findById(id);
     return res.status(201).json({ success: true, message: 'Product created', product });

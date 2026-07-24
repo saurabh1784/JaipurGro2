@@ -206,6 +206,17 @@
       </div>
       <form id="productForm" class="user-modal-grid">
         <input type="hidden" id="vendorProductId" />
+
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
+          <label style="font-weight: 600; color: #334155;">Select Category</label>
+          <select id="modalCategoryFilter" onchange="onModalCategoryChange(this.value)" style="padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; background: #fff;">
+            <option value="">All Assigned Categories</option>
+            <% (typeof vendorCategories !== 'undefined' && vendorCategories.length ? vendorCategories : categories || []).forEach(function(cat) { %>
+              <option value="<%= cat.id %>"><%= cat.name %></option>
+            <% }); %>
+          </select>
+        </div>
+
         <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
           <label style="font-weight: 600; color: #334155;">Select Master Product</label>
           <input type="hidden" id="productId" required />
@@ -214,7 +225,7 @@
               type="text"
               id="productSearchInput"
               class="product-picker-search-input"
-              placeholder="🔍 Search approved products by name, category, brand..."
+              placeholder="🔍 Search approved products by name, brand..."
               oninput="filterApprovedProducts(this.value)"
               onfocus="showApprovedProductsDropdown()"
               autocomplete="off"
@@ -1232,21 +1243,28 @@
       await loadProducts();
     }
 
-    /* Searchable Approved Product Picker */
+    /* Searchable Approved Product Picker with Category Filter */
     function renderApprovedProductsPicker(query = '') {
       const dropdown = document.getElementById('productPickerDropdown');
       if (!dropdown) return;
       const q = String(query || '').trim().toLowerCase();
+      const catSelect = document.getElementById('modalCategoryFilter');
+      const selectedCat = catSelect ? String(catSelect.value || '').trim() : '';
+
       const filtered = approvedProductsList.filter((p) => {
+        if (selectedCat && String(p.category_id || '') !== selectedCat) {
+          return false;
+        }
         if (!q) return true;
         const name = String(p.name || '').toLowerCase();
         const category = String(p.category_name || '').toLowerCase();
+        const subcategory = String(p.sub_category_name || '').toLowerCase();
         const brand = String(p.brand_name || '').toLowerCase();
-        return name.includes(q) || category.includes(q) || brand.includes(q);
+        return name.includes(q) || category.includes(q) || subcategory.includes(q) || brand.includes(q);
       });
 
       if (!filtered.length) {
-        dropdown.innerHTML = '<div style="padding:12px; color:#64748b; font-size:0.85rem; text-align:center;">No matching approved products found</div>';
+        dropdown.innerHTML = '<div style="padding:12px; color:#64748b; font-size:0.85rem; text-align:center;">No matching approved products found for selected category</div>';
         return;
       }
 
@@ -1255,11 +1273,16 @@
           <img class="product-picker-option-thumb" src="${escapeHtml(p.image_url || '/default.png')}" alt="${escapeHtml(p.name)}" />
           <div class="product-picker-option-details">
             <div class="product-picker-option-title">${escapeHtml(p.name)}</div>
-            <div class="product-picker-option-meta">${escapeHtml(p.category_name || '')} &bull; ${escapeHtml(p.brand_name || '')}</div>
+            <div class="product-picker-option-meta">${escapeHtml(p.category_name || '')} &bull; ${escapeHtml(p.sub_category_name || '')} &bull; ${escapeHtml(p.brand_name || '')}</div>
           </div>
           <div class="product-picker-option-price">₹${Number(p.price || 0).toFixed(2)}</div>
         </div>
       `).join('');
+    }
+
+    function onModalCategoryChange(catId) {
+      clearSelectedProduct();
+      showApprovedProductsDropdown();
     }
 
     function showApprovedProductsDropdown() {
@@ -1294,10 +1317,10 @@
       document.getElementById('productId').value = '';
       document.getElementById('productSelectedBadge').style.display = 'none';
       const input = document.getElementById('productSearchInput');
-      input.style.display = 'block';
-      input.value = '';
-      input.focus();
-      showApprovedProductsDropdown();
+      if (input) {
+        input.style.display = 'block';
+        input.value = '';
+      }
     }
 
     function renderProducts() {

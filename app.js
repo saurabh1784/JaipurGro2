@@ -4408,23 +4408,30 @@ app.put('/api/admin/vendor-inventory/:vendorProductId', webOrJwtAuth, requirePer
     return res.status(500).json({ success: false, message: 'Unable to correct inventory quantity' });
   }
 });
+
 app.get('/vendor-products', requireAuth, requireSessionRole('Vendor', '/login/vendor'), async (req, res) => {
   try {
     const products = await VendorProduct.list({
       vendor_id: req.session.user.id,
       status: 'active',
     });
-    const approvedProducts = await Product.listApproved(200);
-    const [categories, subcategories, brands] = await Promise.all([
+    const [categories, subcategories, brands, categoriesByVendorMap] = await Promise.all([
       Catalog.listCategories(),
       Catalog.listSubcategories(),
       Catalog.listBrands(),
+      Vendor.assignedCategories([req.session.user.id]),
     ]);
+    const vendorAssigned = categoriesByVendorMap.get(Number(req.session.user.id)) || [];
+    const categoryIds = vendorAssigned.map((c) => c.id);
+    const approvedProducts = await Product.listApproved(2000, categoryIds.length ? categoryIds : null);
+    const vendorCategories = vendorAssigned.length > 0 ? vendorAssigned : categories;
+
     res.render('vendor-products', {
       user: req.session.user,
       shell: buildShell(req.session.user, req.path),
       products: products,
       approvedProducts: approvedProducts,
+      vendorCategories: vendorCategories,
       categories,
       subcategories,
       brands,
@@ -4815,7 +4822,6 @@ async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot,
      LEFT JOIN vendor_products vp ON vp.vendor_id = vprof.user_id AND vp.product_id = p.id
      WHERE COALESCE(vprof.is_premium_vendor, 0) = 1
        AND u.is_deleted = 0
-       AND LOWER(u.status) = 'active'
        AND LOWER(u.role) = 'vendor'
        AND (TRIM(COALESCE(vprof.city, '')) = '' OR LOWER(TRIM(vprof.city)) = LOWER(TRIM(CAST(? AS TEXT))))
      ORDER BY COALESCE(vprof.premium_commission_percent, 0) ASC, vprof.user_id ASC
@@ -4833,19 +4839,10 @@ async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot,
     throw error;
   }
 
-  matchingRows.sort((left, right) => {
-    const leftExact = normalizeLocationToken(left.vendor_area) === normalizeLocationToken(area) ? 0 : 1;
-    const rightExact = normalizeLocationToken(right.vendor_area) === normalizeLocationToken(area) ? 0 : 1;
-    if (leftExact !== rightExact) return leftExact - rightExact;
-    const leftStocked = Number(left.id || 0) > 0 && String(left.vendor_product_status || '').toLowerCase() === 'active' && Number(left.quantity || 0) >= quantity ? 0 : 1;
-    const rightStocked = Number(right.id || 0) > 0 && String(right.vendor_product_status || '').toLowerCase() === 'active' && Number(right.quantity || 0) >= quantity ? 0 : 1;
-    if (leftStocked !== rightStocked) return leftStocked - rightStocked;
-    return Number(left.premium_commission_percent || 0) - Number(right.premium_commission_percent || 0) || Number(left.vendor_id || 0) - Number(right.vendor_id || 0);
-  });
-
   const stockedCandidates = matchingRows.filter((row) => Number(row.id || 0) > 0
     && String(row.vendor_product_status || '').toLowerCase() === 'active'
     && Number(row.quantity || 0) >= quantity);
+
   for (const stocked of stockedCandidates) {
     if (!lockStock) return stocked;
     const [lockedRows] = await connection.query(
@@ -4863,45 +4860,7 @@ async function selectPremiumVendorProductForDirectOrder({ item, addressSnapshot,
     }
   }
 
-  const candidate = matchingRows[0];
-  const startingQuantity = Math.max(quantity, 10);
-  await connection.query(
-    `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
-     VALUES (?, ?, ?, ?, 'active')
-     ON CONFLICT (product_id, vendor_id) DO UPDATE
-     SET quantity = GREATEST(vendor_products.quantity, EXCLUDED.quantity),
-         price = CASE WHEN COALESCE(vendor_products.price, 0) > 0 THEN vendor_products.price ELSE EXCLUDED.price END,
-         status = 'active'`,
-    [productId, candidate.vendor_id, startingQuantity, Number(candidate.price || 0)]
-  );
-
-  const [backfilledRows] = await connection.query(
-    `SELECT vp.id, vp.product_id, vp.vendor_id, vp.quantity, vp.price,
-            p.name AS product_name,
-            p.weight_kg,
-            vprof.address AS vendor_address,
-            vprof.pickup_latitude AS vendor_pickup_latitude,
-            vprof.pickup_longitude AS vendor_pickup_longitude,
-            vprof.city AS vendor_city,
-            vprof.state AS vendor_state,
-            vprof.country AS vendor_country,
-            vprof.area AS vendor_area,
-            COALESCE(vprof.premium_commission_percent, 0) AS premium_commission_percent,
-            CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
-            COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
-     FROM vendor_products vp
-     INNER JOIN products p ON p.id = vp.product_id
-     INNER JOIN categories c ON c.id = p.category_id
-     INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
-     WHERE vp.product_id = ? AND vp.vendor_id = ?
-     LIMIT 1
-     ${lockSql}`,
-    [productId, candidate.vendor_id]
-  );
-
-  if (backfilledRows.length) return backfilledRows[0];
-
-  const error = new Error(`Premium vendor found in ${area || city || 'your area'}, but product inventory could not be prepared`);
+  const error = new Error(`No active vendor in ${area || city || 'your area'} has added this product to their store inventory`);
   error.status = 422;
   throw error;
 }
