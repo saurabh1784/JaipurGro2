@@ -98,10 +98,17 @@
         <label>Role<select id="formRole" required></select></label>
         <label>Password<input id="formPassword" type="password" autocomplete="new-password" /></label>
         <label>Confirm password<input id="formConfirmPassword" type="password" autocomplete="new-password" /></label>
-        <label>Country<input id="formCountry" type="text" /></label>
-        <label>State<input id="formState" type="text" /></label>
-        <label>City<input id="formCity" type="text" /></label>
-        <label>Area<input id="formArea" type="text" /></label>
+        <% if (locals.isSuperAdmin) { %>
+          <label>Country<select id="formCountry"></select></label>
+          <label>State<select id="formState"></select></label>
+          <label>City<select id="formCity"></select></label>
+          <label>Area<select id="formArea"></select></label>
+        <% } else { %>
+          <label>Country<input id="formCountry" type="text" readonly /></label>
+          <label>State<input id="formState" type="text" readonly /></label>
+          <label>City<input id="formCity" type="text" readonly /></label>
+          <label>Area<input id="formArea" type="text" readonly /></label>
+        <% } %>
         <label>Status<select id="formStatus" required><option value="active">active</option><option value="inactive">inactive</option></select></label>
         <label>Assigned Admin<select id="formAssignedAdmin"><option value="">None</option></select></label>
         <p id="adminLocationNote" class="full-span" style="display:none;margin:0;color:#4b5563;"></p>
@@ -123,6 +130,7 @@
   <script>
     const isSuperAdmin = <%= Boolean(locals.isSuperAdmin) %>;
     const adminLocation = <%- JSON.stringify(locals.adminLocation || {}) %>;
+    let locationData = <%- JSON.stringify(locals.locationData || { tree: {}, countries: [], cityAreas: {} }) %>;
     let currentPage = 1;
     let totalPages = 1;
     let users = [];
@@ -159,6 +167,80 @@
       select.value = Array.from(select.options).some((option) => option.value === current) ? current : '';
     }
 
+    function populateCountryDropdown(selectedCountry = '') {
+      const select = document.getElementById('formCountry');
+      if (!select || select.tagName !== 'SELECT') return;
+      const countries = (locationData.countries || []).slice().sort((a, b) => a.localeCompare(b));
+      if (selectedCountry && !countries.includes(selectedCountry)) {
+        countries.unshift(selectedCountry);
+      }
+      const opts = ['<option value="">-- Select Country --</option>'].concat(
+        countries.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+      );
+      select.innerHTML = opts.join('');
+      select.value = countries.includes(selectedCountry) ? selectedCountry : '';
+    }
+
+    function populateStateDropdown(selectedState = '') {
+      const select = document.getElementById('formState');
+      if (!select || select.tagName !== 'SELECT') return;
+      const country = document.getElementById('formCountry').value;
+      const statesObj = (country && locationData.tree && locationData.tree[country]) ? locationData.tree[country] : {};
+      const states = Object.keys(statesObj).sort((a, b) => a.localeCompare(b));
+      if (selectedState && !states.includes(selectedState)) {
+        states.unshift(selectedState);
+      }
+      const opts = ['<option value="">-- Select State --</option>'].concat(
+        states.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`)
+      );
+      select.innerHTML = opts.join('');
+      select.value = states.includes(selectedState) ? selectedState : '';
+    }
+
+    function populateCityDropdown(selectedCity = '') {
+      const select = document.getElementById('formCity');
+      if (!select || select.tagName !== 'SELECT') return;
+      const country = document.getElementById('formCountry').value;
+      const state = document.getElementById('formState').value;
+      let cities = [];
+      if (country && state && locationData.tree && locationData.tree[country] && locationData.tree[country][state]) {
+        cities = locationData.tree[country][state];
+      }
+      cities = [...cities].sort((a, b) => a.localeCompare(b));
+      if (selectedCity && !cities.includes(selectedCity)) {
+        cities.unshift(selectedCity);
+      }
+      const opts = ['<option value="">-- Select City --</option>'].concat(
+        cities.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+      );
+      select.innerHTML = opts.join('');
+      select.value = cities.includes(selectedCity) ? selectedCity : '';
+    }
+
+    function populateAreaDropdown(selectedArea = '') {
+      const select = document.getElementById('formArea');
+      if (!select || select.tagName !== 'SELECT') return;
+      const city = document.getElementById('formCity').value;
+      let areas = (city && locationData.cityAreas && locationData.cityAreas[city]) ? locationData.cityAreas[city] : [];
+      areas = [...areas].sort((a, b) => a.localeCompare(b));
+      if (selectedArea && !areas.includes(selectedArea)) {
+        areas.unshift(selectedArea);
+      }
+      const opts = ['<option value="">-- Select Area --</option>'].concat(
+        areas.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`)
+      );
+      select.innerHTML = opts.join('');
+      select.value = areas.includes(selectedArea) ? selectedArea : '';
+    }
+
+    function initLocationDropdowns(country = '', state = '', city = '', area = '') {
+      if (!isSuperAdmin) return;
+      populateCountryDropdown(country);
+      populateStateDropdown(state);
+      populateCityDropdown(city);
+      populateAreaDropdown(area);
+    }
+
     function renderOptions() {
       const roles = [...new Set(roleOptions || [])].filter((role) => {
         const normalized = normalizeRole(role);
@@ -190,6 +272,7 @@
       users = data.users || [];
       roleOptions = data.roleOptions || roleOptions;
       filterOptions = data.filterOptions || filterOptions;
+      locationData = data.locationData || locationData;
       currentPage = data.pagination.page;
       totalPages = data.pagination.totalPages;
       renderOptions();
@@ -255,7 +338,11 @@
       document.getElementById('formPassword').required = true;
       document.getElementById('formConfirmPassword').required = true;
       renderOptions();
-      applyAdminLocationLock();
+      if (isSuperAdmin) {
+        initLocationDropdowns();
+      } else {
+        applyAdminLocationLock();
+      }
     }
 
     function openEditUser(id) {
@@ -270,16 +357,21 @@
       document.getElementById('formPhone').value = user.phone || '';
       document.getElementById('formRole').value = user.role || '';
       document.getElementById('formStatus').value = user.status || 'active';
-      document.getElementById('formCountry').value = user.country || '';
-      document.getElementById('formState').value = user.state || '';
-      document.getElementById('formCity').value = user.city || '';
-      document.getElementById('formArea').value = user.area || '';
       document.getElementById('formAssignedAdmin').value = user.assigned_admin_id || '';
       document.getElementById('formPassword').value = '';
       document.getElementById('formConfirmPassword').value = '';
       document.getElementById('formPassword').required = false;
       document.getElementById('formConfirmPassword').required = false;
-      applyAdminLocationLock();
+
+      if (isSuperAdmin) {
+        initLocationDropdowns(user.country || '', user.state || '', user.city || '', user.area || '');
+      } else {
+        document.getElementById('formCountry').value = user.country || '';
+        document.getElementById('formState').value = user.state || '';
+        document.getElementById('formCity').value = user.city || '';
+        document.getElementById('formArea').value = user.area || '';
+        applyAdminLocationLock();
+      }
       openModal('userFormModal');
     }
 
@@ -314,6 +406,31 @@
       const data = await response.json();
       if (!data.success) { alert(data.message || 'Unable to delete user'); return; }
       loadUsers(currentPage);
+    }
+
+    if (isSuperAdmin) {
+      const countrySelect = document.getElementById('formCountry');
+      const stateSelect = document.getElementById('formState');
+      const citySelect = document.getElementById('formCity');
+
+      if (countrySelect) {
+        countrySelect.addEventListener('change', () => {
+          populateStateDropdown('');
+          populateCityDropdown('');
+          populateAreaDropdown('');
+        });
+      }
+      if (stateSelect) {
+        stateSelect.addEventListener('change', () => {
+          populateCityDropdown('');
+          populateAreaDropdown('');
+        });
+      }
+      if (citySelect) {
+        citySelect.addEventListener('change', () => {
+          populateAreaDropdown('');
+        });
+      }
     }
 
     document.getElementById('newUserButton').addEventListener('click', () => { resetForm(); openModal('userFormModal'); });

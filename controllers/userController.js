@@ -2,11 +2,110 @@ const bcrypt = require('bcryptjs');
 const User = require('../models/User');
 const Profile = require('../models/Profile');
 const AuditLog = require('../models/UserAuditLog');
+const LocationOption = require('../models/LocationOption');
+const AreaDefinition = require('../models/AreaDefinition');
 const pool = require('../db');
 const { editableUserRoles, validateStatus } = require('../middleware/validators');
 
 const BUILT_IN_ROLES = ['superadmin', 'Admin', 'Staff', 'Provider', 'Client', 'Delivery Partner', 'Vendor', 'deliveryPerson', 'manager', 'staff'];
 const ADMIN_BLOCKED_ROLES = ['superadmin', 'admin'];
+
+async function getLocationData() {
+  try {
+    const options = await LocationOption.list();
+    const areas = await AreaDefinition.list({ includeInactive: false });
+    const cityAreas = {};
+    (areas || []).forEach((area) => {
+      const city = String(area.city || '').trim();
+      const name = String(area.name || '').trim();
+      if (!city || !name) return;
+      cityAreas[city] = cityAreas[city] || [];
+      if (!cityAreas[city].includes(name)) {
+        cityAreas[city].push(name);
+      }
+    });
+    Object.keys(cityAreas).forEach((city) => {
+      cityAreas[city].sort((a, b) => a.localeCompare(b));
+    });
+
+    return {
+      tree: options.tree || {},
+      countries: options.countries || [],
+      stateEntries: options.stateEntries || [],
+      cityEntries: options.cityEntries || [],
+      cityAreas,
+    };
+  } catch (error) {
+    console.error('Error fetching location data:', error);
+    return { tree: {}, countries: [], stateEntries: [], cityEntries: [], cityAreas: {} };
+  }
+}
+
+async function validateDependentLocation(body) {
+  const errors = [];
+  const cleanCountry = cleanText(body.country);
+  const cleanState = cleanText(body.state);
+  const cleanCity = cleanText(body.city);
+  const cleanArea = cleanText(body.area);
+
+  if (!cleanCountry && !cleanState && !cleanCity && !cleanArea) {
+    return errors;
+  }
+
+  const locationData = await getLocationData();
+  const tree = locationData.tree || {};
+
+  if (cleanCountry) {
+    const countryMatch = Object.keys(tree).find((c) => c.toLowerCase() === cleanCountry.toLowerCase());
+    if (!countryMatch) {
+      errors.push(`Invalid country '${cleanCountry}'. Must be a valid active country.`);
+      return errors;
+    }
+  }
+
+  if (cleanState) {
+    if (!cleanCountry) {
+      errors.push('Country is required when state is specified.');
+    } else {
+      const countryMatch = Object.keys(tree).find((c) => c.toLowerCase() === cleanCountry.toLowerCase());
+      const statesObj = (countryMatch && tree[countryMatch]) || {};
+      const stateMatch = Object.keys(statesObj).find((s) => s.toLowerCase() === cleanState.toLowerCase());
+      if (!stateMatch) {
+        errors.push(`Selected state '${cleanState}' does not belong to country '${cleanCountry}'.`);
+      }
+    }
+  }
+
+  if (cleanCity) {
+    if (!cleanState || !cleanCountry) {
+      errors.push('Country and State are required when city is specified.');
+    } else {
+      const countryMatch = Object.keys(tree).find((c) => c.toLowerCase() === cleanCountry.toLowerCase());
+      const statesObj = (countryMatch && tree[countryMatch]) || {};
+      const stateMatch = Object.keys(statesObj).find((s) => s.toLowerCase() === cleanState.toLowerCase());
+      const cities = (stateMatch && statesObj[stateMatch]) || [];
+      const cityMatch = cities.find((c) => c.toLowerCase() === cleanCity.toLowerCase());
+      if (!cityMatch) {
+        errors.push(`Selected city '${cleanCity}' does not belong to state '${cleanState}'.`);
+      }
+    }
+  }
+
+  if (cleanArea) {
+    if (!cleanCity) {
+      errors.push('City is required when area is specified.');
+    } else {
+      const cityMatchKey = Object.keys(locationData.cityAreas || {}).find((c) => c.toLowerCase() === cleanCity.toLowerCase());
+      const cityAreas = (cityMatchKey && locationData.cityAreas[cityMatchKey]) || [];
+      const areaMatch = cityAreas.find((a) => a.toLowerCase() === cleanArea.toLowerCase());
+      if (!areaMatch) {
+        errors.push(`Selected area '${cleanArea}' does not belong to city '${cleanCity}'.`);
+      }
+    }
+  }
+
+  return errors;
+}
 
 function normalizeRole(value) {
   return String(value || '').toLowerCase().replace(/[\s_-]+/g, '');
@@ -249,6 +348,7 @@ async function index(req, res) {
   const adminLocation = await getAssignedUserLocation(currentUser);
   const roles = await roleOptions(currentUser);
   const options = await filterOptions(currentUser);
+  const locationData = await getLocationData();
 
   if (!wantsJson(req)) {
     return res.render('users', {
@@ -258,6 +358,7 @@ async function index(req, res) {
       adminLocation,
       roleOptions: roles,
       filterOptions: options,
+      locationData,
     });
   }
 
@@ -283,6 +384,7 @@ async function index(req, res) {
       adminLocation,
       roleOptions: roles,
       filterOptions: options,
+      locationData,
       ...result,
     });
   } catch (error) {
@@ -327,6 +429,13 @@ async function create(req, res) {
 
   if (errors.length > 0) {
     return res.status(422).json({ success: false, message: 'Validation failed', errors });
+  }
+
+  if (isSuper) {
+    const locErrors = await validateDependentLocation(req.body);
+    if (locErrors.length > 0) {
+      return res.status(422).json({ success: false, message: 'Validation failed', errors: locErrors });
+    }
   }
 
   const location = isSuper ? locationFromRequest(req.body) : { ...adminLocation };
@@ -403,6 +512,13 @@ async function update(req, res) {
     return res.status(403).json({ success: false, message: 'Admins cannot assign Admin or Superadmin roles.' });
   }
   if (errors.length > 0) return res.status(422).json({ success: false, message: 'Validation failed', errors });
+
+  if (isSuper) {
+    const locErrors = await validateDependentLocation(req.body);
+    if (locErrors.length > 0) {
+      return res.status(422).json({ success: false, message: 'Validation failed', errors: locErrors });
+    }
+  }
 
   if (normalizeRole(existingUser.role) === 'superadmin' && existingUser.status === 'active' && cleanText(req.body.status) === 'inactive') {
     const remaining = await User.activeSuperadminCount(id);
