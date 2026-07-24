@@ -454,8 +454,13 @@
       layer.innerHTML = '';
       markers = [];
 
+      // Google Maps renders its editable vertex handles directly on the
+      // polygon. Duplicate HTML markers can drift during projection updates,
+      // so numbered overlay markers are reserved for the fallback map.
+      if (!fallbackMapMode) return;
+
       selectedPath.forEach((point, index) => {
-        const pixel = latLngToMapPixel(point);
+        const pixel = fallbackLatLngToPixel(point);
         if (!pixel) return;
         const marker = document.createElement('span');
         marker.className = 'area-point-marker';
