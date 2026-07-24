@@ -403,8 +403,31 @@ async function activeForDisplay({ platform = 'client_app', page = null, adType =
   return advertisements[0] || null;
 }
 
+async function seedDefaultsIfEmpty() {
+  try {
+    const [countRows] = await pool.query('SELECT COUNT(*)::int AS count FROM advertisements').catch(() => [[]]);
+    const count = Number(countRows && countRows[0] && (countRows[0].count || countRows[0]['count(*)'] || 0));
+
+    if (count === 0) {
+      await pool.query(`
+        INSERT INTO advertisements
+          (title, description, image_path, ad_type, status, target_platforms, target_pages, priority, countdown_seconds)
+        VALUES
+          ('Fresh Grocery Deals & Savings', 'Up to 40% OFF on Fresh Vegetables, Seasonal Fruits & Daily Staples.', '/uploads/advertisements/full-screen-1784294136287.png', 'offer_banner', 'active', '["client_app", "client_website"]', '["home", "all"]', 100, 5),
+          ('Super Savings Week', 'Flat ₹100 Instant Discount on Daily Essentials, Rice, Atta & Spices.', '/uploads/advertisements/test-1783654876226.png', 'page_banner', 'active', '["client_app", "client_website"]', '["home", "all"]', 90, 5),
+          ('Express Doorstep Delivery', 'Superfast Delivery for Milk, Butter, Cheese, Eggs & Fresh Bakery.', '/uploads/advertisements/testd-1783664311586.png', 'in_app_card', 'active', '["client_app", "client_website"]', '["home", "all"]', 80, 5)
+      `).catch((err) => {
+        console.error('Error seeding default advertisements:', err.message);
+      });
+    }
+  } catch (err) {
+    console.error('seedDefaultsIfEmpty failed:', err.message);
+  }
+}
+
 async function activeListForDisplay({ platform = 'client_app', page = null, adType = null, adTypes = null, userId = null, query = {}, limit = 50 } = {}) {
   await expireEnded();
+  await seedDefaultsIfEmpty();
   const normalizedPlatform = normalizeKey(platform || 'client_app');
   if (!PLATFORM_VALUES.includes(normalizedPlatform)) return [];
   const normalizedPage = page ? normalizeKey(page) : null;

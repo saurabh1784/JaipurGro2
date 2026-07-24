@@ -3,6 +3,8 @@ const multer = require('multer');
 const productController = require('../controllers/productController');
 const { uploadProductImage, handleProductImageUploadError } = require('../middleware/productImageUpload');
 
+const productImagesController = require('../controllers/productImagesController');
+
 const router = express.Router();
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -25,6 +27,16 @@ const upload = multer({
     return cb(new Error('Only CSV, Excel, Image (JPG/PNG/WebP), or ZIP files are allowed'));
   },
 });
+
+// Product Images Management Routes
+router.get('/images', productImagesController.getProductImagesPage);
+router.get('/images/api/list', productImagesController.listProductImages);
+router.get('/images/list', productImagesController.listProductImages);
+router.put('/images/:id', uploadProductImage.single('image'), handleProductImageUploadError, productImagesController.replaceProductImage);
+router.post('/images/:id', uploadProductImage.single('image'), handleProductImageUploadError, productImagesController.replaceProductImage);
+router.delete('/images/:id', productImagesController.deleteProductImage);
+router.post('/images/bulk-delete', productImagesController.bulkDeleteProductImages);
+router.delete('/images/bulk-delete', productImagesController.bulkDeleteProductImages);
 
 router.get('/', productController.index);
 router.get('/catalog', productController.catalog);

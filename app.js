@@ -2604,7 +2604,10 @@ function buildShell(user, activePath = '/dashboard') {
     navItem('Roles', '/roles', 'roles.manage', 'roles', activePath.startsWith('/roles')),
     navItem('Clients', '/clients', 'clients.manage', 'clients', activePath.startsWith('/clients')),
     navItem('Vendors', '/vendors', 'vendors.manage', 'vendors', activePath.startsWith('/vendors')),
-    navItem('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products')),
+    navGroup('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products'), [
+      navItem('All Products', '/products', 'products.manage', 'products', activePath === '/products' || (activePath.startsWith('/products') && !activePath.startsWith('/products/images'))),
+      navItem('Product Images', '/products/images', 'products.manage', 'products', activePath.startsWith('/products/images')),
+    ]),
     navItem('Wallets', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
     ...(walletController.isAdminWalletUser(user)
       ? [navItem('Admin Wallet Transactions', '/admin-wallet-transactions', null, 'wallets', activePath.startsWith('/admin-wallet-transactions'))]
@@ -4276,7 +4279,13 @@ app.use('/clients', requireAuth, requirePermission('clients.manage'), clientRout
 app.use('/api/clients', webOrJwtAuth, requireClientManagement, clientRoutes);
 app.use('/vendors', requireAuth, requirePermission('vendors.manage'), vendorRoutes);
 app.use('/api/vendors', webOrJwtAuth, requireVendorManagement, vendorRoutes);
-app.use('/products', requireAuth, requirePermission('products.manage'), productRoutes);
+app.use('/products', requireAuth, requirePermission('products.manage'), (req, res, next) => {
+  if (req.session && req.session.user) {
+    req.shell = buildShell(req.session.user, req.originalUrl || req.path);
+    res.locals.shell = req.shell;
+  }
+  next();
+}, productRoutes);
 app.use('/api/products', webOrJwtAuth, requireProductManagement, productRoutes);
 
 app.get('/vendor-products/client-visible', requireAuth, requireSessionRole('Client', '/login/client'), async (req, res) => {
