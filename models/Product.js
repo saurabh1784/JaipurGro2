@@ -329,15 +329,60 @@ async function updateApprovalStatus(id, { status, actor_id, rejection_reason }) 
 }
 
 async function softDelete(id) {
-  await pool.query('UPDATE products SET is_deleted = 1 WHERE id = ?', [id]);
+  const numId = parseInt(id, 10);
+  if (!numId) return { deletedCount: 0, deletedImageFiles: 0 };
+
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM vendor_products WHERE product_id = ?', [numId]).catch(() => {});
+    await conn.query('DELETE FROM sponsored_products WHERE product_id = ?', [numId]).catch(() => {});
+    await conn.query('DELETE FROM product_ranking_scores WHERE product_id = ?', [numId]).catch(() => {});
+    await conn.query('DELETE FROM product_keywords WHERE product_id = ?', [numId]).catch(() => {});
+    const [result] = await conn.query('UPDATE products SET is_deleted = 1 WHERE id = ?', [numId]);
+    await conn.commit();
+
+    const imageStats = await cleanupProductImages([numId]);
+    return {
+      deletedCount: result.affectedRows || result.rowCount || 1,
+      deletedImageFiles: imageStats.deletedFilesCount,
+    };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
 }
 
 async function bulkSoftDelete(ids = []) {
   const validIds = [...new Set([].concat(ids || []).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0))];
-  if (!validIds.length) return 0;
+  if (!validIds.length) return { deletedCount: 0, deletedImageFiles: 0 };
+
   const placeholders = validIds.map(() => '?').join(',');
-  const [result] = await pool.query(`UPDATE products SET is_deleted = 1 WHERE id IN (${placeholders})`, validIds);
-  return result.affectedRows || result.rowCount || validIds.length;
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query(`DELETE FROM vendor_products WHERE product_id IN (${placeholders})`, validIds).catch(() => {});
+    await conn.query(`DELETE FROM sponsored_products WHERE product_id IN (${placeholders})`, validIds).catch(() => {});
+    await conn.query(`DELETE FROM product_ranking_scores WHERE product_id IN (${placeholders})`, validIds).catch(() => {});
+    await conn.query(`DELETE FROM product_keywords WHERE product_id IN (${placeholders})`, validIds).catch(() => {});
+    const [result] = await conn.query(`UPDATE products SET is_deleted = 1 WHERE id IN (${placeholders})`, validIds);
+    await conn.commit();
+
+    const imageStats = await cleanupProductImages(validIds);
+    const deletedCount = result.affectedRows || result.rowCount || validIds.length;
+
+    return {
+      deletedCount,
+      deletedImageFiles: imageStats.deletedFilesCount,
+    };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
 }
 
  async function listApproved(limit = 100, categoryIds = null) {
@@ -415,8 +460,12 @@ async function cleanProducts() {
     await conn.query('DELETE FROM vendor_products');
     const [result] = await conn.query('DELETE FROM products');
     await conn.commit();
+
+    const imageStats = await cleanupProductImages(null);
+
     return {
       deletedProducts: result.affectedRows || result.rowCount || 0,
+      deletedImageFiles: imageStats.deletedFilesCount,
     };
   } catch (error) {
     await conn.rollback();

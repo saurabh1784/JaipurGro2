@@ -266,6 +266,8 @@ async function deleteBrand(id) {
   await pool.query("UPDATE brands SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE id = ?", [id]);
 }
 
+const { cleanupProductImages } = require('../services/imageProcessingService');
+
 async function cleanBrands() {
   const conn = await pool.getConnection();
   try {
@@ -285,9 +287,13 @@ async function cleanBrands() {
     const [brandResult] = await conn.query('DELETE FROM brands');
     await conn.commit();
     invalidateCatalogCache();
+
+    const imageStats = await cleanupProductImages(null);
+
     return {
       deletedProducts: prodResult.affectedRows || prodResult.rowCount || 0,
       deletedBrands: brandResult.affectedRows || brandResult.rowCount || 0,
+      deletedImageFiles: imageStats.deletedFilesCount,
     };
   } catch (error) {
     await conn.rollback();
@@ -317,10 +323,14 @@ async function cleanSubcategories() {
     const [subResult] = await conn.query('DELETE FROM sub_categories');
     await conn.commit();
     invalidateCatalogCache();
+
+    const imageStats = await cleanupProductImages(null);
+
     return {
       deletedProducts: prodResult.affectedRows || prodResult.rowCount || 0,
       deletedBrands: brandResult.affectedRows || brandResult.rowCount || 0,
       deletedSubcategories: subResult.affectedRows || subResult.rowCount || 0,
+      deletedImageFiles: imageStats.deletedFilesCount,
     };
   } catch (error) {
     await conn.rollback();

@@ -240,11 +240,12 @@
   </main>
 
   <div class="user-modal" id="deleteModal" aria-hidden="true">
-    <div class="confirm-card">
-      <h2>Are you sure?</h2>
-      <div class="confirm-actions">
-        <button type="button" id="confirmDeleteYes">Yes</button>
-        <button type="button" id="confirmDeleteNo">No</button>
+    <div class="confirm-card" style="padding: 24px; max-width: 440px; border-radius: 16px;">
+      <h2 style="margin: 0; color: #0f172a; font-size: 1.25rem;">Delete Product & Images?</h2>
+      <p style="margin: 12px 0 20px; color: #475569; font-size: 0.95rem; line-height: 1.5;">Are you sure you want to permanently delete this product and all associated image files from the server?</p>
+      <div class="confirm-actions" style="display: flex; gap: 10px; justify-content: flex-end;">
+        <button type="button" id="confirmDeleteYes" style="background: #dc2626; color: #ffffff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer;">Delete Product & Images</button>
+        <button type="button" id="confirmDeleteNo" style="background: #f1f5f9; color: #475569; border: 1px solid #cbd5e1; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer;">Cancel</button>
       </div>
     </div>
   </div>
@@ -464,7 +465,7 @@
     async function deleteSelectedProducts() {
       const ids = Array.from(selectedProductIds);
       if (!ids.length) return;
-      if (!confirm(`Are you sure you want to delete ${ids.length} selected product(s) from the database?`)) return;
+      if (!confirm(`Are you sure you want to permanently delete ${ids.length} selected product(s) and all their associated image files from the server?`)) return;
 
       try {
         const response = await fetch('/products/bulk-delete', {

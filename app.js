@@ -3522,7 +3522,7 @@ app.post('/admin/maintenance/clean-products', requireAuth, requireSuperAdmin, as
   const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
   try {
     const result = await Product.cleanProducts();
-    const detail = `Products table cleaned successfully. Deleted ${result.deletedProducts} product(s) and all linked vendor products.`;
+    const detail = `Products table cleaned successfully. Deleted ${result.deletedProducts} product(s), linked vendor products, and ${result.deletedImageFiles || 0} image file(s) from server.`;
     if (wantsJson) {
       return res.json({ success: true, message: detail, result });
     }
@@ -3540,7 +3540,7 @@ app.post('/admin/maintenance/clean-subcategories', requireAuth, requireSuperAdmi
   const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
   try {
     const result = await Catalog.cleanSubcategories();
-    const detail = `SubCategories table cleaned successfully. Deleted ${result.deletedSubcategories} subcategory(ies), ${result.deletedBrands} brand(s), ${result.deletedProducts} product(s) and all linked vendor products.`;
+    const detail = `SubCategories table cleaned successfully. Deleted ${result.deletedSubcategories} subcategory(ies), ${result.deletedBrands} brand(s), ${result.deletedProducts} product(s), and ${result.deletedImageFiles || 0} product image file(s) from server.`;
     if (wantsJson) {
       return res.json({ success: true, message: detail, result });
     }
@@ -3558,7 +3558,7 @@ app.post('/admin/maintenance/clean-brands', requireAuth, requireSuperAdmin, asyn
   const wantsJson = requestWantsJson(req) || (req.get('accept') || '').includes('application/json');
   try {
     const result = await Catalog.cleanBrands();
-    const detail = `Brands table cleaned successfully. Deleted ${result.deletedBrands} brand(s), ${result.deletedProducts} product(s) and all linked vendor products.`;
+    const detail = `Brands table cleaned successfully. Deleted ${result.deletedBrands} brand(s), ${result.deletedProducts} product(s), and ${result.deletedImageFiles || 0} product image file(s) from server.`;
     if (wantsJson) {
       return res.json({ success: true, message: detail, result });
     }

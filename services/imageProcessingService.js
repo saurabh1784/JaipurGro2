@@ -96,10 +96,170 @@ function deleteLocalImageFile(relativeUrl) {
   return false;
 }
 
+async function cleanupProductImages(productIds = null, poolConnection = null) {
+  const pool = require('../db');
+  const conn = poolConnection || pool;
+
+  const stats = {
+    deletedFilesCount: 0,
+    missingFilesCount: 0,
+    skippedSharedCount: 0,
+  };
+
+  try {
+    const candidateUrls = new Set();
+    const isWipeAll = !productIds || (Array.isArray(productIds) && productIds.length === 0);
+
+    if (isWipeAll) {
+      const [prodRows] = await conn.query('SELECT image_url FROM products WHERE image_url IS NOT NULL AND TRIM(image_url) <> \'\'').catch(() => [[]]);
+      const [vendorRows] = await conn.query('SELECT image_url, vendor_image_url, product_image_url FROM vendor_products').catch(() => [[]]);
+
+      (prodRows || []).forEach((row) => { if (row.image_url) candidateUrls.add(String(row.image_url).trim()); });
+      (vendorRows || []).forEach((row) => {
+        if (row.image_url) candidateUrls.add(String(row.image_url).trim());
+        if (row.vendor_image_url) candidateUrls.add(String(row.vendor_image_url).trim());
+        if (row.product_image_url) candidateUrls.add(String(row.product_image_url).trim());
+      });
+
+      const productUploadsDir = path.join(publicRoot, 'uploads', 'products');
+      if (fs.existsSync(productUploadsDir)) {
+        const scanDir = (dirPath, relativePrefix) => {
+          const items = fs.readdirSync(dirPath);
+          for (const item of items) {
+            const itemFullPath = path.join(dirPath, item);
+            const itemRelative = `${relativePrefix}/${item}`;
+            const stat = fs.statSync(itemFullPath);
+            if (stat.isFile()) {
+              candidateUrls.add(itemRelative);
+            } else if (stat.isDirectory()) {
+              scanDir(itemFullPath, itemRelative);
+            }
+          }
+        };
+        scanDir(productUploadsDir, '/uploads/products');
+      }
+    } else {
+      const validIds = [...new Set([].concat(productIds).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0))];
+      if (!validIds.length) return stats;
+
+      const placeholders = validIds.map(() => '?').join(',');
+      const [prodRows] = await conn.query(`SELECT image_url FROM products WHERE id IN (${placeholders})`, validIds).catch(() => [[]]);
+      const [vendorRows] = await conn.query(`SELECT image_url, vendor_image_url, product_image_url FROM vendor_products WHERE product_id IN (${placeholders})`, validIds).catch(() => [[]]);
+
+      (prodRows || []).forEach((row) => { if (row.image_url) candidateUrls.add(String(row.image_url).trim()); });
+      (vendorRows || []).forEach((row) => {
+        if (row.image_url) candidateUrls.add(String(row.image_url).trim());
+        if (row.vendor_image_url) candidateUrls.add(String(row.vendor_image_url).trim());
+        if (row.product_image_url) candidateUrls.add(String(row.product_image_url).trim());
+      });
+    }
+
+    const filteredCandidates = [];
+    for (const rawUrl of candidateUrls) {
+      if (!rawUrl || typeof rawUrl !== 'string') continue;
+      const cleanUrl = rawUrl.trim();
+      const lower = cleanUrl.toLowerCase();
+
+      if (lower === '/default.png' || lower === 'default.png' || lower.includes('placeholder')) {
+        continue;
+      }
+      if (!cleanUrl.startsWith('/uploads/products/') && !cleanUrl.startsWith('uploads/products/')) {
+        continue;
+      }
+      filteredCandidates.push(cleanUrl.startsWith('/') ? cleanUrl : `/${cleanUrl}`);
+    }
+
+    const protectedUrls = new Set();
+    const [catRows] = await conn.query('SELECT image_path FROM categories WHERE image_path IS NOT NULL AND TRIM(image_path) <> \'\'').catch(() => [[]]);
+    const [subCatRows] = await conn.query('SELECT image_path FROM sub_categories WHERE image_path IS NOT NULL AND TRIM(image_path) <> \'\'').catch(() => [[]]);
+    const [brandRows] = await conn.query('SELECT logo_path FROM brands WHERE logo_path IS NOT NULL AND TRIM(logo_path) <> \'\'').catch(() => [[]]);
+    const [adRows] = await conn.query('SELECT image_path FROM advertisements WHERE image_path IS NOT NULL AND TRIM(image_path) <> \'\'').catch(() => [[]]);
+    const [promoRows] = await conn.query('SELECT image_url FROM promotions WHERE image_url IS NOT NULL AND TRIM(image_url) <> \'\'').catch(() => [[]]);
+
+    [catRows, subCatRows, brandRows, adRows, promoRows].forEach((rows) => {
+      (rows || []).forEach((r) => {
+        const val = r.image_path || r.logo_path || r.image_url;
+        if (val) protectedUrls.add(String(val).trim());
+      });
+    });
+
+    const remainingActiveProdUrls = new Set();
+    if (!isWipeAll && productIds && productIds.length) {
+      const validIds = [...new Set([].concat(productIds).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0))];
+      const placeholders = validIds.map(() => '?').join(',');
+
+      const [activeProds] = await conn.query(`SELECT image_url FROM products WHERE is_deleted = 0 AND id NOT IN (${placeholders}) AND image_url IS NOT NULL`, validIds).catch(() => [[]]);
+      const [activeVendors] = await conn.query(`SELECT image_url, vendor_image_url, product_image_url FROM vendor_products WHERE product_id NOT IN (${placeholders})`, validIds).catch(() => [[]]);
+
+      (activeProds || []).forEach((row) => { if (row.image_url) remainingActiveProdUrls.add(String(row.image_url).trim()); });
+      (activeVendors || []).forEach((row) => {
+        if (row.image_url) remainingActiveProdUrls.add(String(row.image_url).trim());
+        if (row.vendor_image_url) remainingActiveProdUrls.add(String(row.vendor_image_url).trim());
+        if (row.product_image_url) remainingActiveProdUrls.add(String(row.product_image_url).trim());
+      });
+    }
+
+    const productsUploadDir = path.join(publicRoot, 'uploads', 'products');
+
+    for (const url of filteredCandidates) {
+      if (protectedUrls.has(url) || remainingActiveProdUrls.has(url)) {
+        stats.skippedSharedCount++;
+        continue;
+      }
+
+      const relativePath = url.replace(/^\//, '');
+      const fullPath = path.join(publicRoot, relativePath);
+
+      if (!fullPath.startsWith(productsUploadDir)) {
+        stats.skippedSharedCount++;
+        continue;
+      }
+
+      try {
+        if (fs.existsSync(fullPath)) {
+          fs.unlinkSync(fullPath);
+          stats.deletedFilesCount++;
+        } else {
+          console.warn(`[ProductImageCleanup] Image file already missing on server: ${fullPath}`);
+          stats.missingFilesCount++;
+        }
+      } catch (err) {
+        console.error(`[ProductImageCleanup] Failed to unlink file ${fullPath}:`, err.message);
+      }
+    }
+
+    if (fs.existsSync(productsUploadDir)) {
+      try {
+        const removeEmptyDirs = (dirPath) => {
+          const items = fs.readdirSync(dirPath);
+          for (const item of items) {
+            const itemPath = path.join(dirPath, item);
+            if (fs.existsSync(itemPath) && fs.statSync(itemPath).isDirectory()) {
+              removeEmptyDirs(itemPath);
+              if (fs.readdirSync(itemPath).length === 0) {
+                fs.rmdirSync(itemPath);
+              }
+            }
+          }
+        };
+        removeEmptyDirs(productsUploadDir);
+      } catch (err) {
+        console.error('[ProductImageCleanup] Error cleaning empty subfolders:', err.message);
+      }
+    }
+
+  } catch (error) {
+    console.error('[ProductImageCleanup] Error during product image cleanup:', error);
+  }
+
+  return stats;
+}
+
 module.exports = {
   presets,
   processImageBuffer,
   processUploadedFile,
   deleteLocalImageFile,
+  cleanupProductImages,
 };
 

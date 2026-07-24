@@ -313,8 +313,14 @@ async function destroy(req, res) {
     return res.status(404).json({ success: false, message: 'Product not found' });
   }
 
-  await Product.softDelete(id);
-  return res.json({ success: true, message: 'Product deleted' });
+  const result = await Product.softDelete(id);
+  refreshVisibleProductsCache();
+  const imgText = result && result.deletedImageFiles ? ` and ${result.deletedImageFiles} linked image file(s) cleaned from server` : '';
+  return res.json({
+    success: true,
+    message: `Product deleted successfully${imgText}`,
+    result,
+  });
 }
 
 async function bulkDeleteProducts(req, res) {
@@ -324,11 +330,16 @@ async function bulkDeleteProducts(req, res) {
   }
 
   try {
-    const deletedCount = await Product.bulkSoftDelete(ids);
+    const result = await Product.bulkSoftDelete(ids);
+    refreshVisibleProductsCache();
+    const count = typeof result === 'object' ? result.deletedCount : result;
+    const imgCount = typeof result === 'object' ? result.deletedImageFiles : 0;
+    const imgText = imgCount ? ` and ${imgCount} linked image file(s) cleaned from server` : '';
     return res.json({
       success: true,
-      message: `${deletedCount} product(s) deleted successfully`,
-      deletedCount,
+      message: `${count} product(s) deleted successfully${imgText}`,
+      deletedCount: count,
+      deletedImageFiles: imgCount,
     });
   } catch (error) {
     console.error('Bulk delete products error:', error);
