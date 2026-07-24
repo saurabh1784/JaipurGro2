@@ -429,6 +429,27 @@ async function remove(id) {
   invalidateVisibleProductsCache();
 }
 
+async function bulkRemove(ids, vendorId) {
+  if (!Array.isArray(ids) || ids.length === 0) return 0;
+  const validIds = ids.map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0);
+  if (validIds.length === 0) return 0;
+
+  const placeholders = validIds.map(() => '?').join(',');
+  const params = [...validIds];
+  let vendorSql = '';
+  if (vendorId) {
+    vendorSql = ' AND vendor_id = ?';
+    params.push(vendorId);
+  }
+
+  const [result] = await pool.query(
+    `DELETE FROM vendor_products WHERE id IN (${placeholders})${vendorSql}`,
+    params
+  );
+  invalidateVisibleProductsCache();
+  return Number(result.affectedRows || result.rowCount || 0);
+}
+
 async function setClientPrice({ product_id, vendor_id, client_id, custom_price }) {
   const productId = toPositiveInt(product_id);
   const vendorId = toPositiveInt(vendor_id);
@@ -754,6 +775,7 @@ module.exports = {
   resubmitProductRequest,
   update,
   remove,
+  bulkRemove,
   setClientPrice,
   deleteClientPrice,
   ensureAllProductsForAllVendors,

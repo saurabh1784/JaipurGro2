@@ -263,6 +263,25 @@ async function destroy(req, res) {
   return res.json({ success: true, message: 'Vendor product deleted' });
 }
 
+async function bulkDestroy(req, res) {
+  if (!isVendor(req.authUser) && !isAdminLike(req.authUser)) {
+    return res.status(403).json({ success: false, message: 'Only vendors or authorized users can delete vendor products' });
+  }
+
+  const ids = Array.isArray(req.body.ids) ? req.body.ids : (req.body.id ? [req.body.id] : []);
+  if (!ids.length) {
+    return res.status(422).json({ success: false, message: 'No product IDs specified for deletion' });
+  }
+
+  const vendorId = isVendor(req.authUser) ? req.authUser.id : (req.body.vendor_id || null);
+  const deletedCount = await VendorProduct.bulkRemove(ids, vendorId);
+  return res.json({
+    success: true,
+    message: `${deletedCount} product(s) deleted successfully`,
+    deleted_count: deletedCount,
+  });
+}
+
 async function updateInventoryPrice(req, res) {
   return update(req, res);
 }
@@ -421,6 +440,7 @@ module.exports = {
   resubmitProductRequest,
   update,
   destroy,
+  bulkDestroy,
   updateInventoryPrice,
   setClientPrice,
   deleteClientPrice,

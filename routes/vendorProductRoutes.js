@@ -14,6 +14,8 @@ router.get('/client-visible/suggestions', vendorProductController.suggestions);
 router.post('/client-visible/activity', vendorProductController.trackActivity);
 router.post('/products/:productId/approve', vendorProductController.approveProduct);
 router.post('/products/:productId/reject', vendorProductController.rejectProduct);
+router.post('/bulk-delete', vendorProductController.bulkDestroy);
+router.delete('/bulk', vendorProductController.bulkDestroy);
 router.get('/:id', vendorProductController.show);
 router.put('/:id', vendorProductController.update);
 router.put('/:id/inventory-price', vendorProductController.updateInventoryPrice);

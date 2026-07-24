@@ -70,6 +70,19 @@
         </select>
       </div>
 
+      <div class="bulk-actions-bar" id="bulkActionsBar" style="display: none;">
+        <label class="bulk-select-all-label">
+          <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)" />
+          <span>Select All</span>
+        </label>
+        <span class="selected-count-text" id="selectedCountText">0 selected</span>
+        <button type="button" class="btn-bulk-delete" onclick="bulkDeleteSelected()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          Delete Selected (<span id="selectedCountNumber">0</span>)
+        </button>
+        <button type="button" class="btn-clear-selection" onclick="clearSelection()">Clear Selection</button>
+      </div>
+
       <div id="products-container">
         <% if (products.length === 0) { %>
           <div class="empty-state">
@@ -79,6 +92,9 @@
           <div class="products-grid" id="products-grid">
             <% products.forEach(function(product) { %>
               <div class="product-card" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>">
+                <div class="product-card-checkbox">
+                  <input type="checkbox" class="product-select-checkbox" data-id="<%= product.id %>" onchange="onProductSelectChange(event)" />
+                </div>
                 <img class="product-thumb-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
                 <div class="product-info">
                   <h3 class="product-name"><%= product.product_name %></h3>
@@ -127,6 +143,9 @@
           <div class="products-list" id="products-list" style="display:none">
             <% products.forEach(function(product) { %>
               <div class="product-row" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>">
+                <div class="product-row-checkbox">
+                  <input type="checkbox" class="product-select-checkbox" data-id="<%= product.id %>" onchange="onProductSelectChange(event)" />
+                </div>
                 <img class="product-row-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
                 <div class="product-row-info">
                   <h3 class="product-row-name"><%= product.product_name %></h3>
@@ -183,15 +202,26 @@
       </div>
       <form id="productForm" class="user-modal-grid">
         <input type="hidden" id="vendorProductId" />
-        <label>
-          Product
-          <select id="productId" required>
-            <option value="">Select Product</option>
-            <% approvedProducts.forEach(function(p) { %>
-              <option value="<%= p.id %>"><%= p.name %> (<%= p.category_name %> - <%= p.brand_name %>)</option>
-            <% }); %>
-          </select>
-        </label>
+        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
+          <label style="font-weight: 600; color: #334155;">Select Master Product</label>
+          <input type="hidden" id="productId" required />
+          <div class="searchable-product-picker">
+            <input
+              type="text"
+              id="productSearchInput"
+              class="product-picker-search-input"
+              placeholder="🔍 Search approved products by name, category, brand..."
+              oninput="filterApprovedProducts(this.value)"
+              onfocus="showApprovedProductsDropdown()"
+              autocomplete="off"
+            />
+            <div id="productSelectedBadge" class="product-selected-badge" style="display:none;">
+              <span id="productSelectedName"></span>
+              <button type="button" class="btn-clear-product" onclick="clearSelectedProduct()">Change</button>
+            </div>
+            <div id="productPickerDropdown" class="product-picker-dropdown" style="display:none;"></div>
+          </div>
+        </div>
         <label>
           Price (₹)
           <input type="number" id="price" step="0.01" min="0" required />
@@ -284,6 +314,195 @@
   </div>
 
   <style>
+    /* Bulk Actions Bar */
+    .bulk-actions-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+      flex-wrap: wrap;
+    }
+    .bulk-select-all-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #1e40af;
+      cursor: pointer;
+      user-select: none;
+    }
+    .bulk-select-all-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #2563eb;
+    }
+    .selected-count-text {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #1d4ed8;
+      background: #dbeafe;
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    .btn-bulk-delete {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      background: #dc2626;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn-bulk-delete:hover {
+      background: #b91c1c;
+    }
+    .btn-clear-selection {
+      padding: 6px 12px;
+      background: transparent;
+      color: #4b5563;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-clear-selection:hover {
+      background: #f3f4f6;
+    }
+
+    /* Product Card & Row Checkboxes */
+    .product-card {
+      position: relative;
+    }
+    .product-card-checkbox {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 5;
+    }
+    .product-card-checkbox input[type="checkbox"],
+    .product-row-checkbox input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+      accent-color: #2563eb;
+    }
+    .product-row {
+      grid-template-columns: 32px 64px 3fr 2fr 1fr 1fr 100px;
+    }
+
+    /* Searchable Product Picker */
+    .searchable-product-picker {
+      position: relative;
+      width: 100%;
+    }
+    .product-picker-search-input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      background: #fff;
+    }
+    .product-picker-search-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    .product-selected-badge {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #166534;
+    }
+    .btn-clear-product {
+      padding: 4px 8px;
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #86efac;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .product-picker-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      max-height: 250px;
+      overflow-y: auto;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+      z-index: 100;
+      margin-top: 4px;
+    }
+    .product-picker-option {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .product-picker-option:last-child {
+      border-bottom: none;
+    }
+    .product-picker-option:hover {
+      background: #f8fafc;
+    }
+    .product-picker-option-thumb {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+    }
+    .product-picker-option-details {
+      flex: 1;
+      min-width: 0;
+    }
+    .product-picker-option-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .product-picker-option-meta {
+      font-size: 0.76rem;
+      color: #64748b;
+    }
+    .product-picker-option-price {
+      font-size: 0.9rem;
+      font-weight: 800;
+      color: #059669;
+    }
+
     .products-section { padding: 0; }
     .products-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
     .products-header h2 { margin: 0; color: #4f5963; }
@@ -543,6 +762,8 @@
 
   <script>
     let vendorProducts = <%- JSON.stringify(products || []) %>;
+    let selectedProductIds = new Set();
+    const approvedProductsList = <%- JSON.stringify(approvedProducts || []) %>;
     const catalog = {
       subcategories: <%- JSON.stringify(subcategories || []) %>,
       brands: <%- JSON.stringify(brands || []) %>,
@@ -658,6 +879,152 @@
       `;
     }
 
+    /* Multi-select and Bulk Delete Functions */
+    function onProductSelectChange(e) {
+      const id = Number(e.target.dataset.id);
+      if (e.target.checked) {
+        selectedProductIds.add(id);
+      } else {
+        selectedProductIds.delete(id);
+      }
+      document.querySelectorAll(`.product-select-checkbox[data-id="${id}"]`).forEach((cb) => {
+        cb.checked = e.target.checked;
+      });
+      updateBulkActionsBar();
+    }
+
+    function toggleSelectAll(checked) {
+      document.querySelectorAll('.product-select-checkbox').forEach((cb) => {
+        const id = Number(cb.dataset.id);
+        cb.checked = checked;
+        if (checked) {
+          selectedProductIds.add(id);
+        } else {
+          selectedProductIds.delete(id);
+        }
+      });
+      updateBulkActionsBar();
+    }
+
+    function clearSelection() {
+      selectedProductIds.clear();
+      document.querySelectorAll('.product-select-checkbox').forEach((cb) => cb.checked = false);
+      const selectAll = document.getElementById('selectAllCheckbox');
+      if (selectAll) selectAll.checked = false;
+      updateBulkActionsBar();
+    }
+
+    function updateBulkActionsBar() {
+      const bar = document.getElementById('bulkActionsBar');
+      const countNum = document.getElementById('selectedCountNumber');
+      const countText = document.getElementById('selectedCountText');
+      const selectAll = document.getElementById('selectAllCheckbox');
+      const count = selectedProductIds.size;
+
+      if (count > 0) {
+        bar.style.display = 'flex';
+        if (countNum) countNum.textContent = count;
+        if (countText) countText.textContent = `${count} selected`;
+      } else {
+        bar.style.display = 'none';
+      }
+
+      const visibleCheckboxes = document.querySelectorAll('.product-select-checkbox');
+      if (visibleCheckboxes.length > 0 && selectAll) {
+        selectAll.checked = Array.from(visibleCheckboxes).every((cb) => cb.checked);
+      }
+    }
+
+    async function bulkDeleteSelected() {
+      const count = selectedProductIds.size;
+      if (count === 0) return;
+      const confirmed = window.confirm(`Delete ${count} selected product(s) from your vendor products list?`);
+      if (!confirmed) return;
+
+      const ids = Array.from(selectedProductIds);
+      const response = await fetch('/vendor-products/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to delete selected products');
+        return;
+      }
+      alert(data.message || `${data.deleted_count || count} product(s) deleted successfully`);
+      selectedProductIds.clear();
+      await loadProducts();
+    }
+
+    /* Searchable Approved Product Picker */
+    function renderApprovedProductsPicker(query = '') {
+      const dropdown = document.getElementById('productPickerDropdown');
+      if (!dropdown) return;
+      const q = String(query || '').trim().toLowerCase();
+      const filtered = approvedProductsList.filter((p) => {
+        if (!q) return true;
+        const name = String(p.name || '').toLowerCase();
+        const category = String(p.category_name || '').toLowerCase();
+        const brand = String(p.brand_name || '').toLowerCase();
+        return name.includes(q) || category.includes(q) || brand.includes(q);
+      });
+
+      if (!filtered.length) {
+        dropdown.innerHTML = '<div style="padding:12px; color:#64748b; font-size:0.85rem; text-align:center;">No matching approved products found</div>';
+        return;
+      }
+
+      dropdown.innerHTML = filtered.map((p) => `
+        <div class="product-picker-option" onclick="onSelectApprovedProduct(${p.id})">
+          <img class="product-picker-option-thumb" src="${escapeHtml(p.image_url || '/default.png')}" alt="${escapeHtml(p.name)}" />
+          <div class="product-picker-option-details">
+            <div class="product-picker-option-title">${escapeHtml(p.name)}</div>
+            <div class="product-picker-option-meta">${escapeHtml(p.category_name || '')} &bull; ${escapeHtml(p.brand_name || '')}</div>
+          </div>
+          <div class="product-picker-option-price">₹${Number(p.price || 0).toFixed(2)}</div>
+        </div>
+      `).join('');
+    }
+
+    function showApprovedProductsDropdown() {
+      const dropdown = document.getElementById('productPickerDropdown');
+      const input = document.getElementById('productSearchInput');
+      if (dropdown) dropdown.style.display = 'block';
+      renderApprovedProductsPicker(input ? input.value : '');
+    }
+
+    function filterApprovedProducts(val) {
+      const dropdown = document.getElementById('productPickerDropdown');
+      if (dropdown) dropdown.style.display = 'block';
+      renderApprovedProductsPicker(val);
+    }
+
+    function onSelectApprovedProduct(id) {
+      const p = approvedProductsList.find((item) => Number(item.id) === Number(id));
+      if (!p) return;
+      document.getElementById('productId').value = p.id;
+      document.getElementById('productSelectedName').textContent = `${p.name} (${p.category_name || ''} - ${p.brand_name || ''})`;
+      document.getElementById('productSelectedBadge').style.display = 'flex';
+      document.getElementById('productSearchInput').style.display = 'none';
+      document.getElementById('productPickerDropdown').style.display = 'none';
+
+      const priceInput = document.getElementById('price');
+      if (priceInput && (!priceInput.value || Number(priceInput.value) === 0)) {
+        priceInput.value = Number(p.price || 0).toFixed(2);
+      }
+    }
+
+    function clearSelectedProduct() {
+      document.getElementById('productId').value = '';
+      document.getElementById('productSelectedBadge').style.display = 'none';
+      const input = document.getElementById('productSearchInput');
+      input.style.display = 'block';
+      input.value = '';
+      input.focus();
+      showApprovedProductsDropdown();
+    }
+
     function renderProducts() {
       const container = document.getElementById('products-container');
       if (!document.getElementById('products-grid') || !document.getElementById('products-list')) {
@@ -668,6 +1035,9 @@
 
       grid.innerHTML = vendorProducts.map((product) => `
         <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}">
+          <div class="product-card-checkbox">
+            <input type="checkbox" class="product-select-checkbox" data-id="${product.id}" ${selectedProductIds.has(Number(product.id)) ? 'checked' : ''} onchange="onProductSelectChange(event)" />
+          </div>
           <img class="product-thumb-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
           <div class="product-info">
             <h3 class="product-name">${escapeHtml(product.product_name)}</h3>
@@ -689,6 +1059,9 @@
 
       list.innerHTML = vendorProducts.map((product) => `
         <div class="product-row" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}">
+          <div class="product-row-checkbox">
+            <input type="checkbox" class="product-select-checkbox" data-id="${product.id}" ${selectedProductIds.has(Number(product.id)) ? 'checked' : ''} onchange="onProductSelectChange(event)" />
+          </div>
           <img class="product-row-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
           <div class="product-row-info">
             <h3 class="product-row-name">${escapeHtml(product.product_name)}</h3>
@@ -711,6 +1084,7 @@
         grid.innerHTML = '<div class="empty-state"><p>No products found.</p></div>';
         list.innerHTML = '<div class="empty-state"><p>No products found.</p></div>';
       }
+      updateBulkActionsBar();
     }
 
     async function loadProducts() {
@@ -736,6 +1110,15 @@
       if (reset) {
         document.getElementById('productForm').reset();
         document.getElementById('vendorProductId').value = '';
+        document.getElementById('productId').value = '';
+        document.getElementById('productSelectedBadge').style.display = 'none';
+        const searchInput = document.getElementById('productSearchInput');
+        if (searchInput) {
+          searchInput.style.display = 'block';
+          searchInput.value = '';
+        }
+        const dropdown = document.getElementById('productPickerDropdown');
+        if (dropdown) dropdown.style.display = 'none';
         document.getElementById('productModalTitle').textContent = 'Add Product';
       }
     }
@@ -758,6 +1141,7 @@
       }
 
       vendorProducts = vendorProducts.filter((product) => Number(product.id) !== Number(id));
+      selectedProductIds.delete(Number(id));
       renderProducts();
     }
 
@@ -788,6 +1172,7 @@
       product.quantity = data.vendor_product && data.vendor_product.quantity !== undefined ? data.vendor_product.quantity : product.quantity;
       if (product.status !== 'active') {
         vendorProducts = vendorProducts.filter((item) => Number(item.id) !== Number(id));
+        selectedProductIds.delete(Number(id));
       }
       renderProducts();
     }
@@ -842,7 +1227,7 @@
     }
 
     function openEditModal(id) {
-      const product = vendorProducts.find(p => p.id === id);
+      const product = vendorProducts.find(p => Number(p.id) === Number(id));
       if (!product) return;
       document.getElementById('vendorProductId').value = product.id;
       document.getElementById('productId').value = product.product_id;
@@ -850,6 +1235,12 @@
       document.getElementById('quantity').value = product.quantity;
       document.getElementById('status').value = product.status;
       document.getElementById('productModalTitle').textContent = 'Edit Product';
+
+      document.getElementById('productSelectedName').textContent = `${product.product_name} (${product.category_name || ''} - ${product.brand_name || ''})`;
+      document.getElementById('productSelectedBadge').style.display = 'flex';
+      document.getElementById('productSearchInput').style.display = 'none';
+      document.getElementById('productPickerDropdown').style.display = 'none';
+
       openModal(false);
     }
 
@@ -861,14 +1252,12 @@
       const gridIcon = document.getElementById('gridIcon');
 
       if (grid.style.display === 'none') {
-        // Switch to grid view
         grid.style.display = 'grid';
         list.style.display = 'none';
         toggleBtn.classList.add('active');
         listIcon.style.display = 'none';
         gridIcon.style.display = 'block';
       } else {
-        // Switch to list view
         grid.style.display = 'none';
         list.style.display = 'flex';
         toggleBtn.classList.remove('active');
@@ -947,8 +1336,13 @@
     document.getElementById('productForm').addEventListener('submit', async (e) => {
       e.preventDefault();
       const id = document.getElementById('vendorProductId').value;
+      const productIdVal = document.getElementById('productId').value;
+      if (!productIdVal) {
+        alert('Please search and select a master product from the list');
+        return;
+      }
       const payload = {
-        product_id: document.getElementById('productId').value,
+        product_id: productIdVal,
         price: document.getElementById('price').value,
         status: document.getElementById('status').value,
       };
@@ -969,12 +1363,29 @@
       }
     });
 
+    document.addEventListener('click', (e) => {
+      const picker = document.querySelector('.searchable-product-picker');
+      if (picker && !picker.contains(e.target)) {
+        const dropdown = document.getElementById('productPickerDropdown');
+        if (dropdown) dropdown.style.display = 'none';
+      }
+    });
+
     window.openEditModal = openEditModal;
     window.deleteVendorProduct = deleteVendorProduct;
     window.toggleVendorProductStatus = toggleVendorProductStatus;
     window.setVendorProductAvailability = setVendorProductAvailability;
     window.saveProductQuantity = saveProductQuantity;
     window.closeProductRequestModal = closeProductRequestModal;
+    window.onProductSelectChange = onProductSelectChange;
+    window.toggleSelectAll = toggleSelectAll;
+    window.clearSelection = clearSelection;
+    window.bulkDeleteSelected = bulkDeleteSelected;
+    window.showApprovedProductsDropdown = showApprovedProductsDropdown;
+    window.filterApprovedProducts = filterApprovedProducts;
+    window.onSelectApprovedProduct = onSelectApprovedProduct;
+    window.clearSelectedProduct = clearSelectedProduct;
+
     renderProducts();
     updateSubcategoryFilter();
     updateBrandFilter();
