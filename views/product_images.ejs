@@ -20,7 +20,7 @@
       align-items: center;
       justify-content: space-between;
       gap: 16px;
-      margin-bottom: 24px;
+      margin-bottom: 20px;
     }
     .img-mgr-header h1 {
       font-size: 1.6rem;
@@ -45,7 +45,7 @@
       border-radius: 16px;
       border: 1px solid #e2e8f0;
       box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
-      margin-bottom: 24px;
+      margin-bottom: 16px;
     }
     .theme-dark .img-filter-bar {
       background: #1e293b;
@@ -108,6 +108,25 @@
       color: #f8fafc;
     }
 
+    /* Bulk Action Toolbar */
+    .bulk-action-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      background: linear-gradient(135deg, #e0e7ff 0%, #eea2a2 0%, #e0e7ff 0%, #eef2ff 100%);
+      border: 1px solid #c7d2fe;
+      padding: 12px 20px;
+      border-radius: 14px;
+      margin-bottom: 20px;
+      box-shadow: 0 4px 16px rgba(79, 70, 229, 0.08);
+      transition: all 0.2s ease;
+    }
+    .theme-dark .bulk-action-bar {
+      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
+      border-color: #4338ca;
+    }
+
     /* Responsive 5 x N Grid */
     .img-grid-5xn {
       display: grid;
@@ -137,12 +156,16 @@
       display: flex;
       flex-direction: column;
       box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
-      transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+      transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
       position: relative;
     }
     .theme-dark .img-card {
       background: #1e293b;
       border-color: #334155;
+    }
+    .img-card.selected {
+      border: 2px solid #4f46e5;
+      box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15);
     }
     .img-card:hover {
       transform: translateY(-4px);
@@ -172,6 +195,20 @@
     .img-card:hover .img-card-frame img {
       transform: scale(1.06);
     }
+
+    /* Selection Checkbox Overlay */
+    .img-card-checkbox {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      z-index: 10;
+      width: 22px;
+      height: 22px;
+      accent-color: #4f46e5;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+    }
+
     .img-type-badge {
       position: absolute;
       top: 10px;
@@ -473,7 +510,7 @@
 
     /* Confirmation Modal */
     .delete-confirm-card {
-      max-width: 440px;
+      max-width: 460px;
       padding: 24px;
       text-align: center;
     }
@@ -553,6 +590,24 @@
           <option value="main">Custom Main Images</option>
           <option value="default">Default Placeholders</option>
         </select>
+        <label style="display:flex; align-items:center; gap:8px; font-size:0.88rem; font-weight:700; cursor:pointer; user-select:none; margin-left: auto;">
+          <input type="checkbox" id="selectAllCheckbox" style="width:18px; height:18px; accent-color:#4f46e5;" />
+          Select All
+        </label>
+      </div>
+
+      <!-- Bulk Action Bar -->
+      <div id="bulkActionBar" class="bulk-action-bar" style="display:none;">
+        <div style="font-weight:700; font-size:0.92rem; color:#3730a3;">
+          <span id="selectedCountText">0</span> image(s) selected
+        </div>
+        <div style="display:flex; gap:10px;">
+          <button id="clearSelectionBtn" type="button" class="btn-modal-close" style="padding:8px 14px; font-size:0.82rem;">Deselect All</button>
+          <button id="bulkDeleteBtn" type="button" class="btn-action-delete" style="padding:8px 16px; font-size:0.85rem;">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+            Delete Selected Images
+          </button>
+        </div>
       </div>
 
       <!-- Grid Container (5 x N Responsive) -->
@@ -587,7 +642,7 @@
           </button>
           <button id="previewDeleteBtn" class="btn-action-delete" style="padding:10px 20px;">
             <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-            Delete Image
+            Delete Image Only
           </button>
           <button id="previewCloseBtn" class="btn-modal-close">Close</button>
         </div>
@@ -643,19 +698,22 @@
     </div>
   </div>
 
-  <!-- Delete Confirmation Modal -->
+  <!-- Delete Confirmation Modal (Single & Bulk) -->
   <div id="deleteModal" class="img-modal-backdrop" role="dialog" aria-modal="true">
     <div class="img-modal-card delete-confirm-card">
       <div class="delete-icon-wrapper">
         <svg viewBox="0 0 24 24" width="28" height="28" stroke="currentColor" fill="none" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/><line x1="10" y1="11" x2="10" y2="17"/><line x1="14" y1="11" x2="14" y2="17"/></svg>
       </div>
-      <h3 style="margin:0 0 8px; font-size:1.15rem; font-weight:800;">Delete Product Image?</h3>
-      <p id="deleteModalText" style="font-size:0.88rem; color:#64748b; margin-bottom:20px;">
-        Are you sure you want to delete this image? The image file will be removed from server storage and reset to default.
+      <h3 id="deleteModalHeading" style="margin:0 0 8px; font-size:1.15rem; font-weight:800;">Delete Product Image?</h3>
+      <p id="deleteModalText" style="font-size:0.88rem; color:#64748b; margin-bottom:12px;">
+        Are you sure you want to delete this image? The image file will be removed from server storage and reset to default placeholder.
       </p>
+      <div style="font-size:0.8rem; font-weight:700; color:#059669; background:#ecfdf5; padding:8px 12px; border-radius:8px; margin-bottom:20px; border:1px solid #a7f3d0;">
+        ✓ Safe Action: Only the image file will be deleted. The product entity itself will NOT be deleted.
+      </div>
       <div style="display:flex; gap:12px; justify-content:center;">
         <button id="cancelDeleteBtn" class="btn-modal-close" style="flex:1;">Cancel</button>
-        <button id="confirmDeleteBtn" class="btn-action-delete" style="flex:1; padding:10px 16px;">Delete Image</button>
+        <button id="confirmDeleteBtn" class="btn-action-delete" style="flex:1; padding:10px 16px;">Delete Image Only</button>
       </div>
     </div>
   </div>
@@ -667,6 +725,8 @@
       let currentItems = [];
       let activeProduct = null;
       let pendingDeleteProduct = null;
+      let isBulkDeleteMode = false;
+      const selectedIds = new Set();
 
       // Editor canvas state
       let sourceImage = new Image();
@@ -683,6 +743,11 @@
       const searchInput = document.getElementById('imageSearchInput');
       const categoryFilter = document.getElementById('categoryFilter');
       const imageTypeFilter = document.getElementById('imageTypeFilter');
+      const selectAllCheckbox = document.getElementById('selectAllCheckbox');
+      const bulkActionBar = document.getElementById('bulkActionBar');
+      const selectedCountText = document.getElementById('selectedCountText');
+      const bulkDeleteBtn = document.getElementById('bulkDeleteBtn');
+      const clearSelectionBtn = document.getElementById('clearSelectionBtn');
       const paginationInfo = document.getElementById('paginationInfo');
       const prevBtn = document.getElementById('prevPageBtn');
       const nextBtn = document.getElementById('nextPageBtn');
@@ -722,6 +787,7 @@
 
           renderGrid(currentItems);
           updatePagination(data.pagination);
+          updateSelectionState();
         } catch (err) {
           console.error('Fetch images error:', err);
           grid.innerHTML = '<div style="grid-column:1/-1; text-align:center; color:#ef4444; padding:40px;">Error connecting to server.</div>';
@@ -740,36 +806,88 @@
           return;
         }
 
-        grid.innerHTML = items.map(item => `
-          <div class="img-card" data-id="${item.id}">
-            <div class="img-card-frame" onclick="openPreview(${item.id})">
-              <img src="${item.image_url}" alt="${escapeHtml(item.product_name)}" onerror="this.onerror=null;this.src='/default.png';" />
-              <span class="img-type-badge ${item.is_default ? 'badge-default' : 'badge-main'}">
-                ${item.is_default ? 'Placeholder' : 'Main Image'}
-              </span>
-            </div>
-            <div class="img-card-body">
-              <div>
-                <h4 class="img-card-title" title="${escapeHtml(item.product_name)}">${escapeHtml(item.product_name)}</h4>
-                <div class="img-card-meta">
-                  <span>${escapeHtml(item.category_name)}</span>
-                  <span class="img-card-price">₹${Number(item.price).toFixed(2)}</span>
+        grid.innerHTML = items.map(item => {
+          const isSelected = selectedIds.has(item.id);
+          return `
+            <div class="img-card ${isSelected ? 'selected' : ''}" data-id="${item.id}">
+              <input type="checkbox" class="img-card-checkbox" data-id="${item.id}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleSelect(${item.id});" />
+              <div class="img-card-frame" onclick="openPreview(${item.id})">
+                <img src="${item.image_url}" alt="${escapeHtml(item.product_name)}" onerror="this.onerror=null;this.src='/default.png';" />
+                <span class="img-type-badge ${item.is_default ? 'badge-default' : 'badge-main'}">
+                  ${item.is_default ? 'Placeholder' : 'Main Image'}
+                </span>
+              </div>
+              <div class="img-card-body">
+                <div>
+                  <h4 class="img-card-title" title="${escapeHtml(item.product_name)}">${escapeHtml(item.product_name)}</h4>
+                  <div class="img-card-meta">
+                    <span>${escapeHtml(item.category_name)}</span>
+                    <span class="img-card-price">₹${Number(item.price).toFixed(2)}</span>
+                  </div>
+                </div>
+                <div class="img-card-actions">
+                  <button class="btn-action-edit" onclick="openEditor(${item.id})">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Edit
+                  </button>
+                  <button class="btn-action-delete" onclick="openDeleteConfirm(${item.id})">
+                    <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
+                    Delete
+                  </button>
                 </div>
               </div>
-              <div class="img-card-actions">
-                <button class="btn-action-edit" onclick="openEditor(${item.id})">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
-                  Edit
-                </button>
-                <button class="btn-action-delete" onclick="openDeleteConfirm(${item.id})">
-                  <svg viewBox="0 0 24 24" width="14" height="14" stroke="currentColor" fill="none" stroke-width="2"><polyline points="3 6 5 6 21 6"/><path d="M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"/></svg>
-                  Delete
-                </button>
-              </div>
             </div>
-          </div>
-        `).join('');
+          `;
+        }).join('');
       }
+
+      // Selection Functions
+      window.toggleSelect = function(id) {
+        if (selectedIds.has(id)) {
+          selectedIds.delete(id);
+        } else {
+          selectedIds.add(id);
+        }
+        updateSelectionState();
+      };
+
+      function updateSelectionState() {
+        const count = selectedIds.size;
+        selectedCountText.textContent = count;
+        bulkActionBar.style.display = count > 0 ? 'flex' : 'none';
+
+        // Update card checkboxes and styles
+        const cards = grid.querySelectorAll('.img-card');
+        cards.forEach(card => {
+          const id = parseInt(card.getAttribute('data-id'), 10);
+          const checkbox = card.querySelector('.img-card-checkbox');
+          const isSel = selectedIds.has(id);
+          card.classList.toggle('selected', isSel);
+          if (checkbox) checkbox.checked = isSel;
+        });
+
+        // Update Select All Checkbox
+        if (currentItems.length > 0) {
+          const allCurrentSelected = currentItems.every(item => selectedIds.has(item.id));
+          selectAllCheckbox.checked = allCurrentSelected;
+        } else {
+          selectAllCheckbox.checked = false;
+        }
+      }
+
+      selectAllCheckbox.addEventListener('change', function() {
+        if (this.checked) {
+          currentItems.forEach(item => selectedIds.add(item.id));
+        } else {
+          currentItems.forEach(item => selectedIds.delete(item.id));
+        }
+        updateSelectionState();
+      });
+
+      clearSelectionBtn.addEventListener('click', function() {
+        selectedIds.clear();
+        updateSelectionState();
+      });
 
       function updatePagination(pg) {
         paginationInfo.textContent = `Showing ${currentItems.length} of ${pg.totalItems} product images (Page ${pg.page} of ${pg.totalPages})`;
@@ -877,7 +995,6 @@
         liveCtx.fillStyle = '#ffffff';
         liveCtx.fillRect(0, 0, liveCanvas.width, liveCanvas.height);
 
-        // Crop viewport overlay is inset by 20px
         const cropRect = {
           x: 20,
           y: 20,
@@ -951,7 +1068,6 @@
         saveBtn.textContent = 'Processing & Uploading...';
 
         try {
-          // Render cropped output canvas
           const exportCanvas = document.createElement('canvas');
           exportCanvas.width = 900;
           exportCanvas.height = 900;
@@ -1016,63 +1132,120 @@
         }
       });
 
-      // Deletion Handler
+      // Single Deletion Handler
       window.openDeleteConfirm = function(id) {
         const item = currentItems.find(x => x.id === id);
         if (!item) return;
         pendingDeleteProduct = item;
+        isBulkDeleteMode = false;
 
-        document.getElementById('deleteModalText').textContent = `Are you sure you want to delete the image for "${item.product_name}"? The image file will be deleted from server storage and reset to default.`;
+        document.getElementById('deleteModalHeading').textContent = 'Delete Product Image?';
+        document.getElementById('deleteModalText').textContent = `Are you sure you want to delete the image for "${item.product_name}"? The image file will be deleted from server storage and reset to default placeholder.`;
         deleteModal.classList.add('active');
       };
+
+      // Bulk Deletion Handler
+      bulkDeleteBtn.addEventListener('click', function() {
+        if (!selectedIds.size) return;
+        isBulkDeleteMode = true;
+        pendingDeleteProduct = null;
+
+        document.getElementById('deleteModalHeading').textContent = `Delete ${selectedIds.size} Selected Image(s)?`;
+        document.getElementById('deleteModalText').textContent = `Are you sure you want to delete image files for ${selectedIds.size} selected products? All selected product images will be removed from storage and reset to default placeholders.`;
+        deleteModal.classList.add('active');
+      });
 
       function closeDeleteConfirm() {
         deleteModal.classList.remove('active');
         pendingDeleteProduct = null;
+        isBulkDeleteMode = false;
       }
       document.getElementById('cancelDeleteBtn').addEventListener('click', closeDeleteConfirm);
 
       document.getElementById('confirmDeleteBtn').addEventListener('click', async function() {
-        if (!pendingDeleteProduct) return;
         const confirmBtn = this;
         confirmBtn.disabled = true;
 
         try {
-          const res = await fetch(`/products/images/${pendingDeleteProduct.id}`, {
-            method: 'DELETE',
-            headers: { 'Content-Type': 'application/json' }
-          });
-          const data = await res.json();
-          confirmBtn.disabled = false;
+          if (isBulkDeleteMode) {
+            // Bulk Image Deletion API call
+            const idsArray = Array.from(selectedIds);
+            const res = await fetch('/products/images/bulk-delete', {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ ids: idsArray }),
+            });
+            const data = await res.json();
+            confirmBtn.disabled = false;
 
-          if (!data.success) {
-            alert('Failed to delete image: ' + (data.message || 'Server error'));
-            return;
-          }
-
-          const deletedId = pendingDeleteProduct.id;
-
-          // Auto-close preview card if the deleted image was currently open in preview
-          if (activeProduct && activeProduct.id === deletedId) {
-            closePreview();
-          }
-
-          // Update grid item DOM immediately without full page refresh
-          pendingDeleteProduct.image_url = '/default.png';
-          pendingDeleteProduct.is_default = true;
-
-          const cardEl = grid.querySelector(`.img-card[data-id="${deletedId}"]`);
-          if (cardEl) {
-            const imgEl = cardEl.querySelector('img');
-            if (imgEl) imgEl.src = '/default.png';
-            const badgeEl = cardEl.querySelector('.img-type-badge');
-            if (badgeEl) {
-              badgeEl.textContent = 'Placeholder';
-              badgeEl.className = 'img-type-badge badge-default';
+            if (!data.success) {
+              alert('Failed to delete selected images: ' + (data.message || 'Server error'));
+              return;
             }
-          }
 
-          closeDeleteConfirm();
+            // Close active preview if the previewed product was among deleted
+            if (activeProduct && selectedIds.has(activeProduct.id)) {
+              closePreview();
+            }
+
+            // Update DOM items immediately without full page reload
+            idsArray.forEach(id => {
+              const cardEl = grid.querySelector(`.img-card[data-id="${id}"]`);
+              if (cardEl) {
+                const imgEl = cardEl.querySelector('img');
+                if (imgEl) imgEl.src = '/default.png';
+                const badgeEl = cardEl.querySelector('.img-type-badge');
+                if (badgeEl) {
+                  badgeEl.textContent = 'Placeholder';
+                  badgeEl.className = 'img-type-badge badge-default';
+                }
+              }
+            });
+
+            selectedIds.clear();
+            updateSelectionState();
+            closeDeleteConfirm();
+          } else {
+            // Single Image Deletion API call
+            if (!pendingDeleteProduct) return;
+            const res = await fetch(`/products/images/${pendingDeleteProduct.id}`, {
+              method: 'DELETE',
+              headers: { 'Content-Type': 'application/json' }
+            });
+            const data = await res.json();
+            confirmBtn.disabled = false;
+
+            if (!data.success) {
+              alert('Failed to delete image: ' + (data.message || 'Server error'));
+              return;
+            }
+
+            const deletedId = pendingDeleteProduct.id;
+
+            // Auto-close preview card if the deleted image was currently open in preview
+            if (activeProduct && activeProduct.id === deletedId) {
+              closePreview();
+            }
+
+            // Update grid item DOM immediately without full page refresh
+            pendingDeleteProduct.image_url = '/default.png';
+            pendingDeleteProduct.is_default = true;
+
+            const cardEl = grid.querySelector(`.img-card[data-id="${deletedId}"]`);
+            if (cardEl) {
+              const imgEl = cardEl.querySelector('img');
+              if (imgEl) imgEl.src = '/default.png';
+              const badgeEl = cardEl.querySelector('.img-type-badge');
+              if (badgeEl) {
+                badgeEl.textContent = 'Placeholder';
+                badgeEl.className = 'img-type-badge badge-default';
+              }
+            }
+
+            selectedIds.delete(deletedId);
+            updateSelectionState();
+            closeDeleteConfirm();
+          }
         } catch (err) {
           console.error('Delete image error:', err);
           alert('Error connecting to server to delete image');
