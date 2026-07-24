@@ -101,7 +101,7 @@ async function index(req, res) {
     const rows = await VendorProduct.list({
       vendor_id: vendorId,
       approval_status: req.query.approval_status,
-      status: req.query.status,
+      status: isVendor(req.authUser) ? 'active' : req.query.status,
       search: req.query.search,
       category_id: req.query.category_id,
       sub_category_id: req.query.sub_category_id || req.query.subcategory_id,

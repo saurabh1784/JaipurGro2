@@ -2,6 +2,7 @@ const User = require('../models/User');
 const Profile = require('../models/Profile');
 const { validateStatus } = require('../middleware/validators');
 const Rating = require('../models/Rating');
+const { detectServiceArea, notServiceablePayload } = require('../services/serviceAreaResolver');
 
 function sanitizeUserUpdate(body) {
   const update = {};
@@ -20,7 +21,7 @@ function sanitizeProfileUpdate(role, body) {
   const profile = body.profile && typeof body.profile === 'object' ? body.profile : body;
   const update = {};
   const fieldsByRole = {
-    Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'signature_path', 'address', 'pickup_latitude', 'pickup_longitude', 'country', 'state', 'city', 'gst_number', 'services'],
+    Vendor: ['business_name', 'logo_path', 'storefront_image_path', 'signature_path', 'address', 'pickup_latitude', 'pickup_longitude', 'pincode', 'gst_number', 'services', 'country', 'state', 'city', 'area', 'area_definition_id', 'zone_id', 'zone_code'],
     Client: ['address', 'country', 'state', 'city', 'area', 'age', 'gender', 'notes'],
     Admin: ['permissions'],
   };
@@ -76,6 +77,24 @@ async function updateProfile(req, res) {
   try {
     const userUpdate = sanitizeUserUpdate(req.body);
     const profileUpdate = sanitizeProfileUpdate(req.user.role, req.body);
+    const rawProfile = req.body.profile && typeof req.body.profile === 'object' ? req.body.profile : req.body;
+    const updatesVendorAddress = req.user.role === 'Vendor' && ['address', 'pickup_latitude', 'pickup_longitude'].some((field) => Object.prototype.hasOwnProperty.call(rawProfile, field));
+    if (updatesVendorAddress) {
+      try {
+        const detected = await detectServiceArea({
+          latitude: rawProfile.pickup_latitude,
+          longitude: rawProfile.pickup_longitude,
+        });
+        Object.assign(profileUpdate, detected, {
+          pickup_latitude: detected.latitude,
+          pickup_longitude: detected.longitude,
+        });
+        delete profileUpdate.latitude;
+        delete profileUpdate.longitude;
+      } catch (error) {
+        return res.status(error.status || 422).json(notServiceablePayload(error));
+      }
+    }
 
     if (!validateStatus(userUpdate.status)) {
       return res.status(422).json({ success: false, message: 'Status must be active or inactive' });

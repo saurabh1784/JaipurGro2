@@ -786,6 +786,9 @@
 
       product.status = data.vendor_product && data.vendor_product.status ? data.vendor_product.status : nextStatus;
       product.quantity = data.vendor_product && data.vendor_product.quantity !== undefined ? data.vendor_product.quantity : product.quantity;
+      if (product.status !== 'active') {
+        vendorProducts = vendorProducts.filter((item) => Number(item.id) !== Number(id));
+      }
       renderProducts();
     }
 

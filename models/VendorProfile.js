@@ -31,6 +31,11 @@ async function update(userId, data) {
     'country',
     'state',
     'city',
+    'area',
+    'pincode',
+    'area_definition_id',
+    'zone_id',
+    'zone_code',
     'gst_number',
     'services',
   ];

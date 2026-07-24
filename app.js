@@ -1,4 +1,4 @@
-﻿const express = require('express');
+const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
@@ -55,6 +55,7 @@ const Advertisement = require('./models/Advertisement');
 const SupportTicket = require('./models/SupportTicket');
 const VendorCategoryRequest = require('./models/VendorCategoryRequest');
 const AreaDefinition = require('./models/AreaDefinition');
+const { detectServiceArea, notServiceablePayload } = require('./services/serviceAreaResolver');
 const DeliveryType = require('./models/DeliveryType');
 const ContentPage = require('./models/ContentPage');
 const LocationOption = require('./models/LocationOption');
@@ -722,7 +723,7 @@ async function forgetDeletedRoleSlug(slug) {
 }
 
 function formatRupees(value) {
-  return `â‚¹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 async function notifyClientBidUpdate(response) {
@@ -1176,6 +1177,10 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('vendor_profiles', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
   await addColumnIfMissing('vendor_profiles', 'city', 'VARCHAR(80) DEFAULT NULL AFTER state');
   await addColumnIfMissing('vendor_profiles', 'area', 'VARCHAR(120) DEFAULT NULL AFTER city');
+  await addColumnIfMissing('vendor_profiles', 'pincode', 'VARCHAR(20) DEFAULT NULL AFTER area');
+  await addColumnIfMissing('vendor_profiles', 'area_definition_id', 'INTEGER NULL');
+  await addColumnIfMissing('vendor_profiles', 'zone_id', 'INTEGER NULL');
+  await addColumnIfMissing('vendor_profiles', 'zone_code', 'VARCHAR(40) DEFAULT NULL AFTER zone_id');
   await addColumnIfMissing('vendor_profiles', 'logo_path', 'VARCHAR(255) DEFAULT NULL AFTER business_name');
   await addColumnIfMissing('vendor_profiles', 'storefront_image_path', 'VARCHAR(255) DEFAULT NULL AFTER logo_path');
   await addColumnIfMissing('vendor_profiles', 'signature_path', 'VARCHAR(255) DEFAULT NULL AFTER storefront_image_path');
@@ -1229,6 +1234,9 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('client_delivery_addresses', 'area', 'VARCHAR(120) DEFAULT NULL AFTER address');
   await addColumnIfMissing('client_delivery_addresses', 'latitude', 'DECIMAL(10,7) DEFAULT NULL AFTER pincode');
   await addColumnIfMissing('client_delivery_addresses', 'longitude', 'DECIMAL(10,7) DEFAULT NULL AFTER latitude');
+  await addColumnIfMissing('client_delivery_addresses', 'area_definition_id', 'INTEGER NULL');
+  await addColumnIfMissing('client_delivery_addresses', 'zone_id', 'INTEGER NULL');
+  await addColumnIfMissing('client_delivery_addresses', 'zone_code', 'VARCHAR(40) DEFAULT NULL AFTER zone_id');
   await pool.query(`
     CREATE TABLE IF NOT EXISTS admin_profiles (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -2807,7 +2815,7 @@ function buildDashboard(user, activePath = '/dashboard') {
 }
 
 function formatDashboardMoney(value) {
-  return `â‚¹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 function formatDashboardNumber(value) {
@@ -4369,7 +4377,10 @@ app.put('/api/admin/vendor-inventory/:vendorProductId', webOrJwtAuth, requirePer
 });
 app.get('/vendor-products', requireAuth, requireSessionRole('Vendor', '/login/vendor'), async (req, res) => {
   try {
-    const products = await VendorProduct.list({ vendor_id: req.session.user.id });
+    const products = await VendorProduct.list({
+      vendor_id: req.session.user.id,
+      status: 'active',
+    });
     const approvedProducts = await Product.listApproved(200);
     const [categories, subcategories, brands] = await Promise.all([
       Catalog.listCategories(),
@@ -4580,6 +4591,9 @@ function normalizeDeliveryAddress(row) {
     phone: row.phone || '',
     address: row.address || '',
     area: row.area || '',
+    area_definition_id: row.area_definition_id ? Number(row.area_definition_id) : null,
+    zone_id: row.zone_id ? Number(row.zone_id) : null,
+    zone_code: row.zone_code || '',
     city: row.city || '',
     state: row.state || '',
     country: row.country || '',
@@ -4600,11 +4614,12 @@ function deliveryAddressPayload(body) {
     recipient_name: String(body.recipient_name || body.recipientName || '').trim().slice(0, 120) || null,
     phone: String(body.phone || '').trim().slice(0, 30) || null,
     address: String(body.address || '').trim(),
-    area: String(body.area || body.locality || '').trim().slice(0, 120) || null,
+    // area and zone values from the app are intentionally ignored.
+    area: null,
     city: String(body.city || '').trim().slice(0, 80) || null,
     state: String(body.state || '').trim().slice(0, 80) || null,
     country: String(body.country || 'India').trim().slice(0, 80) || 'India',
-    pincode: String(body.pincode || body.pinCode || '').trim().slice(0, 20) || null,
+    pincode: String(body.pincode || body.pinCode || body.postal_code || body.postalCode || '').trim().slice(0, 20) || null,
     latitude: Number.isFinite(latitude) ? latitude : null,
     longitude: Number.isFinite(longitude) ? longitude : null,
     is_default: Boolean(body.is_default || body.isDefault),
@@ -4937,6 +4952,14 @@ app.post('/api/client/delivery-addresses', webOrJwtAuth, requireAuthRole('Client
     return res.status(422).json({ success: false, message: 'Delivery address is required' });
   }
 
+  let detectedLocation;
+  try {
+    detectedLocation = await detectServiceArea(data);
+  } catch (error) {
+    return res.status(error.status || 422).json(notServiceablePayload(error));
+  }
+  Object.assign(data, detectedLocation);
+
   const clientId = req.authUser.id;
   const [[countRow]] = await pool.query('SELECT COUNT(*) AS total FROM client_delivery_addresses WHERE user_id = ?', [clientId]);
   const total = Number(countRow.total || 0);
@@ -4953,8 +4976,8 @@ app.post('/api/client/delivery-addresses', webOrJwtAuth, requireAuthRole('Client
     }
     const [result] = await connection.query(
       `INSERT INTO client_delivery_addresses
-       (user_id, label, recipient_name, phone, address, area, city, state, country, pincode, latitude, longitude, is_default)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (user_id, label, recipient_name, phone, address, area, city, state, country, pincode, latitude, longitude, area_definition_id, zone_id, zone_code, is_default)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         clientId,
         data.label,
@@ -4968,6 +4991,9 @@ app.post('/api/client/delivery-addresses', webOrJwtAuth, requireAuthRole('Client
         data.pincode,
         data.latitude,
         data.longitude,
+        data.area_definition_id,
+        data.zone_id,
+        data.zone_code,
         shouldDefault ? 1 : 0,
       ]
     );
@@ -4988,6 +5014,14 @@ app.put('/api/client/delivery-addresses/:id', webOrJwtAuth, requireAuthRole('Cli
     return res.status(422).json({ success: false, message: 'Delivery address is required' });
   }
 
+  let detectedLocation;
+  try {
+    detectedLocation = await detectServiceArea(data);
+  } catch (error) {
+    return res.status(error.status || 422).json(notServiceablePayload(error));
+  }
+  Object.assign(data, detectedLocation);
+
   const clientId = req.authUser.id;
   const addressId = Number(req.params.id);
   const connection = await pool.getConnection();
@@ -5004,7 +5038,7 @@ app.put('/api/client/delivery-addresses/:id', webOrJwtAuth, requireAuthRole('Cli
     await connection.query(
       `UPDATE client_delivery_addresses
        SET label = ?, recipient_name = ?, phone = ?, address = ?, area = ?, city = ?, state = ?, country = ?, pincode = ?,
-           latitude = ?, longitude = ?,
+           latitude = ?, longitude = ?, area_definition_id = ?, zone_id = ?, zone_code = ?,
            is_default = CASE WHEN ? = 1 THEN 1 ELSE is_default END,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND user_id = ?`,
@@ -5020,6 +5054,9 @@ app.put('/api/client/delivery-addresses/:id', webOrJwtAuth, requireAuthRole('Cli
         data.pincode,
         data.latitude,
         data.longitude,
+        data.area_definition_id,
+        data.zone_id,
+        data.zone_code,
         data.is_default ? 1 : 0,
         addressId,
         clientId,
