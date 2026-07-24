@@ -30,6 +30,7 @@ const managedProfileController = require('./controllers/managedProfileController
 const catalogController = require('./controllers/catalogController');
 const commissionController = require('./controllers/commissionController');
 const DeliveryCharge = require('./services/deliveryChargeService');
+const DeliveryPricing = require('./services/deliveryPricingService');
 const {
   getInvoiceSettings,
   saveInvoiceSettings,
@@ -2287,6 +2288,7 @@ async function initDatabase(options = {}) {
       price_per_km DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       price_per_kg DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       additional_charge DECIMAL(12,2) NOT NULL DEFAULT 0.00,
+      night_charge_increment DECIMAL(12,2) NOT NULL DEFAULT 0.00,
       is_active TINYINT(1) NOT NULL DEFAULT 1,
       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
@@ -2294,16 +2296,24 @@ async function initDatabase(options = {}) {
       KEY idx_delivery_charge_rules_city_weight (city, is_active, min_weight_kg, max_weight_kg)
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+  await addColumnIfMissing('delivery_charge_rules', 'night_charge_increment', 'DECIMAL(12,2) NOT NULL DEFAULT 0.00 AFTER additional_charge');
+  await pool.query(`
+    UPDATE delivery_charge_rules
+    SET price_per_km = CASE WHEN price_per_km = 0 AND price_per_kg > 0 THEN price_per_kg ELSE price_per_km END,
+        price_per_kg = 0
+    WHERE price_per_kg <> 0
+  `);
   await pool.query(`
     INSERT INTO delivery_charge_rules
-      (city, rule_name, min_weight_kg, max_weight_kg, base_delivery_price, price_per_km, price_per_kg, additional_charge, is_active)
-    SELECT 'Jaipur', 'Default Jaipur delivery', 0, NULL, 30, 0, 10, 0, 1
+      (city, rule_name, min_weight_kg, max_weight_kg, base_delivery_price, price_per_km, price_per_kg, additional_charge, night_charge_increment, is_active)
+    SELECT 'Jaipur', 'Default Jaipur delivery', 0, NULL, 30, 10, 0, 0, 0, 1
     WHERE NOT EXISTS (
       SELECT 1 FROM delivery_charge_rules
       WHERE is_active = 1
         AND LOWER(TRIM(city)) = 'jaipur'
     )
   `);
+  await DeliveryPricing.initSchema();
   await pool.query(`
     INSERT INTO order_status_history (order_id, old_status, new_status, changed_by_role, note, created_at)
     SELECT co.id, NULL, co.status, 'system', 'Initial status', COALESCE(co.created_at, CURRENT_TIMESTAMP)
@@ -2687,12 +2697,16 @@ function buildShell(user, activePath = '/dashboard') {
       || activePath.startsWith('/delivery-persons')
       || activePath.startsWith('/delivery-types')
       || activePath.startsWith('/delivery-charge-settings')
+      || activePath.startsWith('/default-delivery-rules')
+      || activePath.startsWith('/vehicle-categories')
       || activePath.startsWith('/area-definitions'), [
       navItem('Dashboard', '/delivery-dashboard', 'orders.manage', 'dashboard', activePath.startsWith('/delivery-dashboard')),
       navItem('Delivery Partner Status', '/delivery-partner-status', 'orders.manage', 'delivery', activePath.startsWith('/delivery-partner-status')),
       navItem('Delivery Persons', '/delivery-persons', 'orders.manage', 'delivery', activePath.startsWith('/delivery-persons')),
       navItem('Delivery Area Management', '/delivery-types', 'settings.manage', 'delivery', activePath.startsWith('/delivery-types')),
       navItem('Delivery Charge Settings', '/delivery-charge-settings', 'settings.manage', 'settings', activePath.startsWith('/delivery-charge-settings')),
+      navItem('Default Delivery Rules', '/default-delivery-rules', 'settings.manage', 'settings', activePath.startsWith('/default-delivery-rules')),
+      navItem('Vehicle Categories', '/vehicle-categories', 'settings.manage', 'settings', activePath.startsWith('/vehicle-categories')),
       navItem('Area Definition', '/area-definitions', 'settings.manage', 'settings', activePath.startsWith('/area-definitions')),
     ]),
     navGroup('Support', '/support', 'support.manage', 'support', activePath.startsWith('/support'), [
@@ -4854,6 +4868,8 @@ async function resolveAreaOrderPricing({ addressSnapshot, vendorOrder, deliveryO
 
   const delivery = await DeliveryCharge.calculateCharge({
     city: vendorOrder.city,
+    area: areaPricing.area_name,
+    areaDefinitionId: areaPricing.area_definition_id,
     origin: vendorOrder.origin,
     destination: vendorOrder.destination,
     originLatitude: vendorOrder.originLatitude,
@@ -5973,8 +5989,25 @@ app.delete('/area-definitions/:id', requireAuth, requirePermission('settings.man
   }
 });
 
+app.get('/default-delivery-rules', requireAuth, requirePermission('settings.manage'), (req, res) => res.render('default-delivery-rules', { user: req.session.user, shell: buildShell(req.session.user, req.path) }));
+app.get('/vehicle-categories', requireAuth, requirePermission('settings.manage'), (req, res) => res.render('vehicle-categories', { user: req.session.user, shell: buildShell(req.session.user, req.path) }));
+
+app.get('/api/delivery-pricing/vehicles', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { res.json({success:true,vehicles:await DeliveryPricing.listVehicles()}); } catch(error){res.status(500).json({success:false,message:error.message});} });
+app.post('/api/delivery-pricing/vehicles', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { const id=await DeliveryPricing.saveVehicle(req.body); res.status(201).json({success:true,id}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
+app.put('/api/delivery-pricing/vehicles/:id', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { const id=await DeliveryPricing.saveVehicle({...req.body,id:req.params.id}); res.json({success:true,id}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
+app.delete('/api/delivery-pricing/vehicles/:id', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { await DeliveryPricing.deleteVehicle(Number(req.params.id)); res.json({success:true}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
+
+app.get('/api/delivery-pricing/default-rules', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { res.json({success:true,rules:await DeliveryPricing.listDefaultRules()}); } catch(error){res.status(500).json({success:false,message:error.message});} });
+app.post('/api/delivery-pricing/default-rules', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { const id=await DeliveryPricing.saveDefaultRule(req.body); res.status(201).json({success:true,id}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
+app.put('/api/delivery-pricing/default-rules/:id', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { const id=await DeliveryPricing.saveDefaultRule({...req.body,id:req.params.id}); res.json({success:true,id}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
+app.delete('/api/delivery-pricing/default-rules/:id', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { await DeliveryPricing.deleteDefaultRule(Number(req.params.id)); res.json({success:true}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
+
+app.get('/api/delivery-pricing/area-rules', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { res.json({success:true,rules:await DeliveryPricing.listAreaRules({areaId:req.query.area_id}),areas:await AreaDefinition.list({includeInactive:true}),vehicles:await DeliveryPricing.listVehicles()}); } catch(error){res.status(500).json({success:false,message:error.message});} });
+app.post('/api/delivery-pricing/area-rules', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { const id=await DeliveryPricing.saveAreaRule(req.body); res.status(201).json({success:true,id}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
+app.put('/api/delivery-pricing/area-rules/:id', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { const id=await DeliveryPricing.saveAreaRule({...req.body,id:req.params.id}); res.json({success:true,id}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
+app.delete('/api/delivery-pricing/area-rules/:id', requireAuth, requirePermission('settings.manage'), async (req,res) => { try { await DeliveryPricing.deleteAreaRule(Number(req.params.id)); res.json({success:true}); } catch(error){res.status(error.status||500).json({success:false,message:error.message});} });
 app.get('/delivery-charge-settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
-  res.render('delivery-charge-settings', {
+  res.render('area-delivery-rules', {
     user: req.session.user,
     shell: buildShell(req.session.user, req.path),
     cityOptions: await promotionCityOptions(),
@@ -6021,6 +6054,9 @@ app.post('/delivery-charge-settings/calculate', requireAuth, requirePermission('
   try {
     const result = await DeliveryCharge.calculateCharge({
       city: req.body.city,
+      area: req.body.area,
+      areaDefinitionId: req.body.area_definition_id,
+      vehicleCategoryId: req.body.vehicle_category_id,
       origin: req.body.origin,
       destination: req.body.destination,
       totalWeightKg: req.body.total_weight_kg,

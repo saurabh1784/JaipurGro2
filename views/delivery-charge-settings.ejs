@@ -42,7 +42,7 @@
               <th>Weight Slab</th>
               <th>Base</th>
               <th>Per Km</th>
-              <th>Per Kg</th>
+              <th>Night Increment</th>
               <th>Additional</th>
               <th>Status</th>
               <th>Actions</th>
@@ -122,8 +122,9 @@
           <input id="rulePerKm" type="number" min="0" step="0.01" value="0" required />
         </label>
         <label>
-          Price Per Kilogram
-          <input id="rulePerKg" type="number" min="0" step="0.01" value="0" required />
+          Night Charge Increment
+          <input id="ruleNightIncrement" type="number" min="0" step="0.01" value="0" required />
+          <small class="field-help">Added automatically from 10:00 PM to 6:00 AM.</small>
         </label>
         <label>
           Additional Charges
@@ -200,7 +201,7 @@
           <td>${escapeHtml(slab(rule))}</td>
           <td>${money(rule.base_delivery_price)}</td>
           <td>${money(rule.price_per_km)}</td>
-          <td>${money(rule.price_per_kg)}</td>
+          <td>${money(rule.night_charge_increment)}</td>
           <td>${money(rule.additional_charge)}</td>
           <td><span class="status-pill ${rule.is_active ? 'status-active' : 'status-inactive'}">${rule.is_active ? 'Active' : 'Inactive'}</span></td>
           <td>
@@ -221,7 +222,7 @@
       document.getElementById('ruleMaxWeight').value = rule && rule.max_weight_kg !== null ? rule.max_weight_kg : '';
       document.getElementById('ruleBasePrice').value = rule ? rule.base_delivery_price : 0;
       document.getElementById('rulePerKm').value = rule ? rule.price_per_km : 0;
-      document.getElementById('rulePerKg').value = rule ? rule.price_per_kg : 0;
+      document.getElementById('ruleNightIncrement').value = rule ? rule.night_charge_increment : 0;
       document.getElementById('ruleAdditional').value = rule ? rule.additional_charge : 0;
       document.getElementById('ruleActive').checked = rule ? rule.is_active : true;
       document.getElementById('ruleModal').style.display = 'flex';
@@ -244,7 +245,7 @@
         max_weight_kg: document.getElementById('ruleMaxWeight').value,
         base_delivery_price: document.getElementById('ruleBasePrice').value,
         price_per_km: document.getElementById('rulePerKm').value,
-        price_per_kg: document.getElementById('rulePerKg').value,
+        night_charge_increment: document.getElementById('ruleNightIncrement').value,
         additional_charge: document.getElementById('ruleAdditional').value,
         is_active: document.getElementById('ruleActive').checked,
       };
@@ -293,7 +294,7 @@
         return;
       }
       result.textContent = data.applicable
-        ? `Charge ${money(data.delivery_charge)} | Distance ${Number(data.distance_km || 0).toFixed(2)} km | Weight ${Number(data.total_weight_kg || 0).toFixed(3)} kg | ${data.rule.rule_name || data.rule.city}`
+        ? `Charge ${money(data.delivery_charge)} | Distance ${Number(data.distance_km || 0).toFixed(2)} km | Weight ${Number(data.total_weight_kg || 0).toFixed(3)} kg${data.night_charge_applied ? ` | Night +${money(data.night_charge)}` : ``} | ${data.rule.rule_name || data.rule.city}`
         : 'No active city/weight rule matched. Delivery charge is ₹0.00.';
     }
 
@@ -346,6 +347,8 @@
       font-weight: 800;
       cursor: pointer;
     }
+
+    .field-help { display: block; margin-top: 6px; color: #64748b; font-size: 11px; font-weight: 600; line-height: 1.35; }
   </style>
 </body>
 </html>

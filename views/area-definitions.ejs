@@ -84,22 +84,15 @@
         <div class="area-definition-status" id="areaStatus">Click Mark Points, then click on the map to mark the area boundary.</div>
         <div class="area-point-list" id="areaPointList">No points marked yet.</div>
 
-        <div class="catalog-table-card area-list-card">
-          <table class="catalog-table">
-            <thead>
-              <tr>
-                <th>Area</th>
-                <th>Pricing</th>
-                <th>Own Delivery</th>
-                <th>Status</th>
-                <th></th>
-              </tr>
-            </thead>
-            <tbody id="areasBody">
-              <tr><td colspan="5">Loading areas...</td></tr>
-            </tbody>
-          </table>
-        </div>
+        <section class="area-list-card">
+          <div class="area-list-heading">
+            <div><p>Saved coverage</p><h2>Created polygons</h2></div>
+            <span id="areaListCount" class="area-list-count">0 areas</span>
+          </div>
+          <div id="areasBody" class="area-card-list">
+            <div class="area-list-empty">Loading areas...</div>
+          </div>
+        </section>
       </aside>
 
       <section class="area-map-card">
@@ -538,7 +531,7 @@
 
     async function loadAreas() {
       const body = document.getElementById('areasBody');
-      body.innerHTML = '<tr><td colspan="5">Loading areas...</td></tr>';
+      body.innerHTML = '<div class="area-list-empty">Loading areas...</div>';
       try {
         const response = await fetch('/area-definitions/list', { headers: { Accept: 'application/json' } });
         const data = await response.json();
@@ -556,7 +549,7 @@
           refreshVisibleAreas();
         }
       } catch (error) {
-        body.innerHTML = `<tr><td colspan="5">${escapeHtml(error.message)}</td></tr>`;
+        body.innerHTML = `<div class="area-list-empty"><strong>Unable to load polygons</strong><span>${escapeHtml(error.message)}</span></div>`;
       }
     }
 
@@ -609,28 +602,43 @@
 
     function renderAreas() {
       const body = document.getElementById('areasBody');
+      const count = document.getElementById('areaListCount');
       const cityAreas = visibleAreas();
+      if (count) count.textContent = `${cityAreas.length} area${cityAreas.length === 1 ? '' : 's'}`;
       if (!cityAreas.length) {
         const cityName = document.getElementById('areaCity').value.trim();
-      body.innerHTML = `<tr><td colspan="5">No mapped areas${cityName ? ` for ${escapeHtml(cityName)}` : ''} yet.</td></tr>`;
+        body.innerHTML = `<div class="area-list-empty"><strong>No polygons found</strong><span>No mapped areas${cityName ? ` for ${escapeHtml(cityName)}` : ''} yet.</span></div>`;
         return;
       }
-      body.innerHTML = cityAreas.map((area) => `
-        <tr>
-          <td><strong>${escapeHtml(area.name)}</strong><br><small>${escapeHtml(area.city || 'Any city')}</small></td>
-          <td>
-            <strong>PF ${money(area.platform_fee || 0)} / Delivery ${money(area.delivery_charge || 0)}</strong>
-            <br><small>Order ${Number(area.order_commission_percentage || 0).toFixed(2)}% / Delivery ${Number(area.delivery_commission_percentage || 0).toFixed(2)}%</small>
-            <br><small>COD ${area.cod_enabled ? 'Enabled' : 'Disabled'}</small>
-          </td>
-          <td>${area.own_delivery_active ? 'Active' : 'Off'}</td>
-          <td>${area.is_active ? 'Active' : 'Inactive'}</td>
-          <td>
-            <button class="product-secondary-button area-row-button" type="button" onclick="editArea(${Number(area.id)})">Edit</button>
-            <button class="danger-action-button area-row-button" type="button" onclick="deleteArea(${Number(area.id)})">Delete</button>
-          </td>
-        </tr>
-      `).join('');
+      body.innerHTML = cityAreas.map((area) => {
+        const pointCount = Array.isArray(area.polygon) ? area.polygon.length : 0;
+        return `
+          <article class="saved-area-card ${Number(document.getElementById('areaId').value) === Number(area.id) ? 'selected' : ''}">
+            <div class="saved-area-topline">
+              <div class="saved-area-identity">
+                <span class="saved-area-pin" aria-hidden="true">&#9673;</span>
+                <div><strong>${escapeHtml(area.name)}</strong><small>${escapeHtml(area.city || 'Any city')} · ${pointCount} boundary points</small></div>
+              </div>
+              <span class="area-status-pill ${area.is_active ? 'active' : 'inactive'}">${area.is_active ? 'Active' : 'Inactive'}</span>
+            </div>
+            <div class="saved-area-metrics">
+              <div><span>Platform fee</span><strong>₹${money(area.platform_fee || 0)}</strong></div>
+              <div><span>Delivery</span><strong>₹${money(area.delivery_charge || 0)}</strong></div>
+              <div><span>Order commission</span><strong>${Number(area.order_commission_percentage || 0).toFixed(2)}%</strong></div>
+              <div><span>Delivery commission</span><strong>${Number(area.delivery_commission_percentage || 0).toFixed(2)}%</strong></div>
+            </div>
+            <div class="saved-area-footer">
+              <div class="saved-area-flags">
+                <span class="area-feature-pill ${area.own_delivery_active ? 'enabled' : ''}">Own delivery ${area.own_delivery_active ? 'on' : 'off'}</span>
+                <span class="area-feature-pill ${area.cod_enabled ? 'enabled' : ''}">COD ${area.cod_enabled ? 'on' : 'off'}</span>
+              </div>
+              <div class="saved-area-actions">
+                <button class="area-edit-button" type="button" onclick="editArea(${Number(area.id)})">Edit</button>
+                <button class="area-delete-button" type="button" onclick="deleteArea(${Number(area.id)})">Delete</button>
+              </div>
+            </div>
+          </article>`;
+      }).join('');
     }
 
     let existingAreaPolygons = [];
@@ -1201,6 +1209,42 @@
     .area-map-card { border: 1px solid #e2e8f0; border-radius: 18px; box-shadow: 0 18px 48px rgba(15,23,42,.08); }
     @media (max-width: 980px) { .area-definition-shell { grid-template-columns: 1fr; } }
     @media (max-width: 560px) { .area-panel-heading, #areaForm { padding-left: 16px; padding-right: 16px; } .area-help-card, .area-definition-status, .area-list-card { margin-left: 16px; margin-right: 16px; } }
+
+    /* Responsive saved polygon cards */
+    .area-list-card { max-height: 460px; overflow-x: hidden; overflow-y: auto; border: 1px solid #e2e8f0; background: #f8fafc; }
+    .area-list-heading { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px; border-bottom: 1px solid #e2e8f0; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
+    .area-list-heading p { margin: 0 0 2px; color: #0d9488; font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .area-list-heading h2 { margin: 0; color: #0f172a; font-size: 16px; }
+    .area-list-count { flex: 0 0 auto; padding: 5px 9px; border-radius: 999px; background: #ccfbf1; color: #0f766e; font-size: 11px; font-weight: 900; }
+    .area-card-list { display: grid; gap: 10px; padding: 12px; min-width: 0; }
+    .saved-area-card { min-width: 0; padding: 14px; border: 1px solid #e2e8f0; border-radius: 13px; background: #fff; box-shadow: 0 4px 14px rgba(15,23,42,.04); transition: border-color .2s, box-shadow .2s, transform .2s; }
+    .saved-area-card:hover, .saved-area-card.selected { border-color: #5eead4; box-shadow: 0 9px 22px rgba(13,148,136,.11); }
+    .saved-area-card.selected { background: linear-gradient(145deg,#fff,#f0fdfa); }
+    .saved-area-topline, .saved-area-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+    .saved-area-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .saved-area-identity > div { min-width: 0; }
+    .saved-area-identity strong, .saved-area-identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .saved-area-identity strong { color: #0f172a; font-size: 14px; }
+    .saved-area-identity small { margin-top: 3px; color: #64748b; font-size: 11px; }
+    .saved-area-pin { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 10px; background: #ccfbf1; color: #0f766e; }
+    .area-status-pill, .area-feature-pill { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 10px; font-weight: 900; }
+    .area-status-pill.active, .area-feature-pill.enabled { background: #dcfce7; color: #15803d; }
+    .area-status-pill.inactive { background: #fee2e2; color: #b91c1c; }
+    .saved-area-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 12px 0; }
+    .saved-area-metrics > div { min-width: 0; padding: 9px 10px; border-radius: 9px; background: #f8fafc; }
+    .saved-area-metrics span, .saved-area-metrics strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .saved-area-metrics span { color: #64748b; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .saved-area-metrics strong { margin-top: 3px; color: #0f172a; font-size: 12px; }
+    .saved-area-footer { padding-top: 11px; border-top: 1px solid #f1f5f9; }
+    .saved-area-flags, .saved-area-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .saved-area-actions { flex-wrap: nowrap; }
+    .area-edit-button, .area-delete-button { min-height: 32px; padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer; }
+    .area-edit-button { border: 1px solid #99f6e4; background: #f0fdfa; color: #0f766e; }
+    .area-delete-button { border: 1px solid #fecaca; background: #fff7f7; color: #b91c1c; }
+    .area-list-empty { display: grid; gap: 4px; place-items: center; padding: 30px 16px; color: #94a3b8; text-align: center; }
+    .area-list-empty strong { color: #475569; font-size: 14px; }
+    .area-list-empty span { font-size: 12px; }
+    @media (max-width: 430px) { .saved-area-footer { align-items: flex-start; flex-direction: column; } .saved-area-actions, .saved-area-actions button { width: 100%; } }
   </style>
 </body>
 </html>

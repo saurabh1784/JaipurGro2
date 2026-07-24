@@ -229,6 +229,7 @@ async function save(payload, actor = {}, connection = pool) {
       [...values, actor.id || null, id]
     );
     if (!Number(result.affectedRows ?? result.rowCount ?? 0)) { const error = new Error('Area not found'); error.status = 404; throw error; }
+    await require('../services/deliveryPricingService').ensureAreaRules(id, connection);
     return id;
   }
   const [result] = await connection.query(
@@ -236,6 +237,7 @@ async function save(payload, actor = {}, connection = pool) {
      VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
     [...values, actor.id || null, actor.id || null]
   );
+  await require('../services/deliveryPricingService').ensureAreaRules(result.insertId, connection);
   return result.insertId;
 }
 
@@ -287,6 +289,7 @@ async function remove(id, { force = false } = {}, connection = pool) {
     error.links = links;
     throw error;
   }
+  await connection.query('DELETE FROM area_delivery_rules WHERE area_definition_id = ?', [id]);
   await connection.query('DELETE FROM area_definitions WHERE id = ?', [id]);
   return links;
 }
