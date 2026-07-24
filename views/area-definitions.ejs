@@ -127,6 +127,7 @@
     let lastPlacedAt = 0;
     let mapProjectionOverlay = null;
     let markerUiBound = false;
+    let markerRenderFrame = 0;
     let didChooseInitialAreaCity = false;
     let fallbackMapMode = false;
     const fallbackMapState = {
@@ -275,8 +276,11 @@
       polygon.getPath().addListener('insert_at', syncPathFromPolygon);
       polygon.getPath().addListener('remove_at', syncPathFromPolygon);
       bindMarkerUi();
-      map.addListener('bounds_changed', renderMarkers);
-      window.addEventListener('resize', renderMarkers);
+      map.addListener('bounds_changed', scheduleMarkerRender);
+      map.addListener('center_changed', scheduleMarkerRender);
+      map.addListener('zoom_changed', scheduleMarkerRender);
+      map.addListener('idle', renderMarkers);
+      window.addEventListener('resize', scheduleMarkerRender);
       refreshVisibleAreas();
     }
 
@@ -325,7 +329,7 @@
     }
 
     function addPointFromValues(lat, lng, screen = null) {
-      selectedPath.push({ lat, lng, screen });
+      selectedPath.push({ lat, lng });
       if (polygon) {
         polygon.setPath(selectedPath);
         polygon.setOptions({ zIndex: 50 });
@@ -436,6 +440,14 @@
         : 'Click Mark Points, then click on the map to mark the area boundary.');
     }
 
+    function scheduleMarkerRender() {
+      if (markerRenderFrame) cancelAnimationFrame(markerRenderFrame);
+      markerRenderFrame = requestAnimationFrame(() => {
+        markerRenderFrame = 0;
+        renderMarkers();
+      });
+    }
+
     function renderMarkers() {
       const layer = document.getElementById('areaMarkerLayer');
       if (!layer || (!map && !fallbackMapMode)) return;
@@ -443,7 +455,7 @@
       markers = [];
 
       selectedPath.forEach((point, index) => {
-        const pixel = latLngToMapPixel(point) || point.screen;
+        const pixel = latLngToMapPixel(point);
         if (!pixel) return;
         const marker = document.createElement('span');
         marker.className = 'area-point-marker';
@@ -460,9 +472,9 @@
     function latLngToMapPixel(point) {
       if (fallbackMapMode) return fallbackLatLngToPixel(point);
       const projection = mapProjectionOverlay && mapProjectionOverlay.getProjection();
-      if (!projection) return point.screen || null;
+      if (!projection) return null;
       const pixel = projection.fromLatLngToContainerPixel(new google.maps.LatLng(point.lat, point.lng));
-      return pixel ? { x: pixel.x, y: pixel.y } : point.screen || null;
+      return pixel ? { x: pixel.x, y: pixel.y } : null;
     }
 
     function clickPixel(domEvent) {
@@ -901,14 +913,14 @@
       max-width: none !important;
     }
     .area-map svg {
-      width: auto !important;
-      height: auto !important;
-      fill: initial !important;
-      stroke: initial !important;
-      stroke-width: initial !important;
-      stroke-linecap: initial !important;
-      stroke-linejoin: initial !important;
-      overflow: visible !important;
+      width: auto;
+      height: auto;
+      fill: initial;
+      stroke: initial;
+      stroke-width: initial;
+      stroke-linecap: initial;
+      stroke-linejoin: initial;
+      overflow: visible;
     }
     .fallback-map-grid {
       position: relative;
