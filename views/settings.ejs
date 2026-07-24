@@ -653,7 +653,7 @@
               <h3 id="areaManagementTitle">Area Management</h3>
               <p>Create delivery areas, control availability, and manage map boundaries.</p>
             </div>
-            <button class="settings-save" type="button" onclick="openAreaManager()">Add Area</button>
+            <button class="settings-save" id="addManagedAreaButton" type="button">Add Area</button>
           </div>
 
           <div class="area-filter-grid">
@@ -672,6 +672,8 @@
           </div>
           <p class="commission-message" id="areaManagementMessage"></p>
         </section>
+
+      </form>
 
         <dialog class="area-dialog" id="areaManagerDialog">
           <form method="dialog" id="areaManagerForm" onsubmit="event.preventDefault(); saveManagedArea();">
@@ -696,7 +698,7 @@
               <button class="settings-save" id="saveManagedAreaButton" type="submit">Save Area</button>
             </div>
           </form>
-        </dialog>      </form>
+        </dialog>
 
       <section class="settings-panel" id="catalog" aria-labelledby="catalog-tab">
         <div class="panel-header catalog-header">
@@ -4737,15 +4739,16 @@
   async function loadManagedAreas(){const params=new URLSearchParams();[['search','areaSearch'],['country_id','areaCountryFilter'],['state_id','areaStateFilter'],['city_id','areaCityFilter'],['status','areaStatusFilter']].forEach(([key,id])=>{const value=document.getElementById(id)?.value?.trim();if(value)params.set(key,value)});const response=await fetch(`/api/areas?${params}`,{headers:{Accept:'application/json'}});const data=await response.json();if(!data.success){document.getElementById('areaManagementMessage').textContent=data.message||'Unable to load areas';return}managedAreas=data.areas||[];areaLocations=data.locations||areaLocations;if(!(document.getElementById('areaCountryFilter')?.options.length>1))syncAreaHierarchyFilters();renderManagedAreas()}
   function boundaryBadge(area){const key=area.boundary_status==='created'?'created':area.boundary_status==='needs_update'?'needs-update':'not-created';return `<span class="area-badge ${key}">${areaEsc(area.boundary_status_label)}</span>`}
   function renderManagedAreas(){const body=document.getElementById('managedAreaRows');if(!managedAreas.length){body.innerHTML='<tr><td colspan="9">No areas match these filters.</td></tr>';return}body.innerHTML=managedAreas.map((area)=>`<tr><td class="area-name-cell"><strong>${areaEsc(area.name)}</strong><span>${areaEsc(area.description||'No description')}</span></td><td><code>${areaEsc(area.code)}</code></td><td>${areaEsc(area.city)}</td><td>${areaEsc(area.state)}</td><td>${areaEsc(area.country)}</td><td>${boundaryBadge(area)}</td><td><span class="area-badge ${area.delivery_enabled?'delivery':'inactive'}">${area.delivery_enabled?'Available':'Unavailable'}</span></td><td><button type="button" class="area-badge ${area.is_active?'active':'inactive'}" onclick="toggleManagedArea(${area.id},${area.is_active?'false':'true'})">${area.is_active?'Active':'Inactive'}</button></td><td><div class="area-row-actions"><button type="button" onclick="openAreaManager(${area.id})">Edit</button><button type="button" onclick="manageAreaBoundary(${area.id})">Draw on Map</button><button type="button" class="danger" onclick="deleteManagedArea(${area.id})">Delete</button></div></td></tr>`).join('')}
-  function openAreaManager(id=null){const area=managedAreas.find((row)=>Number(row.id)===Number(id));document.getElementById('areaManagerForm').reset();document.getElementById('managedAreaId').value=area?.id||'';document.getElementById('areaDialogTitle').textContent=area?'Edit Area':'Add Area';fillAreaSelect('managedAreaCountry',areaLocations.countryEntries||[],'Select country');if(area)document.getElementById('managedAreaCountry').value=String(area.country_id||'');syncManagedAreaStates();if(area)document.getElementById('managedAreaState').value=String(area.state_id||'');syncManagedAreaCities();if(area)document.getElementById('managedAreaCity').value=String(area.city_id||'');document.getElementById('managedAreaName').value=area?.name||'';document.getElementById('managedAreaCode').value=area?.code||'';document.getElementById('managedAreaDescription').value=area?.description||'';document.getElementById('managedAreaStatus').value=area?.is_active===false?'0':'1';document.getElementById('managedAreaDelivery').checked=area?.delivery_enabled!==false;document.getElementById('managedAreaBoundaryStatus').textContent=area?.boundary_status_label||'Boundary not created';document.getElementById('areaManagerDialog').showModal()}
-  function closeAreaManager(){document.getElementById('areaManagerDialog').close()}
+  function openAreaManager(id=null){const dialog=document.getElementById('areaManagerDialog');const form=document.getElementById('areaManagerForm');if(!dialog||!form)return;const area=managedAreas.find((row)=>Number(row.id)===Number(id));form.reset();document.getElementById('managedAreaId').value=area?.id||'';document.getElementById('areaDialogTitle').textContent=area?'Edit Area':'Add Area';fillAreaSelect('managedAreaCountry',areaLocations.countryEntries||[],'Select country');if(area)document.getElementById('managedAreaCountry').value=String(area.country_id||'');syncManagedAreaStates();if(area)document.getElementById('managedAreaState').value=String(area.state_id||'');syncManagedAreaCities();if(area)document.getElementById('managedAreaCity').value=String(area.city_id||'');document.getElementById('managedAreaName').value=area?.name||'';document.getElementById('managedAreaCode').value=area?.code||'';document.getElementById('managedAreaDescription').value=area?.description||'';document.getElementById('managedAreaStatus').value=area?.is_active===false?'0':'1';document.getElementById('managedAreaDelivery').checked=area?.delivery_enabled!==false;document.getElementById('managedAreaBoundaryStatus').textContent=area?.boundary_status_label||'Boundary not created';if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','')}
+  function closeAreaManager(){const dialog=document.getElementById('areaManagerDialog');if(!dialog)return;if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open')}
   async function saveManagedArea(){const id=document.getElementById('managedAreaId').value;const payload={country_id:Number(document.getElementById('managedAreaCountry').value),state_id:Number(document.getElementById('managedAreaState').value),city_id:Number(document.getElementById('managedAreaCity').value),name:document.getElementById('managedAreaName').value.trim(),code:document.getElementById('managedAreaCode').value.trim(),description:document.getElementById('managedAreaDescription').value.trim(),is_active:document.getElementById('managedAreaStatus').value==='1',delivery_enabled:document.getElementById('managedAreaDelivery').checked};const response=await fetch(id?`/api/areas/${id}`:'/api/areas',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)});const data=await response.json();if(!data.success){document.getElementById('areaManagementMessage').textContent=data.message||'Unable to save area';return}closeAreaManager();document.getElementById('areaManagementMessage').textContent=data.message;await loadManagedAreas()}
   async function toggleManagedArea(id,isActive){const response=await fetch(`/api/areas/${id}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({is_active:isActive})});const data=await response.json();document.getElementById('areaManagementMessage').textContent=data.message||'';if(data.success)loadManagedAreas()}
   async function deleteManagedArea(id){if(!confirm('Delete this area? Linked records will require an additional confirmation.'))return;let response=await fetch(`/api/areas/${id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:'{}'});let data=await response.json();if(data.confirmation_required&&confirm(`${data.message}\n\nLinked records: ${JSON.stringify(data.links)}\n\nDelete anyway?`)){response=await fetch(`/api/areas/${id}?confirm=1`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});data=await response.json()}document.getElementById('areaManagementMessage').textContent=data.message||'';if(data.success)loadManagedAreas()}
   function manageAreaBoundary(id){window.location.href=`/area-definitions?area_id=${encodeURIComponent(id)}`}
-  document.addEventListener('DOMContentLoaded',()=>{if(document.getElementById('managedAreaRows'))loadManagedAreas()});
+  document.addEventListener('DOMContentLoaded',()=>{document.getElementById('addManagedAreaButton')?.addEventListener('click',()=>openAreaManager());if(document.getElementById('managedAreaRows'))loadManagedAreas()});
 </script></body>
 </html>
+
 
 
 
