@@ -5,13 +5,18 @@ const { processUploadedFile, deleteLocalImageFile } = require('../services/image
 
 async function getProductImagesPage(req, res) {
   try {
+    const user = req.authUser || (req.session && req.session.user) || {};
+    const shell = req.shell || (res.locals && res.locals.shell);
     const categories = await Catalog.listCategories();
     const subcategories = await Catalog.listSubcategories();
     const brands = await Catalog.listBrands();
+    const roleNorm = String(user.role || '').toLowerCase();
+    const isSuperAdmin = roleNorm === 'superadmin';
+
     return res.render('product_images', {
-      shell: req.shell,
-      user: req.authUser,
-      isSuperAdmin: req.authUser.role === 'SuperAdmin',
+      shell,
+      user,
+      isSuperAdmin,
       categories,
       subcategories,
       brands,
