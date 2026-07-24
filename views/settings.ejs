@@ -4718,6 +4718,42 @@
         grid-template-columns: 1fr;
       }
     }
+
+    /* Unified debug workspace */
+    #debug.settings-panel { padding: 0; overflow: hidden; border: 1px solid #e2e8f0; border-radius: 20px; background: #f8fafc; box-shadow: 0 18px 50px rgba(15,23,42,.08); }
+    #debug > .panel-header { margin: 0; padding: 24px 26px; border-radius: 0; background: linear-gradient(135deg,#7f1d1d,#dc2626 58%,#f97316); }
+    #debug > .panel-header h2 { color: #fff; font-size: 22px; }
+    #debug > .panel-header p { color: rgba(255,255,255,.82); }
+    #debug .debug-subtabs { position: sticky; top: 0; z-index: 4; gap: 6px; margin: 0; padding: 12px 18px; border-bottom: 1px solid #e2e8f0; background: rgba(255,255,255,.94); backdrop-filter: blur(10px); }
+    #debug .debug-subtab { min-height: 40px; padding: 9px 14px; border: 1px solid transparent; border-radius: 10px; color: #475569; }
+    #debug .debug-subtab:hover { border-color: #fecaca; background: #fff7f7; color: #991b1b; }
+    #debug .debug-subtab.active { border: 1px solid #fecaca; background: #fee2e2; color: #991b1b; box-shadow: 0 5px 14px rgba(153,27,27,.1); }
+    #debug .debug-tool-panel.active { display: grid; gap: 16px; padding: 20px; }
+    #debug .maintenance-panel { display: grid; grid-template-columns: minmax(230px,.7fr) minmax(0,1.8fr); gap: 18px; align-items: start; margin: 0; padding: 18px; border: 1px solid #fed7aa; border-radius: 16px; background: linear-gradient(145deg,#fff7ed,#fff); }
+    #debug .maintenance-copy { position: sticky; top: 82px; padding: 18px; border-radius: 14px; background: linear-gradient(145deg,#7c2d12,#c2410c); color: #fff; box-shadow: 0 14px 35px rgba(124,45,18,.2); }
+    #debug .maintenance-copy span,#debug .maintenance-copy h2,#debug .maintenance-copy p { color: #fff; }
+    #debug .maintenance-copy p { opacity: .82; }
+    #debug .maintenance-actions { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 12px; }
+    #debug .maintenance-actions > form,#debug .maintenance-actions > div { box-sizing: border-box; min-width: 0; margin: 0 !important; padding: 16px !important; border: 1px solid #e2e8f0 !important; border-radius: 14px !important; background: #fff !important; box-shadow: 0 7px 20px rgba(15,23,42,.05); }
+    #debug .maintenance-actions > form { display: flex; flex-direction: column; align-items: stretch; justify-content: space-between; gap: 12px; }
+    #debug .maintenance-actions > form button { align-self: flex-start; }
+    #debug .pc-restore-container,#debug .update-database-progress { grid-column: 1/-1; }
+    #debug .debug-clean-section-card,#debug .database-backup-list { margin: 0; border: 1px solid #e2e8f0; border-radius: 16px; background: #fff; box-shadow: 0 8px 24px rgba(15,23,42,.05); }
+    #debug .debug-clean-section-header { padding: 18px; border-bottom: 1px solid #e2e8f0; }
+    #debug .debug-clean-grid { grid-template-columns: repeat(3,minmax(0,1fr)); padding: 14px; }
+    #debug .debug-clean-box { height: 100%; border-radius: 13px; background: #f8fafc; }
+    #debug .debug-filter-form { grid-template-columns: repeat(5,minmax(140px,1fr)); gap: 10px; margin: 0; padding: 16px; border-radius: 14px; box-shadow: 0 8px 22px rgba(15,23,42,.05); }
+    #debug .debug-filter-form button { min-height: 42px; }
+    #debug .debug-delivery-list { grid-template-columns: repeat(auto-fill,minmax(300px,1fr)); gap: 12px; margin: 0; }
+    #debug .debug-delivery-row { grid-template-columns: 1fr 1fr; gap: 12px; padding: 16px; border-radius: 14px; box-shadow: 0 7px 20px rgba(15,23,42,.05); }
+    #debug .debug-delivery-row > button { grid-column: 1/-1; justify-self: start; }
+    #debug .commission-message:not(:empty) { margin: 0; }
+    .theme-dark #debug.settings-panel { border-color: #334155; background: #0f172a; }
+    .theme-dark #debug .debug-subtabs { border-color: #334155; background: rgba(17,24,39,.94); }
+    .theme-dark #debug .maintenance-panel { border-color: #7c2d12; background: #111827; }
+    .theme-dark #debug .maintenance-actions > form,.theme-dark #debug .maintenance-actions > div,.theme-dark #debug .debug-clean-section-card,.theme-dark #debug .database-backup-list { border-color: #334155 !important; background: #111827 !important; }
+    @media(max-width:1100px){#debug .maintenance-panel{grid-template-columns:1fr}#debug .maintenance-copy{position:static}#debug .debug-clean-grid{grid-template-columns:1fr}#debug .debug-filter-form{grid-template-columns:repeat(2,minmax(0,1fr))}}
+    @media(max-width:680px){#debug .debug-tool-panel.active{padding:12px}#debug .maintenance-actions{grid-template-columns:1fr}#debug .debug-filter-form{grid-template-columns:1fr}#debug .pc-restore-container,#debug .update-database-progress{grid-column:1}#debug .debug-delivery-list{grid-template-columns:1fr}}
   </style>
   <script src="/image-upload-editor.js"></script>
   <%- include('partials/clean_modal') %>

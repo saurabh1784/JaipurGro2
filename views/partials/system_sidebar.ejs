@@ -125,3 +125,60 @@
     });
   })();
 </script>
+
+<script>
+  (() => {
+    if (window.__systemFeedbackReady) return;
+    window.__systemFeedbackReady = true;
+
+    function feedbackType(message, requestedType) {
+      if (requestedType) return requestedType;
+      const text = String(message || '').toLowerCase();
+      if (/error|unable|failed|invalid|required|not found|denied|select|cannot|must /.test(text)) return 'error';
+      if (/success|saved|updated|deleted|created|sent|placed|approved|completed/.test(text)) return 'success';
+      if (/warning|confirm|careful|pending/.test(text)) return 'warning';
+      return 'info';
+    }
+
+    function feedbackStack() {
+      let stack = document.getElementById('systemFeedbackStack');
+      if (!stack) {
+        stack = document.createElement('section');
+        stack.id = 'systemFeedbackStack';
+        stack.className = 'system-feedback-stack';
+        stack.setAttribute('aria-live', 'polite');
+        stack.setAttribute('aria-label', 'System notifications');
+        document.body.appendChild(stack);
+      }
+      return stack;
+    }
+
+    window.systemNotify = (message, requestedType, options = {}) => {
+      const text = String(message || '').trim();
+      if (!text) return null;
+      const type = feedbackType(text, requestedType);
+      const card = document.createElement('article');
+      card.className = `system-feedback-card ${type}`;
+      card.setAttribute('role', type === 'error' ? 'alert' : 'status');
+      const icons = { error: '!', success: '✓', warning: '!', info: 'i' };
+      const titles = { error: 'Action needed', success: 'Success', warning: 'Please note', info: 'Information' };
+      card.innerHTML = `<span class="system-feedback-icon">${icons[type]}</span><div class="system-feedback-copy"><strong>${titles[type]}</strong><p></p></div><button type="button" class="system-feedback-close" aria-label="Dismiss">×</button>`;
+      card.querySelector('p').textContent = text;
+      const dismiss = () => { card.classList.add('leaving'); setTimeout(() => card.remove(), 180); };
+      card.querySelector('button').addEventListener('click', dismiss);
+      feedbackStack().appendChild(card);
+      requestAnimationFrame(() => card.classList.add('visible'));
+      if (options.sticky !== true) setTimeout(dismiss, Number(options.duration || (type === 'error' ? 7000 : 4500)));
+      return card;
+    };
+
+    window.alert = (message) => { window.systemNotify(message); };
+    window.addEventListener('unhandledrejection', (event) => {
+      const message = event.reason && event.reason.message ? event.reason.message : event.reason;
+      if (message) window.systemNotify(message, 'error', { sticky: true });
+    });
+    window.addEventListener('error', (event) => {
+      if (event.message) window.systemNotify(event.message, 'error', { sticky: true });
+    });
+  })();
+</script>
