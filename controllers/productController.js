@@ -490,7 +490,6 @@ async function normalizeSmartBulkRow({ row, rowNumber, category, subcategoryMap,
     weight_kg: getCell(row, ['weight_kg', 'weight kg']),
     tax_name: String(getCell(row, ['tax_name', 'tax name', 'gst name'])).trim(),
     tax_percentage: getCell(row, ['tax_percentage', 'tax percentage', 'gst percentage', 'gst %']),
-    image_url: String(getCell(row, ['image_url', 'image url', 'product_image_url', 'product image url'])).trim(),
     category_id: category.id,
     sub_category_id: subcategory.id,
     brand_id: brand.id,
@@ -877,60 +876,10 @@ async function bulkUpload(req, res) {
       continue;
     }
 
-    const imageUrl = String(getCell(row, ['image_url', 'image url', 'product_image_url', 'product image url'])).trim();
-    let imageWarning = null;
-    if (imageUrl) {
-      let parsedUrl = null;
-      try {
-        parsedUrl = new URL(imageUrl);
-      } catch (error) {
-        imageWarning = 'Invalid image URL format';
-      }
-      if (!imageWarning && !['http:', 'https:'].includes(parsedUrl.protocol)) {
-        imageWarning = 'Only HTTP and HTTPS image URLs are supported';
-      }
-    }
-
     try {
       normalized.data.image_url = null;
       const id = await Product.create(normalized.data);
       const uploaded = { id, rowNumber, identifier: normalized.data.name, image_url: '/default.png' };
-
-      if (imageUrl) {
-        if (imageWarning) {
-          imageWarnings.push({
-            rowNumber,
-            product_id: id,
-            identifier: normalized.data.name,
-            image_url: imageUrl,
-            reason: imageWarning,
-            row: rowData,
-          });
-        } else {
-          try {
-            const savedPath = await downloadImageToProduct({ id, name: normalized.data.name, image_url: '' }, imageUrl, rowNumber);
-            await Product.updateImage(id, savedPath);
-            uploaded.image_url = savedPath;
-            report.images_uploaded.push({
-              rowNumber,
-              product_id: id,
-              product_name: normalized.data.name,
-              source_image_url: imageUrl,
-              image_url: savedPath,
-            });
-          } catch (error) {
-            imageWarnings.push({
-              rowNumber,
-              product_id: id,
-              identifier: normalized.data.name,
-              image_url: imageUrl,
-              reason: error.message || 'Failed to download or save image',
-              row: rowData,
-            });
-          }
-        }
-      }
-
       created.push(uploaded);
     } catch (error) {
       failed.push({
@@ -947,23 +896,23 @@ async function bulkUpload(req, res) {
     refreshVisibleProductsCache();
   }
 
-  const issueCount = failed.length + duplicateProducts.length + imageWarnings.length;
+  const issueCount = failed.length + duplicateProducts.length;
   const statusCode = created.length ? 201 : (failed.length ? 422 : 200);
   return res.status(statusCode).json({
     success: failed.length === 0,
-    message: `${created.length} product(s) uploaded successfully, ${report.new_subcategories_created.length} subcategor${report.new_subcategories_created.length === 1 ? 'y' : 'ies'} created, ${report.new_brands_created.length} brand(s) created${report.images_uploaded.length ? `, ${report.images_uploaded.length} image(s) saved to uploads/products` : ''}${issueCount ? `, ${issueCount} item(s) need attention` : ''}`,
+    message: `${created.length} product(s) uploaded successfully, ${report.new_subcategories_created.length} subcategor${report.new_subcategories_created.length === 1 ? 'y' : 'ies'} created, ${report.new_brands_created.length} brand(s) created${issueCount ? `, ${issueCount} item(s) need attention` : ''}`,
     created_count: created.length,
     total_products_uploaded: created.length,
     new_subcategories_count: report.new_subcategories_created.length,
     new_brands_count: report.new_brands_created.length,
-    images_uploaded_count: report.images_uploaded.length,
+    images_uploaded_count: 0,
     duplicate_products_skipped_count: duplicateProducts.length,
     created,
     new_subcategories_created: report.new_subcategories_created,
     new_brands_created: report.new_brands_created,
-    images_uploaded: report.images_uploaded,
+    images_uploaded: [],
     duplicate_products_skipped: duplicateProducts,
-    image_warnings: imageWarnings,
+    image_warnings: [],
     failed,
     products_not_uploaded: failed,
   });

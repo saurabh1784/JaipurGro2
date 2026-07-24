@@ -139,7 +139,7 @@
           <form id="bulkUploadForm" class="bulk-upload-panel">
             <div>
               <h2>Bulk Upload</h2>
-              <p>Select a main category, then upload CSV, XLS, or XLSX with name, description, price, weight_value, weight_unit, tax_name, tax_percentage, subcategory, brand, and image_url.</p>
+              <p>Select a main category, then upload CSV, XLS, or XLSX with name, description, price, weight_value, weight_unit, tax_name, tax_percentage, subcategory, and brand.</p>
             </div>
             <label>
               Main Category
@@ -1115,7 +1115,7 @@
         title: requestError ? 'Product upload failed' : (notUploaded.length ? `Product upload completed with issues: ${notUploaded.length}` : 'Product upload successful'),
         message: requestError ? 'The upload could not be processed.' : (notUploaded.length ? 'Download the failed rows, correct them, and upload again.' : (imageWarnings.length ? 'Products were uploaded, but some image URLs could not be downloaded.' : (data.message || 'Upload complete'))),
         lines: requestLines,
-        csv: requestError ? requestLines.join('\n') : editableErrorCsv(notUploaded, ['name', 'description', 'price', 'weight_value', 'weight_unit', 'tax_name', 'tax_percentage', 'subcategory', 'subcategory_code', 'brand', 'brand_code', 'image_url']),
+        csv: requestError ? requestLines.join('\n') : editableErrorCsv(notUploaded, ['name', 'description', 'price', 'weight_value', 'weight_unit', 'tax_name', 'tax_percentage', 'subcategory', 'subcategory_code', 'brand', 'brand_code']),
         textareaId: 'productBulkErrorCsv',
         tone: requestError || notUploaded.length ? 'error' : (imageWarnings.length ? 'warning' : 'success'),
         summary: [
@@ -1314,7 +1314,7 @@
       document.getElementById('deleteModal').classList.remove('active');
     });
     document.getElementById('downloadTemplate').addEventListener('click', () => {
-      const csv = 'name,description,price,weight_value,weight_unit,tax_name,tax_percentage,subcategory,subcategory_code,brand,brand_code,image_url\nSample Rice,Long grain rice,120,5,kg,GST,5,Rice,rice,Fortune,fortune,https://example.com/sample-rice.jpg\n';
+      const csv = 'name,description,price,weight_value,weight_unit,tax_name,tax_percentage,subcategory,subcategory_code,brand,brand_code\nSample Rice,Long grain rice,120,5,kg,GST,5,Rice,rice,Fortune,fortune\n';
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
       link.download = 'product-upload-template.csv';
