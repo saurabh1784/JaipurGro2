@@ -527,6 +527,108 @@ function invalidateVisibleProductsCache() {
   _visibleProductsCache.clear();
 }
 
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function searchTokens(value) {
+  return normalizeSearchText(value)
+    .split(' ')
+    .filter((token) => token.length > 1);
+}
+
+function editDistance(a, b, maxDistance = 3) {
+  if (!a || !b) return Math.max(a.length, b.length);
+  if (Math.abs(a.length - b.length) > maxDistance) return maxDistance + 1;
+
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    let rowMin = current[0];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const value = Math.min(
+        previous[j] + 1,
+        current[j - 1] + 1,
+        previous[j - 1] + cost
+      );
+      current[j] = value;
+      rowMin = Math.min(rowMin, value);
+    }
+    if (rowMin > maxDistance) return maxDistance + 1;
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+function bestTokenScore(queryToken, searchableTokens) {
+  let best = 0;
+  for (const token of searchableTokens) {
+    if (token === queryToken) return 100;
+    if (token.startsWith(queryToken) || queryToken.startsWith(token)) best = Math.max(best, 86);
+    if (token.includes(queryToken) || queryToken.includes(token)) best = Math.max(best, 72);
+
+    const maxDistance = queryToken.length <= 4 ? 1 : queryToken.length <= 8 ? 2 : 3;
+    const distance = editDistance(queryToken, token, maxDistance);
+    if (distance <= maxDistance) {
+      const similarity = Math.round((1 - distance / Math.max(queryToken.length, token.length)) * 100);
+      best = Math.max(best, similarity);
+    }
+  }
+  return best;
+}
+
+function fuzzySearchScore(product, search) {
+  const normalizedQuery = normalizeSearchText(search);
+  const queryTokens = searchTokens(normalizedQuery);
+  if (!normalizedQuery || queryTokens.length === 0) return 0;
+
+  const searchable = normalizeSearchText([
+    product.product_name,
+    product.category_name,
+    product.sub_category_name,
+    product.brand_name,
+    product.weight_label,
+    product.description,
+  ].join(' '));
+  if (!searchable) return 0;
+  if (searchable === normalizedQuery) return 180;
+  if (searchable.startsWith(normalizedQuery)) return 160;
+  if (searchable.includes(normalizedQuery)) return 130;
+
+  const searchableTokens = searchTokens(searchable);
+  const scores = queryTokens.map((token) => bestTokenScore(token, searchableTokens));
+  const average = scores.reduce((sum, score) => sum + score, 0) / scores.length;
+  const allClose = scores.every((score) => score >= 58);
+  return allClose ? Math.round(average) : 0;
+}
+
+function applyFuzzySearch(products, search) {
+  if (!search || !String(search).trim()) return products;
+  return products
+    .map((product) => {
+      const fuzzyScore = fuzzySearchScore(product, search);
+      return {
+        ...product,
+        ranking_score: Number(product.ranking_score || 0) + fuzzyScore,
+        _fuzzy_search_score: fuzzyScore,
+      };
+    })
+    .filter((product) => product._fuzzy_search_score >= 58 || Number(product.ranking_score || 0) >= 120)
+    .sort((a, b) => {
+      const rankingDiff = Number(b.ranking_score || 0) - Number(a.ranking_score || 0);
+      if (rankingDiff !== 0) return rankingDiff;
+      return String(a.product_name || '').localeCompare(String(b.product_name || ''));
+    })
+    .map(({ _fuzzy_search_score, ...product }) => product);
+}
+
 async function visibleForClient({ client_id, vendor_id, search, category_id, sub_category_id, brand_id, brand_name } = {}) {
   const cacheKey = JSON.stringify({ client_id, vendor_id, search, category_id, sub_category_id, brand_id, brand_name });
   const cached = _visibleProductsCache.get(cacheKey);
@@ -545,7 +647,8 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
     'vc.vendor_id IS NOT NULL',
   ];
   const params = [];
-  const term = search ? `%${String(search).trim()}%` : null;
+  const rawSearch = search ? String(search).trim() : '';
+  const term = rawSearch ? `%${rawSearch}%` : null;
 
   if (client_id) {
     where.push('cp.city IS NOT NULL');
@@ -573,11 +676,6 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
     where.push('LOWER(TRIM(b.name)) = LOWER(TRIM(?))');
     params.push(brand_name);
   }
-  if (search) {
-    where.push('p.name ILIKE ?');
-    params.push(term);
-  }
-
   const [rows] = await pool.query(
     `SELECT MIN(vp.id) AS id,
             p.id AS product_id,
@@ -654,10 +752,10 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
       client_id || null,
       ...params,
       term,
-      search ? String(search).trim() : null,
+      rawSearch || null,
     ]
   );
-  const result = rows.map(normalize);
+  const result = applyFuzzySearch(rows.map(normalize), rawSearch);
   _visibleProductsCache.set(cacheKey, { data: result, time: now });
   return result;
 }

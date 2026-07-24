@@ -23,6 +23,59 @@ function toPriorityOrder(value) {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
+function normalizeSearchText(value) {
+  return String(value || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .replace(/[^a-z0-9]+/g, ' ')
+    .trim()
+    .replace(/\s+/g, ' ');
+}
+
+function editDistance(a, b, maxDistance = 3) {
+  if (!a || !b) return Math.max(a.length, b.length);
+  if (Math.abs(a.length - b.length) > maxDistance) return maxDistance + 1;
+  let previous = Array.from({ length: b.length + 1 }, (_, index) => index);
+  for (let i = 1; i <= a.length; i += 1) {
+    const current = [i];
+    let rowMin = current[0];
+    for (let j = 1; j <= b.length; j += 1) {
+      const cost = a[i - 1] === b[j - 1] ? 0 : 1;
+      const value = Math.min(previous[j] + 1, current[j - 1] + 1, previous[j - 1] + cost);
+      current[j] = value;
+      rowMin = Math.min(rowMin, value);
+    }
+    if (rowMin > maxDistance) return maxDistance + 1;
+    previous = current;
+  }
+  return previous[b.length];
+}
+
+function suggestionScore(keyword, label) {
+  const query = normalizeSearchText(keyword);
+  const text = normalizeSearchText(label);
+  if (!query || !text) return 0;
+  if (text === query) return 100;
+  if (text.startsWith(query)) return 92;
+  if (text.includes(query)) return 80;
+  const queryTokens = query.split(' ').filter(Boolean);
+  const tokens = text.split(' ').filter(Boolean);
+  const scores = queryTokens.map((queryToken) => {
+    let best = 0;
+    for (const token of tokens) {
+      const maxDistance = queryToken.length <= 4 ? 1 : queryToken.length <= 8 ? 2 : 3;
+      const distance = editDistance(queryToken, token, maxDistance);
+      if (distance <= maxDistance) {
+        best = Math.max(best, Math.round((1 - distance / Math.max(queryToken.length, token.length)) * 100));
+      }
+      if (token.startsWith(queryToken) || queryToken.startsWith(token)) best = Math.max(best, 86);
+    }
+    return best;
+  });
+  return scores.every((score) => score >= 58) ? scores.reduce((sum, score) => sum + score, 0) / scores.length : 0;
+}
+
 async function trackSearch({ userId, keyword, clickedProductId = null, viewedProductId = null }) {
   const term = normalizeTerm(keyword);
   if (!term && !clickedProductId && !viewedProductId) return;
@@ -121,7 +174,20 @@ async function suggestions({ userId, term, limit = 8 }) {
      LIMIT ?`,
     [like, like, like, toPositiveInt(userId), like, prefix, limit]
   );
-  return rows;
+  if (rows.length) return rows;
+
+  const fallback = await pool.query(
+    `SELECT p.name AS label, 'product' AS type, 60 AS weight
+     FROM products p
+     WHERE p.is_deleted = 0 AND p.approval_status = 'approved'
+     ORDER BY p.updated_at DESC, p.id DESC
+     LIMIT 2000`
+  );
+  return fallback.rows
+    .map((row) => ({ ...row, weight: suggestionScore(keyword, row.label) }))
+    .filter((row) => row.weight >= 58)
+    .sort((a, b) => b.weight - a.weight || String(a.label).localeCompare(String(b.label)))
+    .slice(0, Number(limit) || 8);
 }
 
 async function updateProductKeywords(productId, keywords = []) {
