@@ -195,7 +195,6 @@ async function create(data) {
         Number(data.premium_commission_percent || 0),
       ]
     );
-    await VendorProduct.ensureVendorHasAllProducts(userId, connection);
     await setCategories(userId, data.category_ids || data.categories || [], connection);
     await connection.commit();
     return userId;

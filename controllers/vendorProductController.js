@@ -321,7 +321,6 @@ async function approveProduct(req, res) {
       approved_by: req.authUser.id,
       default_price: req.body.default_price || req.body.price,
     });
-    await VendorProduct.ensureProductForAllVendors(req.params.productId);
     return res.json({ success: true, message: 'Product approved' });
   } catch (error) {
     return res.status(error.status || 500).json({
@@ -357,7 +356,6 @@ async function visibleForClient(req, res) {
         keyword: req.query.search,
       });
     }
-    await VendorProduct.ensureAllProductsForAllVendors();
     const filters = {
       vendor_id: req.query.vendor_id,
       search: req.query.search,

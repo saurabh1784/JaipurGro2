@@ -96,9 +96,6 @@ async function findOrCreateGoogleUser(idToken, role = 'Client') {
 
     await Profile.createEmptyForRole(existingUser.id, requestedRole);
     await Wallet.ensureForUser(existingUser.id);
-    if (requestedRole === 'Vendor') {
-      await VendorProduct.ensureVendorHasAllProducts(existingUser.id);
-    }
     return existingUser;
   }
 
@@ -116,9 +113,6 @@ async function findOrCreateGoogleUser(idToken, role = 'Client') {
     }, connection);
     await Profile.createEmptyForRole(userId, requestedRole, connection);
     await Wallet.ensureForUser(userId, connection);
-    if (requestedRole === 'Vendor') {
-      await VendorProduct.ensureVendorHasAllProducts(userId, connection);
-    }
     await connection.commit();
     return await User.findById(userId);
   } catch (error) {

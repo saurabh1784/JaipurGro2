@@ -903,7 +903,6 @@ async function bulkUpload(req, res) {
   }
 
   if (created.length) {
-    await VendorProduct.ensureAllProductsForAllVendors();
     refreshVisibleProductsCache();
   }
 

@@ -1,4 +1,4 @@
-﻿const pool = require('../db');
+const pool = require('../db');
 const Product = require('./Product');
 
 function normalize(row) {
@@ -215,17 +215,27 @@ async function create(data) {
   try {
     await connection.beginTransaction();
     const [productRows] = await connection.query(
-      `SELECT p.id
+      `SELECT p.id, p.category_id
        FROM products p
-       INNER JOIN vendor_categories vc ON vc.category_id = p.category_id AND vc.vendor_id = ?
        WHERE p.id = ? AND p.is_deleted = 0 AND p.approval_status = 'approved'
        LIMIT 1`,
-      [vendorId, productId]
+      [productId]
     );
     if (!productRows.length) {
-      const error = new Error('Product not found in your approved categories');
+      const error = new Error('Product not found or not approved in master catalog');
       error.status = 404;
       throw error;
+    }
+
+    const categoryId = productRows[0].category_id;
+    if (categoryId) {
+      await connection.query(
+        `INSERT INTO vendor_categories (vendor_id, category_id)
+         SELECT ?, ? WHERE NOT EXISTS (
+           SELECT 1 FROM vendor_categories WHERE vendor_id = ? AND category_id = ?
+         )`,
+        [vendorId, categoryId, vendorId, categoryId]
+      );
     }
 
     const [result] = await connection.query(
@@ -452,48 +462,16 @@ async function deleteClientPrice({ product_id, vendor_id, client_id }) {
   );
 }
 
-async function ensureAllProductsForAllVendors(connection = pool) {
-  const [result] = await connection.query(
-    `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
-     SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
-     FROM products p
-     INNER JOIN users u ON u.role = 'Vendor' AND u.is_deleted = 0
-     INNER JOIN vendor_categories vc ON vc.vendor_id = u.id AND vc.category_id = p.category_id
-     WHERE p.is_deleted = 0
-     ON CONFLICT (product_id, vendor_id) DO NOTHING`
-  );
-  invalidateVisibleProductsCache();
-  return Number(result.affectedRows || result.rowCount || 0);
+async function ensureAllProductsForAllVendors() {
+  return 0;
 }
 
-async function ensureProductForAllVendors(productId, connection = pool) {
-  const [result] = await connection.query(
-    `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
-     SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
-     FROM products p
-     INNER JOIN users u ON u.role = 'Vendor' AND u.is_deleted = 0
-     INNER JOIN vendor_categories vc ON vc.vendor_id = u.id AND vc.category_id = p.category_id
-     WHERE p.id = ? AND p.is_deleted = 0
-     ON CONFLICT (product_id, vendor_id) DO NOTHING`,
-    [productId]
-  );
-  invalidateVisibleProductsCache();
-  return Number(result.affectedRows || result.rowCount || 0);
+async function ensureProductForAllVendors() {
+  return 0;
 }
 
-async function ensureVendorHasAllProducts(vendorId, connection = pool) {
-  const [result] = await connection.query(
-    `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status)
-     SELECT p.id, u.id, 10, COALESCE(p.price, 0), 'active'
-     FROM users u
-     INNER JOIN products p ON p.is_deleted = 0
-     INNER JOIN vendor_categories vc ON vc.vendor_id = u.id AND vc.category_id = p.category_id
-     WHERE u.id = ? AND u.role = 'Vendor' AND u.is_deleted = 0
-     ON CONFLICT (product_id, vendor_id) DO NOTHING`,
-    [vendorId]
-  );
-  invalidateVisibleProductsCache();
-  return Number(result.affectedRows || result.rowCount || 0);
+async function ensureVendorHasAllProducts() {
+  return 0;
 }
 
 async function approveProduct({ product_id, approved_by, default_price }) {
