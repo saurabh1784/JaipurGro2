@@ -366,32 +366,10 @@ async function visibleForClient(req, res) {
       brand_id: req.query.brand_id,
       brand_name: req.query.brand_name,
     };
-    let products = await VendorProduct.visibleForClient({
+    const products = await VendorProduct.visibleForClient({
       ...filters,
       client_id: clientId,
     });
-    if (products.length === 0 && clientId) {
-      products = await VendorProduct.visibleForClient(filters);
-    }
-    if (products.length === 0) {
-      const catalogResult = await Product.list({
-        name: req.query.search,
-        approval_status: 'approved',
-        category_id: req.query.category_id,
-        sub_category_id: req.query.sub_category_id || req.query.subcategory_id,
-        brand_id: req.query.brand_id,
-        brand_name: req.query.brand_name,
-        limit: 200,
-      });
-      products = catalogResult.products.map((product) => ({
-        ...product,
-        product_id: product.id,
-        default_price: product.price,
-        visible_price: product.price,
-        quantity: 0,
-        status: 'catalog',
-      }));
-    }
     return res.json({ success: true, products });
   } catch (error) {
     console.error('Client visible products error:', error);

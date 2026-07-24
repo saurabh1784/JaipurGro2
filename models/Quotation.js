@@ -388,6 +388,39 @@ const biddingSetting = await BiddingSetting.resolveForCity(clientCity, connectio
         continue;
       }
 
+      const eligibleVendorRows = [];
+      const categoryProductIds = categoryGroup.items.map((item) => Number(item.productId));
+      const categoryProductPlaceholders = categoryProductIds.map(() => '?').join(',');
+      for (const vendor of vendorRows) {
+        const [supplyRows] = await connection.query(
+          `SELECT vp.product_id, vp.quantity, vp.status, p.approval_status, p.is_deleted
+           FROM vendor_products vp
+           INNER JOIN products p ON p.id = vp.product_id
+           WHERE vp.vendor_id = ? AND vp.product_id IN (${categoryProductPlaceholders})`,
+          [vendor.id, ...categoryProductIds]
+        );
+        const supplyByProduct = new Map(supplyRows.map((row) => [Number(row.product_id), row]));
+        const canSupplyEveryProduct = categoryGroup.items.every((item) => {
+          const supply = supplyByProduct.get(Number(item.productId));
+          return supply
+            && supply.status === 'active'
+            && supply.approval_status === 'approved'
+            && !Boolean(supply.is_deleted)
+            && Number(supply.quantity || 0) >= Number(item.quantity || 1);
+        });
+        if (canSupplyEveryProduct) eligibleVendorRows.push(vendor);
+      }
+      vendorRows.splice(0, vendorRows.length, ...eligibleVendorRows);
+      if (!vendorRows.length) {
+        skippedCategories.push({
+          categoryId: categoryGroup.categoryId,
+          categoryName: categoryGroup.categoryName,
+          itemCount: categoryGroup.items.length,
+          reason: `No vendor in ${clientArea || clientCity} can supply every required ${categoryGroup.categoryName} product`,
+        });
+        continue;
+      }
+
       const totalAmount = categoryGroup.items.reduce((sum, item) => sum + item.expectedPrice * item.quantity, 0);
       const expiryMinutes = await quotationSubmissionMinutes(connection, clientCity);
       const expiresAt = quotationExpiryFromNow(expiryMinutes);
@@ -437,6 +470,12 @@ const biddingSetting = await BiddingSetting.resolveForCity(clientCity, connectio
       throw error;
     }
 
+    if (skippedCategories.length) {
+      const error = new Error('Some products are no longer available in your selected area. Please review your cart.');
+      error.status = 422;
+      error.unavailableProducts = skippedCategories;
+      throw error;
+    }
     await connection.commit();
     const vendorIds = [...new Set(quotations.flatMap((quotation) => quotation.vendorIds || []))];
     const totalAmount = quotations.reduce((sum, quotation) => sum + Number(quotation.totalAmount || 0), 0);
@@ -459,6 +498,90 @@ const biddingSetting = await BiddingSetting.resolveForCity(clientCity, connectio
   }
 }
 
+async function evaluateVendorEligibility(connection, { recipientId, vendorId, persist = true }) {
+  const [rows] = await connection.query(
+    `SELECT qvr.id AS recipient_id, qvr.status AS recipient_status,
+            qr.id AS quotation_id, qr.status AS quotation_status, qr.expires_at,
+            COALESCE(cp.city, qr.client_city, '') AS client_city,
+            COALESCE(cp.area, '') AS client_area,
+            u.status AS vendor_account_status, u.is_deleted AS vendor_deleted,
+            COALESCE(vprof.city, '') AS vendor_city, COALESCE(vprof.area, '') AS vendor_area,
+            qri.product_id, qri.product_name, qri.quantity AS required_quantity,
+            p.approval_status AS product_approval_status, p.is_deleted AS product_deleted,
+            vp.id AS vendor_product_id, vp.status AS vendor_product_status, vp.quantity AS stock
+     FROM quotation_vendor_recipients qvr
+     INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id
+     LEFT JOIN client_profiles cp ON cp.user_id = qr.client_id
+     INNER JOIN users u ON u.id = qvr.vendor_id
+     LEFT JOIN vendor_profiles vprof ON vprof.user_id = qvr.vendor_id
+     INNER JOIN quotation_request_items qri ON qri.quotation_request_id = qr.id
+     LEFT JOIN products p ON p.id = qri.product_id
+     LEFT JOIN vendor_products vp ON vp.vendor_id = qvr.vendor_id AND vp.product_id = qri.product_id
+     WHERE qvr.id = ? AND qvr.vendor_id = ?
+     ORDER BY qri.id`,
+    [recipientId, vendorId]
+  );
+  if (!rows.length) return null;
+
+  const head = rows[0];
+  const missingProducts = rows
+    .filter((row) => !row.vendor_product_id || row.product_approval_status !== 'approved' || Boolean(row.product_deleted) || row.vendor_product_status !== 'active')
+    .map((row) => ({ product_id: Number(row.product_id), product_name: row.product_name, required_quantity: Number(row.required_quantity || 0) }));
+  const outOfStockProducts = rows
+    .filter((row) => row.vendor_product_id && row.product_approval_status === 'approved' && !Boolean(row.product_deleted) && row.vendor_product_status === 'active' && Number(row.stock || 0) < Number(row.required_quantity || 0))
+    .map((row) => ({ product_id: Number(row.product_id), vendor_product_id: Number(row.vendor_product_id), product_name: row.product_name, required_quantity: Number(row.required_quantity || 0), available_quantity: Number(row.stock || 0) }));
+
+  let status = 'eligible_to_bid';
+  let message = 'Eligible to bid';
+  const closed = head.quotation_status !== 'pending' || (head.expires_at && new Date(head.expires_at).getTime() <= Date.now());
+  const vendorInactive = head.vendor_account_status !== 'active' || Boolean(head.vendor_deleted);
+  const wrongArea = String(head.vendor_city || '').trim().toLowerCase() !== String(head.client_city || '').trim().toLowerCase()
+    || (String(head.client_area || '').trim() && String(head.vendor_area || '').trim().toLowerCase() !== String(head.client_area || '').trim().toLowerCase());
+  if (closed) {
+    status = 'quotation_closed';
+    message = 'Quotation closed';
+  } else if (vendorInactive) {
+    status = 'vendor_inactive';
+    message = 'Vendor inactive';
+  } else if (wrongArea) {
+    status = 'vendor_not_available_in_area';
+    message = 'Vendor not available in this area';
+  } else if (missingProducts.length) {
+    status = 'product_approval_required';
+    message = 'One or more products are not available in your approved product list.';
+  } else if (outOfStockProducts.length) {
+    status = 'inventory_update_required';
+    message = 'One or more products are out of stock. Please update the product quantity before submitting your bid.';
+  }
+
+  const result = {
+    status,
+    message,
+    can_bid: status === 'eligible_to_bid',
+    missing_products: missingProducts,
+    out_of_stock_products: outOfStockProducts,
+  };
+  if (persist) {
+    await connection.query(
+      'UPDATE quotation_vendor_recipients SET eligibility_status = ?, eligibility_details = ? WHERE id = ?',
+      [status, JSON.stringify(result), recipientId]
+    );
+  }
+  return result;
+}
+
+async function logRejectedBid({ recipientId, quotationId, vendorId, eligibility, message }) {
+  try {
+    await pool.query(
+      `INSERT INTO quotation_bid_rejection_logs
+       (quotation_vendor_recipient_id, quotation_request_id, vendor_id, reason_code, message, details)
+       VALUES (?, ?, ?, ?, ?, ?)`,
+      [recipientId, quotationId, vendorId, eligibility && eligibility.status || 'validation_failed', message, JSON.stringify(eligibility || {})]
+    );
+  } catch (logError) {
+    console.error('[quotation] Unable to log rejected bid:', logError.message);
+  }
+}
 async function listForVendor(vendorId, { categoryId, includeAll = false } = {}) {
   await closeExpiredQuotations();
   const where = ['qvr.vendor_id = ?'];
@@ -556,7 +679,22 @@ async function listForVendor(vendorId, { categoryId, includeAll = false } = {}) 
     params
   );
 
-  return normalizeRows(rows);
+  const quotations = normalizeRows(rows);
+  for (const quotation of quotations) {
+    const eligibility = await evaluateVendorEligibility(pool, { recipientId: quotation.recipient_id, vendorId });
+    quotation.eligibility_status = eligibility ? eligibility.status : 'quotation_closed';
+    quotation.eligibility_message = eligibility ? eligibility.message : 'Quotation closed';
+    quotation.can_bid = Boolean(eligibility && eligibility.can_bid) && quotation.bid_editable;
+    quotation.missing_products = eligibility ? eligibility.missing_products : [];
+    quotation.out_of_stock_products = eligibility ? eligibility.out_of_stock_products : [];
+    const missingIds = new Set(quotation.missing_products.map((item) => Number(item.product_id)));
+    const stockIds = new Set(quotation.out_of_stock_products.map((item) => Number(item.product_id)));
+    quotation.items = quotation.items.map((item) => ({
+      ...item,
+      eligibility_status: missingIds.has(Number(item.product_id)) ? 'missing_approval' : stockIds.has(Number(item.product_id)) ? 'out_of_stock' : 'available',
+    }));
+  }
+  return quotations;
 }
 
 async function submitVendorResponse({ recipientId, vendorId, items, discountPercent = 0 }) {
@@ -578,6 +716,14 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
       throw error;
     }
     const recipient = recipientRows[0];
+    const eligibility = await evaluateVendorEligibility(connection, { recipientId, vendorId });
+    if (!eligibility || !eligibility.can_bid) {
+      const error = new Error(eligibility ? eligibility.message : 'Vendor is not eligible to bid');
+      error.status = 422;
+      error.eligibility = eligibility;
+      error.quotationId = recipient.quotation_request_id;
+      throw error;
+    }
     if (!['new', 'seen', 'submitted'].includes(recipient.status)) {
       const error = new Error('Quotation request cannot be edited');
       error.status = 422;
@@ -596,17 +742,21 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
       throw error;
     }
 
-    const placeholders = requestItemIds.map(() => '?').join(',');
     const [requestItems] = await connection.query(
       `SELECT qri.id, qri.product_id, qri.product_name, qri.quantity, p.price AS admin_price,
               vp.quantity AS stock, vp.status AS vendor_product_status
        FROM quotation_request_items qri
        INNER JOIN products p ON p.id = qri.product_id
        LEFT JOIN vendor_products vp ON vp.vendor_id = ? AND vp.product_id = qri.product_id
-       WHERE qri.quotation_request_id = ? AND qri.id IN (${placeholders})`,
-      [vendorId, recipient.quotation_request_id, ...requestItemIds]
+       WHERE qri.quotation_request_id = ?`,
+      [vendorId, recipient.quotation_request_id]
     );
     const itemMap = new Map(requestItems.map((item) => [Number(item.id), item]));
+    if (requestItemIds.length !== requestItems.length || requestItemIds.some((id) => !itemMap.has(id))) {
+      const error = new Error('Every quotation product must be included in the bid');
+      error.status = 422;
+      throw error;
+    }
     let total = 0;
 
     for (const submitted of items) {
@@ -615,7 +765,12 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
       if (!existing) continue;
       const quantity = Math.max(1, Number(submitted.quantity || existing.quantity || 1));
       const catalogUnavailable = existing.vendor_product_status === 'unavailable' || (existing.stock !== null && existing.stock !== undefined && Number(existing.stock || 0) <= 0);
-      const status = catalogUnavailable || submitted.status === 'not_available' || submitted.status === 'NA' ? 'not_available' : 'available';
+      if (catalogUnavailable || submitted.status === 'not_available' || submitted.status === 'NA') {
+        const error = new Error('Every quotation product must be available before submitting your bid');
+        error.status = 422;
+        throw error;
+      }
+      const status = 'available';
       const unitPrice = Math.max(0, Number(submitted.unit_price || submitted.price || existing.admin_price || 0));
       const adminPrice = Number(existing.admin_price || 0);
       if (status === 'available' && unitPrice > adminPrice + 0.005) {
@@ -670,6 +825,9 @@ async function submitVendorResponse({ recipientId, vendorId, items, discountPerc
     };
   } catch (error) {
     await connection.rollback();
+    if (error.eligibility) {
+      await logRejectedBid({ recipientId, quotationId: error.quotationId, vendorId, eligibility: error.eligibility, message: error.message });
+    }
     throw error;
   } finally {
     connection.release();
@@ -867,38 +1025,50 @@ async function decideClientResponse({ recipientId, clientId, decision, couponCod
          AND qvr.status = 'submitted'
          AND qvr.total_amount > 0
        ORDER BY qvr.total_amount ASC, qvr.updated_at ASC, qvr.id ASC
-       LIMIT 1
        FOR UPDATE`,
       [recipientRows[0].quotation_request_id]
     );
-    const recipient = lowestRows[0];
+    let recipient = null;
+    let items = [];
+    for (const candidate of lowestRows) {
+      const [candidateItems] = await connection.query(
+        `SELECT qvri.*, qri.product_id, vp.id AS vendor_product_id, vp.quantity AS stock, vp.status AS vendor_product_status,
+                p.weight_kg, p.approval_status AS product_approval_status, p.is_deleted AS product_deleted,
+                CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
+                COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
+         FROM quotation_vendor_response_items qvri
+         INNER JOIN quotation_request_items qri ON qri.id = qvri.quotation_request_item_id
+         INNER JOIN vendor_products vp ON vp.vendor_id = ? AND vp.product_id = qri.product_id
+         INNER JOIN products p ON p.id = qri.product_id
+         INNER JOIN categories c ON c.id = p.category_id
+         WHERE qvri.quotation_vendor_recipient_id = ?
+         FOR UPDATE`,
+        [candidate.vendor_id, candidate.id]
+      );
+      const allItemsAvailable = candidateItems.length > 0 && candidateItems.every((item) =>
+        item.status === 'available'
+        && item.vendor_product_status === 'active'
+        && item.product_approval_status === 'approved'
+        && !Boolean(item.product_deleted)
+        && Number(item.stock || 0) >= Number(item.quantity || 0)
+      );
+      if (allItemsAvailable) {
+        recipient = candidate;
+        items = candidateItems;
+        break;
+      }
+      await connection.query(
+        "UPDATE quotation_vendor_recipients SET status = 'unavailable', eligibility_status = 'inventory_update_required', eligibility_details = ? WHERE id = ?",
+        [JSON.stringify({ message: 'Inventory changed before order confirmation' }), candidate.id]
+      );
+    }
     if (!recipient) {
-      const error = new Error('No valid vendor bid found for this quotation');
+      const error = new Error('No vendor currently has sufficient inventory for every quotation product');
       error.status = 422;
       throw error;
     }
     recipientId = Number(recipient.id);
     const normalizedPaymentMethod = normalizePaymentMethod(paymentMethod);
-    const [items] = await connection.query(
-      `SELECT qvri.*, qri.product_id, vp.id AS vendor_product_id, vp.quantity AS stock, vp.status AS vendor_product_status,
-              p.weight_kg,
-              CASE WHEN p.tax_percentage IS NULL THEN COALESCE(c.tax_name, '') ELSE COALESCE(NULLIF(p.tax_name, ''), c.tax_name, '') END AS tax_name,
-              COALESCE(p.tax_percentage, c.tax_percentage, 0) AS tax_percentage
-       FROM quotation_vendor_response_items qvri
-       INNER JOIN quotation_request_items qri ON qri.id = qvri.quotation_request_item_id
-       INNER JOIN vendor_products vp ON vp.vendor_id = ? AND vp.product_id = qri.product_id
-       INNER JOIN products p ON p.id = qri.product_id
-       INNER JOIN categories c ON c.id = p.category_id
-       WHERE qvri.quotation_vendor_recipient_id = ?
-       FOR UPDATE`,
-      [recipient.vendor_id, recipientId]
-    );
-    if (!items.length) {
-      const error = new Error('Quotation response has no items');
-      error.status = 422;
-      throw error;
-    }
-
     for (const item of items) {
       if (item.status === 'not_available' || item.vendor_product_status === 'unavailable') {
         continue;

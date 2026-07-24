@@ -54,8 +54,12 @@
   <div class="user-modal" id="advertisementModal" aria-hidden="true">
     <div class="user-modal-card ad-modal-card">
       <div class="user-modal-header">
-        <h2 id="modalTitle">Add Advertisement</h2>
-        <button type="button" onclick="closeForm()">Close</button>
+        <div>
+          <span class="ad-modal-kicker">Campaign manager</span>
+          <h2 id="modalTitle">Add Advertisement</h2>
+          <p>Configure creative, schedule, audience and payment details.</p>
+        </div>
+        <button class="ad-modal-close" type="button" onclick="closeForm()" aria-label="Close advertisement form">&times;</button>
       </div>
       <form class="user-modal-grid" id="advertisementForm">
         <input type="hidden" id="advertisementId" />
@@ -269,7 +273,7 @@
           <span class="wallet-muted">Leave areas empty to target the whole selected city.</span>
         </label>
 
-        <button class="settings-save" type="submit">Save Advertisement</button>
+        <button class="settings-save ad-submit" type="submit">Save Advertisement</button>
       </form>
     </div>
   </div>
@@ -597,7 +601,33 @@
       max-height: 220px;
       object-fit: contain;
     }
-  </style>
+    /* Modern advertisement editor */
+    .user-modal#advertisementModal { padding: 24px; background: rgba(15, 23, 42, .62); backdrop-filter: blur(5px); }
+    .ad-modal-card { width: min(1040px, 100%); max-width: 1040px; max-height: calc(100vh - 48px); padding: 0; overflow: hidden; border: 1px solid rgba(226,232,240,.9); border-radius: 18px; background: #f8fafc; box-shadow: 0 28px 80px rgba(15,23,42,.28); }
+    .ad-modal-card .user-modal-header { position: sticky; top: 0; z-index: 4; display: flex; align-items: flex-start; justify-content: space-between; padding: 22px 26px 18px; border-bottom: 1px solid #e2e8f0; background: rgba(255,255,255,.96); }
+    .ad-modal-card .user-modal-header h2 { margin: 2px 0 4px; color: #0f172a; font-size: 22px; line-height: 1.2; }
+    .ad-modal-card .user-modal-header p { margin: 0; color: #64748b; font-size: 13px; }
+    .ad-modal-kicker { color: #15803d; font-size: 11px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .ad-modal-close { display: grid; width: 34px; height: 34px; padding: 0; place-items: center; border: 1px solid #e2e8f0 !important; border-radius: 10px !important; background: #f8fafc !important; color: #475569 !important; font-size: 24px; line-height: 1; cursor: pointer; }
+    .ad-modal-close:hover { border-color: #cbd5e1 !important; background: #f1f5f9 !important; color: #0f172a !important; }
+    #advertisementForm { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px 20px; max-height: calc(100vh - 154px); padding: 24px 26px 28px; overflow-y: auto; }
+    #advertisementForm > label { display: flex; min-width: 0; margin: 0; gap: 7px; color: #334155; font-size: 12px; font-weight: 800; letter-spacing: .01em; flex-direction: column; }
+    #advertisementForm > label.settings-wide, #advertisementForm > .settings-wide { grid-column: 1 / -1; }
+    #advertisementForm input:not([type="checkbox"]):not([type="file"]), #advertisementForm select, #advertisementForm textarea { width: 100%; min-height: 44px; box-sizing: border-box; border: 1px solid #d8e1ea; border-radius: 10px; background: #fff; color: #0f172a; font: inherit; font-size: 14px; font-weight: 500; outline: none; transition: border-color .18s ease,box-shadow .18s ease; }
+    #advertisementForm input:not([type="checkbox"]):not([type="file"]):focus, #advertisementForm select:focus, #advertisementForm textarea:focus { border-color: #22a447; box-shadow: 0 0 0 3px rgba(34,164,71,.13); }
+    #advertisementForm textarea { min-height: 96px; resize: vertical; }
+    #advertisementForm input[type="file"] { width: 100%; box-sizing: border-box; padding: 8px; border: 1px dashed #b8c7d8; border-radius: 10px; background: #fff; color: #64748b; font-size: 13px; }
+    #advertisementForm input[type="file"]::file-selector-button { margin-right: 10px; padding: 7px 12px; border: 0; border-radius: 7px; background: #eaf7ee; color: #167336; font-weight: 800; cursor: pointer; }
+    #advertisementForm .ad-fieldset { border-color: #d7e0e9; border-radius: 12px; padding: 16px; background: #fff; }
+    #advertisementForm .ad-fieldset legend { padding: 0 8px; color: #1e293b; font-size: 13px; }
+    #advertisementForm .ad-check-grid { grid-template-columns: repeat(auto-fill,minmax(112px,max-content)); gap: 7px; }
+    #advertisementForm .offer-city-option { display: inline-flex; min-height: 30px; width: auto; margin: 0; padding: 4px 9px; align-items: center; gap: 7px; border: 1px solid #dbe4ed; border-radius: 8px; background: #f8fafc; color: #475569; font-size: 12px; font-weight: 700; cursor: pointer; }
+    #advertisementForm .offer-city-option:has(input:checked) { border-color: #86d69d; background: #edf9f0; color: #146c31; }
+    #advertisementForm input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: #168832; }
+    #advertisementForm .ad-current-image { border-radius: 12px; }
+    #advertisementForm .wallet-muted { color: #7c8ca0; font-size: 11px; font-weight: 500; }
+    #advertisementForm .ad-submit { grid-column: 1 / -1; justify-self: end; min-width: 190px; min-height: 44px; margin-top: 4px; border-radius: 10px; box-shadow: 0 8px 20px rgba(22,136,50,.2); }
+    @media (max-width: 720px) { .user-modal#advertisementModal { padding: 0; } .ad-modal-card { width: 100%; max-height: 100vh; border-radius: 0; } .ad-modal-card .user-modal-header { padding: 18px; } #advertisementForm { grid-template-columns: 1fr; max-height: calc(100vh - 116px); padding: 18px; } #advertisementForm > label.settings-wide, #advertisementForm > .settings-wide, #advertisementForm .ad-submit { grid-column: 1; } #advertisementForm .ad-submit { width: 100%; justify-self: stretch; } }  </style>
   <script src="/image-upload-editor.js"></script>
 </body>
 </html>

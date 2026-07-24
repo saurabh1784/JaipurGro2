@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const session = require('express-session');
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
@@ -721,7 +721,7 @@ async function forgetDeletedRoleSlug(slug) {
 }
 
 function formatRupees(value) {
-  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return `â‚¹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 async function notifyClientBidUpdate(response) {
@@ -2337,6 +2337,25 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('quotation_vendor_recipients', 'discount_percent', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER total_amount');
   await addColumnIfMissing('quotation_vendor_recipients', 'submitted_at', 'TIMESTAMP NULL DEFAULT NULL AFTER total_amount');
   await addColumnIfMissing('quotation_vendor_recipients', 'decided_at', 'TIMESTAMP NULL DEFAULT NULL AFTER submitted_at');
+  await addColumnIfMissing('quotation_vendor_recipients', 'eligibility_status', "VARCHAR(40) NOT NULL DEFAULT 'eligible_to_bid' AFTER decided_at");
+  await addColumnIfMissing('quotation_vendor_recipients', 'eligibility_details', 'TEXT NULL AFTER eligibility_status');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS quotation_bid_rejection_logs (
+      id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+      quotation_vendor_recipient_id INT UNSIGNED NOT NULL,
+      quotation_request_id INT UNSIGNED NOT NULL,
+      vendor_id INT UNSIGNED NOT NULL,
+      reason_code VARCHAR(40) NOT NULL,
+      message VARCHAR(500) NOT NULL,
+      details TEXT NULL,
+      created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (id),
+      KEY idx_bid_rejection_vendor (vendor_id, created_at),
+      KEY idx_bid_rejection_quotation (quotation_request_id, created_at),
+      CONSTRAINT fk_bid_rejection_recipient FOREIGN KEY (quotation_vendor_recipient_id) REFERENCES quotation_vendor_recipients(id) ON DELETE CASCADE
+    ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+  `);
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS quotation_vendor_response_items (
@@ -2725,7 +2744,7 @@ function buildDashboard(user, activePath = '/dashboard') {
 }
 
 function formatDashboardMoney(value) {
-  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return `â‚¹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 function formatDashboardNumber(value) {
@@ -3804,6 +3823,9 @@ app.post('/vendor/quotations/:recipientId/submit', requireSessionRole('Vendor', 
     return res.status(error.status || 500).json({
       success: false,
       message: error.message || 'Unable to submit quotation',
+      eligibility: error.eligibility || null,
+      missing_products: error.eligibility ? error.eligibility.missing_products : [],
+      out_of_stock_products: error.eligibility ? error.eligibility.out_of_stock_products : [],
     });
   }
 });
@@ -4102,6 +4124,9 @@ app.post('/api/vendor/quotations/:recipientId/submit', webOrJwtAuth, requireAuth
     return res.status(error.status || 500).json({
       success: false,
       message: error.message || 'Unable to submit quotation',
+      eligibility: error.eligibility || null,
+      missing_products: error.eligibility ? error.eligibility.missing_products : [],
+      out_of_stock_products: error.eligibility ? error.eligibility.out_of_stock_products : [],
     });
   }
 });
@@ -4200,6 +4225,85 @@ app.post('/api/client/quotations/:recipientId/:decision', webOrJwtAuth, requireA
   }
 });
 
+app.get('/api/admin/product-availability', webOrJwtAuth, requirePermission('products.manage'), async (req, res) => {
+  try {
+    const city = String(req.query.city || '').trim();
+    const area = String(req.query.area || '').trim();
+    const params = [];
+    const where = [
+      "p.approval_status = 'approved'",
+      'p.is_deleted = 0',
+      "u.status = 'active'",
+      'u.is_deleted = 0',
+      "vp.status = 'active'",
+    ];
+    if (city) {
+      where.push('LOWER(TRIM(vprof.city)) = LOWER(TRIM(?))');
+      params.push(city);
+    }
+    if (area) {
+      where.push('LOWER(TRIM(vprof.area)) = LOWER(TRIM(?))');
+      params.push(area);
+    }
+    const [products] = await pool.query(
+      `SELECT p.id AS product_id, p.name AS product_name, c.name AS category_name,
+              vprof.city, vprof.area,
+              COUNT(DISTINCT vp.vendor_id) FILTER (WHERE vp.quantity > 0) AS eligible_vendor_count,
+              COALESCE(SUM(vp.quantity), 0) AS total_inventory,
+              COUNT(DISTINCT vp.vendor_id) FILTER (WHERE vp.quantity <= 0) AS out_of_stock_vendor_count,
+              ARRAY_AGG(DISTINCT vp.vendor_id ORDER BY vp.vendor_id) FILTER (WHERE vp.quantity > 0) AS eligible_vendor_ids
+       FROM vendor_products vp
+       INNER JOIN products p ON p.id = vp.product_id
+       INNER JOIN categories c ON c.id = p.category_id
+       INNER JOIN users u ON u.id = vp.vendor_id
+       INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+       WHERE ${where.join(' AND ')}
+       GROUP BY p.id, p.name, c.name, vprof.city, vprof.area
+       ORDER BY vprof.city, vprof.area, p.name`,
+      params
+    );
+    const [eligibility] = await pool.query(
+      `SELECT qvr.id AS recipient_id, qvr.quotation_request_id, qvr.vendor_id,
+              u.name AS vendor_name, qvr.eligibility_status, qvr.eligibility_details,
+              qvr.status AS quotation_status, qvr.updated_at
+       FROM quotation_vendor_recipients qvr
+       INNER JOIN users u ON u.id = qvr.vendor_id
+       ORDER BY qvr.updated_at DESC
+       LIMIT 250`
+    );
+    const [rejectedBidAttempts] = await pool.query(
+      `SELECT logs.*, u.name AS vendor_name
+       FROM quotation_bid_rejection_logs logs
+       INNER JOIN users u ON u.id = logs.vendor_id
+       ORDER BY logs.created_at DESC
+       LIMIT 250`
+    );
+    return res.json({ success: true, filters: { city, area }, products, eligibility, rejected_bid_attempts: rejectedBidAttempts });
+  } catch (error) {
+    console.error('Admin product availability report error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load product availability report' });
+  }
+});
+
+app.put('/api/admin/vendor-inventory/:vendorProductId', webOrJwtAuth, requirePermission('products.manage'), async (req, res) => {
+  try {
+    const quantity = Number(req.body.quantity);
+    if (!Number.isFinite(quantity) || quantity < 0) {
+      return res.status(422).json({ success: false, message: 'Quantity must be zero or greater' });
+    }
+    const [result] = await pool.query(
+      'UPDATE vendor_products SET quantity = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?',
+      [Math.floor(quantity), Number(req.params.vendorProductId)]
+    );
+    if (!Number(result.affectedRows ?? result.rowCount ?? 0)) {
+      return res.status(404).json({ success: false, message: 'Vendor inventory record not found' });
+    }
+    return res.json({ success: true, message: 'Inventory quantity corrected', quantity: Math.floor(quantity) });
+  } catch (error) {
+    console.error('Admin inventory correction error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to correct inventory quantity' });
+  }
+});
 app.get('/vendor-products', requireAuth, requireSessionRole('Vendor', '/login/vendor'), async (req, res) => {
   try {
     const products = await VendorProduct.list({ vendor_id: req.session.user.id });
