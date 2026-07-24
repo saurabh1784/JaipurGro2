@@ -849,7 +849,7 @@
             <div class="img-card ${isSelected ? 'selected' : ''}" data-id="${item.id}">
               <input type="checkbox" class="img-card-checkbox" data-id="${item.id}" ${isSelected ? 'checked' : ''} onclick="event.stopPropagation(); window.toggleSelect(${item.id});" />
               <div class="img-card-frame" onclick="openPreview(${item.id})">
-                <img data-product-placeholder data-product-name="${escapeHtml(item.product_name)}" src="${item.image_url || '/default.png'}" alt="${escapeHtml(item.product_name)}" />
+                <img data-product-placeholder data-product-name="${escapeHtml(item.product_name)}" src="${escapeHtml(item.image_url || '/default.png')}" alt="${escapeHtml(item.product_name)}" />
                 <span class="img-type-badge ${item.is_default ? 'badge-default' : 'badge-main'}">
                   ${item.is_default ? 'Placeholder' : 'Main Image'}
                 </span>

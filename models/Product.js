@@ -136,6 +136,11 @@ async function list(filters = {}) {
      conditions.push('LOWER(TRIM(b.name)) = LOWER(TRIM(?))');
      params.push(filters.brand_name);
    }
+   if (filters.image_type === 'main' || filters.image_type === 'main_image') {
+     conditions.push("p.image_url IS NOT NULL AND TRIM(p.image_url) <> '' AND p.image_url <> '/default.png'");
+   } else if (filters.image_type === 'default' || filters.image_type === 'placeholder') {
+     conditions.push("(p.image_url IS NULL OR TRIM(p.image_url) = '' OR p.image_url = '/default.png')");
+   }
    if (filters.approval_status) {
      const statuses = String(filters.approval_status)
        .split(',')

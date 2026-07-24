@@ -21,6 +21,26 @@
     if (image.dataset.logoFallbackTried !== 'true') { image.dataset.logoFallbackTried = 'true'; image.src = logoPath; return; }
     image.dataset.placeholderComplete = 'true'; image.src = fallbackSvg(name); image.style.backgroundColor = 'transparent';
   };
+  function replaceServerDefault(image) {
+    if (!(image instanceof HTMLImageElement) || !image.hasAttribute('data-product-placeholder')) return;
+    const source = image.getAttribute('src') || '';
+    if (source === '/default.png' || source.endsWith('/default.png')) window.productImageFallback(image);
+  }
+
+  function scan(root) {
+    if (root instanceof HTMLImageElement) replaceServerDefault(root);
+    if (root && root.querySelectorAll) root.querySelectorAll('img[data-product-placeholder]').forEach(replaceServerDefault);
+  }
+
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', () => scan(document));
+  else scan(document);
+
+  new MutationObserver((mutations) => {
+    mutations.forEach((mutation) => {
+      mutation.addedNodes.forEach(scan);
+      if (mutation.type === 'attributes') replaceServerDefault(mutation.target);
+    });
+  }).observe(document.documentElement, { childList: true, subtree: true, attributes: true, attributeFilter: ['src'] });
   window.addEventListener('error', function (event) {
     const image = event.target;
     if (image instanceof HTMLImageElement && image.hasAttribute('data-product-placeholder')) window.productImageFallback(image);
