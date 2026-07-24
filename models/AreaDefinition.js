@@ -194,6 +194,7 @@ async function save(payload, actor = {}, connection = pool) {
   const name = String(payload.name || '').trim().replace(/\s+/g, ' ');
   let code = String(payload.code || '').trim().toUpperCase().replace(/[^A-Z0-9_-]/g, '');
   const hierarchy = await resolveHierarchy(payload, connection);
+  const existing = id ? await findById(id, connection) : null;
   if (name.length < 2) { const error = new Error('Area name is required'); error.status = 422; throw error; }
   if (!code && existing && existing.code) code = existing.code;
   if (!code) code = `${hierarchy.city_name}-${name}`.toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
@@ -205,10 +206,9 @@ async function save(payload, actor = {}, connection = pool) {
     [id, code, hierarchy.city_id, name]
   );
   if (duplicateRows.length) { const error = new Error('Area code must be unique and area name must be unique inside the selected city'); error.status = 409; throw error; }
-  const existing = id ? await findById(id, connection) : null;
   const polygonProvided = payload.polygon !== undefined || payload.boundary_geojson !== undefined || payload.boundaryGeojson !== undefined;
   const polygon = polygonProvided ? normalizePolygon(payload.boundary_geojson || payload.boundaryGeojson || payload.polygon) : (existing ? existing.polygon : []);
-  if (polygonProvided && polygon.length > 0 && polygon.length < 3) { const error = new Error('A map boundary requires at least three valid polygon points'); error.status = 422; throw error; }
+  if (polygonProvided && polygon.length > 0 && polygon.length < 3) { const error = new Error('Please draw a valid polygon with at least three points.'); error.status = 422; throw error; }
   const center = polygon.length ? polygon.reduce((sum, point) => ({ lat: sum.lat + point.lat, lng: sum.lng + point.lng }), { lat: 0, lng: 0 }) : null;
   const centerLat = center ? center.lat / polygon.length : null;
   const centerLng = center ? center.lng / polygon.length : null;
@@ -241,7 +241,7 @@ async function save(payload, actor = {}, connection = pool) {
 
 async function saveBoundary(id, boundary, actor = {}, connection = pool) {
   const polygon = normalizePolygon(boundary);
-  if (polygon.length < 3) { const error = new Error('A valid map polygon requires at least three points'); error.status = 422; throw error; }
+  if (polygon.length < 3) { const error = new Error('Please draw a valid polygon with at least three points.'); error.status = 422; throw error; }
   const center = polygon.reduce((sum, point) => ({ lat: sum.lat + point.lat, lng: sum.lng + point.lng }), { lat: 0, lng: 0 });
   const [result] = await connection.query(
     `UPDATE area_definitions SET polygon=?, boundary_geojson=?, boundary_status='created', center_lat=?, center_lng=?, updated_by=?, updated_at=CURRENT_TIMESTAMP WHERE id=?`,

@@ -5729,7 +5729,7 @@ async function assertAreaAdminScope(req, areaOrPayload) {
     city = String(rows[0] && rows[0].name || '').trim();
   }
   if (!assignedCity || !city || assignedCity.toLowerCase() !== city.toLowerCase()) {
-    const error = new Error(`You can manage areas only inside your assigned city${assignedCity ? ` (${assignedCity})` : ''}`);
+    const error = new Error('You do not have permission to manage this city.');
     error.status = 403;
     throw error;
   }
@@ -5808,18 +5808,46 @@ app.delete('/api/areas/:id', webOrJwtAuth, requirePermission('settings.manage'),
   }
 });
 
-app.put('/api/areas/:id/boundary', webOrJwtAuth, requireSuperAdmin, async (req, res) => {
+app.post('/api/areas/:id/boundary', webOrJwtAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
-    const area = await AreaDefinition.saveBoundary(Number(req.params.id), req.body.boundary_geojson || req.body.polygon || req.body.points, req.authUser);
-    return res.json({ success: true, area, message: 'Map boundary saved' });
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(422).json({ success: false, message: 'Please select an area.' });
+    const existing = await AreaDefinition.findById(id);
+    if (!existing) return res.status(422).json({ success: false, message: 'Please select an area.' });
+    await assertAreaAdminScope(req, existing);
+    if (Array.isArray(existing.polygon) && existing.polygon.length >= 3) {
+      return res.status(409).json({ success: false, message: 'This area already has a polygon definition.' });
+    }
+    const area = await AreaDefinition.saveBoundary(id, req.body.boundary_geojson || req.body.polygon || req.body.points, req.authUser);
+    return res.status(201).json({ success: true, area, message: 'Area polygon saved successfully.' });
   } catch (error) {
     return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save map boundary' });
   }
 });
 
-app.delete('/api/areas/:id/boundary', webOrJwtAuth, requireSuperAdmin, async (req, res) => {
+app.put('/api/areas/:id/boundary', webOrJwtAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
-    await AreaDefinition.removeBoundary(Number(req.params.id), req.authUser);
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(422).json({ success: false, message: 'Please select an area.' });
+    const existing = await AreaDefinition.findById(id);
+    if (!existing) return res.status(422).json({ success: false, message: 'Please select an area.' });
+    await assertAreaAdminScope(req, existing);
+    const hadPolygon = Array.isArray(existing.polygon) && existing.polygon.length >= 3;
+    const area = await AreaDefinition.saveBoundary(id, req.body.boundary_geojson || req.body.polygon || req.body.points, req.authUser);
+    return res.json({ success: true, area, message: hadPolygon ? 'Area polygon updated successfully.' : 'Area polygon saved successfully.' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save map boundary' });
+  }
+});
+
+app.delete('/api/areas/:id/boundary', webOrJwtAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || id <= 0) return res.status(422).json({ success: false, message: 'Please select an area.' });
+    const existing = await AreaDefinition.findById(id);
+    if (!existing) return res.status(422).json({ success: false, message: 'Please select an area.' });
+    await assertAreaAdminScope(req, existing);
+    await AreaDefinition.removeBoundary(id, req.authUser);
     return res.json({ success: true, message: 'Map boundary removed' });
   } catch (error) {
     return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to remove map boundary' });
@@ -5917,7 +5945,7 @@ app.post('/area-definitions', requireAuth, requirePermission('settings.manage'),
   try {
     await assertAreaAdminScope(req, req.body);
     const id = await AreaDefinition.save(req.body, req.session.user);
-    res.status(201).json({ success: true, id, message: 'Area saved' });
+    res.status(201).json({ success: true, id, message: 'Area polygon saved successfully.' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save area' });
   }
@@ -5928,7 +5956,7 @@ app.put('/area-definitions/:id', requireAuth, requirePermission('settings.manage
     const existing = await AreaDefinition.findById(Number(req.params.id));
     await assertAreaAdminScope(req, { ...existing, ...req.body });
     const id = await AreaDefinition.save({ ...req.body, id: req.params.id }, req.session.user);
-    res.json({ success: true, id, message: 'Area updated' });
+    res.json({ success: true, id, message: 'Area polygon updated successfully.' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update area' });
   }
