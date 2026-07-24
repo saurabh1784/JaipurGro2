@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -137,7 +137,7 @@
               </form>
               <div class="update-database-progress" id="updateDatabaseProgress" hidden>
                 <div class="update-database-bar"><span id="updateDatabaseBarFill"></span></div>
-                <p class="update-database-status" id="updateDatabaseStatus">Starting…</p>
+                <p class="update-database-status" id="updateDatabaseStatus">Startingâ€¦</p>
                 <pre class="update-database-log" id="updateDatabaseLog"></pre>
               </div>
               <form method="post" action="/admin/maintenance/restore-database-backup" onsubmit="return confirmRestoreBackup();">
@@ -172,7 +172,7 @@
 
                 <div id="pcInspectorCard" style="display:none; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:12px; padding:16px; margin-top:14px;">
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                    <span style="background:#dcfce7; color:#166534; font-size:12px; font-weight:700; padding:4px 10px; border-radius:12px; border:1px solid #bbf7d0;">✓ Valid JaipurGro Backup Snapshot</span>
+                    <span style="background:#dcfce7; color:#166534; font-size:12px; font-weight:700; padding:4px 10px; border-radius:12px; border:1px solid #bbf7d0;">âœ“ Valid JaipurGro Backup Snapshot</span>
                     <strong id="inspectorFileName" style="font-size:14px; color:#0f172a;">backup.json</strong>
                   </div>
                   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px; background:#fff; padding:12px; border-radius:8px; border:1px solid #e2e8f0; font-size:13px;">
@@ -187,7 +187,7 @@
                   </div>
                   <div style="margin-top:16px; display:flex; gap:12px; flex-wrap:wrap;">
                     <button type="button" class="danger-action-button" id="startPcRestoreBtn" style="background:#dc2626; color:#fff; padding:12px 22px; border-radius:10px; font-weight:700; border:none; cursor:pointer; font-size:14px;">
-                      ⚡ Restore Database Now from PC File
+                      âš¡ Restore Database Now from PC File
                     </button>
                     <button type="button" class="settings-save" onclick="document.getElementById('pcBackupFileInput').click();" style="background:#fff; color:#334155; border:1px solid #cbd5e1; padding:12px 18px; border-radius:10px; font-weight:600; cursor:pointer;">
                       Choose Different File
@@ -197,7 +197,7 @@
 
                 <div id="pcRestoreProgress" class="update-database-progress" style="display:none; margin-top:16px;">
                   <div class="update-database-bar"><span id="pcRestoreBarFill" style="width:0%;"></span></div>
-                  <p class="update-database-status" id="pcRestoreStatus">Preparing upload…</p>
+                  <p class="update-database-status" id="pcRestoreStatus">Preparing uploadâ€¦</p>
                   <pre class="update-database-log" id="pcRestoreLog"></pre>
                 </div>
               </div>
@@ -645,7 +645,58 @@
             </div>
           </section>
         </div>
-      </form>
+
+        <section class="area-management" aria-labelledby="areaManagementTitle">
+          <div class="area-management-heading">
+            <div>
+              <span class="area-kicker">Country → State → City → Area</span>
+              <h3 id="areaManagementTitle">Area Management</h3>
+              <p>Create delivery areas, control availability, and manage map boundaries.</p>
+            </div>
+            <button class="settings-save" type="button" onclick="openAreaManager()">Add Area</button>
+          </div>
+
+          <div class="area-filter-grid">
+            <label>Search<input id="areaSearch" type="search" placeholder="Area name or code" oninput="debouncedLoadAreas()" /></label>
+            <label>Country<select id="areaCountryFilter" onchange="syncAreaFilterStates(); loadManagedAreas()"><option value="">All countries</option></select></label>
+            <label>State<select id="areaStateFilter" onchange="syncAreaFilterCities(); loadManagedAreas()"><option value="">All states</option></select></label>
+            <label>City<select id="areaCityFilter" onchange="loadManagedAreas()"><option value="">All cities</option></select></label>
+            <label>Status<select id="areaStatusFilter" onchange="loadManagedAreas()"><option value="">All statuses</option><option value="active">Active</option><option value="inactive">Inactive</option></select></label>
+          </div>
+
+          <div class="area-table-wrap">
+            <table class="wallets-table area-table">
+              <thead><tr><th>Area</th><th>Code</th><th>City</th><th>State</th><th>Country</th><th>Boundary</th><th>Delivery</th><th>Status</th><th>Actions</th></tr></thead>
+              <tbody id="managedAreaRows"><tr><td colspan="9">Loading areas…</td></tr></tbody>
+            </table>
+          </div>
+          <p class="commission-message" id="areaManagementMessage"></p>
+        </section>
+
+        <dialog class="area-dialog" id="areaManagerDialog">
+          <form method="dialog" id="areaManagerForm" onsubmit="event.preventDefault(); saveManagedArea();">
+            <div class="area-dialog-header">
+              <div><span class="area-kicker">Location settings</span><h3 id="areaDialogTitle">Add Area</h3></div>
+              <button type="button" class="area-dialog-close" onclick="closeAreaManager()" aria-label="Close">×</button>
+            </div>
+            <input id="managedAreaId" type="hidden" />
+            <div class="area-form-grid">
+              <label>Country<select id="managedAreaCountry" required onchange="syncManagedAreaStates()"></select></label>
+              <label>State<select id="managedAreaState" required onchange="syncManagedAreaCities()"></select></label>
+              <label>City<select id="managedAreaCity" required></select></label>
+              <label>Area name<input id="managedAreaName" required maxlength="150" placeholder="e.g. Mansarovar" /></label>
+              <label>Area code<input id="managedAreaCode" required maxlength="40" placeholder="e.g. JPR-MNS" /></label>
+              <label>Status<select id="managedAreaStatus"><option value="1">Active</option><option value="0">Inactive</option></select></label>
+              <label class="area-switch"><input id="managedAreaDelivery" type="checkbox" checked /><span>Delivery available</span></label>
+              <label class="area-form-wide">Description<textarea id="managedAreaDescription" rows="3" placeholder="Optional service-area notes"></textarea></label>
+              <div class="area-boundary-summary area-form-wide"><span>Google Maps boundary</span><strong id="managedAreaBoundaryStatus">Boundary not created</strong></div>
+            </div>
+            <div class="area-dialog-actions">
+              <button type="button" onclick="closeAreaManager()">Cancel</button>
+              <button class="settings-save" id="saveManagedAreaButton" type="submit">Save Area</button>
+            </div>
+          </form>
+        </dialog>      </form>
 
       <section class="settings-panel" id="catalog" aria-labelledby="catalog-tab">
         <div class="panel-header catalog-header">
@@ -786,7 +837,7 @@
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
               <h3 style="margin:0;">Main Category Table</h3>
               <button type="button" id="deleteSelectedCategoriesBtn" style="display:none; background:#ef4444; color:#fff; font-weight:700; padding:6px 14px; border-radius:6px; border:none; cursor:pointer; align-items:center; gap:6px;" onclick="deleteSelectedCategories()">
-                <span>🗑️</span> Delete Selected (<span id="selectedCategoryCount">0</span>)
+                <span>ðŸ—‘ï¸</span> Delete Selected (<span id="selectedCategoryCount">0</span>)
               </button>
             </div>
             <table class="catalog-table">
@@ -813,7 +864,7 @@
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:12px; flex-wrap:wrap; gap:8px;">
               <h3 style="margin:0;">SubCategory Table</h3>
               <button type="button" id="deleteSelectedSubcategoriesBtn" style="display:none; background:#ef4444; color:#fff; font-weight:700; padding:6px 14px; border-radius:6px; border:none; cursor:pointer; align-items:center; gap:6px;" onclick="deleteSelectedSubcategories()">
-                <span>🗑️</span> Delete Selected (<span id="selectedSubcategoryCount">0</span>)
+                <span>ðŸ—‘ï¸</span> Delete Selected (<span id="selectedSubcategoryCount">0</span>)
               </button>
             </div>
             <table class="catalog-table">
@@ -1208,14 +1259,14 @@
         doneSteps += 1;
         statusEl.textContent = message;
         barFill.style.width = `${Math.min(100, Math.round((doneSteps / totalSteps) * 100))}%`;
-        logEl.textContent += `\n• ${message}`;
+        logEl.textContent += `\nâ€¢ ${message}`;
         logEl.scrollTop = logEl.scrollHeight;
       }
 
       function reset() {
         doneSteps = 0;
         barFill.style.width = '0%';
-        statusEl.textContent = 'Starting…';
+        statusEl.textContent = 'Startingâ€¦';
         logEl.textContent = '';
         progress.hidden = false;
       }
@@ -1228,7 +1279,7 @@
         reset();
         button.disabled = true;
         const originalLabel = button.textContent;
-        button.textContent = 'Updating…';
+        button.textContent = 'Updatingâ€¦';
         setStep('Preparing schema update');
         try {
           const response = await fetch(form.action, {
@@ -1343,7 +1394,7 @@
 
       function logStep(msg) {
         statusEl.textContent = msg;
-        logEl.textContent += `\n• ${msg}`;
+        logEl.textContent += `\nâ€¢ ${msg}`;
         logEl.scrollTop = logEl.scrollHeight;
       }
 
@@ -4669,7 +4720,31 @@
   <script src="/image-upload-editor.js"></script>
   <%- include('partials/clean_modal') %>
   <%- include('partials/bulk_upload_progress_modal') %>
-</body>
+<style>
+  .area-management{margin-top:24px;padding:22px;border:1px solid #dbe4ed;border-radius:16px;background:#f8fafc}.area-management-heading{display:flex;justify-content:space-between;gap:18px;align-items:flex-start;margin-bottom:18px}.area-management-heading h3,.area-dialog h3{margin:3px 0 5px;color:#0f172a;font-size:20px}.area-management-heading p{margin:0;color:#64748b}.area-kicker{color:#168832;font-size:10px;font-weight:900;letter-spacing:.12em;text-transform:uppercase}.area-filter-grid{display:grid;grid-template-columns:1.4fr repeat(4,1fr);gap:10px;margin-bottom:14px}.area-filter-grid label,.area-form-grid label{display:flex;flex-direction:column;gap:6px;color:#475569;font-size:11px;font-weight:900}.area-filter-grid input,.area-filter-grid select,.area-form-grid input,.area-form-grid select,.area-form-grid textarea{box-sizing:border-box;width:100%;min-height:40px;border:1px solid #d4dee8;border-radius:9px;background:#fff;padding:9px 10px;color:#0f172a}.area-table-wrap{overflow:auto;border:1px solid #e2e8f0;border-radius:12px;background:#fff}.area-table{min-width:980px}.area-name-cell strong,.area-name-cell span{display:block}.area-name-cell span{max-width:220px;margin-top:3px;color:#8492a6;font-size:11px}.area-badge{display:inline-flex;padding:5px 8px;border-radius:999px;font-size:11px;font-weight:900;white-space:nowrap}.area-badge.active,.area-badge.created,.area-badge.delivery{background:#dcfce7;color:#166534}.area-badge.inactive,.area-badge.not-created{background:#f1f5f9;color:#64748b}.area-badge.needs-update{background:#fef3c7;color:#92400e}.area-row-actions{display:flex;gap:6px;flex-wrap:wrap}.area-row-actions button,.area-dialog-actions>button:first-child{border:1px solid #cbd5e1;border-radius:7px;background:#fff;padding:7px 9px;color:#334155;font-weight:800;cursor:pointer}.area-row-actions .danger{border-color:#fecaca;color:#b91c1c}.area-dialog{width:min(760px,calc(100% - 28px));padding:0;border:0;border-radius:18px;box-shadow:0 30px 90px rgba(15,23,42,.35)}.area-dialog::backdrop{background:rgba(15,23,42,.62);backdrop-filter:blur(4px)}.area-dialog-header{display:flex;justify-content:space-between;align-items:flex-start;padding:20px 22px;border-bottom:1px solid #e2e8f0}.area-dialog-close{width:34px;height:34px;border:1px solid #e2e8f0;border-radius:9px;background:#f8fafc;color:#475569;font-size:23px;cursor:pointer}.area-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:15px;padding:22px}.area-form-wide{grid-column:1/-1}.area-switch{flex-direction:row!important;align-items:center;align-self:end;min-height:40px;padding:8px 10px;border:1px solid #d4dee8;border-radius:9px;background:#fff}.area-switch input{width:15px!important;min-height:15px!important;accent-color:#168832}.area-boundary-summary{display:flex;justify-content:space-between;padding:12px;border-radius:10px;background:#f1f5f9;color:#475569}.area-dialog-actions{display:flex;justify-content:flex-end;gap:10px;padding:16px 22px;border-top:1px solid #e2e8f0;background:#f8fafc}@media(max-width:900px){.area-filter-grid{grid-template-columns:repeat(2,1fr)}}@media(max-width:620px){.area-management-heading{flex-direction:column}.area-filter-grid,.area-form-grid{grid-template-columns:1fr}.area-form-wide{grid-column:1}.area-dialog{width:100%;max-height:100vh;border-radius:0}}
+</style>
+<script>
+  let managedAreas=[];let areaLocations={countryEntries:[],stateEntriesDetailed:[],cityEntriesDetailed:[]};let areaLoadTimer=null;
+  const areaEsc=(value)=>String(value??'').replace(/[&<>"']/g,(char)=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[char]));
+  function areaOption(value,label){return `<option value="${areaEsc(value)}">${areaEsc(label)}</option>`}
+  function fillAreaSelect(id,rows,placeholder){const el=document.getElementById(id);if(!el)return;const selected=el.value;el.innerHTML=areaOption('',placeholder)+rows.map((row)=>areaOption(row.id,row.name)).join('');if([...el.options].some((option)=>option.value===selected))el.value=selected}
+  function syncAreaHierarchyFilters(){fillAreaSelect('areaCountryFilter',areaLocations.countryEntries||[],'All countries');syncAreaFilterStates()}
+  function syncAreaFilterStates(){const countryId=Number(document.getElementById('areaCountryFilter').value||0);fillAreaSelect('areaStateFilter',(areaLocations.stateEntriesDetailed||[]).filter((row)=>!countryId||Number(row.country_id)===countryId),'All states');syncAreaFilterCities()}
+  function syncAreaFilterCities(){const stateId=Number(document.getElementById('areaStateFilter').value||0);fillAreaSelect('areaCityFilter',(areaLocations.cityEntriesDetailed||[]).filter((row)=>!stateId||Number(row.state_id)===stateId),'All cities')}
+  function syncManagedAreaStates(){const countryId=Number(document.getElementById('managedAreaCountry').value||0);fillAreaSelect('managedAreaState',(areaLocations.stateEntriesDetailed||[]).filter((row)=>Number(row.country_id)===countryId),'Select state');syncManagedAreaCities()}
+  function syncManagedAreaCities(){const stateId=Number(document.getElementById('managedAreaState').value||0);fillAreaSelect('managedAreaCity',(areaLocations.cityEntriesDetailed||[]).filter((row)=>Number(row.state_id)===stateId),'Select city')}
+  function debouncedLoadAreas(){clearTimeout(areaLoadTimer);areaLoadTimer=setTimeout(loadManagedAreas,250)}
+  async function loadManagedAreas(){const params=new URLSearchParams();[['search','areaSearch'],['country_id','areaCountryFilter'],['state_id','areaStateFilter'],['city_id','areaCityFilter'],['status','areaStatusFilter']].forEach(([key,id])=>{const value=document.getElementById(id)?.value?.trim();if(value)params.set(key,value)});const response=await fetch(`/api/areas?${params}`,{headers:{Accept:'application/json'}});const data=await response.json();if(!data.success){document.getElementById('areaManagementMessage').textContent=data.message||'Unable to load areas';return}managedAreas=data.areas||[];areaLocations=data.locations||areaLocations;if(!(document.getElementById('areaCountryFilter')?.options.length>1))syncAreaHierarchyFilters();renderManagedAreas()}
+  function boundaryBadge(area){const key=area.boundary_status==='created'?'created':area.boundary_status==='needs_update'?'needs-update':'not-created';return `<span class="area-badge ${key}">${areaEsc(area.boundary_status_label)}</span>`}
+  function renderManagedAreas(){const body=document.getElementById('managedAreaRows');if(!managedAreas.length){body.innerHTML='<tr><td colspan="9">No areas match these filters.</td></tr>';return}body.innerHTML=managedAreas.map((area)=>`<tr><td class="area-name-cell"><strong>${areaEsc(area.name)}</strong><span>${areaEsc(area.description||'No description')}</span></td><td><code>${areaEsc(area.code)}</code></td><td>${areaEsc(area.city)}</td><td>${areaEsc(area.state)}</td><td>${areaEsc(area.country)}</td><td>${boundaryBadge(area)}</td><td><span class="area-badge ${area.delivery_enabled?'delivery':'inactive'}">${area.delivery_enabled?'Available':'Unavailable'}</span></td><td><button type="button" class="area-badge ${area.is_active?'active':'inactive'}" onclick="toggleManagedArea(${area.id},${area.is_active?'false':'true'})">${area.is_active?'Active':'Inactive'}</button></td><td><div class="area-row-actions"><button type="button" onclick="openAreaManager(${area.id})">Edit</button><button type="button" onclick="manageAreaBoundary(${area.id})">Draw on Map</button><button type="button" class="danger" onclick="deleteManagedArea(${area.id})">Delete</button></div></td></tr>`).join('')}
+  function openAreaManager(id=null){const area=managedAreas.find((row)=>Number(row.id)===Number(id));document.getElementById('areaManagerForm').reset();document.getElementById('managedAreaId').value=area?.id||'';document.getElementById('areaDialogTitle').textContent=area?'Edit Area':'Add Area';fillAreaSelect('managedAreaCountry',areaLocations.countryEntries||[],'Select country');if(area)document.getElementById('managedAreaCountry').value=String(area.country_id||'');syncManagedAreaStates();if(area)document.getElementById('managedAreaState').value=String(area.state_id||'');syncManagedAreaCities();if(area)document.getElementById('managedAreaCity').value=String(area.city_id||'');document.getElementById('managedAreaName').value=area?.name||'';document.getElementById('managedAreaCode').value=area?.code||'';document.getElementById('managedAreaDescription').value=area?.description||'';document.getElementById('managedAreaStatus').value=area?.is_active===false?'0':'1';document.getElementById('managedAreaDelivery').checked=area?.delivery_enabled!==false;document.getElementById('managedAreaBoundaryStatus').textContent=area?.boundary_status_label||'Boundary not created';document.getElementById('areaManagerDialog').showModal()}
+  function closeAreaManager(){document.getElementById('areaManagerDialog').close()}
+  async function saveManagedArea(){const id=document.getElementById('managedAreaId').value;const payload={country_id:Number(document.getElementById('managedAreaCountry').value),state_id:Number(document.getElementById('managedAreaState').value),city_id:Number(document.getElementById('managedAreaCity').value),name:document.getElementById('managedAreaName').value.trim(),code:document.getElementById('managedAreaCode').value.trim(),description:document.getElementById('managedAreaDescription').value.trim(),is_active:document.getElementById('managedAreaStatus').value==='1',delivery_enabled:document.getElementById('managedAreaDelivery').checked};const response=await fetch(id?`/api/areas/${id}`:'/api/areas',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)});const data=await response.json();if(!data.success){document.getElementById('areaManagementMessage').textContent=data.message||'Unable to save area';return}closeAreaManager();document.getElementById('areaManagementMessage').textContent=data.message;await loadManagedAreas()}
+  async function toggleManagedArea(id,isActive){const response=await fetch(`/api/areas/${id}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({is_active:isActive})});const data=await response.json();document.getElementById('areaManagementMessage').textContent=data.message||'';if(data.success)loadManagedAreas()}
+  async function deleteManagedArea(id){if(!confirm('Delete this area? Linked records will require an additional confirmation.'))return;let response=await fetch(`/api/areas/${id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:'{}'});let data=await response.json();if(data.confirmation_required&&confirm(`${data.message}\n\nLinked records: ${JSON.stringify(data.links)}\n\nDelete anyway?`)){response=await fetch(`/api/areas/${id}?confirm=1`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});data=await response.json()}document.getElementById('areaManagementMessage').textContent=data.message||'';if(data.success)loadManagedAreas()}
+  function manageAreaBoundary(id){window.location.href=`/area-definitions?area_id=${encodeURIComponent(id)}`}
+  document.addEventListener('DOMContentLoaded',()=>{if(document.getElementById('managedAreaRows'))loadManagedAreas()});
+</script></body>
 </html>
 
 

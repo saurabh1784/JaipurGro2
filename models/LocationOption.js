@@ -1,4 +1,4 @@
-const pool = require('../db');
+﻿const pool = require('../db');
 
 const DEFAULT_LOCATION_TREE = {
   India: {
@@ -130,7 +130,7 @@ async function insertTree(tree, connection = pool) {
     const [countryResult] = await connection.query(
       `INSERT INTO countries (name, code, is_active)
        VALUES (?, ?, 1)
-       ON CONFLICT (name) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+       ON CONFLICT (name) DO UPDATE SET is_active = 1, updated_at = CURRENT_TIMESTAMP
        RETURNING id`,
       [country, null]
     );
@@ -139,7 +139,7 @@ async function insertTree(tree, connection = pool) {
       const [stateResult] = await connection.query(
         `INSERT INTO states (country_id, name, is_active)
          VALUES (?, ?, 1)
-         ON CONFLICT (country_id, name) DO UPDATE SET updated_at = CURRENT_TIMESTAMP
+         ON CONFLICT (country_id, name) DO UPDATE SET is_active = 1, updated_at = CURRENT_TIMESTAMP
          RETURNING id`,
         [countryId, state]
       );
@@ -148,7 +148,7 @@ async function insertTree(tree, connection = pool) {
         await connection.query(
           `INSERT INTO cities (state_id, name, is_active)
            VALUES (?, ?, 1)
-           ON CONFLICT (state_id, name) DO UPDATE SET updated_at = CURRENT_TIMESTAMP`,
+           ON CONFLICT (state_id, name) DO UPDATE SET is_active = 1, updated_at = CURRENT_TIMESTAMP`,
           [stateId, city]
         );
       }
@@ -167,9 +167,9 @@ async function list(connection = pool) {
   await seedDefaultsIfEmpty(connection);
   const [rows] = await connection.query(`
     SELECT
-      c.name AS country,
-      s.name AS state,
-      ci.name AS city
+      c.id AS country_id, c.name AS country,
+      s.id AS state_id, s.name AS state,
+      ci.id AS city_id, ci.name AS city
     FROM countries c
     LEFT JOIN states s ON s.country_id = c.id
     LEFT JOIN cities ci ON ci.state_id = s.id
@@ -189,7 +189,18 @@ async function list(connection = pool) {
     tree[country][state] = tree[country][state] || [];
     if (city) tree[country][state].push(city);
   });
-  return flattenTree(tree);
+  return {
+    ...flattenTree(tree),
+    countryEntries: rows
+      .filter((row, index, all) => row.country_id && all.findIndex((item) => Number(item.country_id) === Number(row.country_id)) === index)
+      .map((row) => ({ id: Number(row.country_id), name: cleanName(row.country) })),
+    stateEntriesDetailed: rows
+      .filter((row, index, all) => row.state_id && all.findIndex((item) => Number(item.state_id) === Number(row.state_id)) === index)
+      .map((row) => ({ id: Number(row.state_id), country_id: Number(row.country_id), name: cleanName(row.state), country: cleanName(row.country) })),
+    cityEntriesDetailed: rows
+      .filter((row, index, all) => row.city_id && all.findIndex((item) => Number(item.city_id) === Number(row.city_id)) === index)
+      .map((row) => ({ id: Number(row.city_id), state_id: Number(row.state_id), country_id: Number(row.country_id), name: cleanName(row.city), state: cleanName(row.state), country: cleanName(row.country) })),
+  };
 }
 
 async function replaceAll(payload, connection = pool) {
@@ -231,3 +242,4 @@ module.exports = {
   replaceAll,
   seedDefaultsIfEmpty,
 };
+

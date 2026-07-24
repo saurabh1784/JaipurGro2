@@ -1,4 +1,4 @@
-const pool = require('../db');
+﻿const pool = require('../db');
 const Promotion = require('./Promotion');
 const DeliveryType = require('./DeliveryType');
 const Rating = require('./Rating');
@@ -276,7 +276,13 @@ async function createForCityVendors({ clientId, items }) {
       error.status = 422;
       throw error;
     }
-const biddingSetting = await BiddingSetting.resolveForCity(clientCity, connection);
+    const activeClientArea = await AreaDefinition.findMatchingArea({ city: clientCity, area: clientArea }, connection);
+    if (!activeClientArea || !activeClientArea.delivery_enabled) {
+      const error = new Error('The selected area is inactive or delivery is unavailable');
+      error.status = 422;
+      throw error;
+    }
+    const biddingSetting = await BiddingSetting.resolveForCity(clientCity, connection);
     if (!biddingSetting.is_enabled) {
       const error = new Error('Bidding is disabled for your city');
       error.status = 422;

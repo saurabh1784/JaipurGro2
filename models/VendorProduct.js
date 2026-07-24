@@ -1,4 +1,4 @@
-const pool = require('../db');
+﻿const pool = require('../db');
 const Product = require('./Product');
 
 function normalize(row) {
@@ -655,6 +655,12 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
     where.push("TRIM(cp.city) <> ''");
     where.push('LOWER(TRIM(vprof.city)) = LOWER(TRIM(cp.city))');
     where.push("(cp.area IS NULL OR TRIM(cp.area) = '' OR LOWER(TRIM(vprof.area)) = LOWER(TRIM(cp.area)))");
+    where.push(`EXISTS (
+      SELECT 1 FROM area_definitions ad
+      WHERE ad.is_active = 1 AND ad.delivery_enabled = 1
+        AND LOWER(TRIM(ad.city)) = LOWER(TRIM(cp.city))
+        AND LOWER(TRIM(ad.name)) = LOWER(TRIM(cp.area))
+    )`);
   }
   if (vendor_id) {
     where.push('vp.vendor_id = ?');

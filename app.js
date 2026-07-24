@@ -2160,6 +2160,7 @@ async function initDatabase(options = {}) {
     ON CONFLICT (user_id) DO NOTHING
   `);
 
+  await LocationOption.ensureTable(pool);
   await pool.query(`
     CREATE TABLE IF NOT EXISTS area_definitions (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -2186,6 +2187,54 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('area_definitions', 'order_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER delivery_charge');
   await addColumnIfMissing('area_definitions', 'delivery_commission_percentage', 'DECIMAL(7,2) NOT NULL DEFAULT 0.00 AFTER order_commission_percentage');
   await addColumnIfMissing('area_definitions', 'cod_enabled', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER delivery_commission_percentage');
+  await addColumnIfMissing('area_definitions', 'country_id', 'INTEGER NULL REFERENCES countries(id) ON DELETE RESTRICT');
+  await addColumnIfMissing('area_definitions', 'state_id', 'INTEGER NULL REFERENCES states(id) ON DELETE RESTRICT');
+  await addColumnIfMissing('area_definitions', 'city_id', 'INTEGER NULL REFERENCES cities(id) ON DELETE RESTRICT');
+  await addColumnIfMissing('area_definitions', 'code', 'VARCHAR(40) NULL');
+  await addColumnIfMissing('area_definitions', 'description', 'TEXT NULL');
+  await addColumnIfMissing('area_definitions', 'delivery_enabled', 'TINYINT(1) NOT NULL DEFAULT 1');
+  await addColumnIfMissing('area_definitions', 'boundary_geojson', 'JSON NULL');
+  await addColumnIfMissing('area_definitions', 'boundary_status', "VARCHAR(24) NOT NULL DEFAULT 'not_created'");
+  await addColumnIfMissing('area_definitions', 'created_by', 'INTEGER NULL REFERENCES users(id) ON DELETE SET NULL');
+  await addColumnIfMissing('area_definitions', 'updated_by', 'INTEGER NULL REFERENCES users(id) ON DELETE SET NULL');
+  await pool.query(`
+    UPDATE area_definitions ad
+    SET city_id = ci.id, state_id = s.id, country_id = c.id
+    FROM cities ci
+    INNER JOIN states s ON s.id = ci.state_id
+    INNER JOIN countries c ON c.id = s.country_id
+    WHERE ad.city_id IS NULL AND LOWER(TRIM(ci.name)) = LOWER(TRIM(ad.city))
+  `);
+  await pool.query("UPDATE area_definitions SET code = 'AREA-' || id WHERE code IS NULL OR TRIM(code) = ''");
+  await pool.query("UPDATE area_definitions SET boundary_geojson = polygon, boundary_status = CASE WHEN JSONB_ARRAY_LENGTH(polygon) >= 3 THEN 'created' ELSE 'not_created' END WHERE boundary_geojson IS NULL");
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uniq_area_definitions_code ON area_definitions (UPPER(code))');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS uniq_area_definitions_city_name ON area_definitions (city_id, LOWER(name)) WHERE city_id IS NOT NULL');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_area_definitions_country ON area_definitions (country_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_area_definitions_state ON area_definitions (state_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_area_definitions_city_id ON area_definitions (city_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_area_definitions_status ON area_definitions (is_active, delivery_enabled)');
+  await pool.query(`
+    INSERT INTO area_definitions
+      (country_id, state_id, city_id, name, code, description, city, polygon, boundary_status, delivery_enabled, is_active)
+    SELECT c.id, s.id, ci.id, locations.area,
+           'AREA-' || ci.id || '-' || UPPER(SUBSTRING(MD5(LOWER(locations.area)) FROM 1 FOR 8)),
+           'Migrated from existing profile location', ci.name, '[]', 'not_created', 1, 1
+    FROM (
+      SELECT DISTINCT city, area FROM vendor_profiles WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> '' AND TRIM(area) <> '*'
+      UNION
+      SELECT DISTINCT city, area FROM client_profiles WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> '' AND TRIM(area) <> '*'
+      UNION
+      SELECT DISTINCT city, area FROM client_delivery_addresses WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> '' AND TRIM(area) <> '*'
+    ) locations
+    INNER JOIN cities ci ON LOWER(TRIM(ci.name)) = LOWER(TRIM(locations.city))
+    INNER JOIN states s ON s.id = ci.state_id
+    INNER JOIN countries c ON c.id = s.country_id
+    WHERE NOT EXISTS (
+      SELECT 1 FROM area_definitions existing
+      WHERE existing.city_id = ci.id AND LOWER(TRIM(existing.name)) = LOWER(TRIM(locations.area))
+    )
+    ON CONFLICT DO NOTHING
+  `);
   await LocationOption.ensureTable(pool);
   await LocationOption.seedDefaultsIfEmpty(pool);
   await LocationCommissionSetting.ensureTable(pool);
@@ -4568,6 +4617,22 @@ function formatDeliveryAddress(address) {
   ].filter(Boolean).join(', ');
 }
 
+async function assertActiveDeliveryArea(location, connection = pool) {
+  const city = String(location.city || '').trim();
+  const areaName = String(location.area || '').trim();
+  if (!city || !areaName) {
+    const error = new Error('Select an active city and delivery area');
+    error.status = 422;
+    throw error;
+  }
+  const area = await AreaDefinition.findMatchingArea({ latitude: location.latitude, longitude: location.longitude, city, area: areaName }, connection);
+  if (!area || !area.is_active || !area.delivery_enabled) {
+    const error = new Error('The selected area is inactive or delivery is unavailable');
+    error.status = 422;
+    throw error;
+  }
+  return area;
+}
 function buildShippingSnapshot(client, selectedAddress) {
   const clientAddress = formatClientProfileAddress(client);
   const shippingAddress = selectedAddress ? formatDeliveryAddress(selectedAddress) : clientAddress;
@@ -5044,6 +5109,7 @@ async function calculateClientOrderPreview({ clientId, rawItems, deliveryAddress
 
   const selectedAddress = addressRows[0] || null;
   const addressSnapshot = buildShippingSnapshot(client, selectedAddress);
+  await assertActiveDeliveryArea({ city: addressSnapshot.shippingCity || client.city, area: addressSnapshot.shippingArea || client.area, latitude: addressSnapshot.shippingLatitude, longitude: addressSnapshot.shippingLongitude }, connection);
   const clientAddress = addressSnapshot.shippingAddress || addressSnapshot.clientAddress;
 
   const vendorOrders = new Map();
@@ -5282,6 +5348,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
 
       const selectedAddress = addressRows[0] || null;
       const addressSnapshot = buildShippingSnapshot(client, selectedAddress);
+      await assertActiveDeliveryArea({ city: addressSnapshot.shippingCity || client.city, area: addressSnapshot.shippingArea || client.area, latitude: addressSnapshot.shippingLatitude, longitude: addressSnapshot.shippingLongitude }, connection);
       const clientAddress = addressSnapshot.clientAddress || addressSnapshot.shippingAddress;
       const shippingAddress = addressSnapshot.shippingAddress || addressSnapshot.clientAddress;
       const clientName = client.name || addressSnapshot.shippingName || null;
@@ -5647,6 +5714,131 @@ async function googleMapsBrowserSettings() {
   };
 }
 
+async function areaAdminScope(req) {
+  if (isSuperAdminUser(req.authUser || req.session.user)) return '';
+  return resolveAdminDebugCity(req.authUser || req.session.user);
+}
+
+async function assertAreaAdminScope(req, areaOrPayload) {
+  if (isSuperAdminUser(req.authUser || req.session.user)) return;
+  const assignedCity = await areaAdminScope(req);
+  const requestedCity = String(areaOrPayload.city || '').trim();
+  let city = requestedCity;
+  if (!city && (areaOrPayload.city_id || areaOrPayload.cityId)) {
+    const [rows] = await pool.query('SELECT name FROM cities WHERE id = ? LIMIT 1', [Number(areaOrPayload.city_id || areaOrPayload.cityId)]);
+    city = String(rows[0] && rows[0].name || '').trim();
+  }
+  if (!assignedCity || !city || assignedCity.toLowerCase() !== city.toLowerCase()) {
+    const error = new Error(`You can manage areas only inside your assigned city${assignedCity ? ` (${assignedCity})` : ''}`);
+    error.status = 403;
+    throw error;
+  }
+}
+
+app.get('/api/areas', webOrJwtAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const adminCity = await areaAdminScope(req);
+    const areas = await AreaDefinition.list({
+      includeInactive: true,
+      countryId: req.query.country_id,
+      stateId: req.query.state_id,
+      cityId: req.query.city_id,
+      search: req.query.search || req.query.area_name,
+      status: req.query.status,
+      adminCity,
+    });
+    return res.json({ success: true, areas, admin_city: adminCity, locations: await getLocationSettings() });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to load areas' });
+  }
+});
+
+app.get('/api/areas/by-city/:cityId', async (req, res) => {
+  try {
+    const areas = await AreaDefinition.list({ includeInactive: false, cityId: Number(req.params.cityId) });
+    return res.json({ success: true, areas: areas.filter((area) => area.delivery_enabled) });
+  } catch (error) {
+    return res.status(500).json({ success: false, message: 'Unable to load city areas' });
+  }
+});
+
+app.post('/api/areas', webOrJwtAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    await assertAreaAdminScope(req, req.body);
+    const id = await AreaDefinition.save(req.body, req.authUser);
+    return res.status(201).json({ success: true, id, area: await AreaDefinition.findById(id), message: 'Area created' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to create area' });
+  }
+});
+
+app.put('/api/areas/:id', webOrJwtAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const existing = await AreaDefinition.findById(Number(req.params.id));
+    if (!existing) return res.status(404).json({ success: false, message: 'Area not found' });
+    await assertAreaAdminScope(req, { ...existing, ...req.body });
+    const id = await AreaDefinition.save({ ...req.body, id: req.params.id }, req.authUser);
+    return res.json({ success: true, id, area: await AreaDefinition.findById(id), message: 'Area updated' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update area' });
+  }
+});
+
+app.patch('/api/areas/:id/status', webOrJwtAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const area = await AreaDefinition.findById(Number(req.params.id));
+    if (!area) return res.status(404).json({ success: false, message: 'Area not found' });
+    await assertAreaAdminScope(req, area);
+    await AreaDefinition.setActive(area.id, Boolean(req.body.is_active ?? req.body.isActive), req.authUser);
+    return res.json({ success: true, message: 'Area status updated' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update area status' });
+  }
+});
+
+app.delete('/api/areas/:id', webOrJwtAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const area = await AreaDefinition.findById(Number(req.params.id));
+    if (!area) return res.status(404).json({ success: false, message: 'Area not found' });
+    await assertAreaAdminScope(req, area);
+    const links = await AreaDefinition.remove(area.id, { force: req.query.confirm === '1' || req.body.confirm === true });
+    return res.json({ success: true, links, message: 'Area deleted' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to delete area', links: error.links || null, confirmation_required: error.status === 409 });
+  }
+});
+
+app.put('/api/areas/:id/boundary', webOrJwtAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const area = await AreaDefinition.saveBoundary(Number(req.params.id), req.body.boundary_geojson || req.body.polygon || req.body.points, req.authUser);
+    return res.json({ success: true, area, message: 'Map boundary saved' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save map boundary' });
+  }
+});
+
+app.delete('/api/areas/:id/boundary', webOrJwtAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    await AreaDefinition.removeBoundary(Number(req.params.id), req.authUser);
+    return res.json({ success: true, message: 'Map boundary removed' });
+  } catch (error) {
+    return res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to remove map boundary' });
+  }
+});
+
+app.post('/api/areas/detect', async (req, res) => {
+  try {
+    const area = await AreaDefinition.findMatchingArea({
+      latitude: req.body.latitude ?? req.body.lat,
+      longitude: req.body.longitude ?? req.body.lng,
+      city: req.body.city,
+    });
+    if (!area) return res.status(404).json({ success: false, message: 'No active delivery area contains this location', area: null });
+    return res.json({ success: true, area });
+  } catch (error) {
+    return res.status(422).json({ success: false, message: error.message || 'Unable to detect area' });
+  }
+});
 app.get('/area-definitions', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   res.render('area-definitions', {
     user: req.session.user,
@@ -5683,7 +5875,6 @@ app.get('/area-options', requireAuth, async (req, res) => {
 app.get('/api/area-definitions/options', async (req, res) => {
   try {
     const mappedAreas = await AreaDefinition.list({ includeInactive: false });
-    const savedAreas = await advertisementAreaOptions();
     const areaRows = [];
     const seenAreas = new Set();
 
@@ -5701,23 +5892,6 @@ app.get('/api/area-definitions/options', async (req, res) => {
         center_lng: area.center_lng,
         delivery_charge: area.delivery_charge,
         platform_fee: area.platform_fee,
-      });
-    }
-
-    for (const area of savedAreas) {
-      if (!area.city || !area.area || area.area === '*') continue;
-      const key = `${area.city.trim().toLowerCase()}::${area.area.trim().toLowerCase()}`;
-      if (seenAreas.has(key)) continue;
-      seenAreas.add(key);
-      areaRows.push({
-        id: null,
-        city: area.city,
-        name: area.area,
-        polygon: [],
-        center_lat: null,
-        center_lng: null,
-        delivery_charge: null,
-        platform_fee: null,
       });
     }
 
@@ -5741,7 +5915,8 @@ app.get('/api/area-definitions/options', async (req, res) => {
 
 app.post('/area-definitions', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
-    const id = await AreaDefinition.save(req.body);
+    await assertAreaAdminScope(req, req.body);
+    const id = await AreaDefinition.save(req.body, req.session.user);
     res.status(201).json({ success: true, id, message: 'Area saved' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to save area' });
@@ -5750,7 +5925,9 @@ app.post('/area-definitions', requireAuth, requirePermission('settings.manage'),
 
 app.put('/area-definitions/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
-    const id = await AreaDefinition.save({ ...req.body, id: req.params.id });
+    const existing = await AreaDefinition.findById(Number(req.params.id));
+    await assertAreaAdminScope(req, { ...existing, ...req.body });
+    const id = await AreaDefinition.save({ ...req.body, id: req.params.id }, req.session.user);
     res.json({ success: true, id, message: 'Area updated' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update area' });
@@ -5759,7 +5936,9 @@ app.put('/area-definitions/:id', requireAuth, requirePermission('settings.manage
 
 app.delete('/area-definitions/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
-    await AreaDefinition.remove(Number(req.params.id));
+    const area = await AreaDefinition.findById(Number(req.params.id));
+    await assertAreaAdminScope(req, area);
+    await AreaDefinition.remove(Number(req.params.id), { force: req.query.confirm === '1' });
     res.json({ success: true, message: 'Area deleted' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to delete area' });

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -189,9 +189,9 @@
           <div class="fallback-map-subtitle">${escapeHtml(message)} <a href="/settings#google-maps">Check Google Maps settings</a></div>
           <div class="fallback-map-controls">
             <button type="button" onclick="fallbackZoom(1)">+</button>
-            <button type="button" onclick="fallbackZoom(-1)">−</button>
+            <button type="button" onclick="fallbackZoom(-1)">âˆ’</button>
           </div>
-          <div class="fallback-map-attribution">© OpenStreetMap contributors</div>
+          <div class="fallback-map-attribution">Â© OpenStreetMap contributors</div>
         </div>
       `;
       bindMarkerUi();
@@ -527,8 +527,15 @@
         if (!data.success) throw new Error(data.message || 'Unable to load areas');
         areas = data.areas || [];
         syncCityOptionsFromAreas();
-        chooseInitialAreaCity();
-        refreshVisibleAreas();
+        const requestedAreaId = Number(new URLSearchParams(window.location.search).get('area_id') || 0);
+        const requestedArea = areas.find((area) => Number(area.id) === requestedAreaId);
+        if (requestedArea) {
+          document.getElementById('areaCity').value = requestedArea.city || '';
+          editArea(requestedArea.id);
+        } else {
+          chooseInitialAreaCity();
+          refreshVisibleAreas();
+        }
       } catch (error) {
         body.innerHTML = `<tr><td colspan="5">${escapeHtml(error.message)}</td></tr>`;
       }
