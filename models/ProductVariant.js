@@ -316,6 +316,9 @@ async function getVariantsByProductId(productId) {
     [productId]
   );
 
+  const [prodRows] = await pool.query('SELECT image_url FROM products WHERE id = ?', [productId]);
+  const mainProductImg = (prodRows[0] && prodRows[0].image_url) ? prodRows[0].image_url : '/default.png';
+
   for (const v of variants) {
     v.price = parseFloat(v.variation_price || v.sale_price || 0);
     v.mrp = parseFloat(v.mrp || 0);
@@ -325,6 +328,8 @@ async function getVariantsByProductId(productId) {
     // Calculate base unit price (e.g. 5 kg for $20 = $4/kg)
     const mVal = parseFloat(v.measurement_value) || 1;
     v.unit_price = mVal > 0 ? parseFloat((v.price / mVal).toFixed(2)) : v.price;
+    v.custom_image = v.image || null;
+    v.image = (v.image && String(v.image).trim()) ? String(v.image).trim() : mainProductImg;
 
     const [valRows] = await pool.query(
       `SELECT pvv.*, vt.name as type_name, vt.code as type_code, vv.value as val_text, vv.unit as val_unit
@@ -350,6 +355,11 @@ async function getVariantById(variantId) {
   v.weight_in_grams = parseInt(v.weight_in_grams, 10) || 0;
   const mVal = parseFloat(v.measurement_value) || 1;
   v.unit_price = mVal > 0 ? parseFloat((v.price / mVal).toFixed(2)) : v.price;
+
+  const [prodRows] = await pool.query('SELECT image_url FROM products WHERE id = ?', [v.product_id]);
+  const mainProductImg = (prodRows[0] && prodRows[0].image_url) ? prodRows[0].image_url : '/default.png';
+  v.custom_image = v.image || null;
+  v.image = (v.image && String(v.image).trim()) ? String(v.image).trim() : mainProductImg;
   return v;
 }
 
@@ -424,24 +434,25 @@ async function saveProductVariants(productId, hasVariants, variantsData, default
       const mUnit = String(v.measurement_unit || v.unit || 'kg').trim();
       const weightGrams = parseInt(v.weight_in_grams, 10) || calculateWeightInGrams(mVal, mUnit);
       const isDef = index === 0 ? 1 : 0; // First variant is primary/default
+      const vImage = (v.image && String(v.image).trim() && String(v.image).trim() !== 'null') ? String(v.image).trim() : null;
 
       let savedVariantId;
       if (variantId) {
         await pool.query(
           `UPDATE product_variants
            SET variant_name = ?, sku = ?, barcode = ?, mrp = ?, variation_price = ?, sale_price = ?,
-               stock_quantity = ?, weight_in_grams = ?, measurement_value = ?, measurement_unit = ?,
+               stock_quantity = ?, weight_in_grams = ?, measurement_value = ?, measurement_unit = ?, image = ?,
                is_default = ?, status = 'active'
            WHERE id = ? AND product_id = ?`,
-          [vName, sku, barcode, mrp, price, price, stock, weightGrams, mVal, mUnit, isDef, variantId, productId]
+          [vName, sku, barcode, mrp, price, price, stock, weightGrams, mVal, mUnit, vImage, isDef, variantId, productId]
         );
         savedVariantId = variantId;
       } else {
         const [ins] = await pool.query(
           `INSERT INTO product_variants
-             (product_id, variant_name, sku, barcode, mrp, variation_price, sale_price, stock_quantity, weight_in_grams, measurement_value, measurement_unit, is_default, status)
-           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
-          [productId, vName, sku, barcode, mrp, price, price, stock, weightGrams, mVal, mUnit, isDef]
+             (product_id, variant_name, sku, barcode, mrp, variation_price, sale_price, stock_quantity, weight_in_grams, measurement_value, measurement_unit, image, is_default, status)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active')`,
+          [productId, vName, sku, barcode, mrp, price, price, stock, weightGrams, mVal, mUnit, vImage, isDef]
         );
         savedVariantId = ins.insertId;
       }

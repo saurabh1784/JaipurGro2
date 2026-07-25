@@ -916,6 +916,10 @@
           Weight (Grams)
           <input type="number" class="var-weight" value="${data.weight_in_grams || 1000}" placeholder="1000g" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
         </label>
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          Image URL (Optional)
+          <input type="url" class="var-image" value="${data.image || ''}" placeholder="Fallback to main pic" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
+        </label>
         <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:6px; border-radius:6px; font-weight:700; cursor:pointer; margin-top:14px;" title="Remove row">✕</button>
       `;
 
@@ -999,6 +1003,7 @@
         const valSelect = r.querySelector('.var-val-select');
         const selectedOpt = valSelect.options[valSelect.selectedIndex];
         const valText = selectedOpt ? (selectedOpt.dataset.value || selectedOpt.textContent) : '';
+        const imgVal = r.querySelector('.var-image') ? r.querySelector('.var-image').value.trim() : '';
 
         variants.push({
           id: r.querySelector('.var-id').value || null,
@@ -1013,6 +1018,7 @@
           stock_quantity: parseInt(r.querySelector('.var-stock').value, 10) || 0,
           sku: r.querySelector('.var-sku').value || '',
           weight_in_grams: parseInt(r.querySelector('.var-weight').value, 10) || 1000,
+          image: imgVal || null,
         });
       });
       return { has_variants: true, variants };
@@ -1038,6 +1044,29 @@
       updateProductBrands(product.brand_id);
       document.getElementById('productSponsored').checked = Boolean(product.is_sponsored);
       document.getElementById('productSponsoredPriority').value = Number(product.sponsored_priority || 0);
+
+      // Populate Variations if product has_variants
+      if (product.has_variants && Array.isArray(product.variants) && product.variants.length > 0) {
+        toggleVariantsMode(true);
+        document.getElementById('variantsList').innerHTML = '';
+        product.variants.forEach(v => {
+          addVariantRow({
+            id: v.id,
+            type_id: v.variation_type_id,
+            value_id: v.variation_value_id,
+            unit: v.unit,
+            price: v.price,
+            mrp: v.mrp,
+            stock: v.stock,
+            sku: v.sku,
+            weight_in_grams: v.weight_in_grams,
+            image: v.custom_image || (v.image !== currentImg ? v.image : '')
+          });
+        });
+      } else {
+        toggleVariantsMode(false);
+      }
+
       document.getElementById('productFormTitle').textContent = 'Edit Product';
       document.getElementById('productSubmit').textContent = 'Update Product';
       window.scrollTo({ top: 0, behavior: 'smooth' });
