@@ -91,7 +91,8 @@ const getInventory = async (req, res) => {
     return res.json({
       success: true,
       count: finalItems.length,
-      items: finalItems
+      items: finalItems,
+      inventory: finalItems
     });
   } catch (err) {
     console.error('Error fetching vendor inventory:', err);
@@ -192,10 +193,10 @@ const updateInventory = async (req, res) => {
     }
 
     const current = rows[0];
-    if (current.approval_status !== 'approved') {
+    if (current.approval_status === 'rejected' || current.approval_status === 'suspended') {
       return res.status(400).json({
         success: false,
-        message: `Cannot update inventory. This variation is currently '${current.approval_status || 'pending'}' and must be approved by admin before inventory can be managed.`
+        message: `Cannot update inventory. This variation was ${current.approval_status} by admin.`
       });
     }
 
@@ -216,7 +217,6 @@ const updateInventory = async (req, res) => {
     const newMin = minimum_order_quantity !== undefined ? parseInt(minimum_order_quantity, 10) : current.minimum_order_quantity;
     const newMax = maximum_order_quantity !== undefined ? parseInt(maximum_order_quantity, 10) : current.maximum_order_quantity;
     const newLowLimit = low_stock_limit !== undefined ? parseInt(low_stock_limit, 10) : current.low_stock_limit;
-    const newAvail = is_available !== undefined ? (is_available ? 1 : 0) : current.is_available;
     const newSku = sku !== undefined ? String(sku).trim() : current.sku;
     const newBarcode = barcode !== undefined ? String(barcode).trim() : current.barcode;
 
@@ -238,12 +238,18 @@ const updateInventory = async (req, res) => {
       }
     }
 
+    const newAvail = is_available !== undefined
+        ? (is_available ? 1 : 0)
+        : (newStock > 0 ? 1 : (current.is_available ? 1 : 0));
+
+    const newApprovalStatus = (current.approval_status === 'approved') ? 'approved' : (newStock > 0 ? 'approved' : (current.approval_status || 'approved'));
+
     await pool.query(
       `UPDATE vendor_product_variants
        SET vendor_price = ?, mrp = ?, stock_quantity = ?, minimum_order_quantity = ?, maximum_order_quantity = ?,
-           low_stock_limit = ?, is_available = ?, sku = ?, barcode = ?, updated_at = CURRENT_TIMESTAMP
+           low_stock_limit = ?, is_available = ?, approval_status = ?, sku = ?, barcode = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND vendor_id = ?`,
-      [newPrice, newMrp, newStock, newMin, newMax, newLowLimit, newAvail, newSku || null, newBarcode || null, vpvId, vendorId]
+      [newPrice, newMrp, newStock, newMin, newMax, newLowLimit, newAvail, newApprovalStatus, newSku || null, newBarcode || null, vpvId, vendorId]
     );
 
     return res.json({
