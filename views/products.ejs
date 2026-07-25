@@ -885,6 +885,78 @@
       }
     }
 
+    function getActiveMainProductImage() {
+      const previewImg = document.getElementById('productImagePreview');
+      if (previewImg && previewImg.src && !previewImg.src.includes('default.png') && !previewImg.src.includes('data:image/svg')) {
+        return previewImg.src;
+      }
+      const urlInput = document.getElementById('productImageUrl');
+      if (urlInput && urlInput.value && urlInput.value.trim()) {
+        return urlInput.value.trim();
+      }
+      return '/default.png';
+    }
+
+    function onVariantFileSelected(rowId, input) {
+      if (!input || !input.files || !input.files[0]) return;
+      const file = input.files[0];
+      const previewImg = document.getElementById(`varPreview_${rowId}`);
+      const tag = document.getElementById(`varImgTag_${rowId}`);
+      const objectUrl = URL.createObjectURL(file);
+      if (previewImg) previewImg.src = objectUrl;
+      if (tag) tag.textContent = 'PC Upload';
+    }
+
+    function onVariantUrlInput(rowId, urlVal) {
+      const previewImg = document.getElementById(`varPreview_${rowId}`);
+      const tag = document.getElementById(`varImgTag_${rowId}`);
+      const cleanUrl = String(urlVal || '').trim();
+      if (cleanUrl) {
+        if (previewImg) previewImg.src = cleanUrl;
+        if (tag) tag.textContent = 'URL Pic';
+      } else {
+        const fallback = getActiveMainProductImage();
+        if (previewImg) previewImg.src = fallback;
+        if (tag) tag.textContent = 'Main Pic';
+      }
+    }
+
+    async function downloadVariantImageUrl(rowId) {
+      const row = document.getElementById(rowId);
+      if (!row) return;
+      const urlInput = row.querySelector('.var-image');
+      const rawUrl = urlInput ? urlInput.value.trim() : '';
+      if (!rawUrl || (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://'))) {
+        alert('Please enter a valid HTTP or HTTPS image URL first.');
+        return;
+      }
+
+      const btn = row.querySelector('.btn-download-var-img');
+      if (btn) { btn.disabled = true; btn.textContent = '⏳ Downloading...'; }
+
+      try {
+        const res = await fetch('/api/products/download-variant-image', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ url: rawUrl }),
+        });
+        const data = await res.json();
+        if (data.success && data.local_url) {
+          urlInput.value = data.local_url;
+          onVariantUrlInput(rowId, data.local_url);
+          const tag = document.getElementById(`varImgTag_${rowId}`);
+          if (tag) tag.textContent = 'Saved Local';
+          alert('✓ Variant image downloaded & saved to server successfully!');
+        } else {
+          alert(data.message || 'Unable to download image from URL');
+        }
+      } catch (err) {
+        alert('Error downloading variant image: ' + err.message);
+      } finally {
+        if (btn) { btn.disabled = false; btn.textContent = '⚡ Download & Save'; }
+      }
+    }
+
     function addVariantRow(data = {}) {
       const list = document.getElementById('variantsList');
       const rowId = 'varRow_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
@@ -894,6 +966,8 @@
       row.style.cssText = 'background:#ffffff; border:1px solid #7dd3fc; border-radius:12px; padding:14px 16px; margin-bottom:4px; box-shadow:0 2px 8px rgba(2, 132, 199, 0.06); display:flex; flex-direction:column; gap:12px;';
 
       const typeOptionsHtml = (masterVariationTypes || []).map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+      const activeImg = (data.image && String(data.image).trim() && String(data.image).trim() !== 'null') ? String(data.image).trim() : getActiveMainProductImage();
+      const imgTag = (data.image && String(data.image).trim() && String(data.image).trim() !== 'null') ? 'Custom Pic' : 'Main Pic';
 
       row.innerHTML = `
         <input type="hidden" class="var-id" value="${data.id || ''}" />
@@ -954,11 +1028,39 @@
             Weight (Grams)
             <input type="number" class="var-weight" value="${data.weight_in_grams || 1000}" placeholder="1000" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
           </label>
+        </div>
 
-          <label style="grid-column: 1 / -1; font-size:0.76rem; font-weight:700; color:#0369a1;">
-            Option Image URL (Optional)
-            <input type="url" class="var-image" value="${data.image || ''}" placeholder="https://example.com/variant-image.jpg" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
-          </label>
+        <!-- Variant Image Section (Thumbnail Preview, PC Upload & URL Download) -->
+        <div style="background:#f0f9ff; border:1px solid #7dd3fc; border-radius:10px; padding:10px 12px; display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-top:2px;">
+          <!-- Live Image Preview Box -->
+          <div style="display:flex; flex-direction:column; align-items:center; gap:4px; flex-shrink:0;">
+            <div style="width:60px; height:60px; border-radius:8px; overflow:hidden; border:1px solid #0284c7; background:#fff; position:relative; display:flex; align-items:center; justify-content:center;">
+              <img id="varPreview_${rowId}" class="var-img-preview" src="${activeImg}" alt="Variant Preview" style="width:100%; height:100%; object-fit:cover;" onerror="this.src='/default.png'" />
+            </div>
+            <span id="varImgTag_${rowId}" style="font-size:0.65rem; font-weight:800; color:#0369a1; text-align:center;">${imgTag}</span>
+          </div>
+
+          <!-- File Upload & URL Inputs Container -->
+          <div style="flex:1; min-width:220px; display:flex; flex-direction:column; gap:8px;">
+            <div style="display:flex; gap:12px; align-items:center; flex-wrap:wrap;">
+              <label style="font-size:0.75rem; font-weight:700; color:#0369a1; display:flex; align-items:center; gap:6px; cursor:pointer;">
+                📁 Upload PC Image:
+                <input type="file" class="var-file-input" accept="image/png,image/jpeg,image/webp,image/gif" onchange="onVariantFileSelected('${rowId}', this)" style="font-size:0.75rem; color:#334155;" />
+              </label>
+            </div>
+
+            <div style="display:flex; flex-direction:column; gap:3px;">
+              <label style="font-size:0.75rem; font-weight:700; color:#0369a1;">
+                Option Image URL:
+              </label>
+              <div style="display:flex; gap:6px;">
+                <input type="url" class="var-image" value="${data.image || ''}" placeholder="https://example.com/variant-image.jpg" oninput="onVariantUrlInput('${rowId}', this.value)" style="flex:1; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #7dd3fc; background:#fff;" />
+                <button type="button" class="btn-download-var-img" onclick="downloadVariantImageUrl('${rowId}')" title="Download Image URL to Server" style="background:#0284c7; color:#fff; border:none; padding:0 12px; border-radius:6px; font-weight:800; font-size:0.78rem; cursor:pointer; white-space:nowrap; display:flex; align-items:center; gap:4px;">
+                  ⚡ Download & Save
+                </button>
+              </div>
+            </div>
+          </div>
         </div>
       `;
 

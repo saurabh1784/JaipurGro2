@@ -1,4 +1,5 @@
 const pool = require('../db');
+const { downloadImageFromUrl } = require('../services/imageProcessingService');
 
 // Convert measurement value + unit to weight in grams
 function calculateWeightInGrams(value, unit) {
@@ -434,7 +435,15 @@ async function saveProductVariants(productId, hasVariants, variantsData, default
       const mUnit = String(v.measurement_unit || v.unit || 'kg').trim();
       const weightGrams = parseInt(v.weight_in_grams, 10) || calculateWeightInGrams(mVal, mUnit);
       const isDef = index === 0 ? 1 : 0; // First variant is primary/default
-      const vImage = (v.image && String(v.image).trim() && String(v.image).trim() !== 'null') ? String(v.image).trim() : null;
+      let vImage = (v.image && String(v.image).trim() && String(v.image).trim() !== 'null') ? String(v.image).trim() : null;
+      if (vImage && (vImage.startsWith('http://') || vImage.startsWith('https://'))) {
+        try {
+          const downloaded = await downloadImageFromUrl(vImage, 'product', `variant-${productId}-${index + 1}`);
+          if (downloaded) vImage = downloaded;
+        } catch (e) {
+          console.warn('Unable to download variant image URL:', e.message);
+        }
+      }
 
       let savedVariantId;
       if (variantId) {

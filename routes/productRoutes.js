@@ -43,6 +43,7 @@ router.get('/catalog', productController.catalog);
 router.get('/sponsored', productController.sponsoredIndex);
 router.post('/sponsored', productController.sponsoredCreate);
 router.post('/', uploadProductImage.single('image'), handleProductImageUploadError, productController.create);
+router.post('/download-variant-image', productController.downloadVariantImageApi);
 router.post('/bulk-upload', upload.single('file'), productController.bulkUpload);
 router.get('/image-upload-template', productController.downloadImageTemplate);
 router.post('/bulk-image-upload', upload.single('file'), productController.bulkImageUpload);

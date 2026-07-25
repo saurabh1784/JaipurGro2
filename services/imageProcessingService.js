@@ -255,10 +255,40 @@ async function cleanupProductImages(productIds = null, poolConnection = null) {
   return stats;
 }
 
+async function downloadImageFromUrl(imageUrl, type = 'product', baseName = 'variant-image') {
+  if (!imageUrl || typeof imageUrl !== 'string') return null;
+  const cleanUrl = imageUrl.trim();
+  if (cleanUrl.startsWith('/uploads/')) return cleanUrl;
+  if (!cleanUrl.startsWith('http://') && !cleanUrl.startsWith('https://')) return null;
+
+  try {
+    const response = await fetch(cleanUrl, {
+      headers: {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      },
+      redirect: 'follow',
+    });
+
+    if (!response.ok) {
+      console.warn(`Failed to fetch remote image ${cleanUrl}: HTTP ${response.status}`);
+      return cleanUrl;
+    }
+
+    const arrayBuffer = await response.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+    const result = await processImageBuffer(buffer, type, baseName);
+    return result.path;
+  } catch (err) {
+    console.error(`Error downloading remote image ${cleanUrl}:`, err.message);
+    return cleanUrl;
+  }
+}
+
 module.exports = {
   presets,
   processImageBuffer,
   processUploadedFile,
+  downloadImageFromUrl,
   deleteLocalImageFile,
   cleanupProductImages,
 };

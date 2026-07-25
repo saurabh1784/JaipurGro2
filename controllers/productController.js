@@ -1144,6 +1144,22 @@ async function sponsoredDelete(req, res) {
   }
 }
 
+async function downloadVariantImageApi(req, res) {
+  try {
+    const rawUrl = String(req.body.url || req.body.image_url || '').trim();
+    if (!rawUrl || (!rawUrl.startsWith('http://') && !rawUrl.startsWith('https://'))) {
+      return res.status(400).json({ success: false, message: 'Valid http or https image URL is required' });
+    }
+
+    const downloaded = await downloadImage(rawUrl);
+    const processed = await processImageBuffer(downloaded.buffer, 'product', 'variant-image');
+    return res.json({ success: true, local_url: processed.path });
+  } catch (err) {
+    console.error('Error downloading variant image:', err);
+    return res.status(500).json({ success: false, message: err.message || 'Failed to download image' });
+  }
+}
+
 module.exports = {
   index,
   create,
@@ -1162,4 +1178,5 @@ module.exports = {
   sponsoredShow,
   sponsoredUpdate,
   sponsoredDelete,
+  downloadVariantImageApi,
 };
