@@ -9,5 +9,7 @@ router.post('/app-settings/logos', uploadAppLogos, handleUploadError, appSetting
 
 // Public REST API route for apps
 router.get('/api/app-settings/logos', appSettingsController.getPublicAppLogos);
+router.get('/api/app-settings/update-check', appSettingsController.getAppUpdateConfig);
+router.get('/api/app-update-check', appSettingsController.getAppUpdateConfig);
 
 module.exports = router;

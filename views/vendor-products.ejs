@@ -207,14 +207,26 @@
       <form id="productForm" class="user-modal-grid">
         <input type="hidden" id="vendorProductId" />
 
-        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
-          <label style="font-weight: 600; color: #334155;">Select Category</label>
-          <select id="modalCategoryFilter" onchange="onModalCategoryChange(this.value)" style="padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; background: #fff;">
-            <option value="">All Assigned Categories</option>
-            <% (typeof vendorCategories !== 'undefined' && vendorCategories.length ? vendorCategories : categories || []).forEach(function(cat) { %>
-              <option value="<%= cat.id %>"><%= cat.name %></option>
-            <% }); %>
-          </select>
+        <div style="display: flex; gap: 12px; grid-column: 1 / -1;">
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
+            <label style="font-weight: 600; color: #334155;">Select Category</label>
+            <select id="modalCategoryFilter" onchange="onModalCategoryChange(this.value)" style="padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; background: #fff; width: 100%;">
+              <option value="">All Assigned Categories</option>
+              <% (typeof vendorCategories !== 'undefined' && vendorCategories.length ? vendorCategories : categories || []).forEach(function(cat) { %>
+                <option value="<%= cat.id %>"><%= cat.name %></option>
+              <% }); %>
+            </select>
+          </div>
+
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
+            <label style="font-weight: 600; color: #334155;">Select Subcategory</label>
+            <select id="modalSubcategoryFilter" onchange="onModalSubcategoryChange(this.value)" style="padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; background: #fff; width: 100%;">
+              <option value="">All Subcategories</option>
+              <% (subcategories || []).forEach(function(sub) { %>
+                <option value="<%= sub.id %>"><%= sub.name %></option>
+              <% }); %>
+            </select>
+          </div>
         </div>
 
         <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
@@ -1048,6 +1060,7 @@
 
   <script>
     let vendorProducts = <%- JSON.stringify(products || []) %>;
+    let allVendorProducts = <%- JSON.stringify(products || []) %>;
     let selectedProductIds = new Set();
     const approvedProductsList = <%- JSON.stringify(approvedProducts || []) %>;
     const catalog = {
@@ -1103,12 +1116,30 @@
         .join('');
     }
 
+    function getVendorSubcategories() {
+      const vendorSubcategoryIds = new Set();
+      (allVendorProducts || []).forEach((product) => {
+        const subId = Number(product.sub_category_id || product.subcategory_id || product.subcategoryId || 0);
+        if (subId > 0) {
+          vendorSubcategoryIds.add(subId);
+        }
+      });
+      return (catalog.subcategories || []).filter((sub) => vendorSubcategoryIds.has(Number(sub.id)));
+    }
+
     function updateSubcategoryFilter() {
       const categoryId = categoryFilter.value;
+      const currentSelectedSubcategory = subcategoryFilter.value;
+      const vendorSubs = getVendorSubcategories();
       const items = categoryId
-        ? catalog.subcategories.filter((item) => String(item.category_id) === String(categoryId))
-        : catalog.subcategories;
+        ? vendorSubs.filter((item) => String(item.category_id) === String(categoryId))
+        : vendorSubs;
       subcategoryFilter.innerHTML = optionList(items, 'All Subcategories');
+      if (items.some((item) => String(item.id) === String(currentSelectedSubcategory))) {
+        subcategoryFilter.value = currentSelectedSubcategory;
+      } else {
+        subcategoryFilter.value = '';
+      }
     }
 
     function updateBrandFilter() {
@@ -1243,16 +1274,21 @@
       await loadProducts();
     }
 
-    /* Searchable Approved Product Picker with Category Filter */
+    /* Searchable Approved Product Picker with Category & Subcategory Filters */
     function renderApprovedProductsPicker(query = '') {
       const dropdown = document.getElementById('productPickerDropdown');
       if (!dropdown) return;
       const q = String(query || '').trim().toLowerCase();
       const catSelect = document.getElementById('modalCategoryFilter');
+      const subSelect = document.getElementById('modalSubcategoryFilter');
       const selectedCat = catSelect ? String(catSelect.value || '').trim() : '';
+      const selectedSub = subSelect ? String(subSelect.value || '').trim() : '';
 
       const filtered = approvedProductsList.filter((p) => {
         if (selectedCat && String(p.category_id || '') !== selectedCat) {
+          return false;
+        }
+        if (selectedSub && String(p.sub_category_id || p.subcategory_id || '') !== selectedSub) {
           return false;
         }
         if (!q) return true;
@@ -1264,7 +1300,7 @@
       });
 
       if (!filtered.length) {
-        dropdown.innerHTML = '<div style="padding:12px; color:#64748b; font-size:0.85rem; text-align:center;">No matching approved products found for selected category</div>';
+        dropdown.innerHTML = '<div style="padding:12px; color:#64748b; font-size:0.85rem; text-align:center;">No matching approved products found</div>';
         return;
       }
 
@@ -1280,7 +1316,25 @@
       `).join('');
     }
 
+    function updateModalSubcategoryOptions(selectedCatId) {
+      const subSelect = document.getElementById('modalSubcategoryFilter');
+      if (!subSelect) return;
+      const catIdStr = String(selectedCatId || '').trim();
+      const filteredSubs = (catalog.subcategories || []).filter((sub) => (
+        !catIdStr || String(sub.category_id) === catIdStr
+      ));
+      subSelect.innerHTML = '<option value="">All Subcategories</option>' + filteredSubs.map((sub) => (
+        `<option value="${sub.id}">${escapeHtml(sub.name)}</option>`
+      )).join('');
+    }
+
     function onModalCategoryChange(catId) {
+      updateModalSubcategoryOptions(catId);
+      clearSelectedProduct();
+      showApprovedProductsDropdown();
+    }
+
+    function onModalSubcategoryChange(subId) {
       clearSelectedProduct();
       showApprovedProductsDropdown();
     }
@@ -1452,6 +1506,7 @@
         document.getElementById('vendorProductId').value = '';
         document.getElementById('productId').value = '';
         document.getElementById('productSelectedBadge').style.display = 'none';
+        updateModalSubcategoryOptions('');
         const searchInput = document.getElementById('productSearchInput');
         if (searchInput) {
           searchInput.style.display = 'block';

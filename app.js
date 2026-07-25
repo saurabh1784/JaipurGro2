@@ -3974,9 +3974,69 @@ app.get('/api/client/quotations', webOrJwtAuth, requireAuthRole('Client'), async
   }
 });
 
+async function getAvailableCatalogIdsForClient({ userId, city = '', area = '' }) {
+  let targetCity = String(city || '').trim();
+  let targetArea = String(area || '').trim();
+
+  if (!targetCity && userId) {
+    const [addrRows] = await pool.query(
+      `SELECT city, area, pincode FROM client_delivery_addresses WHERE user_id = ? ORDER BY is_default DESC, id DESC LIMIT 1`,
+      [userId]
+    );
+    if (addrRows.length) {
+      targetCity = addrRows[0].city || '';
+      targetArea = addrRows[0].area || addrRows[0].pincode || '';
+    }
+  }
+
+  const normCity = targetCity.toLowerCase();
+  const normArea = targetArea.toLowerCase();
+
+  const [rows] = await pool.query(
+    `SELECT DISTINCT p.category_id, p.sub_category_id, p.brand_id, vprof.city AS vendor_city, vprof.area AS vendor_area
+     FROM vendor_products vp
+     INNER JOIN products p ON p.id = vp.product_id AND p.is_deleted = 0 AND p.approval_status = 'approved'
+     INNER JOIN users u ON u.id = vp.vendor_id AND u.is_deleted = 0 AND LOWER(u.status) = 'active' AND LOWER(u.role) = 'vendor'
+     INNER JOIN vendor_profiles vprof ON vprof.user_id = u.id
+     WHERE vp.status = 'active'
+       AND vp.quantity > 0
+       AND (
+         ? = '' OR
+         TRIM(COALESCE(vprof.city, '')) = '' OR
+         LOWER(TRIM(vprof.city)) = ?
+       )`,
+    [normCity, normCity]
+  );
+
+  const categoryIds = new Set();
+  const subCategoryIds = new Set();
+  const brandIds = new Set();
+
+  for (const r of rows) {
+    let matches = true;
+    if (normArea && normCity) {
+      matches = premiumVendorAreaMatches(r.vendor_area, normArea);
+    }
+    if (matches) {
+      if (r.category_id) categoryIds.add(Number(r.category_id));
+      if (r.sub_category_id) subCategoryIds.add(Number(r.sub_category_id));
+      if (r.brand_id) brandIds.add(Number(r.brand_id));
+    }
+  }
+
+  return { categoryIds, subCategoryIds, brandIds };
+}
+
 app.get('/api/client/categories', webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
-    const categories = (await Catalog.listCategories()).filter((category) => category.status === 'active');
+    const catalogFilter = await getAvailableCatalogIdsForClient({
+      userId: req.authUser ? req.authUser.id : null,
+      city: req.query.city || req.query.shippingCity || '',
+      area: req.query.area || req.query.shippingArea || req.query.pincode || '',
+    });
+    const categories = (await Catalog.listCategories()).filter((category) => (
+      category.status === 'active' && catalogFilter.categoryIds.has(Number(category.id))
+    ));
     return res.json({
       success: true,
       categories,
@@ -3993,7 +4053,14 @@ app.get('/api/client/categories/stream', webOrJwtAuth, requireAuthRole('Client')
   res.setHeader('Transfer-Encoding', 'chunked');
   res.setHeader('Cache-Control', 'no-cache');
   try {
-    const categories = (await Catalog.listCategories()).filter((category) => category.status === 'active');
+    const catalogFilter = await getAvailableCatalogIdsForClient({
+      userId: req.authUser ? req.authUser.id : null,
+      city: req.query.city || req.query.shippingCity || '',
+      area: req.query.area || req.query.shippingArea || req.query.pincode || '',
+    });
+    const categories = (await Catalog.listCategories()).filter((category) => (
+      category.status === 'active' && catalogFilter.categoryIds.has(Number(category.id))
+    ));
     for (const category of categories) {
       res.write(JSON.stringify(category) + '\n');
     }
@@ -4009,32 +4076,49 @@ app.get('/api/client/categories/stream', webOrJwtAuth, requireAuthRole('Client')
 
 app.get('/api/catalog/categories', webOrJwtAuth, async (req, res) => {
   try {
+    const isVendorUser = req.authUser && req.authUser.role === 'Vendor';
+    const catalogFilter = isVendorUser ? null : await getAvailableCatalogIdsForClient({
+      userId: req.authUser && req.authUser.role === 'Client' ? req.authUser.id : null,
+      city: req.query.city || '',
+      area: req.query.area || '',
+    });
     const [categories, subcategories, brands, tree] = await Promise.all([
       Catalog.listCategories(),
       Catalog.listSubcategories(),
       Catalog.listBrands(),
       Catalog.getTree(),
     ]);
-    const activeCategories = categories.filter((category) => category.status === 'active');
+    const activeCategories = categories.filter((category) => (
+      category.status === 'active' && (isVendorUser || !catalogFilter || catalogFilter.categoryIds.has(Number(category.id)))
+    ));
     const activeCategoryIds = new Set(activeCategories.map((category) => Number(category.id)));
     const activeSubcategories = subcategories.filter((subcategory) => (
-      subcategory.status === 'active' && activeCategoryIds.has(Number(subcategory.category_id))
+      subcategory.status === 'active'
+        && activeCategoryIds.has(Number(subcategory.category_id))
+        && (isVendorUser || !catalogFilter || catalogFilter.subCategoryIds.has(Number(subcategory.id)))
     ));
     const activeSubcategoryIds = new Set(activeSubcategories.map((subcategory) => Number(subcategory.id)));
     const activeBrands = brands.filter((brand) => (
       brand.status === 'active'
         && activeCategoryIds.has(Number(brand.category_id))
         && activeSubcategoryIds.has(Number(brand.sub_category_id || brand.subcategory_id))
+        && (isVendorUser || !catalogFilter || catalogFilter.brandIds.has(Number(brand.id)))
     ));
     const activeTree = tree
-      .filter((category) => category.status === 'active')
+      .filter((category) => (
+        category.status === 'active' && (isVendorUser || !catalogFilter || catalogFilter.categoryIds.has(Number(category.id)))
+      ))
       .map((category) => ({
         ...category,
         subcategories: (category.subcategories || [])
-          .filter((subcategory) => subcategory.status === 'active')
+          .filter((subcategory) => (
+            subcategory.status === 'active' && (isVendorUser || !catalogFilter || catalogFilter.subCategoryIds.has(Number(subcategory.id)))
+          ))
           .map((subcategory) => ({
             ...subcategory,
-            brands: (subcategory.brands || []).filter((brand) => brand.status === 'active'),
+            brands: (subcategory.brands || []).filter((brand) => (
+              brand.status === 'active' && (isVendorUser || !catalogFilter || catalogFilter.brandIds.has(Number(brand.id)))
+            )),
           })),
       }));
     return res.json({
@@ -4055,10 +4139,19 @@ app.get('/api/catalog/subcategories/stream', webOrJwtAuth, async (req, res) => {
   res.setHeader('Transfer-Encoding', 'chunked');
   res.setHeader('Cache-Control', 'no-cache');
   try {
+    const isVendorUser = req.authUser && req.authUser.role === 'Vendor';
     const categoryId = Number(req.query.category_id || req.query.categoryId || 0);
+    const catalogFilter = isVendorUser ? null : await getAvailableCatalogIdsForClient({
+      userId: req.authUser && req.authUser.role === 'Client' ? req.authUser.id : null,
+      city: req.query.city || '',
+      area: req.query.area || '',
+    });
     const subcategories = (await Catalog.listSubcategories())
       .filter((subcategory) => subcategory.status === 'active')
-      .filter((subcategory) => !categoryId || Number(subcategory.category_id) === categoryId);
+      .filter((subcategory) => !categoryId || Number(subcategory.category_id) === categoryId)
+      .filter((subcategory) => (
+        isVendorUser || !catalogFilter || catalogFilter.subCategoryIds.has(Number(subcategory.id))
+      ));
     for (const subcategory of subcategories) {
       res.write(JSON.stringify(subcategory) + '\n');
     }
@@ -4073,10 +4166,19 @@ app.get('/api/catalog/subcategories/stream', webOrJwtAuth, async (req, res) => {
 });
 app.get('/api/catalog/subcategories', webOrJwtAuth, async (req, res) => {
   try {
+    const isVendorUser = req.authUser && req.authUser.role === 'Vendor';
     const categoryId = Number(req.query.category_id || req.query.categoryId || 0);
+    const catalogFilter = isVendorUser ? null : await getAvailableCatalogIdsForClient({
+      userId: req.authUser && req.authUser.role === 'Client' ? req.authUser.id : null,
+      city: req.query.city || '',
+      area: req.query.area || '',
+    });
     const subcategories = (await Catalog.listSubcategories())
       .filter((subcategory) => subcategory.status === 'active')
-      .filter((subcategory) => !categoryId || Number(subcategory.category_id) === categoryId);
+      .filter((subcategory) => !categoryId || Number(subcategory.category_id) === categoryId)
+      .filter((subcategory) => (
+        isVendorUser || !catalogFilter || catalogFilter.subCategoryIds.has(Number(subcategory.id))
+      ));
     return res.json({ success: true, subcategories });
   } catch (error) {
     console.error('Catalog subcategories API error:', error);
@@ -4086,12 +4188,21 @@ app.get('/api/catalog/subcategories', webOrJwtAuth, async (req, res) => {
 
 app.get('/api/catalog/brands', webOrJwtAuth, async (req, res) => {
   try {
+    const isVendorUser = req.authUser && req.authUser.role === 'Vendor';
     const categoryId = Number(req.query.category_id || req.query.categoryId || 0);
     const subcategoryId = Number(req.query.sub_category_id || req.query.subcategory_id || req.query.subcategoryId || 0);
+    const catalogFilter = isVendorUser ? null : await getAvailableCatalogIdsForClient({
+      userId: req.authUser && req.authUser.role === 'Client' ? req.authUser.id : null,
+      city: req.query.city || '',
+      area: req.query.area || '',
+    });
     const brands = (await Catalog.listBrands())
       .filter((brand) => brand.status === 'active')
       .filter((brand) => !categoryId || Number(brand.category_id) === categoryId)
-      .filter((brand) => !subcategoryId || Number(brand.sub_category_id || brand.subcategory_id) === subcategoryId);
+      .filter((brand) => !subcategoryId || Number(brand.sub_category_id || brand.subcategory_id) === subcategoryId)
+      .filter((brand) => (
+        isVendorUser || !catalogFilter || catalogFilter.brandIds.has(Number(brand.id))
+      ));
     return res.json({ success: true, brands });
   } catch (error) {
     console.error('Catalog brands API error:', error);
