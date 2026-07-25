@@ -1,7 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const vendorInventoryController = require('../controllers/vendorInventoryController');
-const { webOrJwtAuth, requireAuthRole } = require('../middleware/authMiddleware');
+const { webOrJwtAuth, requireAuthRole } = require('../middleware/webOrJwtAuth');
 
 // Guard all vendor inventory endpoints with Vendor role authentication
 router.use(webOrJwtAuth);

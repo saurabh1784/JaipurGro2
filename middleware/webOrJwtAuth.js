@@ -136,8 +136,25 @@ function requireProfileAccess(req, res, next) {
   return res.status(403).json({ success: false, message: 'You do not have permission to access this profile' });
 }
 
+function requireAuthRole(roleName) {
+  return function (req, res, next) {
+    const user = req.authUser || (req.session && req.session.user) || req.user;
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+    const userRole = String(user.role || '').toLowerCase();
+    const targetRole = String(roleName || '').toLowerCase();
+    if (userRole !== targetRole && userRole !== 'superadmin' && userRole !== 'admin') {
+      return res.status(403).json({ success: false, message: `${roleName} access required` });
+    }
+    req.user = user;
+    next();
+  };
+}
+
 module.exports = {
   webOrJwtAuth,
+  requireAuthRole,
   requireUserManagement,
   requireClientManagement,
   requireVendorManagement,
