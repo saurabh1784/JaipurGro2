@@ -1,44 +1,41 @@
 const pool = require('../db');
 
-// Helper: Ensure referral tables exist
+// Helper: Ensure referral tables exist with PostgreSQL compatibility
 async function initReferralTables() {
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS referral_settings (
-        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        id SERIAL PRIMARY KEY,
         city VARCHAR(100) NOT NULL,
         user_type VARCHAR(50) NOT NULL,
-        referral_enabled TINYINT(1) NOT NULL DEFAULT 1,
-        max_referrals INT UNSIGNED NOT NULL DEFAULT 0,
+        referral_enabled SMALLINT NOT NULL DEFAULT 1,
+        max_referrals INTEGER NOT NULL DEFAULT 0,
         referrer_reward DECIMAL(10,2) NOT NULL DEFAULT 50.00,
         new_user_reward DECIMAL(10,2) NOT NULL DEFAULT 25.00,
         reward_condition VARCHAR(50) NOT NULL DEFAULT 'signup',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        UNIQUE KEY uniq_city_user_type (city, user_type)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        CONSTRAINT uniq_city_user_type UNIQUE (city, user_type)
+      )
     `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS referral_messages (
-        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
+        id SERIAL PRIMARY KEY,
         category VARCHAR(30) NOT NULL DEFAULT 'referral',
         message_title VARCHAR(150) DEFAULT NULL,
         message_text TEXT NOT NULL,
         status VARCHAR(20) NOT NULL DEFAULT 'active',
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_category_status (category, status)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     await pool.query(`
       CREATE TABLE IF NOT EXISTS referral_logs (
-        id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-        referrer_user_id INT UNSIGNED NOT NULL,
-        referred_user_id INT UNSIGNED NOT NULL,
+        id SERIAL PRIMARY KEY,
+        referrer_user_id INTEGER NOT NULL,
+        referred_user_id INTEGER NOT NULL,
         referral_code VARCHAR(50) NOT NULL,
         city VARCHAR(100) DEFAULT NULL,
         user_type VARCHAR(50) DEFAULT NULL,
@@ -49,26 +46,25 @@ async function initReferralTables() {
         rewarded_at TIMESTAMP NULL DEFAULT NULL,
         reversed_at TIMESTAMP NULL DEFAULT NULL,
         reversal_reason VARCHAR(255) DEFAULT NULL,
-        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-        PRIMARY KEY (id),
-        KEY idx_referrer (referrer_user_id),
-        KEY idx_referred (referred_user_id),
-        KEY idx_status (status)
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      )
     `);
 
     // Add referral columns to users table if missing
-    const [cols] = await pool.query('SHOW COLUMNS FROM users LIKE "referral_code"');
+    const [cols] = await pool.query(
+      `SELECT column_name FROM information_schema.columns WHERE table_name = 'users' AND column_name = 'referral_code'`
+    );
     if (!cols.length) {
-      await pool.query('ALTER TABLE users ADD COLUMN referral_code VARCHAR(50) DEFAULT NULL AFTER area');
-      await pool.query('ALTER TABLE users ADD COLUMN referred_by_user_id INT UNSIGNED DEFAULT NULL AFTER referral_code');
-      await pool.query('ALTER TABLE users ADD COLUMN referred_by_code VARCHAR(50) DEFAULT NULL AFTER referred_by_user_id');
-      await pool.query('CREATE UNIQUE INDEX idx_users_referral_code ON users (referral_code)');
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(50) DEFAULT NULL');
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INTEGER DEFAULT NULL');
+      await pool.query('ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_code VARCHAR(50) DEFAULT NULL');
+      await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_referral_code ON users (referral_code)');
     }
 
     // Seed default messages if empty
     const [msgCount] = await pool.query('SELECT COUNT(*) as cnt FROM referral_messages');
-    if (msgCount[0].cnt === 0) {
+    const msgCnt = Number((msgCount[0] && (msgCount[0].cnt || msgCount[0].count)) || 0);
+    if (msgCnt === 0) {
       await pool.query(`
         INSERT INTO referral_messages (category, message_title, message_text, status) VALUES
         ('referral', 'Standard Referral Invite', 'Hey! Use my referral code {REFERRAL_CODE} when joining JaipurGro to get ₹{REWARD_AMOUNT} off your orders! Download here: {APP_LINK}', 'active'),
@@ -79,18 +75,21 @@ async function initReferralTables() {
 
     // Seed default global referral settings if empty
     const [setCount] = await pool.query('SELECT COUNT(*) as cnt FROM referral_settings');
-    if (setCount[0].cnt === 0) {
+    const setCnt = Number((setCount[0] && (setCount[0].cnt || setCount[0].count)) || 0);
+    if (setCnt === 0) {
       const userTypes = ['Client', 'Vendor', 'Delivery'];
       for (const ut of userTypes) {
         await pool.query(
-          'INSERT INTO referral_settings (city, user_type, referral_enabled, max_referrals, referrer_reward, new_user_reward, reward_condition) VALUES (?, ?, 1, 0, 50.00, 25.00, "signup") ON CONFLICT DO NOTHING',
+          `INSERT INTO referral_settings (city, user_type, referral_enabled, max_referrals, referrer_reward, new_user_reward, reward_condition)
+           VALUES (?, ?, 1, 0, 50.00, 25.00, 'signup')
+           ON CONFLICT DO NOTHING`,
           ['All', ut]
         );
       }
     }
 
     // Generate referral code for existing users without code
-    const [noCodeUsers] = await pool.query('SELECT id, name FROM users WHERE referral_code IS NULL OR referral_code = ""');
+    const [noCodeUsers] = await pool.query("SELECT id, name FROM users WHERE referral_code IS NULL OR referral_code = ''");
     for (const u of noCodeUsers) {
       const code = generateReferralCodeString(u.name, u.id);
       await pool.query('UPDATE users SET referral_code = ? WHERE id = ?', [code, u.id]);
@@ -125,15 +124,16 @@ async function getReferralSettings(city, userType) {
   const normCity = (city || 'All').trim();
   const normType = (userType || 'Client').trim();
 
-  // Try exact city + user_type match
   const [rows] = await pool.query(
-    'SELECT * FROM referral_settings WHERE (LOWER(city) = LOWER(?) OR city = "All") AND (LOWER(user_type) = LOWER(?) OR user_type = "all") ORDER BY CASE WHEN LOWER(city) = LOWER(?) THEN 1 ELSE 2 END LIMIT 1',
+    `SELECT * FROM referral_settings
+     WHERE (LOWER(city) = LOWER(?) OR city = 'All')
+       AND (LOWER(user_type) = LOWER(?) OR user_type = 'all')
+     ORDER BY CASE WHEN LOWER(city) = LOWER(?) THEN 1 ELSE 2 END LIMIT 1`,
     [normCity, normType, normCity]
   );
 
   if (rows.length) return rows[0];
 
-  // Default fallback
   return {
     referral_enabled: 1,
     max_referrals: 0,
@@ -148,16 +148,16 @@ const renderReferralSettings = async (req, res) => {
   try {
     await initReferralTables();
     const [settings] = await pool.query('SELECT * FROM referral_settings ORDER BY city ASC, user_type ASC');
-    
-    // Fetch unique cities list
-    const [citiesRows] = await pool.query('SELECT DISTINCT city FROM users WHERE city IS NOT NULL AND city != ""');
-    const citiesList = Array.from(new Set(['All', ...citiesRows.map(c => c.city)]));
+
+    const [citiesRows] = await pool.query("SELECT DISTINCT city FROM users WHERE city IS NOT NULL AND city != ''");
+    const citiesList = Array.from(new Set(['All', ...citiesRows.map((c) => c.city)]));
 
     const sessionUser = (req.session && req.session.user) || req.user || req.authUser;
     const shell = req.shell || { navItems: [] };
 
     res.render('referral-settings', {
       title: 'Referral Settings - User Management',
+      user: sessionUser,
       shell,
       settings,
       citiesList,
@@ -184,17 +184,18 @@ const saveReferralSettings = async (req, res) => {
     const newReward = parseFloat(new_user_reward) || 0.0;
     const condition = reward_condition === 'first_order' ? 'first_order' : 'signup';
 
-    await pool.query(`
-      INSERT INTO referral_settings (city, user_type, referral_enabled, max_referrals, referrer_reward, new_user_reward, reward_condition)
-      VALUES (?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT (city, user_type) DO UPDATE SET
-        referral_enabled = EXCLUDED.referral_enabled,
-        max_referrals = EXCLUDED.max_referrals,
-        referrer_reward = EXCLUDED.referrer_reward,
-        new_user_reward = EXCLUDED.new_user_reward,
-        reward_condition = EXCLUDED.reward_condition,
-        updated_at = CURRENT_TIMESTAMP
-    `, [normCity, normType, isEnabled, maxRef, refReward, newReward, condition]);
+    await pool.query(
+      `INSERT INTO referral_settings (city, user_type, referral_enabled, max_referrals, referrer_reward, new_user_reward, reward_condition)
+       VALUES (?, ?, ?, ?, ?, ?, ?)
+       ON CONFLICT (city, user_type) DO UPDATE SET
+         referral_enabled = EXCLUDED.referral_enabled,
+         max_referrals = EXCLUDED.max_referrals,
+         referrer_reward = EXCLUDED.referrer_reward,
+         new_user_reward = EXCLUDED.new_user_reward,
+         reward_condition = EXCLUDED.reward_condition,
+         updated_at = CURRENT_TIMESTAMP`,
+      [normCity, normType, isEnabled, maxRef, refReward, newReward, condition]
+    );
 
     return res.redirect('/referral-settings?msg=Referral+settings+updated+successfully');
   } catch (err) {
@@ -226,6 +227,7 @@ const renderShareMessages = async (req, res) => {
 
     res.render('referral-messages', {
       title: `${category === 'savings' ? 'Savings' : 'Referral'} Share Messages`,
+      user: sessionUser,
       shell,
       category,
       messages,
@@ -281,7 +283,10 @@ const deleteShareMessage = async (req, res) => {
 const toggleShareMessageStatus = async (req, res) => {
   try {
     const { id } = req.params;
-    await pool.query('UPDATE referral_messages SET status = IF(status="active", "inactive", "active") WHERE id = ?', [id]);
+    await pool.query(
+      "UPDATE referral_messages SET status = CASE WHEN status = 'active' THEN 'inactive' ELSE 'active' END WHERE id = ?",
+      [id]
+    );
     return res.redirect('back');
   } catch (err) {
     return res.redirect('back');
@@ -292,8 +297,7 @@ const toggleShareMessageStatus = async (req, res) => {
 const renderReferralReport = async (req, res) => {
   try {
     await initReferralTables();
-    
-    // Fetch logs with referrer & referred user info
+
     const [logs] = await pool.query(`
       SELECT 
         l.*,
@@ -305,7 +309,6 @@ const renderReferralReport = async (req, res) => {
       ORDER BY l.id DESC
     `);
 
-    // Fetch summary stats per user
     const [userStats] = await pool.query(`
       SELECT 
         u.id, u.name, u.email, u.role, u.city, u.referral_code,
@@ -316,7 +319,7 @@ const renderReferralReport = async (req, res) => {
       LEFT JOIN referral_logs l ON u.id = l.referrer_user_id
       WHERE u.referral_code IS NOT NULL
       GROUP BY u.id
-      HAVING total_referrals > 0
+      HAVING COUNT(l.id) > 0
       ORDER BY total_earnings DESC, total_referrals DESC
     `);
 
@@ -325,6 +328,7 @@ const renderReferralReport = async (req, res) => {
 
     res.render('referral-report', {
       title: 'Referral Report & Rewards',
+      user: sessionUser,
       shell,
       logs,
       userStats,
@@ -351,7 +355,6 @@ const reverseReferralReward = async (req, res) => {
       return res.redirect('/referral-report?err=Only+rewarded+referrals+can+be+reversed');
     }
 
-    // Deduct reward from referrer's wallet
     if (parseFloat(log.referrer_reward_amount) > 0) {
       await deductWalletBalance(
         log.referrer_user_id,
@@ -360,7 +363,6 @@ const reverseReferralReward = async (req, res) => {
       );
     }
 
-    // Deduct reward from referred user's wallet if credited
     if (parseFloat(log.new_user_reward_amount) > 0) {
       await deductWalletBalance(
         log.referred_user_id,
@@ -369,12 +371,12 @@ const reverseReferralReward = async (req, res) => {
       );
     }
 
-    // Mark log as reversed
-    await pool.query(`
-      UPDATE referral_logs
-      SET status = 'reversed', reversed_at = CURRENT_TIMESTAMP, reversal_reason = ?
-      WHERE id = ?
-    `, [reason || 'Admin reversal', id]);
+    await pool.query(
+      `UPDATE referral_logs
+       SET status = 'reversed', reversed_at = CURRENT_TIMESTAMP, reversal_reason = ?
+       WHERE id = ?`,
+      [reason || 'Admin reversal', id]
+    );
 
     return res.redirect('/referral-report?msg=Referral+reward+reversed+successfully');
   } catch (err) {
@@ -393,10 +395,11 @@ async function deductWalletBalance(userId, amount, note) {
   const newBal = Math.max(0, currentBal - amount);
 
   await pool.query('UPDATE wallets SET balance = ? WHERE id = ?', [newBal, wallet.id]);
-  await pool.query(`
-    INSERT INTO wallet_transactions (wallet_id, user_id, type, amount, balance_before, balance_after, reference, note)
-    VALUES (?, ?, 'debit', ?, ?, ?, 'referral_reversal', ?)
-  `, [wallet.id, userId, amount, currentBal, newBal, note]);
+  await pool.query(
+    `INSERT INTO wallet_transactions (wallet_id, user_id, type, amount, balance_before, balance_after, reference, note)
+     VALUES (?, ?, 'debit', ?, ?, ?, 'referral_reversal', ?)`,
+    [wallet.id, userId, amount, currentBal, newBal, note]
+  );
 }
 
 // Helper: Credit amount to user wallet
@@ -414,10 +417,11 @@ async function creditWalletBalance(userId, amount, reference, note) {
   const newBal = currentBal + amount;
 
   await pool.query('UPDATE wallets SET balance = ? WHERE id = ?', [newBal, wallet.id]);
-  await pool.query(`
-    INSERT INTO wallet_transactions (wallet_id, user_id, type, amount, balance_before, balance_after, reference, note)
-    VALUES (?, ?, 'credit', ?, ?, ?, ?, ?)
-  `, [wallet.id, userId, amount, currentBal, newBal, reference, note]);
+  await pool.query(
+    `INSERT INTO wallet_transactions (wallet_id, user_id, type, amount, balance_before, balance_after, reference, note)
+     VALUES (?, ?, 'credit', ?, ?, ?, ?, ?)`,
+    [wallet.id, userId, amount, currentBal, newBal, reference, note]
+  );
 }
 
 // Core Logic: Process Referral when a new user registers
@@ -428,13 +432,11 @@ async function processReferralOnSignup(newUser, referralCode) {
   const city = newUser.city || 'All';
   const userType = newUser.role || 'Client';
 
-  // Check city referral settings
   const settings = await getReferralSettings(city, userType);
   if (!settings.referral_enabled) {
     return { success: false, reason: 'Referrals are disabled for this city and app.' };
   }
 
-  // Find referrer
   const [referrers] = await pool.query('SELECT id, name, role, city FROM users WHERE UPPER(referral_code) = ? LIMIT 1', [codeClean]);
   if (!referrers.length) {
     return { success: false, reason: 'Invalid referral code' };
@@ -442,20 +444,18 @@ async function processReferralOnSignup(newUser, referralCode) {
 
   const referrer = referrers[0];
 
-  // Users cannot refer themselves
   if (referrer.id === newUser.id) {
     return { success: false, reason: 'You cannot use your own referral code' };
   }
 
-  // Check max referrals limit
   if (settings.max_referrals > 0) {
-    const [refCount] = await pool.query('SELECT COUNT(*) as cnt FROM referral_logs WHERE referrer_user_id = ? AND status != "reversed"', [referrer.id]);
-    if (refCount[0].cnt >= settings.max_referrals) {
+    const [refCount] = await pool.query("SELECT COUNT(*) as cnt FROM referral_logs WHERE referrer_user_id = ? AND status != 'reversed'", [referrer.id]);
+    const cnt = Number((refCount[0] && (refCount[0].cnt || refCount[0].count)) || 0);
+    if (cnt >= settings.max_referrals) {
       return { success: false, reason: 'Referrer has reached maximum referral limit' };
     }
   }
 
-  // Link user
   await pool.query('UPDATE users SET referred_by_user_id = ?, referred_by_code = ? WHERE id = ?', [referrer.id, codeClean, newUser.id]);
 
   const referrerReward = parseFloat(settings.referrer_reward) || 0;
@@ -463,14 +463,13 @@ async function processReferralOnSignup(newUser, referralCode) {
   const isSignupReward = settings.reward_condition === 'signup';
   const status = isSignupReward ? 'rewarded' : 'pending';
 
-  // Insert log
-  const [logRes] = await pool.query(`
-    INSERT INTO referral_logs
-      (referrer_user_id, referred_user_id, referral_code, city, user_type, referrer_reward_amount, new_user_reward_amount, status, reward_condition, rewarded_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${isSignupReward ? 'CURRENT_TIMESTAMP' : 'NULL'})
-  `, [referrer.id, newUser.id, codeClean, city, userType, referrerReward, newUserReward, status, settings.reward_condition]);
+  const [logRes] = await pool.query(
+    `INSERT INTO referral_logs
+       (referrer_user_id, referred_user_id, referral_code, city, user_type, referrer_reward_amount, new_user_reward_amount, status, reward_condition, rewarded_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ${isSignupReward ? 'CURRENT_TIMESTAMP' : 'NULL'})`,
+    [referrer.id, newUser.id, codeClean, city, userType, referrerReward, newUserReward, status, settings.reward_condition]
+  );
 
-  // If reward condition is signup, disburse rewards immediately
   if (isSignupReward) {
     if (referrerReward > 0) {
       await creditWalletBalance(
@@ -497,7 +496,7 @@ async function processReferralOnSignup(newUser, referralCode) {
 async function processReferralOnFirstOrder(userId) {
   try {
     const [pendingLogs] = await pool.query(
-      'SELECT * FROM referral_logs WHERE referred_user_id = ? AND status = "pending" AND reward_condition = "first_order" LIMIT 1',
+      `SELECT * FROM referral_logs WHERE referred_user_id = ? AND status = 'pending' AND reward_condition = 'first_order' LIMIT 1`,
       [userId]
     );
     if (!pendingLogs.length) return;
@@ -527,7 +526,7 @@ async function processReferralOnFirstOrder(userId) {
       );
     }
 
-    await pool.query('UPDATE referral_logs SET status = "rewarded", rewarded_at = CURRENT_TIMESTAMP WHERE id = ?', [log.id]);
+    await pool.query("UPDATE referral_logs SET status = 'rewarded', rewarded_at = CURRENT_TIMESTAMP WHERE id = ?", [log.id]);
   } catch (err) {
     console.error('Error processing first order referral reward:', err);
   }
@@ -576,7 +575,6 @@ const getUserReferralDashboard = async (req, res) => {
     const user = req.user || (req.session && req.session.user);
     if (!user) return res.status(401).json({ success: false, message: 'Unauthorized' });
 
-    // Fetch full user record
     const [uRows] = await pool.query('SELECT * FROM users WHERE id = ?', [user.id]);
     if (!uRows.length) return res.status(404).json({ success: false, message: 'User not found' });
     const fullUser = uRows[0];
@@ -587,7 +585,6 @@ const getUserReferralDashboard = async (req, res) => {
 
     const settings = await getReferralSettings(city, userType);
 
-    // If disabled for city/userType, return enabled = false
     if (!settings.referral_enabled) {
       return res.json({
         success: true,
@@ -596,7 +593,6 @@ const getUserReferralDashboard = async (req, res) => {
       });
     }
 
-    // Stats
     const [stats] = await pool.query(`
       SELECT
         COUNT(*) as total_referrals,
@@ -610,7 +606,6 @@ const getUserReferralDashboard = async (req, res) => {
 
     const statData = stats[0] || {};
 
-    // History
     const [history] = await pool.query(`
       SELECT 
         l.id, l.status, l.referrer_reward_amount as reward_amount, l.created_at, l.rewarded_at,
@@ -622,15 +617,13 @@ const getUserReferralDashboard = async (req, res) => {
       LIMIT 50
     `, [fullUser.id]);
 
-    // App store link
     const storeKey = userType.toLowerCase() === 'vendor' ? 'vendor_app_playstore_url' : userType.toLowerCase() === 'delivery' ? 'delivery_app_playstore_url' : 'client_app_playstore_url';
     const [appLinkRow] = await pool.query('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1', [storeKey]);
     const appLink = (appLinkRow.length && appLinkRow[0].setting_value) || 'https://jaipurgro.com';
 
-    // Random referral share message
-    const [refMsgs] = await pool.query('SELECT message_text FROM referral_messages WHERE category = "referral" AND status = "active" ORDER BY RAND() LIMIT 1');
+    const [refMsgs] = await pool.query("SELECT message_text FROM referral_messages WHERE category = 'referral' AND status = 'active' ORDER BY RANDOM() LIMIT 1");
     const rawRefMsg = refMsgs.length ? refMsgs[0].message_text : 'Join JaipurGro with code {REFERRAL_CODE} and get {REWARD_AMOUNT} off! {APP_LINK}';
-    
+
     const parsedShareMessage = parseMessagePlaceholders(rawRefMsg, {
       userName: fullUser.name,
       referralCode: code,
@@ -651,7 +644,7 @@ const getUserReferralDashboard = async (req, res) => {
       totalEarnings: parseFloat(statData.total_earnings) || 0.0,
       pendingRewards: parseFloat(statData.pending_rewards) || 0.0,
       shareMessage: parsedShareMessage,
-      history: history.map(h => ({
+      history: history.map((h) => ({
         id: h.id,
         userName: h.referred_user_name || 'User',
         rewardAmount: parseFloat(h.reward_amount) || 0,
@@ -685,7 +678,7 @@ const getShareMessage = async (req, res) => {
     const [appLinkRow] = await pool.query('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1', [storeKey]);
     const appLink = (appLinkRow.length && appLinkRow[0].setting_value) || 'https://jaipurgro.com';
 
-    const [msgs] = await pool.query('SELECT message_text FROM referral_messages WHERE category = ? AND status = "active" ORDER BY RAND() LIMIT 1', [category]);
+    const [msgs] = await pool.query("SELECT message_text FROM referral_messages WHERE category = ? AND status = 'active' ORDER BY RANDOM() LIMIT 1", [category]);
     const template = msgs.length ? msgs[0].message_text : (category === 'savings' ? 'I saved ₹{SAVING_AMOUNT} on JaipurGro! Use my code {REFERRAL_CODE}: {APP_LINK}' : 'Join JaipurGro with my referral code {REFERRAL_CODE}: {APP_LINK}');
 
     const parsed = parseMessagePlaceholders(template, {
