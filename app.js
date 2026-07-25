@@ -28,6 +28,7 @@ const variationRoutes = require('./routes/variationRoutes');
 const variationApprovalRoutes = require('./routes/variationApprovalRoutes');
 const vendorInventoryRoutes = require('./routes/vendorInventoryRoutes');
 const ProductVariant = require('./models/ProductVariant');
+const VendorInventory = require('./models/VendorInventory');
 const referralController = require('./controllers/referralController');
 const deletionRequestRoutes = require('./routes/deletionRequestRoutes');
 const deletionRequestController = require('./controllers/deletionRequestController');
@@ -978,6 +979,7 @@ async function initDatabase(options = {}) {
   await deletionRequestController.initDeletionTables();
   await initFileStorageTable();
   await ProductVariant.initProductVariantsSystem();
+  await VendorInventory.initVendorInventorySystem();
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_settings (

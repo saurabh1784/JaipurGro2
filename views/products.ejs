@@ -132,10 +132,12 @@
               Sponsored Priority:
               <input id="productSponsoredPriority" type="number" step="1" value="0" style="width:70px; min-height:30px; padding:2px 6px; font-size:0.82rem; border-radius:6px; border:1px solid #7dd3fc;" />
             </label>
+          </div>
+
           <!-- Product Variation System Section -->
-          <div style="grid-column: 1 / -1; background: #ffffff; border: 1px solid #7dd3fc; border-radius: 12px; padding: 12px; margin-top: 4px; box-shadow: 0 2px 6px rgba(56, 189, 248, 0.12);">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #e0f2fe; padding-bottom: 6px;">
-              <strong style="color: #0369a1; font-size: 0.85rem; font-weight: 800;">Does this product have variations?</strong>
+          <div style="grid-column: 1 / -1; background: #ffffff; border: 1px solid #7dd3fc; border-radius: 12px; padding: 14px; margin-top: 4px; box-shadow: 0 2px 8px rgba(56, 189, 248, 0.12);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; border-bottom: 1px solid #e0f2fe; padding-bottom: 8px;">
+              <strong style="color: #0369a1; font-size: 0.88rem; font-weight: 800;">Does this product have variations?</strong>
               <div style="display: flex; gap: 16px; font-size: 0.82rem; font-weight: 700; color: #334155;">
                 <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
                   <input type="radio" name="has_variants_option" id="hasVariantsNo" value="no" checked onclick="toggleVariantsMode(false)" />
@@ -149,12 +151,12 @@
             </div>
 
             <div id="variantsContainer" style="display: none; margin-top: 10px;">
-              <div style="font-size: 0.75rem; color: #0284c7; margin-bottom: 10px; font-weight: 600;">
-                Define individual variation price, MRP, stock, SKU, barcode & shipping weight. Click [Add Another] to add rows.
+              <div style="font-size: 0.78rem; color: #0284c7; margin-bottom: 12px; font-weight: 600; background:#f0f9ff; padding:8px 12px; border-radius:8px; border:1px solid #bae6fd;">
+                ℹ️ Define individual variation prices, MRP, stock quantities, SKUs, shipping weight, and option image URLs. Click <strong>[+ Add Another Variation]</strong> to add rows.
               </div>
-              <div id="variantsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+              <div id="variantsList" style="display: flex; flex-direction: column; gap: 12px;"></div>
               <div style="display: flex; gap: 10px; margin-top: 12px;">
-                <button type="button" onclick="addVariantRow()" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                <button type="button" onclick="addVariantRow()" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; border: none; padding: 10px 18px; border-radius: 8px; font-weight: 800; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 6px; box-shadow:0 2px 6px rgba(2,132,199,0.2);">
                   + Add Another Variation
                 </button>
               </div>
@@ -870,57 +872,75 @@
       const row = document.createElement('div');
       row.id = rowId;
       row.className = 'variant-row-item';
-      row.style.cssText = 'background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:10px 12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) 40px; gap:8px; align-items:center;';
+      row.style.cssText = 'background:#ffffff; border:1px solid #7dd3fc; border-radius:12px; padding:14px 16px; margin-bottom:4px; box-shadow:0 2px 8px rgba(2, 132, 199, 0.06); display:flex; flex-direction:column; gap:12px;';
 
       const typeOptionsHtml = (masterVariationTypes || []).map(t => `<option value="${t.id}">${t.name}</option>`).join('');
 
       row.innerHTML = `
         <input type="hidden" class="var-id" value="${data.id || ''}" />
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          Variation Type
-          <select class="var-type" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" onchange="onVariantTypeChange('${rowId}')">
-            <option value="">-- Select Type --</option>
-            ${typeOptionsHtml}
-          </select>
-        </label>
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          Value & Quick Add
-          <div style="display:flex; gap:4px;">
-            <select class="var-val-select" style="flex:1; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;">
-              <option value="">-- Select Value --</option>
-            </select>
-            <button type="button" onclick="quickAddValModal('${rowId}')" title="Quick Add New Value" style="background:#0284c7; color:#fff; border:none; padding:0 8px; border-radius:6px; font-weight:700; cursor:pointer;">+</button>
+        
+        <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:1px solid #e0f2fe; padding-bottom:8px;">
+          <div style="display:flex; align-items:center; gap:8px;">
+            <span style="background:#e0f2fe; color:#0369a1; font-weight:800; font-size:0.75rem; padding:3px 10px; border-radius:20px;">Variant Option</span>
+            <strong style="font-size:0.85rem; color:#0f172a;" class="var-row-title">${data.variant_name || 'New Variation'}</strong>
           </div>
-        </label>
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          Unit
-          <input type="text" class="var-unit" value="${data.unit || 'kg'}" placeholder="kg, g, ml, L" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
-        </label>
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          Var Price (₹)
-          <input type="number" step="0.01" class="var-price" value="${data.price || ''}" placeholder="Price" required style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
-        </label>
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          MRP (₹)
-          <input type="number" step="0.01" class="var-mrp" value="${data.mrp || ''}" placeholder="MRP" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
-        </label>
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          Stock
-          <input type="number" class="var-stock" value="${data.stock || 10}" placeholder="Stock" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
-        </label>
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          SKU
-          <input type="text" class="var-sku" value="${data.sku || ''}" placeholder="SKU" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
-        </label>
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          Weight (Grams)
-          <input type="number" class="var-weight" value="${data.weight_in_grams || 1000}" placeholder="1000g" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
-        </label>
-        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
-          Image URL (Optional)
-          <input type="url" class="var-image" value="${data.image || ''}" placeholder="Fallback to main pic" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
-        </label>
-        <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:6px; border-radius:6px; font-weight:700; cursor:pointer; margin-top:14px;" title="Remove row">✕</button>
+          <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:4px 10px; border-radius:6px; font-weight:700; font-size:0.75rem; cursor:pointer;" title="Remove variation row">✕ Remove</button>
+        </div>
+
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap:10px 14px;">
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Variation Type
+            <select class="var-type" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" onchange="onVariantTypeChange('${rowId}')">
+              <option value="">-- Select Type --</option>
+              ${typeOptionsHtml}
+            </select>
+          </label>
+
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Value & Quick Add
+            <div style="display:flex; gap:6px;">
+              <select class="var-val-select" style="flex:1; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;">
+                <option value="">-- Select Value --</option>
+              </select>
+              <button type="button" onclick="quickAddValModal('${rowId}')" title="Quick Add New Value" style="background:#0284c7; color:#fff; border:none; padding:0 12px; border-radius:6px; font-weight:800; cursor:pointer; font-size:0.88rem;">+</button>
+            </div>
+          </label>
+
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Unit
+            <input type="text" class="var-unit" value="${data.unit || 'kg'}" placeholder="e.g. kg, g, ml, L" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
+          </label>
+
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Variant Price (₹)
+            <input type="number" step="0.01" class="var-price" value="${data.price || ''}" placeholder="0.00" required style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
+          </label>
+
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            MRP (₹)
+            <input type="number" step="0.01" class="var-mrp" value="${data.mrp || ''}" placeholder="0.00" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
+          </label>
+
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Stock Quantity
+            <input type="number" class="var-stock" value="${data.stock ?? 10}" placeholder="10" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
+          </label>
+
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            SKU
+            <input type="text" class="var-sku" value="${data.sku || ''}" placeholder="Option SKU" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
+          </label>
+
+          <label style="font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Weight (Grams)
+            <input type="number" class="var-weight" value="${data.weight_in_grams || 1000}" placeholder="1000" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
+          </label>
+
+          <label style="grid-column: 1 / -1; font-size:0.76rem; font-weight:700; color:#0369a1;">
+            Option Image URL (Optional)
+            <input type="url" class="var-image" value="${data.image || ''}" placeholder="https://example.com/variant-image.jpg" style="width:100%; min-height:34px; padding:4px 8px; font-size:0.82rem; border-radius:6px; border:1px solid #cbd5e1; background:#fff;" />
+          </label>
+        </div>
       `;
 
       list.appendChild(row);

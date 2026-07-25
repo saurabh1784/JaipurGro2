@@ -152,8 +152,8 @@
                   <span style="color:#64748b; font-size:0.78rem;"><%= req.measurement_value %> <%= req.measurement_unit %></span>
                 </td>
                 <td>
-                  <strong style="color:#059669;">₹<%= Number(req.vendor_price).toFixed(2) %></strong><br />
-                  <span style="color:#94a3b8; font-size:0.78rem; text-decoration:line-through;">₹<%= Number(req.mrp).toFixed(2) %></span>
+                  <strong style="color:#059669;">₹<%= Number(req.vendor_price || 0).toFixed(2) %></strong><br />
+                  <span style="color:#94a3b8; font-size:0.78rem; text-decoration:line-through;">₹<%= Number(req.mrp || 0).toFixed(2) %></span>
                 </td>
                 <td>
                   <strong><%= req.stock_quantity %></strong> <span style="color:#64748b; font-size:0.75rem;">units</span>

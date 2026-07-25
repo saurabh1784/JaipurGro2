@@ -24,21 +24,22 @@ const index = async (req, res) => {
     const params = [];
 
     if (statusFilter !== 'all') {
-      whereClause = 'WHERE vpv.approval_status = ?';
+      whereClause = "WHERE COALESCE(vpv.approval_status, 'pending') = ?";
       params.push(statusFilter);
     }
 
     // Role/Location filter for City Admin
-    if (user.role === 'admin' && user.assigned_city_id) {
-      whereClause += (whereClause ? ' AND ' : ' WHERE ') + 'u.city_id = ?';
-      params.push(user.assigned_city_id);
+    if (user.role === 'admin' && (user.assigned_city_id || user.city)) {
+      whereClause += (whereClause ? ' AND ' : ' WHERE ') + 'LOWER(u.city) = LOWER(?)';
+      params.push(String(user.city || user.assigned_city_id || ''));
     }
 
     const [requests] = await pool.query(
       `SELECT vpv.*,
+              COALESCE(vpv.approval_status, 'pending') as approval_status,
               p.name as product_name, p.image_url as product_image, p.category_id,
               pv.variant_name, pv.measurement_value, pv.measurement_unit, pv.weight_in_grams, pv.image as variant_image,
-              u.name as vendor_name, u.email as vendor_email, u.phone_number as vendor_phone,
+              u.name as vendor_name, u.email as vendor_email, u.phone as vendor_phone,
               ab.name as approved_by_name
        FROM vendor_product_variants vpv
        INNER JOIN products p ON p.id = vpv.product_id
@@ -46,7 +47,7 @@ const index = async (req, res) => {
        INNER JOIN users u ON u.id = vpv.vendor_id
        LEFT JOIN users ab ON ab.id = vpv.approved_by
        ${whereClause}
-       ORDER BY CASE WHEN vpv.approval_status = 'pending' THEN 1 ELSE 2 END, vpv.created_at DESC`,
+       ORDER BY CASE WHEN COALESCE(vpv.approval_status, 'pending') = 'pending' THEN 1 ELSE 2 END, vpv.created_at DESC`,
       params
     );
 
@@ -77,12 +78,13 @@ const approve = async (req, res) => {
 
     const id = parseInt(req.params.id || req.body.id, 10);
     const note = String(req.body.note || 'Approved by administrator').trim();
+    const userId = user ? (user.id || user.user_id) : null;
 
     await pool.query(
       `UPDATE vendor_product_variants
        SET approval_status = 'approved', is_available = 1, approval_note = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [note, user.id, id]
+      [note, userId, id]
     );
 
     res.redirect('/admin/variation-approvals?msg=Vendor+variation+request+approved+successfully');
@@ -102,12 +104,13 @@ const reject = async (req, res) => {
 
     const id = parseInt(req.params.id || req.body.id, 10);
     const note = String(req.body.note || 'Rejected by administrator').trim();
+    const userId = user ? (user.id || user.user_id) : null;
 
     await pool.query(
       `UPDATE vendor_product_variants
        SET approval_status = 'rejected', approval_note = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [note, user.id, id]
+      [note, userId, id]
     );
 
     res.redirect('/admin/variation-approvals?msg=Vendor+variation+request+rejected');
