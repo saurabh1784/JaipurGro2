@@ -1,6 +1,6 @@
 const express = require('express');
 const deletionRequestController = require('../controllers/deletionRequestController');
-const { webOrJwtAuth } = require('../middleware/auth');
+const { webOrJwtAuth } = require('../middleware/webOrJwtAuth');
 
 const router = express.Router();
 
