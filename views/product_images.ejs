@@ -35,6 +35,56 @@
       margin-bottom: 4px;
     }
 
+    /* Header Action Buttons */
+    .btn-hdr-refresh {
+      padding: 10px 18px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #1e293b;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+    .theme-dark .btn-hdr-refresh {
+      background: #1e293b;
+      border-color: #475569;
+      color: #f8fafc;
+    }
+    .btn-hdr-refresh:hover {
+      background: #e2e8f0;
+    }
+    .theme-dark .btn-hdr-refresh:hover {
+      background: #334155;
+    }
+
+    .btn-hdr-selectall {
+      padding: 10px 18px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      border-radius: 10px;
+      border: 1px solid #c7d2fe;
+      background: #e0e7ff;
+      color: #3730a3;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+    }
+    .theme-dark .btn-hdr-selectall {
+      background: #312e81;
+      border-color: #4338ca;
+      color: #e0e7ff;
+    }
+    .btn-hdr-selectall:hover {
+      background: #c7d2fe;
+    }
+
     /* Search & Filter Bar */
     .img-filter-bar {
       display: flex;
@@ -76,8 +126,8 @@
     }
     .img-search-box input:focus {
       outline: none;
-      border-color: #6366f1;
-      box-shadow: 0 0 0 3px rgba(99, 102, 241, 0.15);
+      border-color: #168832;
+      box-shadow: 0 0 0 3px rgba(22, 136, 50, 0.12);
       background: #ffffff;
     }
     .theme-dark .img-search-box input:focus {
@@ -116,17 +166,17 @@
       align-items: center;
       justify-content: space-between;
       gap: 12px;
-      background: linear-gradient(135deg, #e0e7ff 0%, #eef2ff 100%);
-      border: 1px solid #c7d2fe;
-      padding: 12px 20px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      padding: 14px 20px;
       border-radius: 14px;
       margin-bottom: 20px;
-      box-shadow: 0 4px 16px rgba(79, 70, 229, 0.08);
+      box-shadow: 0 4px 16px rgba(22, 163, 74, 0.06);
       transition: all 0.2s ease;
     }
     .theme-dark .bulk-action-bar {
-      background: linear-gradient(135deg, #1e1b4b 0%, #312e81 100%);
-      border-color: #4338ca;
+      background: #064e3b;
+      border-color: #047857;
     }
 
     /* System Wide Alert Banner */
@@ -176,7 +226,7 @@
       overflow: hidden;
       display: flex;
       flex-direction: column;
-      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+      box-shadow: 0 4px 14px rgba(0, 0, 0, 0.03);
       transition: transform 0.22s cubic-bezier(0.16, 1, 0.3, 1), box-shadow 0.22s cubic-bezier(0.16, 1, 0.3, 1), border-color 0.2s ease;
       position: relative;
     }
@@ -185,18 +235,18 @@
       border-color: #334155;
     }
     .img-card.selected {
-      border: 2px solid #4f46e5;
-      box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.15);
+      border: 2px solid #168832;
+      box-shadow: 0 0 0 4px rgba(22, 136, 50, 0.15);
     }
     .img-card:hover {
-      transform: translateY(-4px);
-      box-shadow: 0 12px 28px -6px rgba(0, 0, 0, 0.12);
+      transform: translateY(-3px);
+      box-shadow: 0 12px 26px -6px rgba(0, 0, 0, 0.08);
     }
     .img-card-frame {
       position: relative;
       width: 100%;
       padding-top: 80%; /* aspect ratio 5:4 */
-      background: #f1f5f9;
+      background: #f8fafc;
       overflow: hidden;
       cursor: pointer;
     }
@@ -214,7 +264,7 @@
       transition: transform 0.3s ease;
     }
     .img-card:hover .img-card-frame img {
-      transform: scale(1.06);
+      transform: scale(1.05);
     }
 
     /* Selection Checkbox Overlay */
@@ -225,9 +275,9 @@
       z-index: 10;
       width: 22px;
       height: 22px;
-      accent-color: #4f46e5;
+      accent-color: #168832;
       cursor: pointer;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.2);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
     }
 
     .img-type-badge {
@@ -243,11 +293,11 @@
       backdrop-filter: blur(8px);
     }
     .badge-main {
-      background: rgba(16, 185, 129, 0.9);
+      background: rgba(22, 163, 74, 0.9);
       color: #ffffff;
     }
     .badge-default {
-      background: rgba(245, 158, 11, 0.9);
+      background: rgba(217, 119, 6, 0.9);
       color: #ffffff;
     }
     .img-card-body {
@@ -276,10 +326,10 @@
     }
     .img-card-price {
       font-weight: 800;
-      color: #4f46e5;
+      color: #168832;
     }
     .theme-dark .img-card-price {
-      color: #818cf8;
+      color: #4ade80;
     }
     .img-card-actions {
       display: grid;
@@ -288,11 +338,11 @@
       margin-top: auto;
     }
     .btn-action-edit {
-      padding: 8px;
-      border: none;
-      border-radius: 8px;
-      background: #e0e7ff;
-      color: #4338ca;
+      padding: 8px 12px;
+      border: 1px solid #bbf7d0;
+      border-radius: 10px;
+      background: #f0fdf4;
+      color: #15803d;
       font-weight: 700;
       font-size: 0.82rem;
       cursor: pointer;
@@ -300,17 +350,26 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
-      transition: background 0.18s ease;
+      transition: all 0.2s ease;
+    }
+    .theme-dark .btn-action-edit {
+      background: #064e3b;
+      border-color: #047857;
+      color: #a7f3d0;
     }
     .btn-action-edit:hover {
-      background: #c7d2fe;
+      background: #dcfce7;
+      border-color: #86efac;
+    }
+    .theme-dark .btn-action-edit:hover {
+      background: #065f46;
     }
     .btn-action-delete {
-      padding: 8px;
-      border: none;
-      border-radius: 8px;
-      background: #fee2e2;
-      color: #b91c1c;
+      padding: 8px 12px;
+      border: 1px solid #fca5a5;
+      border-radius: 10px;
+      background: #fef2f2;
+      color: #dc2626;
       font-weight: 700;
       font-size: 0.82rem;
       cursor: pointer;
@@ -318,10 +377,19 @@
       align-items: center;
       justify-content: center;
       gap: 6px;
-      transition: background 0.18s ease;
+      transition: all 0.2s ease;
+    }
+    .theme-dark .btn-action-delete {
+      background: #7f1d1d;
+      border-color: #991b1b;
+      color: #fca5a5;
     }
     .btn-action-delete:hover {
-      background: #fecaca;
+      background: #fee2e2;
+      border-color: #f87171;
+    }
+    .theme-dark .btn-action-delete:hover {
+      background: #991b1b;
     }
 
     /* Overlay Modals Base */
@@ -329,7 +397,7 @@
       position: fixed;
       inset: 0;
       z-index: 1000;
-      background: rgba(15, 23, 42, 0.65);
+      background: rgba(15, 23, 42, 0.6);
       backdrop-filter: blur(6px);
       display: flex;
       align-items: center;
@@ -539,7 +607,7 @@
       width: 56px;
       height: 56px;
       border-radius: 50%;
-      background: #fee2e2;
+      background: #fef2f2;
       color: #ef4444;
       display: flex;
       align-items: center;
@@ -587,11 +655,11 @@
           <h1>Product Images Gallery</h1>
         </div>
         <div style="display:flex; align-items:center; gap:12px;">
-          <button class="btn-action-delete" type="button" id="selectAllSystemBtn" style="padding:10px 16px; font-size:0.88rem; background:#fee2e2; color:#b91c1c;">
+          <button class="btn-hdr-selectall" type="button" id="selectAllSystemBtn">
             ⚡ Select ALL Product Images in System
           </button>
-          <button class="btn-action-edit" type="button" id="refreshGridBtn" style="padding:10px 16px; font-size:0.88rem;">
-            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6"/><path d="M2 11.5a10 10 0 0 1 18.8-4.3L21.5 8M22 12.5a10 10 0 0 1-18.8 4.2L2.5 16"/></svg>
+          <button class="btn-hdr-refresh" type="button" id="refreshGridBtn">
+            <svg viewBox="0 0 24 24" width="16" height="16" stroke="currentColor" fill="none" stroke-width="2"><path d="M21.5 2v6h-6M2.5 22v-6h6"/><path d="M16 11.5a10 10 0 0 1 18.8-4.3L21.5 8M22 12.5a10 10 0 0 1-18.8 4.2L2.5 16"/></svg>
             Refresh Grid
           </button>
         </div>
