@@ -71,6 +71,12 @@ async function signup(req, res) {
     const user = await User.findById(userId);
     const token = sign(tokenPayload(user));
 
+    const referralCode = req.body.referral_code || req.body.referralCode;
+    if (referralCode && referralCode.trim()) {
+      const referralController = require('./referralController');
+      await referralController.processReferralOnSignup(user, referralCode.trim());
+    }
+
     return res.status(201).json({
       success: true,
       message: 'Signup successful',
@@ -138,6 +144,13 @@ async function googleClientLogin(req, res) {
   try {
     const user = await findOrCreateGoogleUser(idToken, requestedRole);
     const token = sign(tokenPayload(user));
+
+    const referralCode = req.body.referral_code || req.body.referralCode;
+    if (referralCode && referralCode.trim()) {
+      const referralController = require('./referralController');
+      await referralController.processReferralOnSignup(user, referralCode.trim());
+    }
+
     return res.json({
       success: true,
       message: 'Google login successful',

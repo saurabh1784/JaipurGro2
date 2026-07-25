@@ -1,0 +1,214 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .ref-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    }
+    .ref-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .ref-title {
+      font-size: 18px;
+      font-weight: 700;
+      color: #1e293b;
+      margin: 0;
+    }
+    .form-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 16px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 6px;
+    }
+    .form-control {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 13.5px;
+      box-sizing: border-box;
+    }
+    .form-control:focus {
+      border-color: #4f46e5;
+      outline: none;
+    }
+    .submit-btn {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .table-custom {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    .table-custom th, .table-custom td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+      font-size: 13.5px;
+    }
+    .table-custom th {
+      background: #f8fafc;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+    .badge-on { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 12px; }
+    .badge-off { background: #fee2e2; color: #991b1b; padding: 4px 10px; border-radius: 20px; font-weight: 700; font-size: 12px; }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Users / Referral Settings</p>
+        <h1>City & App-Wise Referral Settings</h1>
+      </div>
+    </header>
+
+    <% if (typeof message !== 'undefined' && message) { %>
+      <div style="background:#dcfce7; color:#166534; padding:14px; border-radius:10px; margin-bottom:20px; font-weight:600;">✓ <%= message %></div>
+    <% } %>
+    <% if (typeof error !== 'undefined' && error) { %>
+      <div style="background:#fee2e2; color:#991b1b; padding:14px; border-radius:10px; margin-bottom:20px; font-weight:600;">⚠ <%= error %></div>
+    <% } %>
+
+    <!-- ADD / EDIT SETTING FORM -->
+    <div class="ref-card">
+      <div class="ref-header">
+        <h3 class="ref-title">Configure Referral Rule</h3>
+      </div>
+      <form action="/referral-settings" method="POST">
+        <div class="form-grid">
+          <div class="form-group">
+            <label for="city">Target City</label>
+            <select name="city" id="city" class="form-control" required>
+              <% (citiesList || ['All']).forEach(c => { %>
+                <option value="<%= c %>"><%= c === 'All' ? 'All Cities (Global Default)' : c %></option>
+              <% }) %>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="user_type">User Type / App</label>
+            <select name="user_type" id="user_type" class="form-control" required>
+              <option value="Client">Client App (Customer)</option>
+              <option value="Vendor">Vendor App (Vendor Partner)</option>
+              <option value="Delivery">Delivery App (Rider Partner)</option>
+            </select>
+          </div>
+
+          <div class="form-group">
+            <label for="max_referrals">Max Referrals (0 = Unlimited)</label>
+            <input type="number" name="max_referrals" id="max_referrals" class="form-control" value="0" min="0" required />
+          </div>
+
+          <div class="form-group">
+            <label for="referrer_reward">Referrer Reward (₹)</label>
+            <input type="number" step="0.01" name="referrer_reward" id="referrer_reward" class="form-control" value="50.00" min="0" required />
+          </div>
+
+          <div class="form-group">
+            <label for="new_user_reward">New User Reward (₹)</label>
+            <input type="number" step="0.01" name="new_user_reward" id="new_user_reward" class="form-control" value="25.00" min="0" required />
+          </div>
+
+          <div class="form-group">
+            <label for="reward_condition">Reward Trigger Condition</label>
+            <select name="reward_condition" id="reward_condition" class="form-control">
+              <option value="signup">On User Registration (Immediate)</option>
+              <option value="first_order">On First Completed Order</option>
+            </select>
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; gap:16px; margin-top:12px;">
+          <label style="display:flex; align-items:center; gap:8px; font-weight:600; cursor:pointer;">
+            <input type="checkbox" name="referral_enabled" value="on" checked style="width:18px; height:18px;" />
+            Referral System Enabled for this City & User Type
+          </label>
+          <button type="submit" class="submit-btn">Save Referral Setting</button>
+        </div>
+      </form>
+    </div>
+
+    <!-- EXISTING SETTINGS TABLE -->
+    <div class="ref-card">
+      <div class="ref-header">
+        <h3 class="ref-title">Active City & User Type Rules</h3>
+      </div>
+      <table class="table-custom">
+        <thead>
+          <tr>
+            <th>City</th>
+            <th>User Type / App</th>
+            <th>Status</th>
+            <th>Max Referrals</th>
+            <th>Referrer Reward</th>
+            <th>New User Reward</th>
+            <th>Condition</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!settings || !settings.length) { %>
+            <tr><td colspan="8" style="text-align:center; color:#94a3b8; padding:24px;">No referral rules configured yet.</td></tr>
+          <% } else { %>
+            <% settings.forEach(s => { %>
+              <tr>
+                <td><strong><%= s.city %></strong></td>
+                <td><%= s.user_type %></td>
+                <td>
+                  <% if (s.referral_enabled) { %>
+                    <span class="badge-on">ENABLED</span>
+                  <% } else { %>
+                    <span class="badge-off">DISABLED</span>
+                  <% } %>
+                </td>
+                <td><%= s.max_referrals > 0 ? s.max_referrals : 'Unlimited' %></td>
+                <td>₹<%= Number(s.referrer_reward).toFixed(2) %></td>
+                <td>₹<%= Number(s.new_user_reward).toFixed(2) %></td>
+                <td><span style="text-transform:capitalize; background:#f1f5f9; padding:4px 8px; border-radius:6px; font-size:12px;"><%= s.reward_condition %></span></td>
+                <td>
+                  <form action="/referral-settings/delete/<%= s.id %>" method="POST" onsubmit="return confirm('Delete this setting rule?');" style="display:inline;">
+                    <button type="submit" style="background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; padding:6px 12px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">Delete</button>
+                  </form>
+                </td>
+              </tr>
+            <% }) %>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

@@ -745,7 +745,10 @@ async function updateStatus({ orderId, actorUser, newStatus, note = '' }) {
         [generateOtp(), actorUser ? actorUser.id : null, orderId]
       );
     }
-    if (deliveryStatus === 'delivered') {
+    if (deliveryStatus === 'delivered' || targetStatus === 'delivered') {
+      const referralController = require('../controllers/referralController');
+      referralController.processReferralOnFirstOrder(order.client_id);
+
       if (order.delivery_partner_id) {
         await OrderWalletSettlement.settleDeliveryCompletion({
           orderId,

@@ -23,6 +23,8 @@ const orderRoutes = require('./routes/orderRoutes');
 const deliveryPersonRoutes = require('./routes/deliveryPersonRoutes');
 const deliveryTypeRoutes = require('./routes/deliveryTypeRoutes');
 const appSettingsRoutes = require('./routes/appSettingsRoutes');
+const referralRoutes = require('./routes/referralRoutes');
+const referralController = require('./controllers/referralController');
 const orderController = require('./controllers/orderController');
 const walletController = require('./controllers/walletController');
 const userController = require('./controllers/userController');
@@ -960,6 +962,7 @@ async function initDatabase(options = {}) {
   console.log('Database init: connectivity check');
   await pool.query('SELECT 1');
   console.log('Database init: syncing schema');
+  await referralController.initReferralTables();
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -2697,7 +2700,13 @@ function buildShell(user, activePath = '/dashboard') {
   const can = (permission) => roleCan(user, permission);
   const navItems = [
     navItem('Dashboard', '/dashboard', 'dashboard.view', 'dashboard', activePath === '/dashboard'),
-    navItem('Users', '/users', 'users.manage', 'users', activePath.startsWith('/users')),
+    navGroup('Users', '/users', 'users.manage', 'users', activePath.startsWith('/users') || activePath.startsWith('/referral'), [
+      navItem('All Users', '/users', 'users.manage', 'users', activePath === '/users'),
+      navItem('Referral Settings', '/referral-settings', 'users.manage', 'settings', activePath.startsWith('/referral-settings')),
+      navItem('Referral Share Messages', '/referral-messages/share', 'users.manage', 'settings', activePath.startsWith('/referral-messages/share') || (activePath.startsWith('/referral-messages') && !activePath.includes('savings'))),
+      navItem('Savings Share Messages', '/referral-messages/savings', 'users.manage', 'settings', activePath.startsWith('/referral-messages/savings')),
+      navItem('Referral Report', '/referral-report', 'users.manage', 'reports', activePath.startsWith('/referral-report')),
+    ]),
     navItem('Roles', '/roles', 'roles.manage', 'roles', activePath.startsWith('/roles')),
     navItem('Clients', '/clients', 'clients.manage', 'clients', activePath.startsWith('/clients')),
     navItem('Vendors', '/vendors', 'vendors.manage', 'vendors', activePath.startsWith('/vendors')),
@@ -4672,7 +4681,12 @@ app.use('/app-settings', requireAuth, (req, res, next) => {
   req.shell = buildShell(req.session.user || req.user, '/app-settings');
   next();
 });
+app.use(['/referral-settings', '/referral-messages', '/referral-report'], requireAuth, (req, res, next) => {
+  req.shell = buildShell(req.session.user || req.user, req.path);
+  next();
+});
 app.use('/', appSettingsRoutes);
+app.use('/', referralRoutes);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {

@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .ref-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    }
+    .ref-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    .tab-bar {
+      display: flex;
+      gap: 12px;
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-weight: 700;
+      text-decoration: none;
+      font-size: 14px;
+    }
+    .tab-btn.active {
+      background: #6366f1;
+      color: #ffffff;
+    }
+    .tab-btn.inactive {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .form-group label {
+      display: block;
+      font-size: 13px;
+      font-weight: 600;
+      color: #475569;
+      margin-bottom: 6px;
+    }
+    .form-control {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 13.5px;
+      box-sizing: border-box;
+    }
+    .placeholders-box {
+      background: #f8fafc;
+      border: 1px dashed #cbd5e1;
+      padding: 12px 16px;
+      border-radius: 10px;
+      margin: 12px 0 18px;
+      font-size: 12.5px;
+      color: #475569;
+    }
+    .placeholder-tag {
+      background: #e0e7ff;
+      color: #3730a3;
+      padding: 2px 8px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-weight: 700;
+      margin-right: 6px;
+    }
+    .submit-btn {
+      background: linear-gradient(135deg, #10b981, #059669);
+      color: #fff;
+      padding: 10px 24px;
+      border-radius: 8px;
+      border: none;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .msg-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 12px;
+      padding: 16px 20px;
+      margin-bottom: 14px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+    }
+    .badge-active { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .badge-inactive { background: #f1f5f9; color: #64748b; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Users / Share Messages</p>
+        <h1><%= category === 'savings' ? 'Savings Share' : 'Referral Share' %> Message Templates</h1>
+      </div>
+    </header>
+
+    <% if (typeof message !== 'undefined' && message) { %>
+      <div style="background:#dcfce7; color:#166534; padding:14px; border-radius:10px; margin-bottom:20px; font-weight:600;">✓ <%= message %></div>
+    <% } %>
+    <% if (typeof error !== 'undefined' && error) { %>
+      <div style="background:#fee2e2; color:#991b1b; padding:14px; border-radius:10px; margin-bottom:20px; font-weight:600;">⚠ <%= error %></div>
+    <% } %>
+
+    <div class="tab-bar">
+      <a href="/referral-messages?category=referral" class="tab-btn <%= category === 'referral' ? 'active' : 'inactive' %>">
+        📢 Referral Share Messages
+      </a>
+      <a href="/referral-messages?category=savings" class="tab-btn <%= category === 'savings' ? 'active' : 'inactive' %>">
+        💰 Savings Share Messages
+      </a>
+    </div>
+
+    <!-- CREATE NEW MESSAGE FORM -->
+    <div class="ref-card">
+      <div class="ref-header">
+        <h3 style="margin:0; font-size:17px; font-weight:700;">Add New <%= category === 'savings' ? 'Savings Share' : 'Referral Share' %> Template</h3>
+      </div>
+
+      <form action="/referral-messages" method="POST">
+        <input type="hidden" name="category" value="<%= category %>" />
+        
+        <div style="display:grid; grid-template-columns: 2fr 1fr; gap:16px; margin-bottom:14px;">
+          <div class="form-group">
+            <label for="message_title">Message Template Title (Internal reference)</label>
+            <input type="text" name="message_title" id="message_title" class="form-control" placeholder="e.g. Standard Festive Offer Share" required />
+          </div>
+          <div class="form-group">
+            <label for="status">Status</label>
+            <select name="status" id="status" class="form-control">
+              <option value="active">Active (Available for Random Selection)</option>
+              <option value="inactive">Inactive</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="message_text">Share Message Text Content</label>
+          <textarea name="message_text" id="message_text" class="form-control" rows="4" style="resize:vertical; font-family:inherit;" placeholder="Enter message text with placeholders..." required></textarea>
+        </div>
+
+        <div class="placeholders-box">
+          <strong>Available Placeholders (auto-replaced on share):</strong><br/>
+          <span class="placeholder-tag">{USER_NAME}</span> User's Full Name &nbsp;|&nbsp;
+          <span class="placeholder-tag">{REFERRAL_CODE}</span> User's Referral Code &nbsp;|&nbsp;
+          <span class="placeholder-tag">{APP_LINK}</span> Store App Link &nbsp;|&nbsp;
+          <span class="placeholder-tag">{REWARD_AMOUNT}</span> Reward Amount &nbsp;|&nbsp;
+          <span class="placeholder-tag">{SAVING_AMOUNT}</span> Total Saved Amount (Savings Share)
+        </div>
+
+        <button type="submit" class="submit-btn">Save Message Template</button>
+      </form>
+    </div>
+
+    <!-- LIST OF TEMPLATES -->
+    <div class="ref-card">
+      <div class="ref-header">
+        <h3 style="margin:0; font-size:17px; font-weight:700;">Existing Templates</h3>
+      </div>
+
+      <% if (!messages || !messages.length) { %>
+        <p style="color:#94a3b8; text-align:center; padding:20px;">No message templates created for this category yet.</p>
+      <% } else { %>
+        <% messages.forEach(m => { %>
+          <div class="msg-item">
+            <div style="flex:1;">
+              <div style="display:flex; align-items:center; gap:10px; margin-bottom:6px;">
+                <strong style="font-size:15px; color:#1e293b;"><%= m.message_title || 'Untitled Template' %></strong>
+                <% if (m.status === 'active') { %>
+                  <span class="badge-active">ACTIVE</span>
+                <% } else { %>
+                  <span class="badge-inactive">INACTIVE</span>
+                <% } %>
+              </div>
+              <p style="margin:0; font-size:14px; color:#475569; background:#ffffff; padding:10px 12px; border-radius:8px; border:1px solid #e2e8f0; font-family:monospace;">
+                <%= m.message_text %>
+              </p>
+            </div>
+            <div style="display:flex; gap:8px;">
+              <form action="/referral-messages/toggle/<%= m.id %>" method="POST" style="display:inline;">
+                <button type="submit" style="background:#e0e7ff; color:#3730a3; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:600; font-size:12px;">
+                  <%= m.status === 'active' ? 'Disable' : 'Enable' %>
+                </button>
+              </form>
+              <form action="/referral-messages/delete/<%= m.id %>" method="POST" onsubmit="return confirm('Delete this template?');" style="display:inline;">
+                <button type="submit" style="background:#fee2e2; color:#991b1b; border:none; padding:8px 14px; border-radius:6px; cursor:pointer; font-weight:600; font-size:12px;">
+                  Delete
+                </button>
+              </form>
+            </div>
+          </div>
+        <% }) %>
+      <% } %>
+    </div>
+  </main>
+</body>
+</html>
