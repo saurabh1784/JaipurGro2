@@ -433,6 +433,123 @@
         <button type="submit" class="submit-btn">Save All App Settings</button>
       </div>
     </form>
+
+    <!-- SOCIAL PROFILE SETTINGS CARD -->
+    <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:16px; padding:24px; margin-top:32px; box-shadow:0 4px 20px rgba(0,0,0,0.04);">
+      <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; padding-bottom:14px; border-bottom:1px solid #f1f5f9;">
+        <div>
+          <h3 style="margin:0; font-size:18px; font-weight:700; color:#1e293b;">🌐 Social Profile Settings</h3>
+          <span style="font-size:13px; color:#64748b;">Manage social media channels, profiles & links shown in Client, Vendor, and Delivery apps</span>
+        </div>
+      </div>
+
+      <!-- ADD NEW SOCIAL PROFILE FORM -->
+      <form action="/app-settings/social-profiles" method="POST" enctype="multipart/form-data" style="margin-bottom:28px; background:#f8fafc; padding:20px; border-radius:12px; border:1px solid #e2e8f0;">
+        <h4 style="margin:0 0 16px; font-size:15px; font-weight:700; color:#334155;">Add New Social Profile</h4>
+        <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap:16px; margin-bottom:16px;">
+          <div>
+            <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:6px;">Profile / Channel Name</label>
+            <input type="text" name="platform_name" placeholder="e.g. WhatsApp Channel" class="url-fallback-input" required />
+          </div>
+
+          <div>
+            <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:6px;">Built-in Icon Name</label>
+            <select name="icon_name" class="url-fallback-input">
+              <option value="whatsapp">WhatsApp</option>
+              <option value="facebook">Facebook</option>
+              <option value="youtube">YouTube</option>
+              <option value="instagram">Instagram</option>
+              <option value="twitter">X / Twitter</option>
+              <option value="telegram">Telegram</option>
+              <option value="linkedin">LinkedIn</option>
+              <option value="globe">Website / Globe</option>
+            </select>
+          </div>
+
+          <div>
+            <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:6px;">Custom Icon File (Optional)</label>
+            <input type="file" name="icon_image_file" accept="image/*" style="font-size:12px;" />
+          </div>
+
+          <div>
+            <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:6px;">Profile / Channel URL</label>
+            <input type="url" name="profile_link" placeholder="https://..." class="url-fallback-input" required />
+          </div>
+
+          <div>
+            <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:6px;">Display Order</label>
+            <input type="number" name="display_order" value="0" min="0" class="url-fallback-input" required />
+          </div>
+        </div>
+
+        <div style="display:flex; align-items:center; justify-content:space-between; margin-top:14px;">
+          <label style="display:flex; align-items:center; gap:8px; font-size:13.5px; font-weight:600; cursor:pointer;">
+            <input type="checkbox" name="is_active" value="on" checked style="width:18px; height:18px;" />
+            Active (Visible in all apps)
+          </label>
+          <button type="submit" style="background:linear-gradient(135deg, #6366f1, #4f46e5); color:#fff; padding:9px 20px; border-radius:8px; border:none; font-weight:600; cursor:pointer; font-size:13.5px;">
+            + Add Social Profile
+          </button>
+        </div>
+      </form>
+
+      <!-- SOCIAL PROFILES LIST TABLE -->
+      <table style="width:100%; border-collapse:collapse;">
+        <thead>
+          <tr style="background:#f8fafc; text-align:left; font-size:12px; color:#64748b; text-transform:uppercase;">
+            <th style="padding:10px 14px; border-bottom:1px solid #e2e8f0;">Order</th>
+            <th style="padding:10px 14px; border-bottom:1px solid #e2e8f0;">Icon</th>
+            <th style="padding:10px 14px; border-bottom:1px solid #e2e8f0;">Platform Name</th>
+            <th style="padding:10px 14px; border-bottom:1px solid #e2e8f0;">URL Link</th>
+            <th style="padding:10px 14px; border-bottom:1px solid #e2e8f0;">Status</th>
+            <th style="padding:10px 14px; border-bottom:1px solid #e2e8f0;">Actions</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (typeof socialProfiles === 'undefined' || !socialProfiles || !socialProfiles.length) { %>
+            <tr><td colspan="6" style="text-align:center; color:#94a3b8; padding:20px;">No social profiles added yet.</td></tr>
+          <% } else { %>
+            <% socialProfiles.forEach(sp => { %>
+              <tr style="border-bottom:1px solid #f1f5f9; font-size:13.5px;">
+                <td style="padding:12px 14px; font-weight:700;"><%= sp.display_order %></td>
+                <td style="padding:12px 14px;">
+                  <% if (sp.icon_image) { %>
+                    <img src="<%= sp.icon_image %>" style="width:28px; height:28px; object-fit:contain; border-radius:6px;" alt="icon" />
+                  <% } else { %>
+                    <span style="background:#e0e7ff; color:#3730a3; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; text-transform:uppercase;">
+                      <%= sp.icon_name || 'globe' %>
+                    </span>
+                  <% } %>
+                </td>
+                <td style="padding:12px 14px; font-weight:600; color:#1e293b;"><%= sp.platform_name %></td>
+                <td style="padding:12px 14px; max-width:240px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">
+                  <a href="<%= sp.profile_link %>" target="_blank" style="color:#4f46e5; text-decoration:none;"><%= sp.profile_link %></a>
+                </td>
+                <td style="padding:12px 14px;">
+                  <% if (sp.is_active) { %>
+                    <span style="background:#dcfce7; color:#166534; padding:3px 8px; border-radius:12px; font-size:11px; font-weight:700;">ACTIVE</span>
+                  <% } else { %>
+                    <span style="background:#fee2e2; color:#991b1b; padding:3px 8px; border-radius:12px; font-size:11px; font-weight:700;">INACTIVE</span>
+                  <% } %>
+                </td>
+                <td style="padding:12px 14px;">
+                  <form action="/app-settings/social-profiles/toggle/<%= sp.id %>" method="POST" style="display:inline;">
+                    <button type="submit" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">
+                      <%= sp.is_active ? 'Deactivate' : 'Activate' %>
+                    </button>
+                  </form>
+                  <form action="/app-settings/social-profiles/delete/<%= sp.id %>" method="POST" onsubmit="return confirm('Delete this social profile?');" style="display:inline;">
+                    <button type="submit" style="background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">
+                      Delete
+                    </button>
+                  </form>
+                </td>
+              </tr>
+            <% }) %>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
   </main>
 
   <script>

@@ -33,6 +33,17 @@ const uploadAppLogos = multer({
   { name: 'delivery_app_logo', maxCount: 1 },
 ]);
 
+const uploadSocialIcon = multer({
+  storage,
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/^image\/(png|jpe?g|webp|gif|svg\+xml)$/.test(file.mimetype) || file.originalname.match(/\.(png|jpe?g|webp|gif|svg)$/i)) {
+      return cb(null, true);
+    }
+    return cb(new Error('Only PNG, JPG, WEBP, GIF, or SVG images are allowed for social profile icons.'));
+  },
+}).single('icon_image_file');
+
 function handleUploadError(error, req, res, next) {
   if (error) {
     if (req.accepts('html')) {
@@ -46,5 +57,6 @@ function handleUploadError(error, req, res, next) {
 
 module.exports = {
   uploadAppLogos,
+  uploadSocialIcon,
   handleUploadError,
 };
