@@ -3397,7 +3397,7 @@ app.get('/login/vendor', (req, res) => {
     roleLabel: 'Vendor',
     roleSlug: 'Vendor',
     loginPath: '/login/vendor',
-    demoCredentials: { identifier: 'vendor1@example.com', password: 'admin123' },
+    demoCredentials: null,
     googleWebClientId: '',
     firebaseConfig: publicGoogleConfig().firebase,
     error: null,
@@ -3413,7 +3413,7 @@ app.get('/login/client', (req, res) => {
     roleLabel: 'Client',
     roleSlug: 'Client',
     loginPath: '/login/client',
-    demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
+    demoCredentials: null,
     googleWebClientId: publicGoogleConfig().webClientId,
     firebaseConfig: publicGoogleConfig().firebase,
     error: null,
@@ -3472,9 +3472,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
       roleLabel,
       roleSlug: expectedRole,
       loginPath,
-      demoCredentials: expectedRole === 'Vendor'
-        ? { identifier: 'vendor1@example.com', password: 'admin123' }
-        : { identifier: 'client@example.com', password: 'admin123' },
+      demoCredentials: null,
       googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
       firebaseConfig: publicGoogleConfig().firebase,
       error: 'Please enter email/username and password.',
@@ -3488,9 +3486,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
         roleLabel,
         roleSlug: expectedRole,
         loginPath,
-        demoCredentials: expectedRole === 'Vendor'
-          ? { identifier: 'vendor1@example.com', password: 'admin123' }
-          : { identifier: 'client@example.com', password: 'admin123' },
+        demoCredentials: null,
         googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
         firebaseConfig: publicGoogleConfig().firebase,
         error: `Invalid ${roleLabel.toLowerCase()} credentials.`,
@@ -3503,9 +3499,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
         roleLabel,
         roleSlug: expectedRole,
         loginPath,
-        demoCredentials: expectedRole === 'Vendor'
-          ? { identifier: 'vendor1@example.com', password: 'admin123' }
-          : { identifier: 'client@example.com', password: 'admin123' },
+        demoCredentials: null,
         googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
         firebaseConfig: publicGoogleConfig().firebase,
         error: `Invalid ${roleLabel.toLowerCase()} credentials.`,
@@ -3533,9 +3527,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
       roleLabel,
       roleSlug: expectedRole,
       loginPath,
-      demoCredentials: expectedRole === 'Vendor'
-        ? { identifier: 'vendor1@example.com', password: 'admin123' }
-        : { identifier: 'client@example.com', password: 'admin123' },
+      demoCredentials: null,
       googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
       firebaseConfig: publicGoogleConfig().firebase,
       error: 'Unable to process login. Please try again later.',
@@ -3553,7 +3545,7 @@ app.post('/login/client/google', async (req, res) => {
       roleLabel: 'Client',
       roleSlug: 'Client',
       loginPath: '/login/client',
-      demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
+      demoCredentials: null,
       googleWebClientId: publicGoogleConfig().webClientId,
       firebaseConfig: publicGoogleConfig().firebase,
       error: 'Google login token is missing. Please try again.',
@@ -3580,7 +3572,7 @@ app.post('/login/client/google', async (req, res) => {
       roleLabel: 'Client',
       roleSlug: 'Client',
       loginPath: '/login/client',
-      demoCredentials: { identifier: 'client@example.com', password: 'admin123' },
+      demoCredentials: null,
       googleWebClientId: publicGoogleConfig().webClientId,
       firebaseConfig: publicGoogleConfig().firebase,
       error: error.status ? error.message : 'Unable to process Google login. Please try again later.',

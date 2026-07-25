@@ -69,13 +69,6 @@
         <div class="role-google-disabled">Google login is not configured yet.</div>
       <% } %>
 
-      <% if (demoCredentials) { %>
-        <div class="role-demo-credentials">
-          <strong>Demo <%= roleLabel %> Login</strong>
-          <span>Login ID: <code><%= demoCredentials.identifier %></code></span>
-          <span>Password: <code><%= demoCredentials.password %></code></span>
-        </div>
-      <% } %>
 
       <div class="role-login-links">
         <a href="/">Back Home</a>
