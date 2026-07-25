@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .del-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    }
+    .del-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .filter-bar {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      flex-wrap: wrap;
+      margin-bottom: 20px;
+    }
+    .tab-btn {
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 700;
+      text-decoration: none;
+      font-size: 13px;
+    }
+    .tab-btn.active {
+      background: #ef4444;
+      color: #ffffff;
+    }
+    .tab-btn.inactive {
+      background: #f1f5f9;
+      color: #64748b;
+    }
+    .search-input {
+      padding: 8px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 13.5px;
+      min-width: 260px;
+    }
+    .table-custom {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    .table-custom th, .table-custom td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+      font-size: 13.5px;
+    }
+    .table-custom th {
+      background: #f8fafc;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+    .badge-pending { background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+    .badge-approved { background: #fee2e2; color: #991b1b; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+    .badge-rejected { background: #f1f5f9; color: #64748b; padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 700; }
+    .city-badge { background: #e0e7ff; color: #3730a3; padding: 4px 10px; border-radius: 8px; font-weight: 700; font-size: 12px; }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Users / Account Deletion Requests</p>
+        <h1>Account Deletion Requests</h1>
+      </div>
+      <% if (!superAdmin && adminCity) { %>
+        <div>
+          <span class="city-badge">📍 City Scope: <%= adminCity %></span>
+        </div>
+      <% } %>
+    </header>
+
+    <% if (typeof message !== 'undefined' && message) { %>
+      <div style="background:#dcfce7; color:#166534; padding:14px; border-radius:10px; margin-bottom:20px; font-weight:600;">✓ <%= message %></div>
+    <% } %>
+    <% if (typeof error !== 'undefined' && error) { %>
+      <div style="background:#fee2e2; color:#991b1b; padding:14px; border-radius:10px; margin-bottom:20px; font-weight:600;">⚠ <%= error %></div>
+    <% } %>
+
+    <div class="del-card">
+      <!-- FILTERS & SEARCH -->
+      <form action="/users/deletion-requests" method="GET" class="filter-bar">
+        <input type="text" name="search" value="<%= search %>" placeholder="Search by name, email, phone, role..." class="search-input" />
+        
+        <select name="status" onchange="this.form.submit()" style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:13.5px;">
+          <option value="pending" <%= statusFilter === 'pending' ? 'selected' : '' %>>Status: Pending</option>
+          <option value="approved" <%= statusFilter === 'approved' ? 'selected' : '' %>>Status: Approved (Deleted)</option>
+          <option value="rejected" <%= statusFilter === 'rejected' ? 'selected' : '' %>>Status: Rejected</option>
+          <option value="all" <%= statusFilter === 'all' ? 'selected' : '' %>>Status: All Requests</option>
+        </select>
+
+        <% if (superAdmin && citiesList && citiesList.length) { %>
+          <select name="city" onchange="this.form.submit()" style="padding:8px 12px; border:1px solid #cbd5e1; border-radius:8px; font-size:13.5px;">
+            <option value="All">All Cities</option>
+            <% citiesList.forEach(c => { %>
+              <option value="<%= c %>" <%= selectedCity === c ? 'selected' : '' %>><%= c %></option>
+            <% }) %>
+          </select>
+        <% } %>
+
+        <button type="submit" style="background:#1e293b; color:#fff; padding:8px 16px; border-radius:8px; border:none; font-weight:600; cursor:pointer;">
+          Search
+        </button>
+        <% if (search || statusFilter !== 'pending' || selectedCity) { %>
+          <a href="/users/deletion-requests" style="color:#64748b; font-size:13px; text-decoration:underline;">Clear Filters</a>
+        <% } %>
+      </form>
+
+      <!-- DATA TABLE -->
+      <table class="table-custom">
+        <thead>
+          <tr>
+            <th>Date Requested</th>
+            <th>User Details</th>
+            <th>User Role</th>
+            <th>City</th>
+            <th>Reason / Remarks</th>
+            <th>Status</th>
+            <th>Processed Info</th>
+            <th>Action</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!requests || !requests.length) { %>
+            <tr><td colspan="8" style="text-align:center; color:#94a3b8; padding:24px;">No account deletion requests found matching the search criteria.</td></tr>
+          <% } else { %>
+            <% requests.forEach(r => { %>
+              <tr>
+                <td><%= new Date(r.created_at).toLocaleString() %></td>
+                <td>
+                  <strong style="color:#1e293b;"><%= r.user_name %></strong><br/>
+                  <small style="color:#64748b;"><%= r.user_email || r.user_phone || ('User #' + r.user_id) %></small>
+                </td>
+                <td><span style="background:#f1f5f9; padding:3px 8px; border-radius:6px; font-size:12px; text-transform:capitalize;"><%= r.user_role %></span></td>
+                <td><strong><%= r.city || '-' %></strong></td>
+                <td style="max-width:220px; font-size:12.5px; color:#475569;"><%= r.reason || 'Requested account deletion' %></td>
+                <td>
+                  <% if (r.status === 'pending') { %>
+                    <span class="badge-pending">PENDING APPROVAL</span>
+                  <% } else if (r.status === 'approved') { %>
+                    <span class="badge-approved">APPROVED & DELETED</span>
+                  <% } else { %>
+                    <span class="badge-rejected">REJECTED</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (r.status !== 'pending') { %>
+                    <small style="color:#475569;">
+                      By: <%= r.processor_name || 'Admin' %><br/>
+                      At: <%= r.processed_at ? new Date(r.processed_at).toLocaleString() : '-' %><br/>
+                      <% if (r.admin_notes) { %>
+                        <em>Note: <%= r.admin_notes %></em>
+                      <% } %>
+                    </small>
+                  <% } else { %>
+                    <span style="color:#94a3b8; font-size:12px;">Awaiting Review</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (r.status === 'pending') { %>
+                    <div style="display:flex; gap:6px; flex-direction:column;">
+                      <form action="/users/deletion-requests/approve/<%= r.id %>" method="POST" onsubmit="return confirm('APPROVE DELETION: Are you sure you want to permanently delete user account (<%= r.user_name %>)?');">
+                        <input type="text" name="admin_notes" placeholder="Approval notes (optional)" style="font-size:11px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; width:130px; margin-bottom:4px;" /><br/>
+                        <button type="submit" style="background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; padding:5px 10px; border-radius:6px; font-size:11.5px; font-weight:700; cursor:pointer; width:100%;">
+                          ✓ Approve & Delete
+                        </button>
+                      </form>
+
+                      <form action="/users/deletion-requests/reject/<%= r.id %>" method="POST" onsubmit="return confirm('REJECT REQUEST: Reject account deletion request for (<%= r.user_name %>)?');">
+                        <input type="text" name="admin_notes" placeholder="Rejection reason (optional)" style="font-size:11px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; width:130px; margin-bottom:4px;" required /><br/>
+                        <button type="submit" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:5px 10px; border-radius:6px; font-size:11.5px; font-weight:700; cursor:pointer; width:100%;">
+                          ✕ Reject Request
+                        </button>
+                      </form>
+                    </div>
+                  <% } else { %>
+                    <span style="color:#94a3b8; font-size:12px;">Completed</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

@@ -25,6 +25,8 @@ const deliveryTypeRoutes = require('./routes/deliveryTypeRoutes');
 const appSettingsRoutes = require('./routes/appSettingsRoutes');
 const referralRoutes = require('./routes/referralRoutes');
 const referralController = require('./controllers/referralController');
+const deletionRequestRoutes = require('./routes/deletionRequestRoutes');
+const deletionRequestController = require('./controllers/deletionRequestController');
 const orderController = require('./controllers/orderController');
 const walletController = require('./controllers/walletController');
 const userController = require('./controllers/userController');
@@ -963,6 +965,7 @@ async function initDatabase(options = {}) {
   await pool.query('SELECT 1');
   console.log('Database init: syncing schema');
   await referralController.initReferralTables();
+  await deletionRequestController.initDeletionTables();
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -2702,6 +2705,7 @@ function buildShell(user, activePath = '/dashboard') {
     navItem('Dashboard', '/dashboard', 'dashboard.view', 'dashboard', activePath === '/dashboard'),
     navGroup('Users', '/users', 'users.manage', 'users', activePath.startsWith('/users') || activePath.startsWith('/referral'), [
       navItem('All Users', '/users', 'users.manage', 'users', activePath === '/users'),
+      navItem('Account Deletion Requests', '/users/deletion-requests', 'users.manage', 'users', activePath.startsWith('/users/deletion-requests')),
       navItem('Referral Settings', '/referral-settings', 'users.manage', 'settings', activePath.startsWith('/referral-settings')),
       navItem('Referral Share Messages', '/referral-messages/share', 'users.manage', 'settings', activePath.startsWith('/referral-messages/share') || (activePath.startsWith('/referral-messages') && !activePath.includes('savings'))),
       navItem('Savings Share Messages', '/referral-messages/savings', 'users.manage', 'settings', activePath.startsWith('/referral-messages/savings')),
@@ -4681,12 +4685,13 @@ app.use('/app-settings', requireAuth, (req, res, next) => {
   req.shell = buildShell(req.session.user || req.user, '/app-settings');
   next();
 });
-app.use(['/referral-settings', '/referral-messages', '/referral-report'], requireAuth, (req, res, next) => {
+app.use(['/referral-settings', '/referral-messages', '/referral-report', '/users/deletion-requests'], requireAuth, (req, res, next) => {
   req.shell = buildShell(req.session.user || req.user, req.path);
   next();
 });
 app.use('/', appSettingsRoutes);
 app.use('/', referralRoutes);
+app.use('/', deletionRequestRoutes);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
