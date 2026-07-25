@@ -17,7 +17,7 @@
       --card-bg: rgba(255, 255, 255, 0.96);
       --text-main: #0f172a;
       --text-muted: #64748b;
-      --border-color: #e2e8f0;
+      --border-color: #cbd5e1;
     }
 
     * {
@@ -222,20 +222,29 @@
       position: relative;
       display: flex;
       align-items: center;
+      width: 100%;
     }
 
     .input-icon {
       position: absolute;
       left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
       color: #94a3b8;
       pointer-events: none;
       transition: color 0.2s ease;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
     }
 
     .form-control {
       width: 100%;
       height: 52px;
-      padding: 0 1rem 0 3.1rem;
+      padding: 0 16px 0 48px;
       font-family: inherit;
       font-size: 0.95rem;
       border: 1.5px solid var(--border-color);
@@ -243,12 +252,20 @@
       background: #ffffff;
       color: var(--text-main);
       transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    .form-control.has-toggle {
+      padding-right: 50px !important;
     }
 
     .form-control:focus {
       outline: none;
       border-color: #10b981;
       box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.14);
+      background: #ffffff;
     }
 
     .input-wrapper:focus-within .input-icon {
@@ -257,21 +274,26 @@
 
     .password-toggle {
       position: absolute;
-      right: 14px;
-      background: none;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
       border: none;
       color: #94a3b8;
       cursor: pointer;
       padding: 6px;
-      border-radius: 8px;
+      border-radius: 10px;
       display: flex;
       align-items: center;
       justify-content: center;
       transition: all 0.2s ease;
+      z-index: 4;
+      width: 34px;
+      height: 34px;
     }
 
     .password-toggle:hover {
-      color: var(--text-main);
+      color: #0f172a;
       background: #f1f5f9;
     }
 
@@ -401,7 +423,7 @@
           <label for="password">Password</label>
           <div class="input-wrapper">
             <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
-            <input id="password" type="password" name="password" class="form-control" placeholder="••••••••" required />
+            <input id="password" type="password" name="password" class="form-control has-toggle" placeholder="••••••••" required />
             <button type="button" class="password-toggle" onclick="togglePasswordVisibility()" aria-label="Toggle password visibility">
               <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
