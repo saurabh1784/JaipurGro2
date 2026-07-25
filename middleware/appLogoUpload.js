@@ -52,6 +52,18 @@ function handleUploadError(error, req, res, next) {
     }
     return res.status(422).json({ success: false, message: error.message || 'Invalid logo upload' });
   }
+
+  try {
+    const { backupFileToDatabase } = require('../services/fileStorageService');
+    const filesList = req.files ? Object.values(req.files).flat() : req.file ? [req.file] : [];
+    for (const f of filesList) {
+      if (f && f.path && f.filename) {
+        const relPath = `/uploads/app_settings/${f.filename}`;
+        backupFileToDatabase(relPath, f.path).catch(() => {});
+      }
+    }
+  } catch (_) {}
+
   return next();
 }
 

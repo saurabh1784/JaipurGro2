@@ -48,6 +48,7 @@ const Order = require('./models/Order');
 const Rating = require('./models/Rating');
 const OrderWalletSettlement = require('./services/orderWalletSettlementService');
 const Quotation = require('./models/Quotation');
+const { initFileStorageTable, handleFileBackupMiddleware } = require('./services/fileStorageService');
 const DeliveryPerson = require('./models/DeliveryPerson');
 const Catalog = require('./models/Catalog');
 const CommissionSetting = require('./models/CommissionSetting');
@@ -409,6 +410,7 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+app.use('/uploads', handleFileBackupMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/default.png', (req, res) => {
   const defaultPng =
@@ -966,6 +968,7 @@ async function initDatabase(options = {}) {
   console.log('Database init: syncing schema');
   await referralController.initReferralTables();
   await deletionRequestController.initDeletionTables();
+  await initFileStorageTable();
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_settings (

@@ -533,6 +533,11 @@
                   <% } %>
                 </td>
                 <td style="padding:12px 14px;">
+                  <button type="button" 
+                          onclick="openEditSocialModal('<%= sp.id %>', '<%= (sp.platform_name || '').replace(/'/g, "\\'") %>', '<%= sp.icon_name || '' %>', '<%= (sp.profile_link || '').replace(/'/g, "\\'") %>', '<%= sp.display_order %>', '<%= sp.is_active %>')" 
+                          style="background:#e0e7ff; color:#3730a3; border:1px solid #c7d2fe; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; margin-right:4px;">
+                    ✏️ Edit
+                  </button>
                   <form action="/app-settings/social-profiles/toggle/<%= sp.id %>" method="POST" style="display:inline;">
                     <button type="submit" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">
                       <%= sp.is_active ? 'Deactivate' : 'Activate' %>
@@ -549,6 +554,69 @@
           <% } %>
         </tbody>
       </table>
+    </div>
+
+    <!-- EDIT SOCIAL PROFILE MODAL -->
+    <div id="editSocialModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); z-index:9999; align-items:center; justify-content:center;">
+      <div style="background:#ffffff; border-radius:16px; width:90%; max-width:540px; padding:24px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); position:relative;">
+        <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-bottom:12px; border-bottom:1px solid #e2e8f0;">
+          <h3 style="margin:0; font-size:17px; font-weight:700; color:#1e293b;">✏️ Edit Social Profile</h3>
+          <button type="button" onclick="closeEditSocialModal()" style="background:none; border:none; font-size:20px; color:#64748b; cursor:pointer;">✕</button>
+        </div>
+
+        <form id="editSocialForm" action="" method="POST" enctype="multipart/form-data">
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:14px; margin-bottom:14px;">
+            <div style="grid-column: 1 / -1;">
+              <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:4px;">Platform Name</label>
+              <input type="text" id="edit_platform_name" name="platform_name" class="url-fallback-input" required />
+            </div>
+
+            <div>
+              <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:4px;">Icon Name</label>
+              <select id="edit_icon_name" name="icon_name" class="url-fallback-input">
+                <option value="whatsapp">WhatsApp</option>
+                <option value="facebook">Facebook</option>
+                <option value="youtube">YouTube</option>
+                <option value="instagram">Instagram</option>
+                <option value="twitter">X / Twitter</option>
+                <option value="telegram">Telegram</option>
+                <option value="linkedin">LinkedIn</option>
+                <option value="globe">Website / Globe</option>
+              </select>
+            </div>
+
+            <div>
+              <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:4px;">Display Order</label>
+              <input type="number" id="edit_display_order" name="display_order" min="0" class="url-fallback-input" required />
+            </div>
+
+            <div style="grid-column: 1 / -1;">
+              <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:4px;">Custom Icon File (Optional)</label>
+              <input type="file" name="icon_image_file" accept="image/*" style="font-size:12px;" />
+            </div>
+
+            <div style="grid-column: 1 / -1;">
+              <label style="display:block; font-size:12.5px; font-weight:600; color:#475569; margin-bottom:4px;">Profile / Channel Link</label>
+              <input type="url" id="edit_profile_link" name="profile_link" class="url-fallback-input" required />
+            </div>
+          </div>
+
+          <div style="display:flex; align-items:center; justify-content:space-between; margin-top:16px; padding-top:12px; border-top:1px solid #f1f5f9;">
+            <label style="display:flex; align-items:center; gap:8px; font-size:13px; font-weight:600; cursor:pointer;">
+              <input type="checkbox" id="edit_is_active" name="is_active" value="on" style="width:18px; height:18px;" />
+              Active (Visible in apps)
+            </label>
+            <div>
+              <button type="button" onclick="closeEditSocialModal()" style="background:#f1f5f9; color:#475569; padding:8px 14px; border-radius:8px; border:1px solid #cbd5e1; font-weight:600; cursor:pointer; font-size:13px; margin-right:8px;">
+                Cancel
+              </button>
+              <button type="submit" style="background:#4f46e5; color:#ffffff; padding:8px 18px; border-radius:8px; border:none; font-weight:600; cursor:pointer; font-size:13px;">
+                Update Profile
+              </button>
+            </div>
+          </div>
+        </form>
+      </div>
     </div>
   </main>
 
@@ -581,6 +649,22 @@
         }
         reader.readAsDataURL(input.files[0]);
       }
+    }
+
+    function openEditSocialModal(id, name, icon, link, order, active) {
+      const modal = document.getElementById('editSocialModal');
+      const form = document.getElementById('editSocialForm');
+      form.action = '/app-settings/social-profiles/update/' + id;
+      document.getElementById('edit_platform_name').value = name;
+      document.getElementById('edit_icon_name').value = icon || 'globe';
+      document.getElementById('edit_profile_link').value = link;
+      document.getElementById('edit_display_order').value = order;
+      document.getElementById('edit_is_active').checked = active === '1' || active === 'true' || active === 1 || active === true;
+      modal.style.display = 'flex';
+    }
+
+    function closeEditSocialModal() {
+      document.getElementById('editSocialModal').style.display = 'none';
     }
   </script>
 </body>
