@@ -241,7 +241,12 @@
                   <h3><%= type.name %></h3>
                   <span class="type-code-badge"><%= type.code %></span>
                 </div>
-                <button type="button" class="compact-btn-secondary" onclick="openValueModal('<%= type.id %>')">+ Add Value</button>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <button type="button" class="compact-btn-secondary" onclick="openValueModal('<%= type.id %>')">+ Add Value</button>
+                  <form action="/admin/variation-types/<%= type.id %>/delete" method="POST" style="margin:0;" onsubmit="return confirm('Delete variation type &quot;<%= type.name %>&quot;?');">
+                    <button type="submit" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:4px 8px; border-radius:6px; font-weight:700; font-size:0.75rem; cursor:pointer;" title="Delete Variation Type">🗑️</button>
+                  </form>
+                </div>
               </div>
               <div class="values-container">
                 <div class="values-grid">
@@ -250,6 +255,9 @@
                       <div class="value-chip">
                         <span><%= val.value %></span>
                         <% if (val.unit) { %><span class="unit"><%= val.unit %></span><% } %>
+                        <form action="/admin/variation-values/<%= val.id %>/delete" method="POST" style="display:inline; margin:0;" onsubmit="return confirm('Delete value &quot;<%= val.value %> <%= val.unit || '' %>&quot;?');">
+                          <button type="submit" style="background:none; border:none; color:#ef4444; font-weight:800; font-size:0.85rem; cursor:pointer; padding:0 0 0 4px; line-height:1;" title="Delete Value">&times;</button>
+                        </form>
                       </div>
                     <% }) %>
                   <% } else { %>

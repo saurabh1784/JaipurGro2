@@ -139,10 +139,54 @@ const quickAddValue = async (req, res) => {
     return res.status(500).json({ success: false, message: err.message });
   }
 };
+// Delete Variation Type (Soft disable)
+const deleteType = async (req, res) => {
+  try {
+    const user = req.session.user || req.user;
+    if (!canManageVariations(user)) {
+      return res.status(403).send('Forbidden');
+    }
+    const typeId = parseInt(req.params.id || req.body.id, 10);
+    if (!typeId) {
+      return res.redirect('/admin/variation-types?err=Invalid+variation+type+ID');
+    }
+
+    await pool.query("UPDATE variation_types SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?", [typeId]);
+    await pool.query("UPDATE variation_values SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE variation_type_id = ?", [typeId]);
+
+    res.redirect('/admin/variation-types?msg=Variation+type+deleted+successfully');
+  } catch (err) {
+    console.error('Error deleting variation type:', err);
+    res.redirect(`/admin/variation-types?err=${encodeURIComponent(err.message)}`);
+  }
+};
+
+// Delete Variation Value (Soft disable)
+const deleteValue = async (req, res) => {
+  try {
+    const user = req.session.user || req.user;
+    if (!canManageVariations(user)) {
+      return res.status(403).send('Forbidden');
+    }
+    const valueId = parseInt(req.params.id || req.body.id, 10);
+    if (!valueId) {
+      return res.redirect('/admin/variation-types?err=Invalid+variation+value+ID');
+    }
+
+    await pool.query("UPDATE variation_values SET status = 'inactive', updated_at = CURRENT_TIMESTAMP WHERE id = ?", [valueId]);
+
+    res.redirect('/admin/variation-types?msg=Variation+value+deleted+successfully');
+  } catch (err) {
+    console.error('Error deleting variation value:', err);
+    res.redirect(`/admin/variation-types?err=${encodeURIComponent(err.message)}`);
+  }
+};
 
 module.exports = {
   index,
   saveType,
   saveValue,
   quickAddValue,
+  deleteType,
+  deleteValue,
 };

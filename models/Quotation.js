@@ -515,7 +515,7 @@ async function evaluateVendorEligibility(connection, { recipientId, vendorId, pe
             qri.product_id, qri.product_name, qri.quantity AS required_quantity,
             p.approval_status AS product_approval_status, p.is_deleted AS product_deleted,
             vp.id AS vendor_product_id, vp.status AS vendor_product_status, vp.quantity AS stock,
-            vpv.id AS vpv_id, vpv.is_approved AS vpv_is_approved, vpv.is_available AS vpv_is_available, vpv.quantity AS vpv_stock
+            vpv.id AS vpv_id, vpv.approval_status AS vpv_approval_status, vpv.is_available AS vpv_is_available, (vpv.stock_quantity - COALESCE(vpv.reserved_stock, 0)) AS vpv_stock
      FROM quotation_vendor_recipients qvr
      INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id
      LEFT JOIN client_profiles cp ON cp.user_id = qr.client_id
@@ -536,7 +536,7 @@ async function evaluateVendorEligibility(connection, { recipientId, vendorId, pe
 
   const head = rows[0];
   const missingProducts = rows
-    .filter((row) => !row.vendor_product_id || (row.vpv_id && (row.vpv_is_approved === 0 || row.vpv_is_available === 0)) || row.product_approval_status !== 'approved' || Boolean(row.product_deleted) || row.vendor_product_status !== 'active')
+    .filter((row) => !row.vendor_product_id || (row.vpv_id && (row.vpv_approval_status !== 'approved' || row.vpv_is_available === 0)) || row.product_approval_status !== 'approved' || Boolean(row.product_deleted) || row.vendor_product_status !== 'active')
     .map((row) => ({ product_id: Number(row.product_id), product_name: row.product_name, required_quantity: Number(row.required_quantity || 0) }));
   const outOfStockProducts = rows
     .filter((row) => row.vendor_product_id && row.product_approval_status === 'approved' && !Boolean(row.product_deleted) && row.vendor_product_status === 'active' && Number(row.vpv_stock ?? row.stock ?? 0) < Number(row.required_quantity || 0))
@@ -559,10 +559,10 @@ async function evaluateVendorEligibility(connection, { recipientId, vendorId, pe
     message = 'Vendor not available in this area';
   } else if (missingProducts.length) {
     status = 'product_approval_required';
-    message = 'The selected product variation is not available in your approved inventory.';
+    message = 'This product variation is not approved or is out of stock.';
   } else if (outOfStockProducts.length) {
     status = 'inventory_update_required';
-    message = 'The selected product variation is not available in your approved inventory.';
+    message = 'This product variation is not approved or is out of stock.';
   }
 
   const result = {

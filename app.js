@@ -25,6 +25,8 @@ const deliveryTypeRoutes = require('./routes/deliveryTypeRoutes');
 const appSettingsRoutes = require('./routes/appSettingsRoutes');
 const referralRoutes = require('./routes/referralRoutes');
 const variationRoutes = require('./routes/variationRoutes');
+const variationApprovalRoutes = require('./routes/variationApprovalRoutes');
+const vendorInventoryRoutes = require('./routes/vendorInventoryRoutes');
 const ProductVariant = require('./models/ProductVariant');
 const referralController = require('./controllers/referralController');
 const deletionRequestRoutes = require('./routes/deletionRequestRoutes');
@@ -2761,9 +2763,10 @@ function buildShell(user, activePath = '/dashboard') {
     navItem('Roles', '/roles', 'roles.manage', 'roles', activePath.startsWith('/roles')),
     navItem('Clients', '/clients', 'clients.manage', 'clients', activePath.startsWith('/clients')),
     navItem('Vendors', '/vendors', 'vendors.manage', 'vendors', activePath.startsWith('/vendors')),
-    navGroup('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products') || activePath.startsWith('/admin/variation-types'), [
+    navGroup('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products') || activePath.startsWith('/admin/variation-types') || activePath.startsWith('/admin/variation-approvals'), [
       navItem('All Products', '/products', 'products.manage', 'products', activePath === '/products' || (activePath.startsWith('/products') && !activePath.startsWith('/products/images'))),
       navItem('Variation Types', '/admin/variation-types', 'products.manage', 'settings', activePath.startsWith('/admin/variation-types')),
+      navItem('Vendor Approvals', '/admin/variation-approvals', 'products.manage', 'settings', activePath.startsWith('/admin/variation-approvals')),
       navItem('Product Images', '/products/images', 'products.manage', 'products', activePath.startsWith('/products/images')),
     ]),
     navItem('Wallets', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
@@ -4842,6 +4845,8 @@ app.use('/app-settings', requireAuth, (req, res, next) => {
 app.use('/', appSettingsRoutes);
 app.use('/', referralRoutes);
 app.use('/', variationRoutes);
+app.use('/', variationApprovalRoutes);
+app.use('/', vendorInventoryRoutes);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
