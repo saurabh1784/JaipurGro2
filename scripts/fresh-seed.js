@@ -6,8 +6,9 @@ const DEFAULT_USERS = [
   // 1 Super Admin
   { name: 'Super Admin', email: 'superadmin@example.com', password: 'password', role: 'superadmin' },
 
-  // 1 Admin
+  // 2 Admins
   { name: 'Admin User', email: 'admin@example.com', password: 'password', role: 'admin' },
+  { name: 'Jaipur Admin', email: 'jaipur@example.com', password: 'password', role: 'admin', city: 'Jaipur', state: 'Rajasthan', country: 'India', area: '*' },
 
   // 5 Clients
   { name: 'Client User 1', email: 'client1@example.com', phone: '9000000001', password: 'password', role: 'Client' },

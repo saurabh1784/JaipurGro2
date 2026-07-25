@@ -8,6 +8,7 @@ const { ensureInvoice } = require('../services/invoiceService');
 const { processUploadedFile } = require('../services/imageProcessingService');
 const DeliveryType = require('../models/DeliveryType');
 const Rating = require('../models/Rating');
+const { isSuperAdminUser, getAssignedUserCity } = require('./userController');
 
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
@@ -187,10 +188,17 @@ function deliveryPartnerSafeItems(items) {
 
 // Admin/Staff - List all orders with filters
 async function index(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+  const filterCity = isSuper ? (req.query.city || '') : adminCity;
+
   if (!wantsJson(req)) {
     return res.render('orders', {
       user: req.session.user,
       shell: res.locals.shell,
+      isSuperAdmin: isSuper,
+      adminCity,
     });
   }
 
@@ -204,8 +212,9 @@ async function index(req, res) {
       vendorId: req.query.vendor_id,
       clientId: req.query.client_id,
       orderType: req.query.order_type,
+      city: filterCity,
     });
-    return res.json({ success: true, ...result });
+    return res.json({ success: true, isSuperAdmin: isSuper, adminCity, ...result });
   } catch (error) {
     console.error('Order list error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch orders' });
@@ -215,9 +224,20 @@ async function index(req, res) {
 // Admin/Staff - Get order details
 async function show(req, res) {
   try {
+    const currentUser = req.authUser || (req.session && req.session.user);
+    const isSuper = isSuperAdminUser(currentUser);
+    const adminCity = await getAssignedUserCity(currentUser);
+
     const order = await Order.findById(req.params.id);
     if (!order) {
       return res.status(404).json({ success: false, message: 'Order not found' });
+    }
+
+    if (!isSuper && adminCity) {
+      const orderCity = order.city || order.shipping_city || order.client_city || order.vendor_city || '';
+      if (orderCity && orderCity.toLowerCase() !== adminCity.toLowerCase()) {
+        return res.status(403).json({ success: false, message: `Admins can only view orders in their assigned city (${adminCity}).` });
+      }
     }
 
     const items = await Order.getOrderItems(req.params.id);

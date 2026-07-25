@@ -262,7 +262,7 @@ function normalizeOrder(row, includeItems = false) {
   return order;
 }
 
-async function listAll({ page = 1, limit = 10, search = '', status = '', deliveryStatus = '', vendorId = '', clientId = '', deliveryPartnerId = '', orderType = '' } = {}) {
+async function listAll({ page = 1, limit = 10, search = '', status = '', deliveryStatus = '', vendorId = '', clientId = '', deliveryPartnerId = '', orderType = '', city = '' } = {}) {
   const currentPage = Math.max(1, parseInt(page, 10) || 1);
   const pageSize = Math.min(Math.max(1, parseInt(limit, 10) || 10), 100);
   const offset = (currentPage - 1) * pageSize;
@@ -302,6 +302,10 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
   if (orderType) {
     where.push('o.order_type = ?');
     params.push(String(orderType).trim());
+  }
+  if (city) {
+    where.push('(LOWER(TRIM(COALESCE(NULLIF(o.city, \'\'), o.shipping_city, \'\'))) = LOWER(TRIM(?)))');
+    params.push(String(city).trim());
   }
 
   const whereSql = where.length ? 'WHERE ' + where.join(' AND ') : '';

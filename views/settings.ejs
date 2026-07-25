@@ -1,4 +1,4 @@
-﻿<!DOCTYPE html>
+<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -15,7 +15,7 @@
     locationSettings.cities = locationSettings.cities || [];
     locationSettings.stateEntries = locationSettings.stateEntries || locationSettings.states.map((state) => ({ name: state, country: locationSettings.countries[0] || '' }));
     locationSettings.cityEntries = locationSettings.cityEntries || locationSettings.cities.map((city) => ({ name: city, state: locationSettings.states[0] || '', country: locationSettings.countries[0] || '' }));
-    const isSuperAdmin = Boolean(user && (String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin'));
+    const isSuperAdmin = Boolean(typeof locals !== 'undefined' && locals.isSuperAdmin !== undefined ? locals.isSuperAdmin : (user && (String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin' || (Array.isArray(user.roles) && user.roles.some((r) => String(r.slug || r.name || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin')))));
   %>
 
 
@@ -281,7 +281,7 @@
           </section>
         <% } %>
         <% if (!maintenance) { %>
-          <div class="system-alert">Only admin users can run debug maintenance actions.</div>
+          <div class="system-alert">Only Super Admin users can run debug maintenance actions.</div>
         <% } %>
         </div>
         <div class="debug-tool-panel" id="debug-delivery-partner-test">

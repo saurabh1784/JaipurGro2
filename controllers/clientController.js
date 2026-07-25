@@ -54,10 +54,19 @@ function validateClient(body, { requirePassword = false, locationOptions = null 
   return { errors, data };
 }
 
+const { isSuperAdminUser, getAssignedUserCity } = require('./userController');
+
 async function index(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+  const filterCity = isSuper ? (req.query.city || '') : adminCity;
+
   if (!wantsJson(req)) {
     return res.render('clients', {
       user: req.session.user,
+      isSuperAdmin: isSuper,
+      adminCity,
       locationOptions: await flattenLocationOptionsFromDb(),
     });
   }
@@ -70,9 +79,9 @@ async function index(req, res) {
       status: req.query.status,
       country: req.query.country,
       state: req.query.state,
-      city: req.query.city,
+      city: filterCity,
     });
-    return res.json({ success: true, ...result });
+    return res.json({ success: true, isSuperAdmin: isSuper, adminCity, ...result });
   } catch (error) {
     console.error('Client list error:', error);
     return res.status(500).json({ success: false, message: 'Unable to fetch clients' });
@@ -80,12 +89,32 @@ async function index(req, res) {
 }
 
 async function show(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+
   const client = await Client.findById(Number(req.params.id));
   if (!client) return res.status(404).json({ success: false, message: 'Client not found' });
+
+  if (!isSuper && adminCity && client.city && client.city.toLowerCase() !== adminCity.toLowerCase()) {
+    return res.status(403).json({ success: false, message: `Admins can only view clients in their assigned city (${adminCity}).` });
+  }
+
   return res.json({ success: true, client });
 }
 
 async function create(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+
+  if (!isSuper && adminCity) {
+    if (req.body.city && String(req.body.city).trim().toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only create clients for their assigned city (${adminCity}).` });
+    }
+    req.body.city = adminCity;
+  }
+
   const locationOptions = await flattenLocationOptionsFromDb();
   const { errors, data } = validateClient(req.body, { requirePassword: true, locationOptions });
   if (errors.length) return res.status(422).json({ success: false, message: 'Validation failed', errors });
@@ -111,8 +140,16 @@ async function update(req, res) {
     const id = Number(req.params.id);
     if (!id) return res.status(422).json({ success: false, message: 'Valid client ID is required' });
 
+    const currentUser = req.authUser || (req.session && req.session.user);
+    const isSuper = isSuperAdminUser(currentUser);
+    const adminCity = await getAssignedUserCity(currentUser);
+
     const existing = await Client.findById(id);
     if (!existing) return res.status(404).json({ success: false, message: 'Client not found' });
+
+    if (!isSuper && adminCity && existing.city && existing.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only update clients in their assigned city (${adminCity}).` });
+    }
 
     if (Object.keys(req.body).length === 1 && req.body.status !== undefined) {
       if (!validateStatus(req.body.status)) {
@@ -120,6 +157,10 @@ async function update(req, res) {
       }
       await Client.updateStatus(id, req.body.status);
       return res.json({ success: true, message: 'Client status updated', client: await Client.findById(id) });
+    }
+
+    if (!isSuper && adminCity) {
+      req.body.city = adminCity;
     }
 
     const locationOptions = await flattenLocationOptionsFromDb();
@@ -145,8 +186,16 @@ async function destroy(req, res) {
   const id = Number(req.params.id);
   if (!id) return res.status(422).json({ success: false, message: 'Valid client ID is required' });
 
+  const currentUser = req.authUser || (req.session && req.session.user);
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+
   const existing = await Client.findById(id);
   if (!existing) return res.status(404).json({ success: false, message: 'Client not found' });
+
+  if (!isSuper && adminCity && existing.city && existing.city.toLowerCase() !== adminCity.toLowerCase()) {
+    return res.status(403).json({ success: false, message: `Admins can only delete clients in their assigned city (${adminCity}).` });
+  }
 
   await Client.softDelete(id);
   return res.json({ success: true, message: 'Client deleted' });

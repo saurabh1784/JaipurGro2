@@ -388,8 +388,9 @@ const userSeeds = [
   // 1 Super Admin
   { name: 'Super Admin', email: 'superadmin@example.com', password: 'password', role: 'superadmin' },
 
-  // 1 Admin
+  // 2 Admins
   { name: 'Admin User', email: 'admin@example.com', password: 'password', role: 'admin' },
+  { name: 'Jaipur Admin', email: 'jaipur@example.com', password: 'password', role: 'admin', city: 'Jaipur', state: 'Rajasthan', country: 'India', area: '*' },
 
   // 5 Clients
   { name: 'Client User 1', email: 'client1@example.com', phone: '9000000001', password: 'password', role: 'Client' },
@@ -2500,16 +2501,16 @@ async function initDatabase(options = {}) {
     if (!userId) {
       try {
         const [result] = await pool.query(
-          'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, ?, ?, ?, ?)',
-          [seedUser.name, seedUser.email, seedPhone, hashedPassword, seedUser.role, 'active']
+          'INSERT INTO users (name, email, phone, password, role, status, country, state, city, area) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
+          [seedUser.name, seedUser.email, seedPhone, hashedPassword, seedUser.role, 'active', seedUser.country || null, seedUser.state || null, seedUser.city || null, seedUser.area || null]
         );
         userId = result.insertId;
         console.log(`Seeded ${seedUser.role} account: ${seedUser.email} / ${seedUser.password}`);
       } catch (err) {
         if (err.code === '23505') {
           const [result] = await pool.query(
-            'INSERT INTO users (name, email, phone, password, role, status) VALUES (?, ?, NULL, ?, ?, ?)',
-            [seedUser.name, seedUser.email, hashedPassword, seedUser.role, 'active']
+            'INSERT INTO users (name, email, phone, password, role, status, country, state, city, area) VALUES (?, ?, NULL, ?, ?, ?, ?, ?, ?, ?)',
+            [seedUser.name, seedUser.email, hashedPassword, seedUser.role, 'active', seedUser.country || null, seedUser.state || null, seedUser.city || null, seedUser.area || null]
           );
           userId = result.insertId;
         } else {
@@ -2517,11 +2518,15 @@ async function initDatabase(options = {}) {
         }
       }
     } else {
-      await pool.query('UPDATE users SET role = ?, name = ?, password = ?, status = ?, is_deleted = 0 WHERE id = ?', [
+      await pool.query('UPDATE users SET role = ?, name = ?, password = ?, status = ?, is_deleted = 0, country = COALESCE(?, country), state = COALESCE(?, state), city = COALESCE(?, city), area = COALESCE(?, area) WHERE id = ?', [
         seedUser.role,
         seedUser.name,
         hashedPassword,
         'active',
+        seedUser.country || null,
+        seedUser.state || null,
+        seedUser.city || null,
+        seedUser.area || null,
         userId,
       ]);
     }
@@ -2534,10 +2539,25 @@ async function initDatabase(options = {}) {
       );
     }
 
-    if (seedUser.role === 'Admin') {
+    if (['admin', 'superadmin'].includes(String(seedUser.role).toLowerCase())) {
+      const defaultAdminPermissions = ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage', 'wallets.view', 'wallets.manage', 'orders.manage', 'reports.view', 'discounts.view', 'coupons.view', 'support.manage'];
       await pool.query(
-        'INSERT IGNORE INTO admin_profiles (user_id, permissions) VALUES (?, ?)',
-        [userId, JSON.stringify(['users.manage', 'profiles.manage', 'wallets.manage'])]
+        `INSERT INTO admin_profiles (user_id, country, state, city, area, permissions)
+         VALUES (?, ?, ?, ?, ?, ?)
+         ON CONFLICT (user_id) DO UPDATE
+         SET country = COALESCE(EXCLUDED.country, admin_profiles.country),
+             state = COALESCE(EXCLUDED.state, admin_profiles.state),
+             city = COALESCE(EXCLUDED.city, admin_profiles.city),
+             area = COALESCE(EXCLUDED.area, admin_profiles.area),
+             permissions = EXCLUDED.permissions`,
+        [
+          userId,
+          seedUser.country || null,
+          seedUser.state || null,
+          seedUser.city || null,
+          seedUser.area || null,
+          JSON.stringify(defaultAdminPermissions),
+        ]
       );
     }
 
@@ -2618,7 +2638,21 @@ async function initDatabase(options = {}) {
 }
 
 async function getUserWithRoles(email) {
-  const [rows] = await pool.query('SELECT id, name, email, password, role, status, theme_mode FROM users WHERE email = ? AND is_deleted = 0', [email]);
+  const [rows] = await pool.query(
+    `SELECT u.id, u.name, u.email, u.password, u.role, u.status, u.theme_mode,
+            COALESCE(NULLIF(u.country, ''), ap.country, cp.country, vp.country, '') AS country,
+            COALESCE(NULLIF(u.state, ''), ap.state, cp.state, vp.state, '') AS state,
+            COALESCE(NULLIF(u.city, ''), ap.city, cp.city, vp.city, dpp.city, '') AS city,
+            COALESCE(NULLIF(u.area, ''), ap.area, cp.area, vp.area, dpp.area, '') AS area
+     FROM users u
+     LEFT JOIN admin_profiles ap ON ap.user_id = u.id
+     LEFT JOIN client_profiles cp ON cp.user_id = u.id
+     LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+     LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+     WHERE LOWER(u.email) = LOWER(?) AND u.is_deleted = 0
+     LIMIT 1`,
+    [email]
+  );
   if (rows.length === 0) {
     return null;
   }
@@ -2655,6 +2689,10 @@ async function getUserWithRoles(email) {
     email: user.email,
     password: user.password,
     themeMode: user.theme_mode || 'light',
+    country: user.country || '',
+    state: user.state || '',
+    city: user.city || '',
+    area: user.area || '',
     role: primaryRole.slug,
     roleName: primaryRole.name,
     roles: normalizedRoles,
@@ -2859,28 +2897,69 @@ function dashboardPercent(current, previous) {
   return `${percent >= 0 ? '+' : ''}${percent}%`;
 }
 
-async function applyAdminDashboardStats(dashboard) {
+async function applyAdminDashboardStats(dashboard, user) {
+  const isSuper = isSuperAdminUser(user);
+  const adminCity = !isSuper ? (user && user.city ? user.city : await getAssignedUserCity(user)) : '';
+  const hasCity = Boolean(adminCity && adminCity.trim());
+  const cityParam = hasCity ? adminCity.trim() : '';
+
   const [summaryRows] = await pool.query(
     `SELECT
-       (SELECT COUNT(*) FROM users WHERE is_deleted = 0) AS total_users,
-       (SELECT COUNT(*) FROM users WHERE is_deleted = 0 AND LOWER(status) = 'active') AS active_users,
-       (SELECT COUNT(*) FROM users WHERE is_deleted = 0 AND LOWER(role) = 'client') AS client_count,
-       (SELECT COUNT(*) FROM users WHERE is_deleted = 0 AND LOWER(role) = 'vendor') AS vendor_count,
+       (SELECT COUNT(*) FROM users u
+        LEFT JOIN admin_profiles ap ON ap.user_id = u.id
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+        LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+        WHERE u.is_deleted = 0 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), ap.city, cp.city, vp.city, dpp.city, ''))) = LOWER(TRIM(?)))) AS total_users,
+
+       (SELECT COUNT(*) FROM users u
+        LEFT JOIN admin_profiles ap ON ap.user_id = u.id
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+        LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+        WHERE u.is_deleted = 0 AND LOWER(u.status) = 'active' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), ap.city, cp.city, vp.city, dpp.city, ''))) = LOWER(TRIM(?)))) AS active_users,
+
+       (SELECT COUNT(*) FROM users u
+        LEFT JOIN client_profiles cp ON cp.user_id = u.id
+        WHERE u.is_deleted = 0 AND LOWER(u.role) = 'client' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), cp.city, ''))) = LOWER(TRIM(?)))) AS client_count,
+
+       (SELECT COUNT(*) FROM users u
+        LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+        WHERE u.is_deleted = 0 AND LOWER(u.role) = 'vendor' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), vp.city, ''))) = LOWER(TRIM(?)))) AS vendor_count,
+
        (SELECT COUNT(*) FROM roles) AS role_count,
        (SELECT COUNT(*) FROM products WHERE is_deleted = 0) AS product_count,
        (SELECT COUNT(*) FROM products WHERE is_deleted = 0 AND approval_status = 'pending') AS pending_products,
-       (SELECT COUNT(*) FROM vendor_products WHERE status = 'active' AND quantity > 0) AS active_stock_items,
-       (SELECT COUNT(*) FROM vendor_products WHERE status = 'active' AND quantity <= 5) AS low_stock_items,
-       (SELECT COUNT(*) FROM client_orders) AS order_count,
-       (SELECT COUNT(*) FROM client_orders WHERE status = 'pending') AS pending_orders,
-       (SELECT COUNT(*) FROM client_orders WHERE DATE(created_at) = CURRENT_DATE) AS today_orders,
-       (SELECT COUNT(*) FROM client_orders WHERE DATE(created_at) = CURRENT_DATE - INTERVAL '1 day') AS yesterday_orders,
-       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE DATE(created_at) = CURRENT_DATE) AS today_revenue,
-       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders WHERE DATE(created_at) = CURRENT_DATE - INTERVAL '1 day') AS yesterday_revenue,
-       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders) AS total_revenue,
+       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND vp.quantity > 0 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vp.city, ''), vprof.city, ''))) = LOWER(TRIM(?)))) AS active_stock_items,
+       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND vp.quantity <= 5 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vp.city, ''), vprof.city, ''))) = LOWER(TRIM(?)))) AS low_stock_items,
+
+       (SELECT COUNT(*) FROM client_orders o WHERE (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS order_count,
+       (SELECT COUNT(*) FROM client_orders o WHERE o.status = 'pending' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS pending_orders,
+       (SELECT COUNT(*) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS today_orders,
+       (SELECT COUNT(*) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE - INTERVAL '1 day' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS yesterday_orders,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS today_revenue,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE - INTERVAL '1 day' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS yesterday_revenue,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS total_revenue,
        (SELECT COUNT(*) FROM support_tickets WHERE status = 'Open') AS open_support_tickets,
-       (SELECT COUNT(*) FROM quotation_requests WHERE status = 'pending') AS pending_quotations,
-       (SELECT COUNT(*) FROM quotation_vendor_recipients WHERE status IN ('new', 'seen')) AS unprocessed_vendor_quotes`
+       (SELECT COUNT(*) FROM quotation_requests qr WHERE status = 'pending' AND (NOT ? OR LOWER(TRIM(qr.client_city)) = LOWER(TRIM(?)))) AS pending_quotations,
+       (SELECT COUNT(*) FROM quotation_vendor_recipients qvr INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id WHERE qvr.status IN ('new', 'seen') AND (NOT ? OR LOWER(TRIM(qr.client_city)) = LOWER(TRIM(?)))) AS unprocessed_vendor_quotes`,
+    [
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+      hasCity, cityParam,
+    ]
   );
   const stats = summaryRows[0] || {};
   const openIssues = Number(stats.open_support_tickets || 0)
@@ -2958,16 +3037,26 @@ async function applyAdminDashboardStats(dashboard) {
       : 'Vendor stock levels look healthy',
   ];
 
-  const [teamRows] = await pool.query(
-    `SELECT id, name, role, status
-     FROM users
-     WHERE is_deleted = 0
-     ORDER BY
-       CASE WHEN LOWER(status) = 'active' THEN 0 ELSE 1 END,
-       updated_at DESC,
-       id DESC
-     LIMIT 6`
-  );
+  const [teamRows] = hasCity
+    ? await pool.query(
+        `SELECT u.id, u.name, u.role, u.status
+         FROM users u
+         LEFT JOIN admin_profiles ap ON ap.user_id = u.id
+         LEFT JOIN client_profiles cp ON cp.user_id = u.id
+         LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+         LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+         WHERE u.is_deleted = 0 AND LOWER(TRIM(COALESCE(NULLIF(u.city, ''), ap.city, cp.city, vp.city, dpp.city, ''))) = LOWER(TRIM(?))
+         ORDER BY CASE WHEN LOWER(u.status) = 'active' THEN 0 ELSE 1 END, u.updated_at DESC, u.id DESC
+         LIMIT 6`,
+        [cityParam]
+      )
+    : await pool.query(
+        `SELECT id, name, role, status
+         FROM users
+         WHERE is_deleted = 0
+         ORDER BY CASE WHEN LOWER(status) = 'active' THEN 0 ELSE 1 END, updated_at DESC, id DESC
+         LIMIT 6`
+      );
   dashboard.employees = teamRows.map((row) => ({
     id: row.id,
     name: row.name,
@@ -2980,7 +3069,7 @@ async function buildDashboardData(user, activePath = '/dashboard') {
   const dashboard = buildDashboard(user, activePath);
 
   if (['admin', 'superadmin'].includes(String(user.role || '').toLowerCase()) || isSuperAdminUser(user)) {
-    await applyAdminDashboardStats(dashboard);
+    await applyAdminDashboardStats(dashboard, user);
   }
 
   if (user.role === 'Vendor') {
@@ -6899,6 +6988,7 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
     user: req.session.user,
     permissionLabels,
     canManageCommissions,
+    isSuperAdmin: isSuperAdminUser(req.session.user),
     maintenance: canRunMaintenance ? await getAdminMaintenanceStats() : null,
     databaseBackups,
     error: req.query.error || null,
