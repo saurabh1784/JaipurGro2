@@ -304,7 +304,7 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
     params.push(String(orderType).trim());
   }
   if (city) {
-    where.push('(LOWER(TRIM(COALESCE(NULLIF(o.city, \'\'), o.shipping_city, \'\'))) = LOWER(TRIM(?)))');
+    where.push('(LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, \'\'), \'\'))) = LOWER(TRIM(?)))');
     params.push(String(city).trim());
   }
 

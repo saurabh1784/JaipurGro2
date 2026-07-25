@@ -392,6 +392,9 @@ const userSeeds = [
   { name: 'Admin User', email: 'admin@example.com', password: 'password', role: 'admin' },
   { name: 'Jaipur Admin', email: 'jaipur@example.com', password: 'password', role: 'admin', city: 'Jaipur', state: 'Rajasthan', country: 'India', area: '*' },
 
+  // Operations Staff
+  { name: 'Staff User', email: 'staff@example.com', password: 'password', role: 'staff', city: 'Jaipur', state: 'Rajasthan', country: 'India', area: '*' },
+
   // 5 Clients
   { name: 'Client User 1', email: 'client1@example.com', phone: '9000000001', password: 'password', role: 'Client' },
   { name: 'Client User 2', email: 'client2@example.com', phone: '9000000002', password: 'password', role: 'Client' },
@@ -2930,16 +2933,16 @@ async function applyAdminDashboardStats(dashboard, user) {
        (SELECT COUNT(*) FROM roles) AS role_count,
        (SELECT COUNT(*) FROM products WHERE is_deleted = 0) AS product_count,
        (SELECT COUNT(*) FROM products WHERE is_deleted = 0 AND approval_status = 'pending') AS pending_products,
-       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND vp.quantity > 0 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vp.city, ''), vprof.city, ''))) = LOWER(TRIM(?)))) AS active_stock_items,
-       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND vp.quantity <= 5 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vp.city, ''), vprof.city, ''))) = LOWER(TRIM(?)))) AS low_stock_items,
+       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND vp.quantity > 0 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vprof.city, ''), ''))) = LOWER(TRIM(?)))) AS active_stock_items,
+       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND vp.quantity <= 5 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vprof.city, ''), ''))) = LOWER(TRIM(?)))) AS low_stock_items,
 
-       (SELECT COUNT(*) FROM client_orders o WHERE (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS order_count,
-       (SELECT COUNT(*) FROM client_orders o WHERE o.status = 'pending' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS pending_orders,
-       (SELECT COUNT(*) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS today_orders,
-       (SELECT COUNT(*) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE - INTERVAL '1 day' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS yesterday_orders,
-       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS today_revenue,
-       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE - INTERVAL '1 day' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS yesterday_revenue,
-       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.city, ''), o.shipping_city, ''))) = LOWER(TRIM(?)))) AS total_revenue,
+       (SELECT COUNT(*) FROM client_orders o WHERE (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS order_count,
+       (SELECT COUNT(*) FROM client_orders o WHERE o.status = 'pending' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS pending_orders,
+       (SELECT COUNT(*) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS today_orders,
+       (SELECT COUNT(*) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE - INTERVAL '1 day' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS yesterday_orders,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS today_revenue,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE DATE(o.created_at) = CURRENT_DATE - INTERVAL '1 day' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS yesterday_revenue,
+       (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS total_revenue,
        (SELECT COUNT(*) FROM support_tickets WHERE status = 'Open') AS open_support_tickets,
        (SELECT COUNT(*) FROM quotation_requests qr WHERE status = 'pending' AND (NOT ? OR LOWER(TRIM(qr.client_city)) = LOWER(TRIM(?)))) AS pending_quotations,
        (SELECT COUNT(*) FROM quotation_vendor_recipients qvr INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id WHERE qvr.status IN ('new', 'seen') AND (NOT ? OR LOWER(TRIM(qr.client_city)) = LOWER(TRIM(?)))) AS unprocessed_vendor_quotes`,
@@ -3509,6 +3512,20 @@ app.get('/login/client', (req, res) => {
   });
 });
 
+app.get('/login/staff', (req, res) => {
+  if (req.session && req.session.user) {
+    return res.redirect('/dashboard');
+  }
+  res.render('login', { error: null, selectedRole: 'staff' });
+});
+
+app.get('/staff', (req, res) => {
+  if (req.session && req.session.user) {
+    return res.redirect('/dashboard');
+  }
+  res.redirect('/login/staff');
+});
+
 app.use((req, res, next) => {
   if (req.session && req.session.user) {
     res.locals.shell = buildShell(req.session.user, req.path);
@@ -3517,25 +3534,63 @@ app.use((req, res, next) => {
 });
 
 async function handleAdminLogin(req, res) {
-  const { email, password } = req.body;
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+  const selectedRole = String(req.body.login_role || 'all').trim().toLowerCase();
 
   if (!email || !password) {
-    return res.render('login', { error: 'Please enter both email and password.' });
+    return res.render('login', { error: 'Please enter both email and password.', selectedRole });
   }
 
   try {
     const user = await getUserWithRoles(email);
     if (!user) {
-      return res.render('login', { error: 'Invalid credentials.' });
+      return res.render('login', { error: 'Invalid credentials.', selectedRole });
     }
 
-    if (['Vendor', 'Client'].includes(user.role)) {
-      return res.render('login', { error: `${user.role} users must use the ${user.role} Login page.` });
+    const userRole = String(user.role || '').toLowerCase();
+    if (['vendor', 'client'].includes(userRole)) {
+      return res.render('login', {
+        error: `${user.role} users must use the ${user.role} Login portal.`,
+        selectedRole,
+      });
+    }
+
+    const allowedSystemRoles = [
+      'superadmin', 'admin', 'staff', 'staff-l1', 'staff-l2', 'staff-l3',
+      'support-staff', 'manager', 'accountant', 'operator', 'deliveryperson'
+    ];
+
+    const isSystemUser = allowedSystemRoles.includes(userRole) ||
+      (Array.isArray(user.roles) && user.roles.some((r) => allowedSystemRoles.includes(String(r.slug || r.name || '').toLowerCase())));
+
+    if (!isSystemUser) {
+      return res.render('login', { error: 'Access denied for this portal.', selectedRole });
+    }
+
+    if (selectedRole && selectedRole !== 'all') {
+      let matchesSelected = false;
+      if (selectedRole === 'superadmin' && isSuperAdminUser(user)) {
+        matchesSelected = true;
+      } else if (selectedRole === 'admin' && (userRole === 'admin' || isSuperAdminUser(user))) {
+        matchesSelected = true;
+      } else if (selectedRole === 'staff' && (userRole.includes('staff') || userRole === 'manager' || userRole === 'operator')) {
+        matchesSelected = true;
+      } else if (userRole === selectedRole) {
+        matchesSelected = true;
+      }
+
+      if (!matchesSelected) {
+        return res.render('login', {
+          error: `This account is registered as "${user.roleName || user.role}", not as "${selectedRole}". Please switch tab to "All Roles" or select matching role.`,
+          selectedRole,
+        });
+      }
     }
 
     const passwordMatches = await bcrypt.compare(password, user.password);
     if (!passwordMatches) {
-      return res.render('login', { error: 'Invalid credentials.' });
+      return res.render('login', { error: 'Invalid credentials.', selectedRole });
     }
 
     delete user.password;
@@ -3543,7 +3598,7 @@ async function handleAdminLogin(req, res) {
     res.redirect('/dashboard');
   } catch (error) {
     console.error('Login error:', error);
-    res.render('login', { error: 'Unable to process login. Please try again later.' });
+    res.render('login', { error: 'Unable to process login. Please try again later.', selectedRole });
   }
 }
 

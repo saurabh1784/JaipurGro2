@@ -10,6 +10,9 @@ const DEFAULT_USERS = [
   { name: 'Admin User', email: 'admin@example.com', password: 'password', role: 'admin' },
   { name: 'Jaipur Admin', email: 'jaipur@example.com', password: 'password', role: 'admin', city: 'Jaipur', state: 'Rajasthan', country: 'India', area: '*' },
 
+  // Operations Staff
+  { name: 'Staff User', email: 'staff@example.com', password: 'password', role: 'staff', city: 'Jaipur', state: 'Rajasthan', country: 'India', area: '*' },
+
   // 5 Clients
   { name: 'Client User 1', email: 'client1@example.com', phone: '9000000001', password: 'password', role: 'Client' },
   { name: 'Client User 2', email: 'client2@example.com', phone: '9000000002', password: 'password', role: 'Client' },
