@@ -12,20 +12,21 @@
     :root {
       --primary: #10b981;
       --primary-dark: #059669;
-      --primary-accent: #4f46e5;
-      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #064e3b 100%);
+      --primary-gradient: linear-gradient(135deg, #10b981 0%, #047857 100%);
+      --bg-gradient: radial-gradient(circle at 50% 0%, #1e293b 0%, #0f172a 60%, #090d16 100%);
       --card-bg: rgba(255, 255, 255, 0.96);
       --text-main: #0f172a;
       --text-muted: #64748b;
-      --border-color: #cbd5e1;
+      --border-color: #e2e8f0;
     }
 
     * {
       box-sizing: border-box;
+      margin: 0;
+      padding: 0;
     }
 
     body {
-      margin: 0;
       font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
       background: var(--bg-gradient);
       min-height: 100vh;
@@ -34,26 +35,58 @@
       justify-content: center;
       padding: 1.5rem;
       color: var(--text-main);
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Ambient Background Glowing Orbs */
+    body::before {
+      content: '';
+      position: absolute;
+      width: 450px;
+      height: 450px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.22) 0%, rgba(16, 185, 129, 0) 70%);
+      top: 10%;
+      left: 20%;
+      pointer-events: none;
+      filter: blur(40px);
+      z-index: 0;
+    }
+
+    body::after {
+      content: '';
+      position: absolute;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(79, 70, 229, 0.2) 0%, rgba(79, 70, 229, 0) 70%);
+      bottom: 10%;
+      right: 20%;
+      pointer-events: none;
+      filter: blur(40px);
+      z-index: 0;
     }
 
     .portal-container {
       width: 100%;
-      max-width: 440px;
+      max-width: 450px;
+      position: relative;
+      z-index: 1;
     }
 
     .portal-card {
       background: var(--card-bg);
-      backdrop-filter: blur(20px);
-      border: 1px solid rgba(255, 255, 255, 0.25);
-      border-radius: 28px;
-      padding: 2.5rem 2.25rem;
-      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.45);
-      animation: fadeIn 0.4s ease-out;
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 32px;
+      padding: 2.75rem 2.5rem;
+      box-shadow: 0 30px 70px -15px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+      animation: fadeInCard 0.45s cubic-bezier(0.16, 1, 0.3, 1);
     }
 
-    @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(14px); }
-      to { opacity: 1; transform: translateY(0); }
+    @keyframes fadeInCard {
+      from { opacity: 0; transform: translateY(18px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
     }
 
     .site-logo-wrapper {
@@ -66,28 +99,29 @@
     }
 
     .site-logo-mark {
-      width: 58px;
-      height: 58px;
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
-      border-radius: 18px;
+      width: 60px;
+      height: 60px;
+      background: var(--primary-gradient);
+      border-radius: 20px;
       display: flex;
       align-items: center;
       justify-content: center;
       color: #ffffff;
-      box-shadow: 0 12px 25px -6px rgba(16, 185, 129, 0.45);
-      margin-bottom: 0.6rem;
-      transition: transform 0.2s ease;
+      box-shadow: 0 12px 28px -6px rgba(16, 185, 129, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+      margin-bottom: 0.65rem;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .site-logo-wrapper:hover .site-logo-mark {
-      transform: scale(1.04);
+      transform: translateY(-2px) scale(1.04);
+      box-shadow: 0 16px 32px -6px rgba(16, 185, 129, 0.55);
     }
 
     .site-brand-name {
-      font-size: 1.8rem;
+      font-size: 1.85rem;
       font-weight: 800;
       color: #0f172a;
-      letter-spacing: -0.03em;
+      letter-spacing: -0.035em;
     }
 
     .portal-header {
@@ -97,40 +131,45 @@
 
     .portal-header h1 {
       margin: 0;
-      font-size: 1.35rem;
+      font-size: 1.4rem;
       font-weight: 800;
-      letter-spacing: -0.02em;
-      color: #1e293b;
+      letter-spacing: -0.025em;
+      color: #0f172a;
     }
 
     .portal-header p {
-      margin: 0.35rem 0 0;
-      font-size: 0.88rem;
+      margin: 0.4rem 0 0;
+      font-size: 0.875rem;
       color: var(--text-muted);
       line-height: 1.45;
+      max-width: 320px;
+      margin-left: auto;
+      margin-right: auto;
     }
 
     .role-tabs {
       display: flex;
       gap: 6px;
       background: #f1f5f9;
-      padding: 4px;
-      border-radius: 14px;
-      margin-bottom: 1.5rem;
+      padding: 5px;
+      border-radius: 16px;
+      margin-bottom: 1.75rem;
+      border: 1px solid #e2e8f0;
     }
 
     .role-tab {
       flex: 1;
       border: none;
       background: transparent;
-      padding: 8px 10px;
-      font-size: 0.82rem;
+      padding: 9px 8px;
+      font-size: 0.8rem;
       font-weight: 600;
       color: var(--text-muted);
-      border-radius: 10px;
+      border-radius: 12px;
       cursor: pointer;
-      transition: all 0.2s ease;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
       text-align: center;
+      line-height: 1.2;
     }
 
     .role-tab:hover {
@@ -140,7 +179,7 @@
     .role-tab.active {
       background: #ffffff;
       color: #059669;
-      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
       font-weight: 700;
     }
 
@@ -148,14 +187,21 @@
       background: #fef2f2;
       border: 1px solid #fecaca;
       color: #dc2626;
-      padding: 0.85rem 1rem;
-      border-radius: 14px;
+      padding: 0.85rem 1.1rem;
+      border-radius: 16px;
       font-size: 0.875rem;
       font-weight: 600;
-      margin-bottom: 1.25rem;
+      margin-bottom: 1.35rem;
       display: flex;
       align-items: center;
-      gap: 0.6rem;
+      gap: 0.65rem;
+      animation: shake 0.3s ease-in-out;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-4px); }
+      75% { transform: translateX(4px); }
     }
 
     .form-group {
@@ -164,12 +210,12 @@
 
     .form-group label {
       display: block;
-      font-size: 0.8rem;
-      font-weight: 700;
-      color: #334155;
+      font-size: 0.775rem;
+      font-weight: 800;
+      color: #475569;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
-      margin-bottom: 0.45rem;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
     }
 
     .input-wrapper {
@@ -180,68 +226,77 @@
 
     .input-icon {
       position: absolute;
-      left: 14px;
+      left: 16px;
       color: #94a3b8;
       pointer-events: none;
+      transition: color 0.2s ease;
     }
 
     .form-control {
       width: 100%;
-      padding: 0.85rem 1rem 0.85rem 2.65rem;
+      height: 52px;
+      padding: 0 1rem 0 3.1rem;
       font-family: inherit;
       font-size: 0.95rem;
       border: 1.5px solid var(--border-color);
-      border-radius: 14px;
+      border-radius: 16px;
       background: #ffffff;
       color: var(--text-main);
-      transition: all 0.2s ease;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
     .form-control:focus {
       outline: none;
-      border-color: var(--primary-dark);
-      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15);
+      border-color: #10b981;
+      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.14);
+    }
+
+    .input-wrapper:focus-within .input-icon {
+      color: #10b981;
     }
 
     .password-toggle {
       position: absolute;
-      right: 12px;
+      right: 14px;
       background: none;
       border: none;
       color: #94a3b8;
       cursor: pointer;
-      padding: 4px;
+      padding: 6px;
+      border-radius: 8px;
       display: flex;
       align-items: center;
       justify-content: center;
+      transition: all 0.2s ease;
     }
 
     .password-toggle:hover {
       color: var(--text-main);
+      background: #f1f5f9;
     }
 
     .submit-btn {
       width: 100%;
-      padding: 0.9rem;
+      height: 52px;
       border: none;
-      border-radius: 14px;
-      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      border-radius: 16px;
+      background: var(--primary-gradient);
       color: #ffffff;
       font-weight: 700;
       font-size: 1rem;
       cursor: pointer;
-      box-shadow: 0 10px 22px -5px rgba(16, 185, 129, 0.45);
-      transition: all 0.2s ease;
+      box-shadow: 0 12px 28px -6px rgba(16, 185, 129, 0.45);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: 0.5rem;
-      margin-top: 0.75rem;
+      gap: 0.6rem;
+      margin-top: 1rem;
     }
 
     .submit-btn:hover {
-      transform: translateY(-1px);
-      box-shadow: 0 14px 26px -5px rgba(16, 185, 129, 0.55);
+      transform: translateY(-2px);
+      box-shadow: 0 16px 32px -6px rgba(16, 185, 129, 0.55);
     }
 
     .submit-btn:active {
@@ -249,32 +304,48 @@
     }
 
     .portal-footer {
-      margin-top: 1.75rem;
-      padding-top: 1.25rem;
+      margin-top: 1.85rem;
+      padding-top: 1.35rem;
       border-top: 1px solid #f1f5f9;
       text-align: center;
       font-size: 0.85rem;
       color: var(--text-muted);
       display: flex;
       flex-direction: column;
-      gap: 0.6rem;
+      gap: 0.7rem;
     }
 
     .portal-footer a {
-      color: var(--primary-dark);
+      color: #059669;
       text-decoration: none;
       font-weight: 700;
+      transition: color 0.2s ease;
     }
 
     .portal-footer a:hover {
+      color: #047857;
       text-decoration: underline;
+    }
+
+    .back-landing-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: transform 0.2s ease;
+    }
+
+    .back-landing-link:hover {
+      transform: translateX(-2px);
+      text-decoration: none !important;
     }
 
     .other-portals {
       display: flex;
       justify-content: center;
+      align-items: center;
       gap: 12px;
-      font-size: 0.82rem;
+      font-size: 0.83rem;
     }
   </style>
 </head>
@@ -301,7 +372,7 @@
         <p>Sign in to access your administration & operations management dashboard</p>
       </div>
 
-      <!-- Visible Role Selection Tabs (Super Admin option removed) -->
+      <!-- Segmented Role Tabs (Super Admin tab hidden, silent authentication supported) -->
       <div class="role-tabs">
         <button type="button" class="role-tab <%= (!locals.selectedRole || locals.selectedRole === 'all') ? 'active' : '' %>" onclick="setRole('all')">All Portal Roles</button>
         <button type="button" class="role-tab <%= (locals.selectedRole === 'admin') ? 'active' : '' %>" onclick="setRole('admin')">City Admin</button>
@@ -316,30 +387,29 @@
       <% } %>
 
       <form method="POST" action="/admin/login" id="loginForm">
-        <!-- Defaults to 'all' so Super Admin, Admin, and Staff login silently and seamlessly -->
         <input type="hidden" name="login_role" id="loginRoleInput" value="<%= locals.selectedRole || 'all' %>" />
 
         <div class="form-group">
           <label for="email">Email Address</label>
           <div class="input-wrapper">
-            <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-            <input id="email" type="email" name="email" class="form-control" placeholder="admin@example.com" required autofocus />
+            <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <input id="email" type="email" name="email" class="form-control" placeholder="jaipur@example.com" required autofocus />
           </div>
         </div>
 
         <div class="form-group">
           <label for="password">Password</label>
           <div class="input-wrapper">
-            <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
             <input id="password" type="password" name="password" class="form-control" placeholder="••••••••" required />
             <button type="button" class="password-toggle" onclick="togglePasswordVisibility()" aria-label="Toggle password visibility">
-              <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+              <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
             </button>
           </div>
         </div>
 
         <button type="submit" class="submit-btn" id="submitBtn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
           <span id="submitBtnText">Sign In to Dashboard</span>
         </button>
       </form>
@@ -347,10 +417,10 @@
       <div class="portal-footer">
         <div class="other-portals">
           <span>Vendor? <a href="/login/vendor">Vendor Login</a></span>
-          <span>•</span>
+          <span style="color: #cbd5e1;">•</span>
           <span>Client? <a href="/login/client">Client Login</a></span>
         </div>
-        <a href="/">← Back to Landing Page</a>
+        <a class="back-landing-link" href="/">← Back to Landing Page</a>
       </div>
     </div>
   </div>
