@@ -4597,7 +4597,18 @@ async function updateThemePreference(req, res) {
 app.put('/theme', webOrJwtAuth, updateThemePreference);
 app.put('/api/theme', webOrJwtAuth, updateThemePreference);
 
-app.get('/users', webOrJwtAuth, requireUserManagement, userController.index);
+app.use(['/users/deletion-requests', '/referral-settings', '/referral-messages', '/referral-report'], requireAuth, (req, res, next) => {
+  req.shell = buildShell(req.session.user || req.user, req.path);
+  res.locals.shell = req.shell;
+  next();
+});
+app.use('/', deletionRequestRoutes);
+
+app.get('/users', webOrJwtAuth, requireUserManagement, (req, res, next) => {
+  req.shell = buildShell(req.session.user || req.user, req.path);
+  res.locals.shell = req.shell;
+  next();
+}, userController.index);
 app.post('/users', webOrJwtAuth, requireUserManagement, userController.create);
 app.get('/users/:id', webOrJwtAuth, requireUserManagement, userController.show);
 app.put('/users/:id', webOrJwtAuth, requireUserManagement, userController.update);
@@ -4685,13 +4696,8 @@ app.use('/app-settings', requireAuth, (req, res, next) => {
   req.shell = buildShell(req.session.user || req.user, '/app-settings');
   next();
 });
-app.use(['/referral-settings', '/referral-messages', '/referral-report', '/users/deletion-requests'], requireAuth, (req, res, next) => {
-  req.shell = buildShell(req.session.user || req.user, req.path);
-  next();
-});
 app.use('/', appSettingsRoutes);
 app.use('/', referralRoutes);
-app.use('/', deletionRequestRoutes);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {

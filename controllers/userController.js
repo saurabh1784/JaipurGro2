@@ -366,6 +366,7 @@ async function index(req, res) {
   if (!wantsJson(req)) {
     return res.render('users', {
       user: req.session.user,
+      shell: req.shell || res.locals.shell || fallbackShell(req.session.user, req.path),
       isSuperAdmin: isSuper,
       adminCity: adminLocation.city,
       adminLocation,
