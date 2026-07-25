@@ -268,10 +268,10 @@ async function initProductVariantsSystem() {
 
 // Fetch all variation types with their options
 async function getAllVariationTypes() {
-  const [types] = await pool.query('SELECT * FROM variation_types WHERE status = "active" ORDER BY name ASC');
+  const [types] = await pool.query("SELECT * FROM variation_types WHERE status = 'active' ORDER BY name ASC");
   for (const t of types) {
     const [vals] = await pool.query(
-      'SELECT * FROM variation_values WHERE variation_type_id = ? AND status = "active" ORDER BY numeric_value ASC, value ASC',
+      "SELECT * FROM variation_values WHERE variation_type_id = ? AND status = 'active' ORDER BY numeric_value ASC, value ASC",
       [t.id]
     );
     t.values = vals;
@@ -312,7 +312,7 @@ async function createVariationValue({ variation_type_id, value, unit, numeric_va
 // Fetch all variants for a product
 async function getVariantsByProductId(productId) {
   const [variants] = await pool.query(
-    'SELECT * FROM product_variants WHERE product_id = ? AND status = "active" ORDER BY is_default DESC, id ASC',
+    "SELECT * FROM product_variants WHERE product_id = ? AND status = 'active' ORDER BY is_default DESC, id ASC",
     [productId]
   );
 
