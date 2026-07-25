@@ -763,6 +763,46 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
     ]
   );
   const result = applyFuzzySearch(rows.map(normalize), rawSearch);
+
+  // Batch fetch variants for returned products
+  const productIds = result.map(p => p.product_id || p.id).filter(Boolean);
+  if (productIds.length) {
+    try {
+      const placeholders = productIds.map(() => '?').join(',');
+      const [allVariants] = await pool.query(
+        `SELECT pv.*, pvv.variation_type_id, vt.name AS type_name
+         FROM product_variants pv
+         LEFT JOIN product_variant_values pvv ON pvv.product_variant_id = pv.id
+         LEFT JOIN variation_types vt ON vt.id = pvv.variation_type_id
+         WHERE pv.product_id IN (${placeholders}) AND pv.status = 'active'
+         ORDER BY pv.is_default DESC, pv.id ASC`,
+        productIds
+      );
+
+      const variantsByProdId = {};
+      (allVariants || []).forEach(v => {
+        v.price = parseFloat(v.variation_price || v.sale_price || 0);
+        v.mrp = parseFloat(v.mrp || 0);
+        v.stock = parseInt(v.stock_quantity, 10) || 0;
+        v.stock_quantity = v.stock;
+        v.weight_in_grams = parseInt(v.weight_in_grams, 10) || 0;
+        const pid = v.product_id;
+        if (!variantsByProdId[pid]) variantsByProdId[pid] = [];
+        if (!variantsByProdId[pid].some(existing => existing.id === v.id)) {
+          variantsByProdId[pid].push(v);
+        }
+      });
+
+      result.forEach(p => {
+        const pid = p.product_id || p.id;
+        p.variants = variantsByProdId[pid] || [];
+        p.has_variants = p.variants.length > 1 || (p.variants.length === 1 && !p.variants[0].is_default);
+      });
+    } catch (e) {
+      console.warn('Unable to batch fetch product variants for client:', e.message);
+    }
+  }
+
   _visibleProductsCache.set(cacheKey, { data: result, time: now });
   return result;
 }

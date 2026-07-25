@@ -307,6 +307,36 @@ const getReports = async (req, res) => {
       [vendorId]
     );
 
+    // Top-performing products & variations based on client order items
+    let topProducts = [];
+    try {
+      const [rows] = await pool.query(
+        `SELECT p.name as product_name, pv.variant_name,
+                COUNT(coi.id) as total_orders,
+                SUM(coi.quantity) as total_quantity_sold,
+                SUM(coi.price * coi.quantity) as total_revenue
+         FROM client_order_items coi
+         INNER JOIN client_orders co ON co.id = coi.order_id
+         INNER JOIN vendor_product_variants vpv ON vpv.id = coi.vendor_product_id
+         INNER JOIN products p ON p.id = vpv.product_id
+         INNER JOIN product_variants pv ON pv.id = vpv.product_variant_id
+         WHERE vpv.vendor_id = ? AND co.status NOT IN ('cancelled', 'rejected')
+         GROUP BY p.id, p.name, pv.id, pv.variant_name
+         ORDER BY total_revenue DESC, total_quantity_sold DESC
+         LIMIT 10`,
+        [vendorId]
+      );
+      topProducts = (rows || []).map(r => ({
+        product_name: r.product_name,
+        variant_name: r.variant_name,
+        total_orders: parseInt(r.total_orders, 10) || 0,
+        total_quantity_sold: parseInt(r.total_quantity_sold, 10) || 0,
+        total_revenue: parseFloat(r.total_revenue) || 0.0,
+      }));
+    } catch (e) {
+      console.warn('Unable to query top performing products for vendor:', e.message);
+    }
+
     return res.json({
       success: true,
       summary: {
@@ -318,6 +348,7 @@ const getReports = async (req, res) => {
         out_of_stock_items: outOfStockCount,
         total_inventory_value: parseFloat(totalInventoryValue.toFixed(2)),
       },
+      top_performing_products: topProducts,
       transactions
     });
   } catch (err) {
