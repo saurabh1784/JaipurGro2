@@ -3,20 +3,21 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Admin & Staff Portal Login - Grocery App</title>
+  <title>Admin Portal Login - Groxen</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/styles.css" />
   <style>
     :root {
-      --primary: #4f46e5;
-      --primary-hover: #4338ca;
-      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 40%, #31103f 100%);
+      --primary: #10b981;
+      --primary-dark: #059669;
+      --primary-accent: #4f46e5;
+      --bg-gradient: linear-gradient(135deg, #0f172a 0%, #1e1b4b 45%, #064e3b 100%);
       --card-bg: rgba(255, 255, 255, 0.96);
       --text-main: #0f172a;
       --text-muted: #64748b;
-      --border-color: #e2e8f0;
+      --border-color: #cbd5e1;
     }
 
     * {
@@ -37,22 +38,56 @@
 
     .portal-container {
       width: 100%;
-      max-width: 460px;
+      max-width: 440px;
     }
 
     .portal-card {
       background: var(--card-bg);
-      backdrop-filter: blur(16px);
-      border: 1px solid rgba(255, 255, 255, 0.2);
-      border-radius: 24px;
-      padding: 2.25rem 2rem;
-      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.35);
+      backdrop-filter: blur(20px);
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      border-radius: 28px;
+      padding: 2.5rem 2.25rem;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.45);
       animation: fadeIn 0.4s ease-out;
     }
 
     @keyframes fadeIn {
-      from { opacity: 0; transform: translateY(12px); }
+      from { opacity: 0; transform: translateY(14px); }
       to { opacity: 1; transform: translateY(0); }
+    }
+
+    .site-logo-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+      text-decoration: none;
+    }
+
+    .site-logo-mark {
+      width: 58px;
+      height: 58px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      border-radius: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      box-shadow: 0 12px 25px -6px rgba(16, 185, 129, 0.45);
+      margin-bottom: 0.6rem;
+      transition: transform 0.2s ease;
+    }
+
+    .site-logo-wrapper:hover .site-logo-mark {
+      transform: scale(1.04);
+    }
+
+    .site-brand-name {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.03em;
     }
 
     .portal-header {
@@ -60,32 +95,19 @@
       margin-bottom: 1.75rem;
     }
 
-    .portal-icon-badge {
-      width: 56px;
-      height: 56px;
-      margin: 0 auto 1rem;
-      background: linear-gradient(135deg, #4f46e5 0%, #7c3aed 100%);
-      border-radius: 16px;
-      display: flex;
-      align-items: center;
-      justify-content: center;
-      color: #ffffff;
-      box-shadow: 0 10px 20px -5px rgba(79, 70, 229, 0.4);
-    }
-
     .portal-header h1 {
       margin: 0;
-      font-size: 1.6rem;
+      font-size: 1.35rem;
       font-weight: 800;
       letter-spacing: -0.02em;
-      color: #0f172a;
+      color: #1e293b;
     }
 
     .portal-header p {
-      margin: 0.4rem 0 0;
-      font-size: 0.9rem;
+      margin: 0.35rem 0 0;
+      font-size: 0.88rem;
       color: var(--text-muted);
-      line-height: 1.4;
+      line-height: 1.45;
     }
 
     .role-tabs {
@@ -117,7 +139,7 @@
 
     .role-tab.active {
       background: #ffffff;
-      color: var(--primary);
+      color: #059669;
       box-shadow: 0 2px 6px rgba(0, 0, 0, 0.08);
       font-weight: 700;
     }
@@ -127,27 +149,27 @@
       border: 1px solid #fecaca;
       color: #dc2626;
       padding: 0.85rem 1rem;
-      border-radius: 12px;
+      border-radius: 14px;
       font-size: 0.875rem;
-      font-weight: 500;
+      font-weight: 600;
       margin-bottom: 1.25rem;
       display: flex;
       align-items: center;
-      gap: 0.5rem;
+      gap: 0.6rem;
     }
 
     .form-group {
-      margin-bottom: 1.15rem;
+      margin-bottom: 1.25rem;
     }
 
     .form-group label {
       display: block;
-      font-size: 0.825rem;
+      font-size: 0.8rem;
       font-weight: 700;
       color: #334155;
       text-transform: uppercase;
       letter-spacing: 0.04em;
-      margin-bottom: 0.4rem;
+      margin-bottom: 0.45rem;
     }
 
     .input-wrapper {
@@ -165,11 +187,11 @@
 
     .form-control {
       width: 100%;
-      padding: 0.8rem 1rem 0.8rem 2.6rem;
+      padding: 0.85rem 1rem 0.85rem 2.65rem;
       font-family: inherit;
       font-size: 0.95rem;
       border: 1.5px solid var(--border-color);
-      border-radius: 12px;
+      border-radius: 14px;
       background: #ffffff;
       color: var(--text-main);
       transition: all 0.2s ease;
@@ -177,8 +199,8 @@
 
     .form-control:focus {
       outline: none;
-      border-color: var(--primary);
-      box-shadow: 0 0 0 4px rgba(79, 70, 229, 0.12);
+      border-color: var(--primary-dark);
+      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.15);
     }
 
     .password-toggle {
@@ -200,87 +222,48 @@
 
     .submit-btn {
       width: 100%;
-      padding: 0.875rem;
+      padding: 0.9rem;
       border: none;
       border-radius: 14px;
-      background: linear-gradient(135deg, #4f46e5 0%, #4338ca 100%);
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
       color: #ffffff;
       font-weight: 700;
-      font-size: 0.975rem;
+      font-size: 1rem;
       cursor: pointer;
-      box-shadow: 0 10px 20px -5px rgba(79, 70, 229, 0.4);
+      box-shadow: 0 10px 22px -5px rgba(16, 185, 129, 0.45);
       transition: all 0.2s ease;
       display: flex;
       align-items: center;
       justify-content: center;
       gap: 0.5rem;
-      margin-top: 0.5rem;
+      margin-top: 0.75rem;
     }
 
     .submit-btn:hover {
       transform: translateY(-1px);
-      box-shadow: 0 14px 24px -5px rgba(79, 70, 229, 0.5);
+      box-shadow: 0 14px 26px -5px rgba(16, 185, 129, 0.55);
     }
 
     .submit-btn:active {
       transform: translateY(0);
     }
 
-    .demo-credentials-section {
-      margin-top: 1.5rem;
-      padding-top: 1.25rem;
-      border-top: 1px dashed var(--border-color);
-    }
-
-    .demo-title {
-      font-size: 0.775rem;
-      font-weight: 700;
-      color: #64748b;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-bottom: 0.6rem;
-      text-align: center;
-    }
-
-    .demo-pills {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 6px;
-      justify-content: center;
-    }
-
-    .demo-pill {
-      background: #f8fafc;
-      border: 1px solid #cbd5e1;
-      border-radius: 20px;
-      padding: 5px 12px;
-      font-size: 0.78rem;
-      font-weight: 600;
-      color: #475569;
-      cursor: pointer;
-      transition: all 0.2s ease;
-    }
-
-    .demo-pill:hover {
-      background: #e0e7ff;
-      border-color: #a5b4fc;
-      color: #3730a3;
-    }
-
     .portal-footer {
-      margin-top: 1.5rem;
+      margin-top: 1.75rem;
+      padding-top: 1.25rem;
+      border-top: 1px solid #f1f5f9;
       text-align: center;
       font-size: 0.85rem;
       color: var(--text-muted);
       display: flex;
       flex-direction: column;
-      gap: 0.5rem;
+      gap: 0.6rem;
     }
 
     .portal-footer a {
-      color: var(--primary);
+      color: var(--primary-dark);
       text-decoration: none;
-      font-weight: 600;
+      font-weight: 700;
     }
 
     .portal-footer a:hover {
@@ -291,50 +274,56 @@
       display: flex;
       justify-content: center;
       gap: 12px;
-      font-size: 0.8rem;
-      padding-top: 0.5rem;
+      font-size: 0.82rem;
     }
   </style>
 </head>
 <body>
   <div class="portal-container">
     <div class="portal-card">
-      <div class="portal-header">
-        <div class="portal-icon-badge">
-          <svg xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
-            <circle cx="9" cy="7" r="4"/>
-            <path d="M22 21v-2a4 4 0 0 0-3-3.87"/>
-            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+      
+      <!-- Site Logo Header -->
+      <a class="site-logo-wrapper" href="/" aria-label="Groxen Home">
+        <div class="site-logo-mark">
+          <svg viewBox="0 0 48 48" aria-hidden="true" style="width: 32px; height: 32px; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;">
+            <path d="M12 27h24l-3 12H15z" fill="none" />
+            <path d="M15 26c0-7 4-12 9-12s9 5 9 12" fill="none" />
+            <path d="M17 18c-3-3-3-7 1-10 5 1 8 4 7 9" fill="currentColor" stroke="none" />
+            <path d="M27 17c-1-5 2-9 7-10 4 4 3 9-1 12" fill="#ff8a00" stroke="none" />
+            <path d="M10 27h28M15 39h18M14 31h21" fill="none" />
           </svg>
         </div>
-        <h1>Admin & Staff Portal</h1>
-        <p>Unified login for Super Admin, City Admin, and Operations Staff</p>
+        <span class="site-brand-name">groxen</span>
+      </a>
+
+      <div class="portal-header">
+        <h1>Admin Portal</h1>
+        <p>Sign in to access your administration & operations management dashboard</p>
       </div>
 
-      <!-- Role Selection Tabs -->
+      <!-- Visible Role Selection Tabs (Super Admin option removed) -->
       <div class="role-tabs">
-        <button type="button" class="role-tab <%= (!locals.selectedRole || locals.selectedRole === 'all') ? 'active' : '' %>" onclick="setRole('all')">All Roles</button>
-        <button type="button" class="role-tab <%= (locals.selectedRole === 'superadmin') ? 'active' : '' %>" onclick="setRole('superadmin')">Super Admin</button>
-        <button type="button" class="role-tab <%= (locals.selectedRole === 'admin') ? 'active' : '' %>" onclick="setRole('admin')">Admin</button>
-        <button type="button" class="role-tab <%= (locals.selectedRole === 'staff') ? 'active' : '' %>" onclick="setRole('staff')">Staff</button>
+        <button type="button" class="role-tab <%= (!locals.selectedRole || locals.selectedRole === 'all') ? 'active' : '' %>" onclick="setRole('all')">All Portal Roles</button>
+        <button type="button" class="role-tab <%= (locals.selectedRole === 'admin') ? 'active' : '' %>" onclick="setRole('admin')">City Admin</button>
+        <button type="button" class="role-tab <%= (locals.selectedRole === 'staff') ? 'active' : '' %>" onclick="setRole('staff')">Operations Staff</button>
       </div>
 
       <% if (locals.error) { %>
         <div class="error-alert">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
           <span><%= error %></span>
         </div>
       <% } %>
 
       <form method="POST" action="/admin/login" id="loginForm">
+        <!-- Defaults to 'all' so Super Admin, Admin, and Staff login silently and seamlessly -->
         <input type="hidden" name="login_role" id="loginRoleInput" value="<%= locals.selectedRole || 'all' %>" />
 
         <div class="form-group">
           <label for="email">Email Address</label>
           <div class="input-wrapper">
             <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
-            <input id="email" type="email" name="email" class="form-control" placeholder="enter your email" required autofocus />
+            <input id="email" type="email" name="email" class="form-control" placeholder="admin@example.com" required autofocus />
           </div>
         </div>
 
@@ -350,28 +339,18 @@
         </div>
 
         <button type="submit" class="submit-btn" id="submitBtn">
-          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          <svg xmlns="http://www.w3.org/2000/svg" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
           <span id="submitBtnText">Sign In to Dashboard</span>
         </button>
       </form>
 
-      <!-- Quick Demo Credentials -->
-      <div class="demo-credentials-section">
-        <div class="demo-title">Quick Demo Login</div>
-        <div class="demo-pills">
-          <button type="button" class="demo-pill" onclick="fillDemo('superadmin@example.com', 'password', 'superadmin')">⚡ Super Admin</button>
-          <button type="button" class="demo-pill" onclick="fillDemo('jaipur@example.com', 'password', 'admin')">🏙️ Jaipur Admin</button>
-          <button type="button" class="demo-pill" onclick="fillDemo('staff@example.com', 'password', 'staff')">👤 Operations Staff</button>
-        </div>
-      </div>
-
       <div class="portal-footer">
         <div class="other-portals">
-          <span>Are you a Vendor? <a href="/login/vendor">Vendor Login</a></span>
+          <span>Vendor? <a href="/login/vendor">Vendor Login</a></span>
           <span>•</span>
           <span>Client? <a href="/login/client">Client Login</a></span>
         </div>
-        <a href="/" style="margin-top: 0.25rem;">← Back to Landing Page</a>
+        <a href="/">← Back to Landing Page</a>
       </div>
     </div>
   </div>
@@ -380,20 +359,19 @@
     function setRole(role) {
       document.getElementById('loginRoleInput').value = role;
       document.querySelectorAll('.role-tab').forEach(tab => tab.classList.remove('active'));
-      const activeTab = Array.from(document.querySelectorAll('.role-tab')).find(t => t.textContent.toLowerCase().replace(/\s+/g, '') === role.toLowerCase() || (role === 'all' && t.textContent === 'All Roles'));
+      const activeTab = Array.from(document.querySelectorAll('.role-tab')).find(t => {
+        const text = t.textContent.toLowerCase();
+        if (role === 'all' && text.includes('all')) return true;
+        if (role === 'admin' && text.includes('admin')) return true;
+        if (role === 'staff' && text.includes('staff')) return true;
+        return false;
+      });
       if (activeTab) activeTab.classList.add('active');
 
       const btnText = document.getElementById('submitBtnText');
-      if (role === 'superadmin') btnText.textContent = 'Sign In as Super Admin';
-      else if (role === 'admin') btnText.textContent = 'Sign In as Admin';
-      else if (role === 'staff') btnText.textContent = 'Sign In as Staff';
+      if (role === 'admin') btnText.textContent = 'Sign In as City Admin';
+      else if (role === 'staff') btnText.textContent = 'Sign In as Operations Staff';
       else btnText.textContent = 'Sign In to Dashboard';
-    }
-
-    function fillDemo(email, password, role) {
-      document.getElementById('email').value = email;
-      document.getElementById('password').value = password;
-      setRole(role);
     }
 
     function togglePasswordVisibility() {

@@ -514,7 +514,8 @@ async function evaluateVendorEligibility(connection, { recipientId, vendorId, pe
             COALESCE(vprof.city, '') AS vendor_city, COALESCE(vprof.area, '') AS vendor_area,
             qri.product_id, qri.product_name, qri.quantity AS required_quantity,
             p.approval_status AS product_approval_status, p.is_deleted AS product_deleted,
-            vp.id AS vendor_product_id, vp.status AS vendor_product_status, vp.quantity AS stock
+            vp.id AS vendor_product_id, vp.status AS vendor_product_status, vp.quantity AS stock,
+            vpv.id AS vpv_id, vpv.is_approved AS vpv_is_approved, vpv.is_available AS vpv_is_available, vpv.quantity AS vpv_stock
      FROM quotation_vendor_recipients qvr
      INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id
      LEFT JOIN client_profiles cp ON cp.user_id = qr.client_id
@@ -523,6 +524,10 @@ async function evaluateVendorEligibility(connection, { recipientId, vendorId, pe
      INNER JOIN quotation_request_items qri ON qri.quotation_request_id = qr.id
      LEFT JOIN products p ON p.id = qri.product_id
      LEFT JOIN vendor_products vp ON vp.vendor_id = qvr.vendor_id AND vp.product_id = qri.product_id
+     LEFT JOIN vendor_product_variants vpv ON vpv.vendor_id = qvr.vendor_id AND (
+       (qri.product_variant_id IS NOT NULL AND vpv.product_variant_id = qri.product_variant_id)
+       OR (qri.product_variant_id IS NULL AND vpv.product_id = qri.product_id)
+     )
      WHERE qvr.id = ? AND qvr.vendor_id = ?
      ORDER BY qri.id`,
     [recipientId, vendorId]
@@ -531,11 +536,11 @@ async function evaluateVendorEligibility(connection, { recipientId, vendorId, pe
 
   const head = rows[0];
   const missingProducts = rows
-    .filter((row) => !row.vendor_product_id || row.product_approval_status !== 'approved' || Boolean(row.product_deleted) || row.vendor_product_status !== 'active')
+    .filter((row) => !row.vendor_product_id || (row.vpv_id && (row.vpv_is_approved === 0 || row.vpv_is_available === 0)) || row.product_approval_status !== 'approved' || Boolean(row.product_deleted) || row.vendor_product_status !== 'active')
     .map((row) => ({ product_id: Number(row.product_id), product_name: row.product_name, required_quantity: Number(row.required_quantity || 0) }));
   const outOfStockProducts = rows
-    .filter((row) => row.vendor_product_id && row.product_approval_status === 'approved' && !Boolean(row.product_deleted) && row.vendor_product_status === 'active' && Number(row.stock || 0) < Number(row.required_quantity || 0))
-    .map((row) => ({ product_id: Number(row.product_id), vendor_product_id: Number(row.vendor_product_id), product_name: row.product_name, required_quantity: Number(row.required_quantity || 0), available_quantity: Number(row.stock || 0) }));
+    .filter((row) => row.vendor_product_id && row.product_approval_status === 'approved' && !Boolean(row.product_deleted) && row.vendor_product_status === 'active' && Number(row.vpv_stock ?? row.stock ?? 0) < Number(row.required_quantity || 0))
+    .map((row) => ({ product_id: Number(row.product_id), vendor_product_id: Number(row.vendor_product_id), product_name: row.product_name, required_quantity: Number(row.required_quantity || 0), available_quantity: Number(row.vpv_stock ?? row.stock ?? 0) }));
 
   let status = 'eligible_to_bid';
   let message = 'Eligible to bid';
@@ -554,10 +559,10 @@ async function evaluateVendorEligibility(connection, { recipientId, vendorId, pe
     message = 'Vendor not available in this area';
   } else if (missingProducts.length) {
     status = 'product_approval_required';
-    message = 'One or more products are not available in your approved product list.';
+    message = 'The selected product variation is not available in your approved inventory.';
   } else if (outOfStockProducts.length) {
     status = 'inventory_update_required';
-    message = 'One or more products are out of stock. Please update the product quantity before submitting your bid.';
+    message = 'The selected product variation is not available in your approved inventory.';
   }
 
   const result = {

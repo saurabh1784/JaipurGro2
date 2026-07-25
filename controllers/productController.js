@@ -4,6 +4,7 @@ const path = require('path');
 const xlsx = require('xlsx');
 const Catalog = require('../models/Catalog');
 const Product = require('../models/Product');
+const ProductVariant = require('../models/ProductVariant');
 const ProductSearch = require('../models/ProductSearch');
 const VendorProduct = require('../models/VendorProduct');
 const { processImageBuffer, processUploadedFile, deleteLocalImageFile } = require('../services/imageProcessingService');
@@ -235,6 +236,19 @@ async function create(req, res) {
     const imageUrlInput = req.body.image_url || req.body.imageUrl || req.body.image_link;
     data.image_url = await resolveProductImage(req.file, imageUrlInput, data.name);
     const id = await Product.create(data);
+
+    let variantsData = req.body.variants;
+    if (typeof variantsData === 'string') {
+      try { variantsData = JSON.parse(variantsData); } catch (e) { variantsData = []; }
+    }
+    await ProductVariant.saveProductVariants(id, req.body.has_variants, variantsData, {
+      ...data,
+      stock: req.body.stock || req.body.stock_quantity || 100,
+      sku: req.body.sku,
+      barcode: req.body.barcode,
+      mrp: req.body.mrp || data.price,
+    });
+
     if (hasSponsoredPayload(req.body)) {
       const payload = sponsoredPayload(req.body);
       await ProductSearch.setSponsored({
@@ -285,6 +299,19 @@ async function update(req, res) {
   const newImage = await resolveProductImage(req.file, imageUrlInput, data.name, existing.image_url);
   if (newImage) data.image_url = newImage;
   await Product.update(id, data);
+
+  let variantsData = req.body.variants;
+  if (typeof variantsData === 'string') {
+    try { variantsData = JSON.parse(variantsData); } catch (e) { variantsData = []; }
+  }
+  await ProductVariant.saveProductVariants(id, req.body.has_variants, variantsData, {
+    ...data,
+    stock: req.body.stock || req.body.stock_quantity || 100,
+    sku: req.body.sku,
+    barcode: req.body.barcode,
+    mrp: req.body.mrp || data.price,
+  });
+
   refreshVisibleProductsCache();
 
   if (hasSponsoredPayload(req.body)) {

@@ -24,6 +24,8 @@ const deliveryPersonRoutes = require('./routes/deliveryPersonRoutes');
 const deliveryTypeRoutes = require('./routes/deliveryTypeRoutes');
 const appSettingsRoutes = require('./routes/appSettingsRoutes');
 const referralRoutes = require('./routes/referralRoutes');
+const variationRoutes = require('./routes/variationRoutes');
+const ProductVariant = require('./models/ProductVariant');
 const referralController = require('./controllers/referralController');
 const deletionRequestRoutes = require('./routes/deletionRequestRoutes');
 const deletionRequestController = require('./controllers/deletionRequestController');
@@ -973,6 +975,7 @@ async function initDatabase(options = {}) {
   await referralController.initReferralTables();
   await deletionRequestController.initDeletionTables();
   await initFileStorageTable();
+  await ProductVariant.initProductVariantsSystem();
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -2758,8 +2761,9 @@ function buildShell(user, activePath = '/dashboard') {
     navItem('Roles', '/roles', 'roles.manage', 'roles', activePath.startsWith('/roles')),
     navItem('Clients', '/clients', 'clients.manage', 'clients', activePath.startsWith('/clients')),
     navItem('Vendors', '/vendors', 'vendors.manage', 'vendors', activePath.startsWith('/vendors')),
-    navGroup('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products'), [
+    navGroup('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products') || activePath.startsWith('/admin/variation-types'), [
       navItem('All Products', '/products', 'products.manage', 'products', activePath === '/products' || (activePath.startsWith('/products') && !activePath.startsWith('/products/images'))),
+      navItem('Variation Types', '/admin/variation-types', 'products.manage', 'settings', activePath.startsWith('/admin/variation-types')),
       navItem('Product Images', '/products/images', 'products.manage', 'products', activePath.startsWith('/products/images')),
     ]),
     navItem('Wallets', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
@@ -4837,6 +4841,7 @@ app.use('/app-settings', requireAuth, (req, res, next) => {
 });
 app.use('/', appSettingsRoutes);
 app.use('/', referralRoutes);
+app.use('/', variationRoutes);
 
 app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, requireAuthRole('Client'), async (req, res) => {
   try {
@@ -5887,13 +5892,22 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         );
 
         for (const orderItem of vendorOrder.items) {
+          const varId = orderItem.productVariantId || orderItem.product_variant_id || null;
+          const varName = orderItem.variantName || orderItem.variant_name || 'Default';
+          const varUnit = orderItem.unit || 'kg';
+          const weightGrams = parseInt(orderItem.weightInGrams || orderItem.weight_in_grams, 10) || 1000;
+
           await connection.query(
             `INSERT INTO client_order_items
-             (order_id, vendor_product_id, quantity, unit_price, tax_name, tax_percentage, tax_amount, taxable_amount)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+             (order_id, vendor_product_id, product_variant_id, variant_name, unit, weight_in_grams, quantity, unit_price, tax_name, tax_percentage, tax_amount, taxable_amount)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               orderId,
               orderItem.vendorProductId,
+              varId,
+              varName,
+              varUnit,
+              weightGrams,
               orderItem.quantity,
               orderItem.unitPrice,
               orderItem.taxName || null,
@@ -5904,9 +5918,16 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           );
 
           await connection.query(
-            'UPDATE vendor_products SET quantity = quantity - ? WHERE id = ?',
+            'UPDATE vendor_products SET quantity = GREATEST(0, quantity - ?) WHERE id = ?',
             [orderItem.quantity, orderItem.vendorProductId]
           );
+
+          if (varId) {
+            await connection.query(
+              'UPDATE product_variants SET stock_quantity = GREATEST(0, stock_quantity - ?) WHERE id = ?',
+              [orderItem.quantity, varId]
+            );
+          }
 
           purchasedProducts.push({ productId: orderItem.productId, quantity: orderItem.quantity });
         }

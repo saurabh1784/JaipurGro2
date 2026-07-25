@@ -211,7 +211,40 @@ async function findById(id) {
      LIMIT 1`,
     [id]
   );
-  return rows[0] ? normalizeProduct(rows[0]) : null;
+  if (!rows[0]) return null;
+  const norm = normalizeProduct(rows[0]);
+  const [variants] = await pool.query(
+    "SELECT * FROM product_variants WHERE product_id = ? AND status = 'active' ORDER BY is_default DESC, id ASC",
+    [norm.id]
+  );
+  let defaultVariantId = null;
+  const formattedVariants = variants.map((v) => {
+    if (v.is_default || !defaultVariantId) {
+      defaultVariantId = v.id;
+    }
+    const mVal = parseFloat(v.measurement_value) || 1;
+    const price = parseFloat(v.variation_price || v.sale_price || 0);
+    return {
+      id: v.id,
+      name: v.variant_name,
+      sku: v.sku,
+      barcode: v.barcode,
+      value: mVal,
+      unit: v.measurement_unit,
+      price: price,
+      mrp: parseFloat(v.mrp || 0),
+      stock: parseInt(v.stock_quantity, 10) || 0,
+      weight_in_grams: parseInt(v.weight_in_grams, 10) || 0,
+      unit_price: mVal > 0 ? parseFloat((price / mVal).toFixed(2)) : price,
+      is_default: Boolean(v.is_default),
+      image: v.image || norm.image_url,
+    };
+  });
+
+  norm.has_variants = Boolean(norm.has_variants || formattedVariants.length > 1);
+  norm.default_variant_id = defaultVariantId;
+  norm.variants = formattedVariants;
+  return norm;
 }
 
 async function findByIdOrSku(identifier) {

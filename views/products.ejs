@@ -132,7 +132,35 @@
               Sponsored Priority:
               <input id="productSponsoredPriority" type="number" step="1" value="0" style="width:70px; min-height:30px; padding:2px 6px; font-size:0.82rem; border-radius:6px; border:1px solid #7dd3fc;" />
             </label>
+          <!-- Product Variation System Section -->
+          <div style="grid-column: 1 / -1; background: #ffffff; border: 1px solid #7dd3fc; border-radius: 12px; padding: 12px; margin-top: 4px; box-shadow: 0 2px 6px rgba(56, 189, 248, 0.12);">
+            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 8px; border-bottom: 1px solid #e0f2fe; padding-bottom: 6px;">
+              <strong style="color: #0369a1; font-size: 0.85rem; font-weight: 800;">Does this product have variations?</strong>
+              <div style="display: flex; gap: 16px; font-size: 0.82rem; font-weight: 700; color: #334155;">
+                <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  <input type="radio" name="has_variants_option" id="hasVariantsNo" value="no" checked onclick="toggleVariantsMode(false)" />
+                  <span>No (Single Variant)</span>
+                </label>
+                <label style="cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  <input type="radio" name="has_variants_option" id="hasVariantsYes" value="yes" onclick="toggleVariantsMode(true)" />
+                  <span>Yes (Multiple Variations)</span>
+                </label>
+              </div>
+            </div>
+
+            <div id="variantsContainer" style="display: none; margin-top: 10px;">
+              <div style="font-size: 0.75rem; color: #0284c7; margin-bottom: 10px; font-weight: 600;">
+                Define individual variation price, MRP, stock, SKU, barcode & shipping weight. Click [Add Another] to add rows.
+              </div>
+              <div id="variantsList" style="display: flex; flex-direction: column; gap: 10px;"></div>
+              <div style="display: flex; gap: 10px; margin-top: 12px;">
+                <button type="button" onclick="addVariantRow()" style="background: linear-gradient(135deg, #0284c7, #0369a1); color: #ffffff; border: none; padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 0.82rem; cursor: pointer; display: flex; align-items: center; gap: 6px;">
+                  + Add Another Variation
+                </button>
+              </div>
+            </div>
           </div>
+
           <button class="settings-save" type="submit" id="productSubmit" style="grid-column: 1 / -1; min-height:38px; font-size:0.88rem; font-weight:700; background:linear-gradient(135deg, #0284c7, #0369a1); color:#fff; border:none; border-radius:8px; cursor:pointer; box-shadow:0 3px 10px rgba(2,132,199,0.3); margin-top:4px;">Save Product</button>
         </form>
 
@@ -808,6 +836,186 @@
       updateProductSubcategories();
       updateProductBrands();
       updateProductImagePreview('');
+      toggleVariantsMode(false);
+      document.getElementById('variantsList').innerHTML = '';
+    }
+
+    let masterVariationTypes = [];
+
+    async function loadMasterVariationTypes() {
+      try {
+        const res = await fetch('/admin/variation-types', { headers: { Accept: 'application/json' } });
+        if (res.ok) {
+          const data = await res.json();
+          if (data.types) masterVariationTypes = data.types;
+        }
+      } catch (e) {
+        console.warn('Unable to load master variation types:', e);
+      }
+    }
+
+    function toggleVariantsMode(hasVars) {
+      document.getElementById('hasVariantsNo').checked = !hasVars;
+      document.getElementById('hasVariantsYes').checked = hasVars;
+      const container = document.getElementById('variantsContainer');
+      container.style.display = hasVars ? 'block' : 'none';
+      if (hasVars && document.getElementById('variantsList').children.length === 0) {
+        addVariantRow();
+      }
+    }
+
+    function addVariantRow(data = {}) {
+      const list = document.getElementById('variantsList');
+      const rowId = 'varRow_' + Date.now() + '_' + Math.floor(Math.random() * 1000);
+      const row = document.createElement('div');
+      row.id = rowId;
+      row.className = 'variant-row-item';
+      row.style.cssText = 'background:#f8fafc; border:1px solid #cbd5e1; border-radius:10px; padding:10px 12px; display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)) 40px; gap:8px; align-items:center;';
+
+      const typeOptionsHtml = (masterVariationTypes || []).map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+
+      row.innerHTML = `
+        <input type="hidden" class="var-id" value="${data.id || ''}" />
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          Variation Type
+          <select class="var-type" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" onchange="onVariantTypeChange('${rowId}')">
+            <option value="">-- Select Type --</option>
+            ${typeOptionsHtml}
+          </select>
+        </label>
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          Value & Quick Add
+          <div style="display:flex; gap:4px;">
+            <select class="var-val-select" style="flex:1; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;">
+              <option value="">-- Select Value --</option>
+            </select>
+            <button type="button" onclick="quickAddValModal('${rowId}')" title="Quick Add New Value" style="background:#0284c7; color:#fff; border:none; padding:0 8px; border-radius:6px; font-weight:700; cursor:pointer;">+</button>
+          </div>
+        </label>
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          Unit
+          <input type="text" class="var-unit" value="${data.unit || 'kg'}" placeholder="kg, g, ml, L" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
+        </label>
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          Var Price (₹)
+          <input type="number" step="0.01" class="var-price" value="${data.price || ''}" placeholder="Price" required style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
+        </label>
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          MRP (₹)
+          <input type="number" step="0.01" class="var-mrp" value="${data.mrp || ''}" placeholder="MRP" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
+        </label>
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          Stock
+          <input type="number" class="var-stock" value="${data.stock || 10}" placeholder="Stock" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
+        </label>
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          SKU
+          <input type="text" class="var-sku" value="${data.sku || ''}" placeholder="SKU" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
+        </label>
+        <label style="font-size:0.72rem; font-weight:700; color:#334155;">
+          Weight (Grams)
+          <input type="number" class="var-weight" value="${data.weight_in_grams || 1000}" placeholder="1000g" style="width:100%; padding:4px 6px; font-size:0.8rem; border-radius:6px; border:1px solid #cbd5e1;" />
+        </label>
+        <button type="button" onclick="document.getElementById('${rowId}').remove()" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:6px; border-radius:6px; font-weight:700; cursor:pointer; margin-top:14px;" title="Remove row">✕</button>
+      `;
+
+      list.appendChild(row);
+      if (data.type_id) {
+        row.querySelector('.var-type').value = data.type_id;
+        populateVariantValues(rowId, data.type_id, data.value_id);
+      }
+    }
+
+    function populateVariantValues(rowId, typeId, selectedValId = null) {
+      const row = document.getElementById(rowId);
+      if (!row) return;
+      const valSelect = row.querySelector('.var-val-select');
+      valSelect.innerHTML = '<option value="">-- Select Value --</option>';
+
+      const type = (masterVariationTypes || []).find(t => String(t.id) === String(typeId));
+      if (type && type.values) {
+        type.values.forEach(v => {
+          const opt = document.createElement('option');
+          opt.value = v.id;
+          opt.dataset.unit = v.unit || '';
+          opt.dataset.value = v.value || '';
+          opt.textContent = `${v.value} ${v.unit || ''}`;
+          if (selectedValId && String(v.id) === String(selectedValId)) opt.selected = true;
+          valSelect.appendChild(opt);
+        });
+      }
+    }
+
+    function onVariantTypeChange(rowId) {
+      const row = document.getElementById(rowId);
+      if (!row) return;
+      const typeId = row.querySelector('.var-type').value;
+      populateVariantValues(rowId, typeId);
+    }
+
+    async function quickAddValModal(rowId) {
+      const row = document.getElementById(rowId);
+      if (!row) return;
+      const typeId = row.querySelector('.var-type').value;
+      if (!typeId) {
+        alert('Please select a Variation Type first before adding a value.');
+        return;
+      }
+      const valText = prompt('Enter new Variation Value (e.g. 1, 500, 2.5, Pouch):');
+      if (!valText || !valText.trim()) return;
+      const unitText = prompt('Enter Unit (e.g. kg, g, ml, L, pieces):', 'kg') || '';
+
+      try {
+        const res = await fetch('/api/variation-values/quick-add', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ variation_type_id: typeId, value: valText.trim(), unit: unitText.trim() }),
+        });
+        const data = await res.json();
+        if (data.success && data.value) {
+          alert('Variation Value added successfully!');
+          const typeObj = (masterVariationTypes || []).find(t => String(t.id) === String(typeId));
+          if (typeObj) {
+            typeObj.values = typeObj.values || [];
+            typeObj.values.push(data.value);
+          }
+          populateVariantValues(rowId, typeId, data.value.id);
+        } else {
+          alert(data.message || 'Unable to add variation value');
+        }
+      } catch (err) {
+        alert('Error adding variation value: ' + err.message);
+      }
+    }
+
+    function collectVariantsFormData() {
+      const isHasVar = document.getElementById('hasVariantsYes').checked;
+      if (!isHasVar) return { has_variants: false, variants: [] };
+
+      const rows = document.querySelectorAll('#variantsList .variant-row-item');
+      const variants = [];
+      rows.forEach(r => {
+        const typeSelect = r.querySelector('.var-type');
+        const valSelect = r.querySelector('.var-val-select');
+        const selectedOpt = valSelect.options[valSelect.selectedIndex];
+        const valText = selectedOpt ? (selectedOpt.dataset.value || selectedOpt.textContent) : '';
+
+        variants.push({
+          id: r.querySelector('.var-id').value || null,
+          variation_type_id: typeSelect ? typeSelect.value : null,
+          variation_value_id: valSelect ? valSelect.value : null,
+          variant_name: valText || 'Variant',
+          unit: r.querySelector('.var-unit').value || 'kg',
+          price: parseFloat(r.querySelector('.var-price').value) || 0,
+          variation_price: parseFloat(r.querySelector('.var-price').value) || 0,
+          mrp: parseFloat(r.querySelector('.var-mrp').value) || 0,
+          stock: parseInt(r.querySelector('.var-stock').value, 10) || 0,
+          stock_quantity: parseInt(r.querySelector('.var-stock').value, 10) || 0,
+          sku: r.querySelector('.var-sku').value || '',
+          weight_in_grams: parseInt(r.querySelector('.var-weight').value, 10) || 1000,
+        });
+      });
+      return { has_variants: true, variants };
     }
 
     function editProduct(id) {
@@ -984,6 +1192,12 @@
       payload.append('brand_id', document.getElementById('productBrand').value);
       payload.append('is_sponsored', document.getElementById('productSponsored').checked ? 'true' : 'false');
       payload.append('sponsored_priority', document.getElementById('productSponsoredPriority').value || '0');
+
+      // Append Product Variant System Payload
+      const varInfo = collectVariantsFormData();
+      payload.append('has_variants', varInfo.has_variants ? 'true' : 'false');
+      payload.append('variants', JSON.stringify(varInfo.variants));
+
       const imageUrlVal = document.getElementById('productImageUrl').value.trim();
       if (imageUrlVal) payload.append('image_url', imageUrlVal);
       const image = document.getElementById('productImage').files[0];
@@ -1328,6 +1542,7 @@
       window.location.href = '/products/image-upload-template';
     });
 
+    loadMasterVariationTypes();
     loadCatalog()
       .then(() => loadProducts())
       .catch((error) => {
