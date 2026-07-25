@@ -82,7 +82,7 @@ const approve = async (req, res) => {
 
     await pool.query(
       `UPDATE vendor_product_variants
-       SET approval_status = 'approved', is_available = 1, approval_note = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       SET approval_status = 'approved', is_available = 1, is_approved = 1, approval_note = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [note, userId, id]
     );
@@ -108,7 +108,7 @@ const reject = async (req, res) => {
 
     await pool.query(
       `UPDATE vendor_product_variants
-       SET approval_status = 'rejected', approval_note = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
+       SET approval_status = 'rejected', is_available = 0, is_approved = 0, approval_note = ?, approved_by = ?, approved_at = CURRENT_TIMESTAMP, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [note, userId, id]
     );
@@ -133,7 +133,7 @@ const suspend = async (req, res) => {
 
     await pool.query(
       `UPDATE vendor_product_variants
-       SET approval_status = 'suspended', approval_note = ?, updated_at = CURRENT_TIMESTAMP
+       SET approval_status = 'suspended', is_available = 0, is_approved = 0, approval_note = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [note, id]
     );
@@ -158,7 +158,7 @@ const restore = async (req, res) => {
 
     await pool.query(
       `UPDATE vendor_product_variants
-       SET approval_status = 'approved', approval_note = ?, updated_at = CURRENT_TIMESTAMP
+       SET approval_status = 'approved', is_available = 1, is_approved = 1, approval_note = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
       [note, id]
     );

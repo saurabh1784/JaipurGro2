@@ -188,10 +188,16 @@ const updateInventory = async (req, res) => {
     );
 
     if (!rows.length) {
-      return res.status(444).json({ success: false, message: 'Vendor variation inventory record not found.' });
+      return res.status(404).json({ success: false, message: 'Vendor variation inventory record not found.' });
     }
 
     const current = rows[0];
+    if (current.approval_status !== 'approved') {
+      return res.status(400).json({
+        success: false,
+        message: `Cannot update inventory. This variation is currently '${current.approval_status || 'pending'}' and must be approved by admin before inventory can be managed.`
+      });
+    }
 
     const {
       vendor_price,
