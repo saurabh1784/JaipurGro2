@@ -169,8 +169,8 @@
         <div class="product-bulk-stack">
           <form id="bulkUploadForm" class="bulk-upload-panel">
             <div>
-              <h2>Bulk Upload</h2>
-              <p>Select a main category, then upload CSV, XLS, or XLSX with name, description, price, weight_value, weight_unit, tax_name, tax_percentage, subcategory, and brand.</p>
+              <h2>Bulk Upload (Products & Variations)</h2>
+              <p>Upload CSV/XLS/XLSX with name, description, price, mrp, weight_value, weight_unit, subcategory, brand, and variation columns (has_variations, variation_type, variant_values, variant_prices, variant_mrps, variant_stocks, variant_skus, variant_images).</p>
             </div>
             <label>
               Main Category
@@ -1700,10 +1700,13 @@
       document.getElementById('deleteModal').classList.remove('active');
     });
     document.getElementById('downloadTemplate').addEventListener('click', () => {
-      const csv = 'name,description,price,weight_value,weight_unit,tax_name,tax_percentage,subcategory,subcategory_code,brand,brand_code\nSample Rice,Long grain rice,120,5,kg,GST,5,Rice,rice,Fortune,fortune\n';
+      const headers = 'name,description,price,mrp,weight_value,weight_unit,tax_name,tax_percentage,subcategory,subcategory_code,brand,brand_code,has_variations,variation_type,variant_values,variant_prices,variant_mrps,variant_stocks,variant_skus,variant_images\n';
+      const row1 = 'Sample Sugar,Pure crystal sugar,50,60,1,kg,GST,5,Sugar,sugar,Tata,tata,No,,,,,,,\n';
+      const row2 = 'Sample Basmati Rice,Premium extra long grain basmati rice,120,150,1,kg,GST,5,Rice,rice,Fortune,fortune,Yes,Weight,500g|1kg|5kg|10kg,65|120|580|1100,75|140|650|1250,50|50|20|10,RICE-500G|RICE-1KG|RICE-5KG|RICE-10KG,https://example.com/rice-500g.jpg|https://example.com/rice-1kg.jpg|https://example.com/rice-5kg.jpg|https://example.com/rice-10kg.jpg\n';
+      const csv = headers + row1 + row2;
       const link = document.createElement('a');
       link.href = URL.createObjectURL(new Blob([csv], { type: 'text/csv' }));
-      link.download = 'product-upload-template.csv';
+      link.download = 'product-variations-upload-template.csv';
       link.click();
       URL.revokeObjectURL(link.href);
     });

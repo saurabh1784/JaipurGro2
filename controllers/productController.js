@@ -7,7 +7,7 @@ const Product = require('../models/Product');
 const ProductVariant = require('../models/ProductVariant');
 const ProductSearch = require('../models/ProductSearch');
 const VendorProduct = require('../models/VendorProduct');
-const { processImageBuffer, processUploadedFile, deleteLocalImageFile } = require('../services/imageProcessingService');
+const { processImageBuffer, processUploadedFile, deleteLocalImageFile, downloadImageFromUrl } = require('../services/imageProcessingService');
 
 function refreshVisibleProductsCache() {
   if (VendorProduct.invalidateVisibleProductsCache) {
@@ -535,6 +535,116 @@ async function normalizeSmartBulkRow({ row, rowNumber, category, subcategoryMap,
 
   return { rowNumber, data };
 }
+
+async function parseVariantsFromRow(row, productId, defaultPrice, defaultMrp, defaultWeightVal, defaultWeightUnit) {
+  const hasVarsRaw = String(getCell(row, ['has_variations', 'has_variants', 'has_variations?', 'has variations', 'has variants', 'variations', 'is_variant', 'is_variation']) || '').trim().toLowerCase();
+  const isMultiVar = ['yes', 'y', 'true', '1'].includes(hasVarsRaw);
+
+  const rawVarType = String(getCell(row, ['variation_type', 'variation type', 'variant_type', 'type']) || 'Weight').trim();
+  const rawValues = String(getCell(row, ['variant_values', 'variant values', 'variation_values', 'values', 'variant_options', 'options']) || '').trim();
+  const rawPrices = String(getCell(row, ['variant_prices', 'variant prices', 'variation_prices', 'prices']) || '').trim();
+  const rawMrps = String(getCell(row, ['variant_mrps', 'variant mrps', 'variation_mrps', 'mrps']) || '').trim();
+  const rawStocks = String(getCell(row, ['variant_stocks', 'variant stocks', 'variation_stocks', 'stocks', 'quantities']) || '').trim();
+  const rawSkus = String(getCell(row, ['variant_skus', 'variant skus', 'variation_skus', 'skus']) || '').trim();
+  const rawImages = String(getCell(row, ['variant_images', 'variant images', 'variation_images', 'images', 'variant_image_urls']) || '').trim();
+  const rawSpec = String(getCell(row, ['variants_spec', 'variants', 'variation_spec', 'variant_data']) || '').trim();
+
+  const variantsData = [];
+
+  let variationTypeId = null;
+  if (rawVarType) {
+    try {
+      const pool = require('../db');
+      const [types] = await pool.query(
+        "SELECT id FROM variation_types WHERE LOWER(name) = LOWER(?) OR LOWER(code) = LOWER(?) LIMIT 1",
+        [rawVarType, rawVarType]
+      );
+      if (types.length) variationTypeId = types[0].id;
+    } catch (e) {}
+  }
+
+  if (rawValues) {
+    const valuesArr = rawValues.split(/[|;]/).map(s => s.trim()).filter(Boolean);
+    const pricesArr = rawPrices ? rawPrices.split(/[|;]/).map(s => parseFloat(s.trim()) || 0) : [];
+    const mrpsArr = rawMrps ? rawMrps.split(/[|;]/).map(s => parseFloat(s.trim()) || 0) : [];
+    const stocksArr = rawStocks ? rawStocks.split(/[|;]/).map(s => parseInt(s.trim(), 10) || 0) : [];
+    const skusArr = rawSkus ? rawSkus.split(/[|;]/).map(s => s.trim()) : [];
+    const imagesArr = rawImages ? rawImages.split(/[|;]/).map(s => s.trim()) : [];
+
+    for (let i = 0; i < valuesArr.length; i++) {
+      const valStr = valuesArr[i];
+      const pr = pricesArr[i] !== undefined && !isNaN(pricesArr[i]) && pricesArr[i] > 0 ? pricesArr[i] : (parseFloat(defaultPrice) || 0);
+      const mr = mrpsArr[i] !== undefined && !isNaN(mrpsArr[i]) && mrpsArr[i] > 0 ? mrpsArr[i] : (parseFloat(defaultMrp) || pr);
+      const st = stocksArr[i] !== undefined && !isNaN(stocksArr[i]) ? stocksArr[i] : 10;
+      const sk = skusArr[i] || `SKU-${productId}-${i + 1}`;
+      const img = imagesArr[i] || null;
+
+      const match = valStr.match(/^([\d.]+)\s*([a-zA-Z]+)?$/);
+      let mVal = parseFloat(defaultWeightVal) || 1;
+      let mUnit = String(defaultWeightUnit || 'kg').trim();
+      if (match) {
+        mVal = parseFloat(match[1]) || mVal;
+        if (match[2]) mUnit = match[2];
+      }
+
+      let variationValueId = null;
+      if (variationTypeId) {
+        try {
+          const pool = require('../db');
+          const [vals] = await pool.query(
+            "SELECT id FROM variation_values WHERE variation_type_id = ? AND (LOWER(value) = LOWER(?) OR LOWER(unit) = LOWER(?)) LIMIT 1",
+            [variationTypeId, valStr, valStr]
+          );
+          if (vals.length) variationValueId = vals[0].id;
+        } catch (e) {}
+      }
+
+      variantsData.push({
+        variation_type_id: variationTypeId,
+        variation_value_id: variationValueId,
+        variant_name: valStr,
+        measurement_value: mVal,
+        measurement_unit: mUnit,
+        value: mVal,
+        unit: mUnit,
+        price: pr,
+        variation_price: pr,
+        mrp: mr,
+        stock: st,
+        stock_quantity: st,
+        sku: sk,
+        weight_in_grams: weightToKg(mVal, mUnit) * 1000,
+        image: img,
+      });
+    }
+  } else if (rawSpec) {
+    const items = rawSpec.split('|').map(s => s.trim()).filter(Boolean);
+    for (let i = 0; i < items.length; i++) {
+      const parts = items[i].split(':').map(p => p.trim());
+      const vVal = parts[1] || parts[0] || `Option ${i + 1}`;
+      const pr = parseFloat(parts[2]) || parseFloat(defaultPrice) || 0;
+      const mr = parseFloat(parts[3]) || parseFloat(defaultMrp) || pr;
+      const st = parseInt(parts[4], 10) || 10;
+      const sk = parts[5] || `SKU-${productId}-${i + 1}`;
+      const img = parts[6] || null;
+
+      variantsData.push({
+        variant_name: vVal,
+        value: vVal,
+        unit: defaultWeightUnit || 'kg',
+        price: pr,
+        variation_price: pr,
+        mrp: mr,
+        stock: st,
+        stock_quantity: st,
+        sku: sk,
+        image: img,
+      });
+    }
+  }
+
+  return { isMultiVar: isMultiVar || variantsData.length > 0, variantsData };
+}
 function csvEscape(value) {
   const text = String(value === null || value === undefined ? '' : value);
   return /[",\r\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
@@ -912,8 +1022,43 @@ async function bulkUpload(req, res) {
 
     try {
       normalized.data.image_url = null;
+      const rawImgUrl = getCell(row, ['image_url', 'image url', 'image', 'picture', 'product_image']);
+      if (rawImgUrl && typeof rawImgUrl === 'string' && (rawImgUrl.startsWith('http://') || rawImgUrl.startsWith('https://'))) {
+        try {
+          const downloaded = await downloadImageFromUrl(rawImgUrl.trim(), 'product', safeFileBase(normalized.data.name));
+          if (downloaded) normalized.data.image_url = downloaded;
+        } catch (e) {
+          console.warn('Bulk main product image download failed:', e.message);
+        }
+      }
+
       const id = await Product.create(normalized.data);
-      const uploaded = { id, rowNumber, identifier: normalized.data.name, image_url: '/default.png' };
+
+      // Parse & save variations for this product
+      const { isMultiVar, variantsData } = await parseVariantsFromRow(
+        row,
+        id,
+        normalized.data.price,
+        getCell(row, ['mrp']) || normalized.data.price,
+        normalized.data.weight_value,
+        normalized.data.weight_unit
+      );
+
+      await ProductVariant.saveProductVariants(id, isMultiVar ? 1 : 0, variantsData, {
+        ...normalized.data,
+        stock: getCell(row, ['stock', 'stock_quantity', 'quantity']) || 100,
+        sku: getCell(row, ['sku']),
+        barcode: getCell(row, ['barcode']),
+        mrp: getCell(row, ['mrp']) || normalized.data.price,
+      });
+
+      const uploaded = {
+        id,
+        rowNumber,
+        identifier: normalized.data.name,
+        image_url: normalized.data.image_url || '/default.png',
+        variants_count: variantsData.length,
+      };
       created.push(uploaded);
     } catch (error) {
       failed.push({
