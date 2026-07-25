@@ -844,12 +844,31 @@
 
     let masterVariationTypes = [];
 
+    function updateAllVariantTypeDropdowns() {
+      const typeOptionsHtml = (masterVariationTypes || []).map(t => `<option value="${t.id}">${t.name}</option>`).join('');
+      const rows = document.querySelectorAll('#variantsList .variant-row-item');
+      rows.forEach(row => {
+        const typeSelect = row.querySelector('.var-type');
+        if (typeSelect) {
+          const currentVal = typeSelect.value;
+          typeSelect.innerHTML = `<option value="">-- Select Type --</option>${typeOptionsHtml}`;
+          if (currentVal) typeSelect.value = currentVal;
+        }
+      });
+    }
+
     async function loadMasterVariationTypes() {
       try {
-        const res = await fetch('/admin/variation-types', { headers: { Accept: 'application/json' } });
+        let res = await fetch('/api/variation-types', { headers: { Accept: 'application/json' } });
+        if (!res.ok) {
+          res = await fetch('/admin/variation-types', { headers: { Accept: 'application/json' } });
+        }
         if (res.ok) {
           const data = await res.json();
-          if (data.types) masterVariationTypes = data.types;
+          if (data.types && Array.isArray(data.types)) {
+            masterVariationTypes = data.types;
+            updateAllVariantTypeDropdowns();
+          }
         }
       } catch (e) {
         console.warn('Unable to load master variation types:', e);

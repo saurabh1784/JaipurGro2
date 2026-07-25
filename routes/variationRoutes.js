@@ -10,6 +10,7 @@ router.post('/admin/variation-values', variationController.saveValue);
 router.post('/admin/variation-values/:id/delete', variationController.deleteValue);
 
 // API Routes
+router.get('/api/variation-types', variationController.getTypesApi);
 router.post('/api/variation-values/quick-add', variationController.quickAddValue);
 
 module.exports = router;

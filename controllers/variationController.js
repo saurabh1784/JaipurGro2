@@ -5,7 +5,7 @@ const ProductVariant = require('../models/ProductVariant');
 function canManageVariations(user) {
   if (!user) return false;
   const role = String(user.role || '').toLowerCase();
-  if (role === 'superadmin' || role === 'admin') return true;
+  if (['superadmin', 'admin', 'vendor', 'manager', 'staff'].includes(role)) return true;
 
   // Check staff permissions
   if (Array.isArray(user.permissions) && (user.permissions.includes('products.manage') || user.permissions.includes('variations.manage'))) {
@@ -14,15 +14,23 @@ function canManageVariations(user) {
   return false;
 }
 
-// Render Admin Variation Types & Values Management Page
+// Render Admin Variation Types & Values Management Page or Return JSON
 const index = async (req, res) => {
   try {
     const user = req.session.user || req.user;
     if (!canManageVariations(user)) {
+      if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+        return res.status(403).json({ success: false, message: 'Forbidden' });
+      }
       return res.status(403).send('Forbidden: You do not have permission to manage variation types.');
     }
 
     const types = await ProductVariant.getAllVariationTypes();
+
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.json({ success: true, types });
+    }
+
     const shell = req.shell || res.locals.shell || { navItems: [] };
 
     res.render('variation_types', {
@@ -35,7 +43,21 @@ const index = async (req, res) => {
     });
   } catch (err) {
     console.error('Error rendering variation types:', err);
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.status(500).json({ success: false, message: err.message });
+    }
     res.status(500).send('Error loading variation types page');
+  }
+};
+
+// API Endpoint: Get All Variation Types
+const getTypesApi = async (req, res) => {
+  try {
+    const types = await ProductVariant.getAllVariationTypes();
+    return res.json({ success: true, types });
+  } catch (err) {
+    console.error('Error fetching variation types API:', err);
+    return res.status(500).json({ success: false, message: err.message });
   }
 };
 
@@ -184,6 +206,7 @@ const deleteValue = async (req, res) => {
 
 module.exports = {
   index,
+  getTypesApi,
   saveType,
   saveValue,
   quickAddValue,
