@@ -247,6 +247,7 @@ async function create(req, res) {
       sku: req.body.sku,
       barcode: req.body.barcode,
       mrp: req.body.mrp || data.price,
+      image_url: data.image_url,
     });
 
     if (hasSponsoredPayload(req.body)) {
@@ -300,6 +301,8 @@ async function update(req, res) {
   if (newImage) data.image_url = newImage;
   await Product.update(id, data);
 
+  const currentProduct = await Product.findById(id);
+
   let variantsData = req.body.variants;
   if (typeof variantsData === 'string') {
     try { variantsData = JSON.parse(variantsData); } catch (e) { variantsData = []; }
@@ -310,6 +313,7 @@ async function update(req, res) {
     sku: req.body.sku,
     barcode: req.body.barcode,
     mrp: req.body.mrp || data.price,
+    image_url: currentProduct ? currentProduct.image_url : (data.image_url || existing.image_url),
   });
 
   refreshVisibleProductsCache();

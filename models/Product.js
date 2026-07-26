@@ -225,6 +225,10 @@ async function findById(id) {
     }
     const mVal = parseFloat(v.measurement_value) || 1;
     const price = parseFloat(v.variation_price || v.sale_price || 0);
+
+    const rawVarImg = (v.image && String(v.image).trim() && String(v.image).trim() !== 'null') ? String(v.image).trim() : null;
+    const isCustomVarImage = Boolean(rawVarImg && rawVarImg !== norm.image_url);
+
     return {
       id: v.id,
       name: v.variant_name,
@@ -238,7 +242,8 @@ async function findById(id) {
       weight_in_grams: parseInt(v.weight_in_grams, 10) || 0,
       unit_price: mVal > 0 ? parseFloat((price / mVal).toFixed(2)) : price,
       is_default: Boolean(v.is_default),
-      image: v.image || norm.image_url,
+      custom_image: isCustomVarImage ? rawVarImg : null,
+      image: isCustomVarImage ? rawVarImg : norm.image_url,
     };
   });
 

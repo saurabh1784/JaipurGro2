@@ -233,7 +233,7 @@ async function initProductVariantsSystem() {
       const [insRes] = await pool.query(
         `INSERT INTO product_variants
            (product_id, variant_name, sku, mrp, variation_price, sale_price, stock_quantity, weight_in_grams, measurement_value, measurement_unit, image, is_default, status)
-         VALUES (?, ?, ?, ?, ?, ?, 100, ?, ?, ?, ?, 1, 'active')`,
+         VALUES (?, ?, ?, ?, ?, ?, 100, ?, ?, ?, NULL, 1, 'active')`,
         [
           prod.id,
           'Default',
@@ -244,7 +244,6 @@ async function initProductVariantsSystem() {
           weightGrams,
           weightVal,
           weightUnit,
-          prod.image_url || null,
         ]
       );
       const variantId = insRes.insertId;
@@ -318,7 +317,7 @@ async function getVariantsByProductId(productId) {
   );
 
   const [prodRows] = await pool.query('SELECT image_url FROM products WHERE id = ?', [productId]);
-  const mainProductImg = (prodRows[0] && prodRows[0].image_url) ? prodRows[0].image_url : '/default.png';
+  const mainProductImg = (prodRows[0] && prodRows[0].image_url) ? String(prodRows[0].image_url).trim() : '/default.png';
 
   for (const v of variants) {
     v.price = parseFloat(v.variation_price || v.sale_price || 0);
@@ -329,8 +328,12 @@ async function getVariantsByProductId(productId) {
     // Calculate base unit price (e.g. 5 kg for $20 = $4/kg)
     const mVal = parseFloat(v.measurement_value) || 1;
     v.unit_price = mVal > 0 ? parseFloat((v.price / mVal).toFixed(2)) : v.price;
-    v.custom_image = v.image || null;
-    v.image = (v.image && String(v.image).trim()) ? String(v.image).trim() : mainProductImg;
+
+    const rawVarImg = (v.image && String(v.image).trim() && String(v.image).trim() !== 'null') ? String(v.image).trim() : null;
+    const isCustomVarImage = Boolean(rawVarImg && rawVarImg !== mainProductImg);
+
+    v.custom_image = isCustomVarImage ? rawVarImg : null;
+    v.image = isCustomVarImage ? rawVarImg : mainProductImg;
 
     const [valRows] = await pool.query(
       `SELECT pvv.*, vt.name as type_name, vt.code as type_code, vv.value as val_text, vv.unit as val_unit
@@ -358,9 +361,13 @@ async function getVariantById(variantId) {
   v.unit_price = mVal > 0 ? parseFloat((v.price / mVal).toFixed(2)) : v.price;
 
   const [prodRows] = await pool.query('SELECT image_url FROM products WHERE id = ?', [v.product_id]);
-  const mainProductImg = (prodRows[0] && prodRows[0].image_url) ? prodRows[0].image_url : '/default.png';
-  v.custom_image = v.image || null;
-  v.image = (v.image && String(v.image).trim()) ? String(v.image).trim() : mainProductImg;
+  const mainProductImg = (prodRows[0] && prodRows[0].image_url) ? String(prodRows[0].image_url).trim() : '/default.png';
+
+  const rawVarImg = (v.image && String(v.image).trim() && String(v.image).trim() !== 'null') ? String(v.image).trim() : null;
+  const isCustomVarImage = Boolean(rawVarImg && rawVarImg !== mainProductImg);
+
+  v.custom_image = isCustomVarImage ? rawVarImg : null;
+  v.image = isCustomVarImage ? rawVarImg : mainProductImg;
   return v;
 }
 
@@ -372,7 +379,7 @@ async function saveProductVariants(productId, hasVariants, variantsData, default
   await pool.query('UPDATE products SET has_variants = ? WHERE id = ?', [isHasVar ? 1 : 0, productId]);
 
   if (!isHasVar) {
-    // 1. Simple Product: Ensure single hidden default variant exists
+    // 1. Simple Product: Ensure single hidden default variant exists with NULL image so it uses main product image
     const [existingDefault] = await pool.query(
       'SELECT id FROM product_variants WHERE product_id = ? AND is_default = 1 LIMIT 1',
       [productId]
@@ -393,15 +400,15 @@ async function saveProductVariants(productId, hasVariants, variantsData, default
       await pool.query(
         `UPDATE product_variants
          SET variant_name = 'Default', sku = ?, barcode = ?, mrp = ?, variation_price = ?, sale_price = ?,
-             stock_quantity = ?, weight_in_grams = ?, measurement_value = ?, measurement_unit = ?, status = 'active'
+             stock_quantity = ?, weight_in_grams = ?, measurement_value = ?, measurement_unit = ?, image = NULL, status = 'active'
          WHERE id = ?`,
         [sku, barcode, mrp, price, price, stock, weightGrams, weightVal, weightUnit, defaultVariantId]
       );
     } else {
       const [insRes] = await pool.query(
         `INSERT INTO product_variants
-           (product_id, variant_name, sku, barcode, mrp, variation_price, sale_price, stock_quantity, weight_in_grams, measurement_value, measurement_unit, is_default, status)
-         VALUES (?, 'Default', ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, 'active')`,
+           (product_id, variant_name, sku, barcode, mrp, variation_price, sale_price, stock_quantity, weight_in_grams, measurement_value, measurement_unit, image, is_default, status)
+         VALUES (?, 'Default', ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, 1, 'active')`,
         [productId, sku, barcode, mrp, price, price, stock, weightGrams, weightVal, weightUnit]
       );
       defaultVariantId = insRes.insertId;
@@ -422,6 +429,8 @@ async function saveProductVariants(productId, hasVariants, variantsData, default
     // Mark old default variant as non-default
     await pool.query('UPDATE product_variants SET is_default = 0 WHERE product_id = ?', [productId]);
 
+    const mainProductImageUrl = String(defaultProductInfo.image_url || '').trim();
+
     for (let index = 0; index < variantsData.length; index++) {
       const v = variantsData[index];
       const variantId = v.id ? parseInt(v.id, 10) : null;
@@ -435,7 +444,11 @@ async function saveProductVariants(productId, hasVariants, variantsData, default
       const mUnit = String(v.measurement_unit || v.unit || 'kg').trim();
       const weightGrams = parseInt(v.weight_in_grams, 10) || calculateWeightInGrams(mVal, mUnit);
       const isDef = index === 0 ? 1 : 0; // First variant is primary/default
+
       let vImage = (v.image && String(v.image).trim() && String(v.image).trim() !== 'null') ? String(v.image).trim() : null;
+      if (vImage && mainProductImageUrl && vImage === mainProductImageUrl) {
+        vImage = null;
+      }
       if (vImage && (vImage.startsWith('http://') || vImage.startsWith('https://'))) {
         try {
           const downloaded = await downloadImageFromUrl(vImage, 'product', `variant-${productId}-${index + 1}`);

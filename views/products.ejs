@@ -826,6 +826,23 @@
         badgeEl.style.background = '#f1f5f9';
         badgeEl.style.color = '#64748b';
       }
+
+      // Live update variation preview thumbnails that rely on default main product image
+      const activeMainImg = getActiveMainProductImage();
+      const variantRows = document.querySelectorAll('#variantsList .variant-row-item');
+      variantRows.forEach(r => {
+        const rowId = r.id;
+        const varUrlInput = r.querySelector('.var-image');
+        const varFileInput = r.querySelector('.var-file-input');
+        const hasCustomUrl = varUrlInput && varUrlInput.value && varUrlInput.value.trim();
+        const hasCustomFile = varFileInput && varFileInput.files && varFileInput.files.length > 0;
+        if (!hasCustomUrl && !hasCustomFile) {
+          const previewImg = document.getElementById(`varPreview_${rowId}`);
+          if (previewImg) previewImg.src = activeMainImg;
+          const tag = document.getElementById(`varImgTag_${rowId}`);
+          if (tag) tag.textContent = 'Main Pic';
+        }
+      });
     }
 
     function resetForm() {
@@ -1201,7 +1218,7 @@
             stock: v.stock,
             sku: v.sku,
             weight_in_grams: v.weight_in_grams,
-            image: v.custom_image || (v.image !== currentImg ? v.image : '')
+            image: v.custom_image || ''
           });
         });
       } else {
