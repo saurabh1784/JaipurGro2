@@ -25,9 +25,18 @@
 
     <section class="vendor-management-shell">
       <div class="order-type-tabs" role="tablist" aria-label="Order type">
-        <button class="active" type="button" data-order-type="">All Orders</button>
-        <button type="button" data-order-type="direct">Direct Orders</button>
-        <button type="button" data-order-type="quotation">Bidding Orders</button>
+        <button class="active" type="button" data-order-type="">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+          <span>All Orders</span>
+        </button>
+        <button type="button" data-order-type="direct">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+          <span>Direct Orders</span>
+        </button>
+        <button type="button" data-order-type="quotation">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/></svg>
+          <span>Bidding Orders</span>
+        </button>
       </div>
       <div class="users-toolbar">
         <div>
@@ -75,33 +84,45 @@
       <div class="metric-grid" id="statsCards" aria-label="Order statistics">
         <article class="metric-card">
           <div class="metric-icon orange"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg></div>
-          <span class="metric-label">Total Orders</span>
-          <strong id="totalOrders">0</strong>
+          <div class="metric-card-info">
+            <span class="metric-label">Total Orders</span>
+            <strong id="totalOrders">0</strong>
+          </div>
         </article>
         <article class="metric-card">
           <div class="metric-icon blue"><svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg></div>
-          <span class="metric-label">Pending</span>
-          <strong id="pendingOrders">0</strong>
+          <div class="metric-card-info">
+            <span class="metric-label">Pending</span>
+            <strong id="pendingOrders">0</strong>
+          </div>
         </article>
         <article class="metric-card">
           <div class="metric-icon yellow"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 2l3 6 6 2-5 5 2 6-6-3-6 3 2-6-5-5 6-2 3-6z"/></svg></div>
-          <span class="metric-label">Assigned</span>
-          <strong id="assignedOrders">0</strong>
+          <div class="metric-card-info">
+            <span class="metric-label">Assigned</span>
+            <strong id="assignedOrders">0</strong>
+          </div>
         </article>
         <article class="metric-card">
           <div class="metric-icon green"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 6L9 17l-5-5"/></svg></div>
-          <span class="metric-label">Ready to Deliver</span>
-          <strong id="readyOrders">0</strong>
+          <div class="metric-card-info">
+            <span class="metric-label">Ready to Deliver</span>
+            <strong id="readyOrders">0</strong>
+          </div>
         </article>
         <article class="metric-card">
           <div class="metric-icon purple"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/><polyline points="9 22 9 12 15 12 15 22"/></svg></div>
-          <span class="metric-label">Out for Delivery</span>
-          <strong id="outDeliveryOrders">0</strong>
+          <div class="metric-card-info">
+            <span class="metric-label">Out for Delivery</span>
+            <strong id="outDeliveryOrders">0</strong>
+          </div>
         </article>
         <article class="metric-card">
           <div class="metric-icon teal"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M22 11h-4.17l2-4H14v-2a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v2H4l2 4h3.83l-2 4H6a2 2 0 0 0 2 2v4a2 2 0 0 0 2-2h8a2 2 0 0 0 2-2v-4a2 2 0 0 0-2-2h-1.17z"/></svg></div>
-          <span class="metric-label">Delivered</span>
-          <strong id="deliveredOrders">0</strong>
+          <div class="metric-card-info">
+            <span class="metric-label">Delivered</span>
+            <strong id="deliveredOrders">0</strong>
+          </div>
         </article>
       </div>
 
@@ -663,14 +684,15 @@
     }
 
     document.querySelectorAll('[data-order-type]').forEach((button) => {
-      button.addEventListener('click', () => {
-        selectedOrderType = button.dataset.orderType || '';
-        document.querySelectorAll('[data-order-type]').forEach((item) => item.classList.toggle('active', item === button));
+      button.addEventListener('click', (e) => {
+        const targetBtn = e.currentTarget;
+        selectedOrderType = targetBtn.dataset.orderType || '';
+        document.querySelectorAll('[data-order-type]').forEach((item) => item.classList.toggle('active', item === targetBtn));
         loadOrders(1);
       });
     });
 
-    document.getElementById('assignForm').addEventListener('submit', async (e) => {
+    document.getElementById('assignForm')?.addEventListener('submit', async (e) => {
       e.preventDefault();
       const orderId = document.getElementById('assignOrderId').value;
       const partnerId = document.getElementById('partnerSelect').value;
@@ -752,17 +774,280 @@
     loadOrders(1);
     loadVendors();
   </script>
+
   <style>
-    .order-type-tabs { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
-    .order-type-tabs button { border: 1px solid #cbd5e1; background: #fff; color: #334155; border-radius: 8px; padding: 9px 14px; font-weight: 800; cursor: pointer; }
-    .order-type-tabs button.active { background: #0f766e; border-color: #0f766e; color: #fff; }
-    .order-status-badge { display: inline-block; padding: 5px 9px; border-radius: 999px; color: #fff; font-weight: 800; font-size: 0.8rem; text-transform: capitalize; }
-    .order-status-badge.pending { background: #64748b; }
-    .order-status-badge.accepted { background: #2563eb; }
-    .order-status-badge.processing { background: #7c3aed; }
-    .order-status-badge.ready_for_pickup { background: #f59e0b; }
-    .order-status-badge.picked_up, .order-status-badge.on_the_way { background: #0891b2; }
-    .order-status-badge.delivered { background: #16a34a; }
+    .order-type-tabs {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: center !important;
+      justify-content: flex-start !important;
+      gap: 12px !important;
+      flex-wrap: wrap !important;
+      margin-bottom: 20px !important;
+      width: 100% !important;
+    }
+    .order-type-tabs button {
+      width: auto !important;
+      max-width: none !important;
+      flex: 0 0 auto !important;
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      gap: 8px !important;
+      padding: 10px 22px !important;
+      font-size: 0.88rem !important;
+      font-weight: 700 !important;
+      border-radius: 12px !important;
+      border: 1px solid #cbd5e1 !important;
+      background: #ffffff !important;
+      color: #475569 !important;
+      cursor: pointer !important;
+      white-space: nowrap !important;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.03) !important;
+    }
+    .order-type-tabs button svg {
+      width: 18px !important;
+      height: 18px !important;
+      stroke: currentColor !important;
+      fill: none !important;
+      stroke-width: 2 !important;
+      flex-shrink: 0 !important;
+      transition: transform 0.2s ease !important;
+    }
+    .order-type-tabs button:hover {
+      background: #f8fafc !important;
+      color: #0f172a !important;
+      border-color: #94a3b8 !important;
+      transform: translateY(-1px) !important;
+      box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08) !important;
+    }
+    .order-type-tabs button.active {
+      background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%) !important;
+      border-color: #0f766e !important;
+      color: #ffffff !important;
+      box-shadow: 0 4px 16px rgba(15, 118, 110, 0.3) !important;
+    }
+    .order-type-tabs button.active svg {
+      stroke: #ffffff !important;
+    }
+
+    .users-toolbar {
+      background: #ffffff !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 16px !important;
+      padding: 18px 22px !important;
+      margin-bottom: 24px !important;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.03) !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: space-between !important;
+      flex-wrap: wrap !important;
+      gap: 16px !important;
+    }
+    .users-toolbar h2 {
+      margin: 0 !important;
+      font-size: 1.15rem !important;
+      font-weight: 800 !important;
+      color: #0f172a !important;
+      font-family: Inter, sans-serif !important;
+    }
+    .users-toolbar p {
+      margin: 3px 0 0 !important;
+      font-size: 0.8rem !important;
+      color: #64748b !important;
+    }
+    .vendor-toolbar-actions {
+      display: flex !important;
+      align-items: center !important;
+      gap: 12px !important;
+      flex-wrap: wrap !important;
+    }
+    .vendor-toolbar-actions label {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 4px !important;
+      font-size: 0.75rem !important;
+      font-weight: 700 !important;
+      color: #475569 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.5px !important;
+    }
+    .vendor-toolbar-actions select {
+      height: 38px !important;
+      padding: 0 12px !important;
+      border-radius: 10px !important;
+      border: 1px solid #cbd5e1 !important;
+      background: #ffffff !important;
+      color: #1e293b !important;
+      font-size: 0.85rem !important;
+      font-weight: 600 !important;
+      min-width: 130px !important;
+      transition: all 0.2s ease !important;
+    }
+    .vendor-toolbar-actions select:focus {
+      outline: none !important;
+      border-color: #0f766e !important;
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.12) !important;
+    }
+    .vendor-toolbar-actions button {
+      height: 38px !important;
+      padding: 0 16px !important;
+      border-radius: 10px !important;
+      font-size: 0.82rem !important;
+      font-weight: 700 !important;
+      cursor: pointer !important;
+      transition: all 0.2s ease !important;
+    }
+
+    .metric-grid {
+      display: grid !important;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)) !important;
+      gap: 16px !important;
+      margin-bottom: 24px !important;
+    }
+    .metric-card {
+      background: #ffffff !important;
+      border: 1px solid #e2e8f0 !important;
+      border-radius: 16px !important;
+      padding: 16px 18px !important;
+      display: flex !important;
+      align-items: center !important;
+      gap: 14px !important;
+      box-shadow: 0 4px 18px rgba(15, 23, 42, 0.03) !important;
+      position: relative !important;
+      overflow: hidden !important;
+      transition: transform 0.2s ease, box-shadow 0.2s ease !important;
+    }
+    .metric-card:hover {
+      transform: translateY(-2px) !important;
+      box-shadow: 0 8px 25px rgba(15, 23, 42, 0.07) !important;
+    }
+    .metric-icon {
+      width: 46px !important;
+      height: 46px !important;
+      border-radius: 14px !important;
+      display: flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      flex-shrink: 0 !important;
+      position: static !important;
+      margin: 0 !important;
+    }
+    .metric-icon svg {
+      width: 22px !important;
+      height: 22px !important;
+      fill: none !important;
+      stroke-width: 2.2 !important;
+    }
+    .metric-icon.orange { background: #fff7ed !important; border: 1px solid #ffedd5 !important; }
+    .metric-icon.orange svg { stroke: #ea580c !important; }
+    .metric-icon.blue { background: #eff6ff !important; border: 1px solid #dbeafe !important; }
+    .metric-icon.blue svg { stroke: #2563eb !important; }
+    .metric-icon.yellow { background: #fefce8 !important; border: 1px solid #fef9c3 !important; }
+    .metric-icon.yellow svg { stroke: #ca8a04 !important; }
+    .metric-icon.green { background: #f0fdf4 !important; border: 1px solid #dcfce7 !important; }
+    .metric-icon.green svg { stroke: #16a34a !important; }
+    .metric-icon.purple { background: #faf5ff !important; border: 1px solid #f3e8ff !important; }
+    .metric-icon.purple svg { stroke: #9333ea !important; }
+    .metric-icon.teal { background: #f0fdfa !important; border: 1px solid #ccfbf1 !important; }
+    .metric-icon.teal svg { stroke: #0d9488 !important; }
+    .metric-card-info {
+      display: flex !important;
+      flex-direction: column !important;
+      gap: 2px !important;
+      min-width: 0 !important;
+    }
+    .metric-label {
+      font-size: 0.74rem !important;
+      font-weight: 700 !important;
+      color: #64748b !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.5px !important;
+      margin: 0 !important;
+      white-space: nowrap !important;
+      overflow: hidden !important;
+      text-overflow: ellipsis !important;
+    }
+    .metric-card strong {
+      font-size: 1.5rem !important;
+      font-weight: 800 !important;
+      color: #0f172a !important;
+      line-height: 1.1 !important;
+      margin: 2px 0 0 !important;
+      font-family: Inter, sans-serif !important;
+    }
+
+    .users-table-card {
+      background: #ffffff !important;
+      border-radius: 16px !important;
+      border: 1px solid #e2e8f0 !important;
+      box-shadow: 0 4px 20px rgba(15, 23, 42, 0.04) !important;
+      overflow: hidden !important;
+      margin-bottom: 24px !important;
+    }
+    .orders-table {
+      width: 100% !important;
+      border-collapse: collapse !important;
+    }
+    .orders-table th {
+      background: #f8fafc !important;
+      color: #475569 !important;
+      font-size: 0.76rem !important;
+      font-weight: 800 !important;
+      text-transform: uppercase !important;
+      letter-spacing: 0.5px !important;
+      padding: 14px 16px !important;
+      border-bottom: 1px solid #e2e8f0 !important;
+      white-space: nowrap !important;
+    }
+    .orders-table td {
+      padding: 14px 16px !important;
+      font-size: 0.85rem !important;
+      color: #1e293b !important;
+      border-bottom: 1px solid #f1f5f9 !important;
+      vertical-align: middle !important;
+    }
+    .orders-table tbody tr:hover {
+      background-color: #f8fafc !important;
+    }
+
+    .order-status-badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      justify-content: center !important;
+      padding: 5px 12px !important;
+      border-radius: 999px !important;
+      font-weight: 800 !important;
+      font-size: 0.76rem !important;
+      text-transform: capitalize !important;
+      letter-spacing: 0.3px !important;
+      white-space: nowrap !important;
+    }
+    .order-status-badge.pending { background: #f1f5f9 !important; color: #475569 !important; }
+    .order-status-badge.accepted { background: #dbeafe !important; color: #1d4ed8 !important; }
+    .order-status-badge.processing { background: #f3e8ff !important; color: #7e22ce !important; }
+    .order-status-badge.ready_for_pickup { background: #fef3c7 !important; color: #b45309 !important; }
+    .order-status-badge.picked_up, .order-status-badge.on_the_way { background: #cffafe !important; color: #0e7490 !important; }
+    .order-status-badge.delivered { background: #dcfce7 !important; color: #15803d !important; }
+    .order-status-badge.cancelled { background: #ffe4e6 !important; color: #be123c !important; }
+
+    .badge {
+      display: inline-flex !important;
+      align-items: center !important;
+      padding: 4px 10px !important;
+      border-radius: 999px !important;
+      font-weight: 800 !important;
+      font-size: 0.75rem !important;
+      white-space: nowrap !important;
+    }
+    .badge.pending { background: #f1f5f9 !important; color: #475569 !important; }
+    .badge.assigned { background: #fef3c7 !important; color: #b45309 !important; }
+    .badge.ready_to_deliver { background: #dcfce7 !important; color: #15803d !important; }
+    .badge.out_for_delivery { background: #f3e8ff !important; color: #7e22ce !important; }
+    .badge.delivered { background: #d1fae5 !important; color: #047857 !important; }
+    .badge.cancelled { background: #ffe4e6 !important; color: #be123c !important; }
+
     .order-detail-modal-card { width: min(94vw, 1040px); max-width: 1040px; padding: 0; overflow: hidden; }
     .order-detail-modal-card .user-modal-header { padding: 18px 22px; background: #fff; }
     #orderDetailContent { max-height: calc(90vh - 68px); overflow-y: auto; padding: 22px; background: #f6f8fb; }
@@ -774,7 +1059,7 @@
       gap: 18px;
       padding: 20px;
       border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      border-radius: 12px;
       background: linear-gradient(135deg, #ffffff 0%, #f8fbff 100%);
     }
     .order-detail-kicker { color: #0891b2; font-size: 0.75rem; font-weight: 900; letter-spacing: 0; text-transform: uppercase; }
@@ -786,7 +1071,7 @@
       min-height: 112px;
       padding: 16px;
       border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      border-radius: 12px;
       background: #fff;
       box-shadow: 0 8px 20px rgba(15, 23, 42, 0.05);
     }
@@ -798,7 +1083,7 @@
     .order-info-grid section {
       padding: 16px;
       border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      border-radius: 12px;
       background: #fff;
     }
     .order-info-grid h4, .order-detail-section-title h4 { margin: 0 0 10px; color: #172033; font-size: 1rem; }
@@ -812,14 +1097,14 @@
       gap: 10px;
       padding: 13px 14px;
       border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      border-radius: 10px;
       background: #fff;
     }
     .order-timeline-dot { width: 10px; height: 10px; margin-top: 5px; border-radius: 50%; background: #26bcd4; box-shadow: 0 0 0 4px #dff8fb; }
     .order-timeline-item strong { display: block; color: #172033; }
     .order-timeline-item span, .order-timeline-item small { display: block; margin-top: 3px; color: #64748b; }
     .order-empty-note { padding: 14px; border-radius: 8px; background: #fff; color: #64748b; font-weight: 700; }
-    .order-items-table { min-width: 0 !important; border: 1px solid #e2e8f0; border-radius: 8px; overflow: hidden; background: #fff; }
+    .order-items-table { min-width: 0 !important; border: 1px solid #e2e8f0; border-radius: 12px; overflow: hidden; background: #fff; }
     .order-items-table th { background: #f8fafc; color: #334155; }
     .assign-delivery-card { width: min(94vw, 760px); max-width: 760px; }
     .assign-delivery-card .user-modal-grid { gap: 16px; }
@@ -828,7 +1113,7 @@
       gap: 14px;
       padding: 16px;
       border: 1px solid #dbeafe;
-      border-radius: 8px;
+      border-radius: 12px;
       background: #f8fbff;
     }
     .assign-summary-hero {
@@ -839,7 +1124,7 @@
     .assign-summary-hero > div {
       padding: 13px;
       border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      border-radius: 10px;
       background: #fff;
     }
     .assign-summary-hero span,
@@ -865,7 +1150,7 @@
     .assign-order-details {
       padding: 14px;
       border: 1px solid #e2e8f0;
-      border-radius: 8px;
+      border-radius: 12px;
       background: #fff;
     }
     .assign-info-grid h3,
