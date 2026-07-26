@@ -9,13 +9,8 @@ const storage = multer.diskStorage({
   destination: (req, file, cb) => cb(null, uploadDir),
   filename: (req, file, cb) => {
     const extension = path.extname(file.originalname).toLowerCase() || '.png';
-    const safeName = String(req.body.name || req.body.product_id || 'product')
-      .trim()
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '')
-      .slice(0, 60) || 'product';
-    cb(null, `${safeName}-${Date.now()}${extension}`);
+    const rand = Math.random().toString(36).substring(2, 8);
+    cb(null, `temp-upload-${Date.now()}-${rand}${extension}`);
   },
 });
 

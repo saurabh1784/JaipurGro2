@@ -795,6 +795,17 @@ function slugify(value) {
 
 let uploadedProductImageFiles;
 
+function extractFileSlug(filename) {
+  if (!filename || typeof filename !== 'string') return '';
+  const base = filename.replace(/\.(png|jpe?g|webp|gif)$/i, '').toLowerCase();
+  if (base.startsWith('temp-upload-') || base === 'product' || base.startsWith('product-')) return '';
+  const parts = base.split('-');
+  while (parts.length > 1 && /^\d+$/.test(parts[parts.length - 1])) {
+    parts.pop();
+  }
+  return parts.join('-');
+}
+
 function uploadedProductImagePath(productName) {
   if (!uploadedProductImageFiles) {
     const uploadDir = path.join(__dirname, 'public', 'uploads', 'products');
@@ -810,9 +821,13 @@ function uploadedProductImagePath(productName) {
   }
 
   const productSlug = slugify(productName);
-  const file = uploadedProductImageFiles.find((name) => (
-    name.toLowerCase().startsWith(`${productSlug}-`)
-  ));
+  if (!productSlug) return null;
+
+  const file = uploadedProductImageFiles.find((name) => {
+    const fileSlug = extractFileSlug(name);
+    return fileSlug && fileSlug === productSlug;
+  });
+
   return file ? `/uploads/products/${file}` : null;
 }
 
