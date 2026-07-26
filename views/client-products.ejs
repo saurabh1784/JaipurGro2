@@ -70,6 +70,51 @@
       </div>
     </section>
 
+    <!-- Variation Selection Side Card Drawer -->
+    <section class="variation-side-section" id="variation-side-section" style="display: none;">
+      <div class="variation-side-backdrop" onclick="closeVariationSideCard()"></div>
+      <div class="variation-side-panel">
+        <div class="variation-side-header">
+          <div class="variation-side-title-group">
+            <span class="variation-badge">Select Variation</span>
+            <h2 id="var-side-product-name">Product Name</h2>
+            <p id="var-side-product-category" class="var-side-subtext">Category Name</p>
+          </div>
+          <button type="button" onclick="closeVariationSideCard()" class="cart-close" aria-label="Close variation panel">&times;</button>
+        </div>
+
+        <div class="variation-side-body">
+          <div class="variation-product-preview">
+            <img id="var-side-product-img" src="/default.png" alt="Product" />
+            <div class="var-preview-info">
+              <span id="var-side-price-range" class="var-price-range">₹0.00</span>
+              <p id="var-side-desc" class="var-desc-text">Choose your preferred weight / package option below.</p>
+            </div>
+          </div>
+
+          <h3 class="variation-cards-heading">Available Options</h3>
+          <div id="variation-cards-container" class="variation-cards-list">
+            <!-- Dynamically populated variation cards -->
+          </div>
+
+          <div class="variation-quantity-row">
+            <span>Quantity:</span>
+            <div class="var-qty-controls">
+              <button type="button" onclick="changeVariationQty(-1)" class="var-qty-btn">-</button>
+              <input type="number" id="var-selected-qty" value="1" min="1" readonly class="var-qty-input" />
+              <button type="button" onclick="changeVariationQty(1)" class="var-qty-btn">+</button>
+            </div>
+          </div>
+        </div>
+
+        <div class="variation-side-footer">
+          <button type="button" id="btn-add-variation-cart" class="btn-add-var-cart" onclick="addSelectedVariationToCart()">
+            Add Selected Variation to Cart
+          </button>
+        </div>
+      </div>
+    </section>
+
     <section class="products-section">
       <div class="client-category-page">
         <div>
@@ -305,11 +350,20 @@
       brandFilter.innerHTML = brandOptionList(items);
     }
 
+    let allLoadedProductsMap = {};
+    let currentSelectedProduct = null;
+    let currentSelectedVariant = null;
+    let currentSelectedVariantQty = 1;
+
     function productCard(product) {
       const stockClass = product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock';
       const stockText = product.quantity > 0 ? `${product.quantity} in stock` : 'Out of stock';
       const disabled = product.quantity <= 0 ? 'disabled' : '';
       const weight = product.weight_label || `${Number(product.weight_value ?? product.weight_kg ?? 0)} ${product.weight_unit || 'kg'}`;
+      const hasVariants = product.variants && product.variants.length > 0;
+      const variantBadge = hasVariants ? `<span class="var-count-pill" onclick="handleProductAddToCart(this)" data-id="${product.id}">✨ ${product.variants.length} Options</span>` : '';
+      const buttonLabel = hasVariants ? `Select Option (${product.variants.length})` : 'Add to Cart';
+
       return `
         <div class="product-card" data-product-id="${product.id}" data-master-product-id="${product.product_id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}" data-product-description="${escapeHtml(product.description || '').toLowerCase()}">
           <div class="product-media">
@@ -325,6 +379,7 @@
               <span class="product-category">${escapeHtml(product.category_name)}</span>
               <span class="product-brand">${escapeHtml(product.brand_name)}</span>
               <span class="product-weight">${escapeHtml(weight)}</span>
+              ${variantBadge}
             </div>
             <div class="product-price"><span>Unit price</span><strong>INR ${Number(product.visible_price || 0).toFixed(2)}</strong></div>
           </div>
@@ -334,7 +389,7 @@
               <input type="number" class="qty-input" value="1" min="1" max="${product.quantity}" ${disabled} />
               <button type="button" class="qty-btn" onclick="increaseQty(this)" aria-label="Increase quantity" ${disabled}>+</button>
             </div>
-            <button type="button" class="btn-add-cart"
+            <button type="button" class="btn-add-cart ${hasVariants ? 'btn-has-variants' : ''}"
               data-id="${product.id}"
               data-vendor-product-id="${product.id}"
               data-master-product-id="${product.product_id}"
@@ -345,8 +400,8 @@
               data-weight-label="${escapeHtml(weight)}"
               data-weight-kg="${Number(product.weight_kg || 0)}"
               data-max-qty="${product.quantity}"
-              onclick="addToCartFromButton(this)"
-              ${disabled}>Add to Cart</button>
+              onclick="handleProductAddToCart(this)"
+              ${disabled}>${buttonLabel}</button>
           </div>
         </div>`;
     }
@@ -368,6 +423,12 @@
         productsGrid.innerHTML = `<p class="cart-empty">${escapeHtml(data.message || 'Unable to load products')}</p>`;
         return;
       }
+
+      allLoadedProductsMap = {};
+      (data.products || []).forEach(p => {
+        allLoadedProductsMap[p.id] = p;
+      });
+
       productsGrid.innerHTML = data.products.length
         ? data.products.map(productCard).join('')
         : '<p class="cart-empty">No products found</p>';
@@ -447,6 +508,142 @@
 
     function trackVisibleProducts(items) {
       items.slice(0, 12).forEach((product) => trackProductActivity('view', product.product_id));
+    }
+
+    function handleProductAddToCart(button) {
+      const id = Number(button.dataset.id);
+      const product = allLoadedProductsMap[id];
+      if (product && product.variants && product.variants.length > 0) {
+        openVariationSideCard(product);
+      } else {
+        addToCartFromButton(button);
+      }
+    }
+
+    function openVariationSideCard(product) {
+      currentSelectedProduct = product;
+      currentSelectedVariantQty = 1;
+      document.getElementById('var-selected-qty').value = 1;
+
+      document.getElementById('var-side-product-name').textContent = product.product_name || 'Product Options';
+      document.getElementById('var-side-product-category').textContent = product.category_name || '';
+      document.getElementById('var-side-product-img').src = product.image_url || '/default.png';
+
+      const prices = (product.variants || []).map(v => v.price).filter(p => p > 0);
+      const minPrice = prices.length ? Math.min(...prices) : (product.visible_price || 0);
+      const maxPrice = prices.length ? Math.max(...prices) : (product.visible_price || 0);
+      document.getElementById('var-side-price-range').textContent = minPrice === maxPrice
+        ? `₹${minPrice.toFixed(2)}`
+        : `₹${minPrice.toFixed(2)} - ₹${maxPrice.toFixed(2)}`;
+
+      const variants = product.variants && product.variants.length ? product.variants : [{
+        id: product.id,
+        variant_name: product.weight_label || 'Default Option',
+        price: product.visible_price || 0,
+        mrp: product.default_price || product.visible_price || 0,
+        stock: product.quantity || 100,
+      }];
+
+      currentSelectedVariant = variants[0];
+      renderVariationCards(variants);
+      updateVariationFooterButton();
+      document.getElementById('variation-side-section').style.display = 'flex';
+    }
+
+    function closeVariationSideCard() {
+      document.getElementById('variation-side-section').style.display = 'none';
+      currentSelectedProduct = null;
+      currentSelectedVariant = null;
+    }
+
+    function selectVariationOption(variantId) {
+      if (!currentSelectedProduct) return;
+      const variants = currentSelectedProduct.variants || [];
+      const found = variants.find(v => Number(v.id) === Number(variantId));
+      if (found) {
+        currentSelectedVariant = found;
+        renderVariationCards(variants);
+        updateVariationFooterButton();
+      }
+    }
+
+    function renderVariationCards(variants) {
+      const container = document.getElementById('variation-cards-container');
+      container.innerHTML = variants.map(v => {
+        const isSelected = currentSelectedVariant && Number(v.id) === Number(currentSelectedVariant.id);
+        const name = v.variant_name || v.name || `${v.weight_value || ''} ${v.weight_unit || ''}`.trim() || 'Option';
+        const price = Number(v.price || 0);
+        const mrp = Number(v.mrp || 0);
+        const hasDiscount = mrp > price;
+        const savings = hasDiscount ? (mrp - price).toFixed(0) : 0;
+        const inStock = (v.stock || v.stock_quantity || 0) > 0;
+
+        return `
+          <div class="var-option-card ${isSelected ? 'selected' : ''}" onclick="selectVariationOption(${v.id})">
+            <div class="var-card-left">
+              <div class="var-radio"></div>
+              <div>
+                <div class="var-name">${escapeHtml(name)}</div>
+                <span class="var-stock-badge ${inStock ? '' : 'out-stock'}">
+                  ${inStock ? 'In Stock' : 'Out of Stock'}
+                </span>
+              </div>
+            </div>
+            <div class="var-card-right">
+              ${hasDiscount ? `<div class="var-card-mrp">₹${mrp.toFixed(0)}</div>` : ''}
+              <div class="var-card-price">₹${price.toFixed(2)}</div>
+              ${hasDiscount ? `<div class="var-savings-tag">Save ₹${savings}</div>` : ''}
+            </div>
+          </div>
+        `;
+      }).join('');
+    }
+
+    function changeVariationQty(delta) {
+      currentSelectedVariantQty = Math.max(1, currentSelectedVariantQty + delta);
+      document.getElementById('var-selected-qty').value = currentSelectedVariantQty;
+      updateVariationFooterButton();
+    }
+
+    function updateVariationFooterButton() {
+      const btn = document.getElementById('btn-add-variation-cart');
+      if (!currentSelectedVariant) {
+        btn.textContent = 'Add to Cart';
+        return;
+      }
+      const name = currentSelectedVariant.variant_name || currentSelectedVariant.name || 'Option';
+      const price = Number(currentSelectedVariant.price || 0) * currentSelectedVariantQty;
+      btn.textContent = `Add ${escapeHtml(name)} (₹${price.toFixed(2)})`;
+    }
+
+    function addSelectedVariationToCart() {
+      if (!currentSelectedProduct || !currentSelectedVariant) return;
+
+      if (!categoryFilter.value || !currentSelectedProduct.category_id) {
+        alert('Please select a main category before adding products for quotation.');
+        return;
+      }
+
+      const variantName = currentSelectedVariant.variant_name || currentSelectedVariant.name || 'Option';
+      const fullName = `${currentSelectedProduct.product_name} (${variantName})`;
+      const price = Number(currentSelectedVariant.price || 0);
+      const maxQty = Number(currentSelectedVariant.stock || currentSelectedVariant.stock_quantity || currentSelectedProduct.quantity || 100);
+
+      addToCart(
+        currentSelectedProduct.id,
+        fullName,
+        price,
+        maxQty,
+        currentSelectedProduct.id,
+        currentSelectedVariantQty,
+        variantName,
+        currentSelectedVariant.weight_in_grams ? currentSelectedVariant.weight_in_grams / 1000 : (currentSelectedProduct.weight_kg || 0),
+        currentSelectedProduct.category_id,
+        currentSelectedProduct.category_name
+      );
+
+      trackProductActivity('click', currentSelectedProduct.product_id);
+      closeVariationSideCard();
     }
 
     function updateCartCount() {
@@ -1455,6 +1652,297 @@
       .cart-section {
         width: 100%;
       }
+    }
+
+    /* Variation Side Card Drawer Styles */
+    .var-count-pill {
+      display: inline-block;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      font-size: 0.72rem;
+      font-weight: 800;
+      padding: 3px 9px;
+      border-radius: 12px;
+      cursor: pointer;
+      box-shadow: 0 2px 6px rgba(16, 185, 129, 0.2);
+      transition: all 0.2s ease;
+    }
+    .var-count-pill:hover {
+      transform: scale(1.05);
+      box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+    }
+
+    .btn-has-variants {
+      background: linear-gradient(135deg, #059669 0%, #047857 100%) !important;
+    }
+
+    .variation-side-section {
+      position: fixed;
+      inset: 0;
+      z-index: 99999;
+      display: flex;
+      justify-content: flex-end;
+    }
+    .variation-side-backdrop {
+      position: absolute;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.55);
+      backdrop-filter: blur(4px);
+      animation: varFadeIn 0.25s ease-out;
+    }
+    .variation-side-panel {
+      position: relative;
+      z-index: 100000;
+      width: 100%;
+      max-width: 440px;
+      height: 100%;
+      background: #ffffff;
+      box-shadow: -8px 0 32px rgba(0, 0, 0, 0.22);
+      display: flex;
+      flex-direction: column;
+      animation: varSlideIn 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+    @keyframes varFadeIn {
+      from { opacity: 0; }
+      to { opacity: 1; }
+    }
+    @keyframes varSlideIn {
+      from { transform: translateX(100%); }
+      to { transform: translateX(0); }
+    }
+
+    .variation-side-header {
+      padding: 20px 24px;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .variation-badge {
+      display: inline-block;
+      background: #10b981;
+      color: #ffffff;
+      font-size: 0.72rem;
+      font-weight: 800;
+      text-transform: uppercase;
+      padding: 3px 9px;
+      border-radius: 20px;
+      margin-bottom: 6px;
+    }
+    .variation-side-title-group h2 {
+      font-size: 1.2rem;
+      font-weight: 800;
+      margin: 0;
+      color: #ffffff;
+    }
+    .var-side-subtext {
+      font-size: 0.8rem;
+      color: #94a3b8;
+      margin: 2px 0 0;
+    }
+    .variation-side-body {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px 24px;
+    }
+    .variation-product-preview {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 14px;
+      background: #f8fafc;
+      border-radius: 14px;
+      border: 1px solid #e2e8f0;
+      margin-bottom: 20px;
+    }
+    .variation-product-preview img {
+      width: 64px;
+      height: 64px;
+      object-fit: cover;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      background: #fff;
+    }
+    .var-price-range {
+      font-size: 1.1rem;
+      font-weight: 900;
+      color: #059669;
+    }
+    .var-desc-text {
+      font-size: 0.78rem;
+      color: #64748b;
+      margin: 4px 0 0;
+    }
+    .variation-cards-heading {
+      font-size: 0.88rem;
+      font-weight: 800;
+      color: #334155;
+      margin-bottom: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .variation-cards-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+    .var-option-card {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 16px;
+      background: #ffffff;
+      border: 2px solid #e2e8f0;
+      border-radius: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .var-option-card:hover {
+      border-color: #10b981;
+      background: #f0fdf4;
+    }
+    .var-option-card.selected {
+      border-color: #10b981;
+      background: #ecfdf5;
+      box-shadow: 0 4px 14px rgba(16, 185, 129, 0.15);
+    }
+    .var-card-left {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .var-radio {
+      width: 20px;
+      height: 20px;
+      border-radius: 50%;
+      border: 2px solid #cbd5e1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+    }
+    .var-option-card.selected .var-radio {
+      border-color: #10b981;
+      background: #10b981;
+    }
+    .var-option-card.selected .var-radio::after {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #ffffff;
+    }
+    .var-name {
+      font-size: 0.95rem;
+      font-weight: 800;
+      color: #1e293b;
+    }
+    .var-stock-badge {
+      font-size: 0.72rem;
+      font-weight: 700;
+      color: #059669;
+      background: #d1fae5;
+      padding: 2px 7px;
+      border-radius: 10px;
+      margin-top: 2px;
+      display: inline-block;
+    }
+    .var-stock-badge.out-stock {
+      color: #dc2626;
+      background: #fee2e2;
+    }
+    .var-card-right {
+      text-align: right;
+    }
+    .var-card-mrp {
+      font-size: 0.78rem;
+      color: #94a3b8;
+      text-decoration: line-through;
+    }
+    .var-card-price {
+      font-size: 1.1rem;
+      font-weight: 900;
+      color: #059669;
+    }
+    .var-savings-tag {
+      font-size: 0.68rem;
+      font-weight: 800;
+      color: #dc2626;
+      background: #fff1f2;
+      padding: 2px 6px;
+      border-radius: 6px;
+      margin-top: 2px;
+    }
+
+    .variation-quantity-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 24px;
+      padding-top: 16px;
+      border-top: 1px solid #e2e8f0;
+      font-weight: 800;
+      color: #334155;
+    }
+    .var-qty-controls {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .var-qty-btn {
+      width: 36px;
+      height: 36px;
+      border-radius: 10px;
+      border: 1px solid #cbd5e1;
+      background: #f8fafc;
+      color: #0f172a;
+      font-size: 1.2rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.15s ease;
+    }
+    .var-qty-btn:hover {
+      background: #10b981;
+      color: #ffffff;
+      border-color: #10b981;
+    }
+    .var-qty-input {
+      width: 48px;
+      height: 36px;
+      text-align: center;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font-weight: 900;
+      font-size: 1rem;
+      color: #0f172a;
+      background: #ffffff;
+    }
+
+    .variation-side-footer {
+      padding: 20px 24px;
+      background: #ffffff;
+      border-top: 1px solid #e2e8f0;
+    }
+    .btn-add-var-cart {
+      width: 100%;
+      padding: 14px 20px;
+      border: none;
+      border-radius: 14px;
+      background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      color: #ffffff;
+      font-size: 1rem;
+      font-weight: 800;
+      cursor: pointer;
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.3);
+      transition: all 0.2s ease;
+    }
+    .btn-add-var-cart:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 8px 24px rgba(16, 185, 129, 0.4);
     }
   </style>
 </body>

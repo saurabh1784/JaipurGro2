@@ -331,6 +331,7 @@ function sectionList(items) {
 function demoTerms(appName) {
   const appLabel = appLabelFor(appName);
   return `
+<h2>Legal Ownership & Entity Information</h2><p>groxen is a child organisation of Shining Universal Organisation Private Limited.</p>
 <h2>Introduction</h2><p>Welcome to groxen ${appLabel}. These Terms & Conditions govern your access to and use of our grocery, delivery, marketplace, account, payment, and support services. By creating an account or using the platform, you agree to these terms.</p>
 <h2>User Responsibilities</h2>${sectionList(['Provide accurate registration, contact, billing, service, and delivery information.', 'Keep your login credentials secure and notify us immediately of unauthorized account activity.', 'Use the platform only for lawful personal or business purposes connected with groxen services.'])}
 <h2>Account Rules</h2><p>You are responsible for all activity under your account. groxen may verify identity, phone number, location, tax, business, or delivery eligibility details before enabling certain features.</p>
@@ -338,16 +339,17 @@ function demoTerms(appName) {
 <h2>Cancellations and Refunds</h2><p>Cancellation and refund eligibility depends on order status, product type, vendor acceptance, dispatch state, delivery progress, and applicable law. Approved refunds may be returned to the original payment method, wallet, or another supported mode.</p>
 <h2>Service Availability</h2><p>Services may vary by city, area, vendor availability, delivery capacity, inventory, weather, traffic, maintenance, and operational conditions. We may modify, pause, or discontinue features when required.</p>
 <h2>Prohibited Activities</h2>${sectionList(['Misusing coupons, wallets, referral benefits, ratings, support, or payment flows.', 'Uploading false, unlawful, abusive, infringing, misleading, or harmful content.', 'Attempting to reverse engineer, overload, scrape, bypass security, or disrupt the platform.'])}
-<h2>Intellectual Property</h2><p>groxen names, logos, software, workflows, product displays, content, and designs are owned by groxen or licensed to us. You may not copy, modify, resell, or exploit them without written permission.</p>
+<h2>Intellectual Property</h2><p>groxen names, logos, software, workflows, product displays, content, and designs are owned by groxen or licensed to us. groxen is a child organisation of Shining Universal Organisation Private Limited. You may not copy, modify, resell, or exploit them without written permission.</p>
 <h2>Limitation of Liability</h2><p>To the maximum extent allowed by law, groxen is not liable for indirect, incidental, special, punitive, or consequential losses, including loss of profit, revenue, data, goodwill, or business opportunity.</p>
 <h2>Account Suspension</h2><p>We may restrict, suspend, or terminate access for suspected fraud, safety risks, policy violations, payment failures, repeated cancellations, abusive behavior, or legal compliance reasons.</p>
 <h2>Changes to Terms</h2><p>We may update these Terms from time to time. Continued use after publication means you accept the updated Terms.</p>
-<h2>Contact Information</h2><p>For questions about these Terms, contact groxen support at support@groxen.com.</p>`;
+<h2>Contact Information</h2><p>For questions about these Terms, contact groxen support at support@groxen.com. (groxen is a child organisation of Shining Universal Organisation Private Limited)</p>`;
 }
 
 function demoPrivacy(appName) {
   const appLabel = appLabelFor(appName);
   return `
+<h2>Legal Ownership & Entity Information</h2><p>groxen is a child organisation of Shining Universal Organisation Private Limited.</p>
 <h2>Information We Collect</h2><p>groxen ${appLabel} may collect your name, phone number, email address, login details, profile information, address, location, order history, transaction records, device information, support messages, ratings, uploaded documents, and operational activity required to provide our services.</p>
 <h2>How We Use Your Information</h2>${sectionList(['Create and manage your account and profile.', 'Process orders, quotations, payments, deliveries, refunds, wallet entries, support tickets, and notifications.', 'Improve safety, fraud prevention, service reliability, personalization, analytics, and customer experience.'])}
 <h2>Location Permissions</h2><p>When enabled, location data helps show service areas, calculate delivery charges, assign delivery partners, display route progress, and improve order accuracy. You may disable location permissions in your device settings, but some features may not work correctly.</p>
@@ -360,7 +362,7 @@ function demoPrivacy(appName) {
 <h2>Data Retention</h2><p>We retain information for as long as needed to provide services, resolve disputes, prevent fraud, comply with accounting or legal duties, and maintain business records.</p>
 <h2>Children's Privacy</h2><p>groxen services are not intended for children below the age required by applicable law. We do not knowingly collect children's personal information without appropriate consent.</p>
 <h2>Changes to Privacy Policy</h2><p>We may update this Privacy Policy periodically. The latest version will be available through the app or public legal page URL.</p>
-<h2>Contact Information</h2><p>For privacy questions or requests, contact groxen support at support@groxen.com.</p>`;
+<h2>Contact Information</h2><p>For privacy questions or requests, contact groxen support at support@groxen.com. (groxen is a child organisation of Shining Universal Organisation Private Limited)</p>`;
 }
 
 function demoContent(appName, pageType) {

@@ -1,4 +1,5 @@
 const pool = require('../db');
+const { invalidateCatalogCache } = require('./Catalog');
 
 function toPositiveInt(value, fallback) {
   const parsed = parseInt(value, 10);
@@ -310,6 +311,7 @@ async function create(data) {
       data.rejection_reason || null,
     ]
   );
+  invalidateCatalogCache();
   return result.insertId;
 }
 
@@ -336,6 +338,7 @@ async function update(id, data) {
 
   values.push(id);
   await pool.query(`UPDATE products SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE id = ? AND is_deleted = 0`, values);
+  invalidateCatalogCache();
 }
 
 async function updatePrice(id, price) {

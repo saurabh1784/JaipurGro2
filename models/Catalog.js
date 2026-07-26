@@ -41,10 +41,38 @@ async function listCategories() {
     return _catCache;
   }
   const { rows } = await pool.query(
-    `SELECT id, name, slug, icon_path, tax_name, tax_percentage, status, created_at, updated_at
-     FROM categories
-     WHERE is_deleted = 0
-     ORDER BY name ASC`
+    `SELECT c.id, c.name, c.slug, c.tax_name, c.tax_percentage, c.status, c.created_at, c.updated_at,
+            c.icon_path AS manual_icon_path,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(c.icon_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(sub.image_path), ''), '/default.png')
+                FROM sub_categories sub
+                WHERE sub.category_id = c.id
+                  AND sub.is_deleted = 0
+                  AND sub.image_path IS NOT NULL
+                  AND TRIM(sub.image_path) <> ''
+                  AND sub.image_path <> '/default.png'
+                ORDER BY sub.id ASC
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(NULLIF(TRIM(prod.image_url), ''), '/default.png')
+                FROM products prod
+                WHERE prod.category_id = c.id
+                  AND prod.is_deleted = 0
+                  AND prod.approval_status = 'approved'
+                  AND prod.image_url IS NOT NULL
+                  AND TRIM(prod.image_url) <> ''
+                  AND prod.image_url <> '/default.png'
+                ORDER BY prod.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS icon_path
+     FROM categories c
+     WHERE c.is_deleted = 0
+     ORDER BY c.name ASC`
   );
   _catCache = rows.map(row);
   _catCacheTime = now;
@@ -57,7 +85,24 @@ async function listSubcategories() {
     return _subCatCache;
   }
   const { rows } = await pool.query(
-    `SELECT s.id, s.category_id, s.name, s.slug, s.image_path, s.status, s.created_at, s.updated_at, c.name AS category_name
+    `SELECT s.id, s.category_id, s.name, s.slug, s.status, s.created_at, s.updated_at, c.name AS category_name,
+            s.image_path AS manual_image_path,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(s.image_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(p.image_url), ''), '/default.png')
+                FROM products p
+                WHERE p.sub_category_id = s.id
+                  AND p.is_deleted = 0
+                  AND p.approval_status = 'approved'
+                  AND p.image_url IS NOT NULL
+                  AND TRIM(p.image_url) <> ''
+                  AND p.image_url <> '/default.png'
+                ORDER BY p.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS image_path
      FROM sub_categories s
      INNER JOIN categories c ON c.id = s.category_id
      WHERE s.is_deleted = 0 AND c.is_deleted = 0
@@ -87,8 +132,51 @@ async function listBrands() {
 
 async function getTree() {
   const [rows] = await pool.query(
-    `SELECT c.id AS category_id, c.name AS category_name, c.slug AS category_slug, c.icon_path AS category_icon_path, c.status AS category_status,
-            s.id AS sub_category_id, s.name AS sub_category_name, s.slug AS sub_category_slug, s.image_path AS sub_category_image_path, s.status AS sub_category_status,
+    `SELECT c.id AS category_id, c.name AS category_name, c.slug AS category_slug, c.status AS category_status,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(c.icon_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(sub.image_path), ''), '/default.png')
+                FROM sub_categories sub
+                WHERE sub.category_id = c.id
+                  AND sub.is_deleted = 0
+                  AND sub.image_path IS NOT NULL
+                  AND TRIM(sub.image_path) <> ''
+                  AND sub.image_path <> '/default.png'
+                ORDER BY sub.id ASC
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(NULLIF(TRIM(prod.image_url), ''), '/default.png')
+                FROM products prod
+                WHERE prod.category_id = c.id
+                  AND prod.is_deleted = 0
+                  AND prod.approval_status = 'approved'
+                  AND prod.image_url IS NOT NULL
+                  AND TRIM(prod.image_url) <> ''
+                  AND prod.image_url <> '/default.png'
+                ORDER BY prod.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS category_icon_path,
+            s.id AS sub_category_id, s.name AS sub_category_name, s.slug AS sub_category_slug, s.status AS sub_category_status,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(s.image_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(p.image_url), ''), '/default.png')
+                FROM products p
+                WHERE p.sub_category_id = s.id
+                  AND p.is_deleted = 0
+                  AND p.approval_status = 'approved'
+                  AND p.image_url IS NOT NULL
+                  AND TRIM(p.image_url) <> ''
+                  AND p.image_url <> '/default.png'
+                ORDER BY p.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS sub_category_image_path,
             c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
             b.id AS brand_id, b.name AS brand_name, b.slug AS brand_slug, b.logo_path AS brand_logo_path, b.status AS brand_status
      FROM categories c
@@ -155,6 +243,7 @@ async function createCategory({ name, slug, is_active, tax_name, tax_percentage,
     'INSERT INTO categories (name, slug, icon_path, tax_name, tax_percentage, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)',
     [name, slugify(slug || name), icon_path || null, tax_name || null, tax_percentage ?? null, status, status === 'active' ? 1 : 0]
   );
+  invalidateCatalogCache();
   return result.insertId;
 }
 
@@ -170,6 +259,7 @@ async function updateCategory(id, { name, slug, is_active, tax_name, tax_percent
     status === 'active' ? 1 : 0,
     id,
   ]);
+  invalidateCatalogCache();
 }
 
 async function deleteCategory(id) {
@@ -196,6 +286,7 @@ async function deleteCategory(id) {
     );
 
     await connection.commit();
+    invalidateCatalogCache();
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -210,6 +301,7 @@ async function createSubcategory({ category_id, name, slug, image_path, is_activ
     'INSERT INTO sub_categories (category_id, name, slug, image_path, status, is_active) VALUES (?, ?, ?, ?, ?, ?)',
     [category_id, name, slugify(slug || name), image_path || null, status, status === 'active' ? 1 : 0]
   );
+  invalidateCatalogCache();
   return result.insertId;
 }
 
@@ -219,11 +311,13 @@ async function updateSubcategory(id, { category_id, name, slug, image_path, is_a
     'UPDATE sub_categories SET category_id = ?, name = ?, slug = ?, image_path = COALESCE(?, image_path), status = ?, is_active = ? WHERE id = ? AND is_deleted = 0',
     [category_id, name, slugify(slug || name), image_path || null, status, status === 'active' ? 1 : 0, id]
   );
+  invalidateCatalogCache();
 }
 
 async function deleteSubcategory(id) {
   await pool.query("UPDATE sub_categories SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE id = ?", [id]);
   await pool.query("UPDATE brands SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE sub_category_id = ?", [id]);
+  invalidateCatalogCache();
 }
 
 async function bulkDeleteCategories(ids = []) {
@@ -342,7 +436,24 @@ async function cleanSubcategories() {
 
 async function findSubcategoryById(id) {
   const { rows } = await pool.query(
-    `SELECT s.id, s.category_id, s.name, s.slug, s.image_path, s.status, c.name AS category_name
+    `SELECT s.id, s.category_id, s.name, s.slug, s.status, c.name AS category_name,
+            s.image_path AS manual_image_path,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(s.image_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(p.image_url), ''), '/default.png')
+                FROM products p
+                WHERE p.sub_category_id = s.id
+                  AND p.is_deleted = 0
+                  AND p.approval_status = 'approved'
+                  AND p.image_url IS NOT NULL
+                  AND TRIM(p.image_url) <> ''
+                  AND p.image_url <> '/default.png'
+                ORDER BY p.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS image_path
      FROM sub_categories s
      INNER JOIN categories c ON c.id = s.category_id
      WHERE s.id = ? AND s.is_deleted = 0 AND c.is_deleted = 0`,
@@ -366,6 +477,7 @@ async function findBrandById(id) {
 
 module.exports = {
   slugify,
+  invalidateCatalogCache,
   listCategories,
   listSubcategories,
   listBrands,
