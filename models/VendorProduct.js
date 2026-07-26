@@ -484,15 +484,84 @@ async function deleteClientPrice({ product_id, vendor_id, client_id }) {
 }
 
 async function ensureAllProductsForAllVendors() {
-  return 0;
+  const { rows: vendors } = await pool.query(
+    "SELECT id FROM users WHERE role = 'Vendor' AND is_deleted = 0"
+  );
+  if (!vendors.length) return 0;
+
+  let createdCount = 0;
+  for (const vendor of vendors) {
+    const vendorId = vendor.id;
+    await pool.query(
+      `INSERT INTO vendor_categories (vendor_id, category_id)
+       SELECT $1, id FROM categories WHERE is_deleted = 0
+       ON CONFLICT (vendor_id, category_id) DO NOTHING`,
+      [vendorId]
+    ).catch(() => {});
+
+    const { rowCount, affectedRows } = await pool.query(
+      `INSERT INTO vendor_products (vendor_id, product_id, price, quantity, status)
+       SELECT $1, p.id, p.price, 100, 'active'
+       FROM products p
+       WHERE p.is_deleted = 0 AND p.approval_status = 'approved'
+       ON CONFLICT (vendor_id, product_id) DO NOTHING`,
+      [vendorId]
+    ).catch(() => ({ affectedRows: 0, rowCount: 0 }));
+
+    createdCount += Number(affectedRows || rowCount || 0);
+  }
+
+  invalidateVisibleProductsCache();
+  return createdCount;
 }
 
-async function ensureProductForAllVendors() {
-  return 0;
+async function ensureProductForAllVendors(productId) {
+  const pId = toPositiveInt(productId);
+  if (!pId) return 0;
+
+  const { rows: vendors } = await pool.query(
+    "SELECT id FROM users WHERE role = 'Vendor' AND is_deleted = 0"
+  );
+  if (!vendors.length) return 0;
+
+  let createdCount = 0;
+  for (const vendor of vendors) {
+    const { rowCount, affectedRows } = await pool.query(
+      `INSERT INTO vendor_products (vendor_id, product_id, price, quantity, status)
+       SELECT $1, p.id, p.price, 100, 'active'
+       FROM products p
+       WHERE p.id = $2 AND p.is_deleted = 0 AND p.approval_status = 'approved'
+       ON CONFLICT (vendor_id, product_id) DO NOTHING`,
+      [vendor.id, pId]
+    ).catch(() => ({ affectedRows: 0, rowCount: 0 }));
+    createdCount += Number(affectedRows || rowCount || 0);
+  }
+  invalidateVisibleProductsCache();
+  return createdCount;
 }
 
-async function ensureVendorHasAllProducts() {
-  return 0;
+async function ensureVendorHasAllProducts(vendorId) {
+  const vId = toPositiveInt(vendorId);
+  if (!vId) return 0;
+
+  await pool.query(
+    `INSERT INTO vendor_categories (vendor_id, category_id)
+     SELECT $1, id FROM categories WHERE is_deleted = 0
+     ON CONFLICT (vendor_id, category_id) DO NOTHING`,
+    [vId]
+  ).catch(() => {});
+
+  const { rowCount, affectedRows } = await pool.query(
+    `INSERT INTO vendor_products (vendor_id, product_id, price, quantity, status)
+     SELECT $1, p.id, p.price, 100, 'active'
+     FROM products p
+     WHERE p.is_deleted = 0 AND p.approval_status = 'approved'
+     ON CONFLICT (vendor_id, product_id) DO NOTHING`,
+    [vId]
+  ).catch(() => ({ affectedRows: 0, rowCount: 0 }));
+
+  invalidateVisibleProductsCache();
+  return Number(affectedRows || rowCount || 0);
 }
 
 async function approveProduct({ product_id, approved_by, default_price }) {
@@ -638,12 +707,8 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
 
   const where = [
     "p.approval_status = 'approved'",
-    "vp.status = 'active'",
-    'vp.quantity > 0',
     'p.is_deleted = 0',
-    "u.status = 'active'",
-    'u.is_deleted = 0',
-    'vc.vendor_id IS NOT NULL',
+    "(vp.id IS NULL OR (vp.status = 'active' AND vp.quantity > 0 AND u.is_deleted = 0))",
   ];
   const params = [];
   const rawSearch = search ? String(search).trim() : '';
@@ -687,7 +752,7 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
             NULL AS vendor_id,
             ARRAY_AGG(DISTINCT vp.vendor_id ORDER BY vp.vendor_id) AS eligible_vendor_ids,
             COUNT(DISTINCT vp.vendor_id) AS eligible_vendor_count,
-            SUM(vp.quantity) AS quantity,
+            COALESCE(SUM(vp.quantity), 100) AS quantity,
             'active' AS status,
             MIN(vp.created_at) AS created_at,
             MAX(vp.updated_at) AS updated_at,
@@ -710,7 +775,7 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
             NULL AS vendor_email,
             NULL AS client_id,
             NULL AS custom_price,
-            MIN(vp.price) AS visible_price,
+            COALESCE(MIN(vp.price), p.price) AS visible_price,
             COALESCE(sp.is_sponsored, 0) AS is_sponsored,
             COALESCE(sp.priority_order, 0) AS sponsored_priority,
             (
@@ -727,15 +792,15 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
                 ) THEN 55 ELSE 0 END
               + CASE WHEN CAST(? AS TEXT) IS NOT NULL AND c.name ILIKE ? THEN 35 ELSE 0 END
             ) AS ranking_score
-     FROM vendor_products vp
-     INNER JOIN products p ON p.id = vp.product_id
-     INNER JOIN users u ON u.id = vp.vendor_id
-     INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
-     INNER JOIN vendor_categories vc ON vc.vendor_id = vp.vendor_id AND vc.category_id = p.category_id
-     ${client_id ? 'INNER JOIN client_profiles cp ON cp.user_id = ?' : ''}
-     INNER JOIN categories c ON c.id = p.category_id
-     INNER JOIN sub_categories s ON s.id = p.sub_category_id
-     INNER JOIN brands b ON b.id = p.brand_id
+     FROM products p
+     LEFT JOIN vendor_products vp ON vp.product_id = p.id AND vp.status = 'active'
+     LEFT JOIN users u ON u.id = vp.vendor_id AND u.is_deleted = 0
+     LEFT JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+     LEFT JOIN vendor_categories vc ON vc.vendor_id = vp.vendor_id AND vc.category_id = p.category_id
+     ${client_id ? 'LEFT JOIN client_profiles cp ON cp.user_id = ?' : ''}
+     LEFT JOIN categories c ON c.id = p.category_id
+     LEFT JOIN sub_categories s ON s.id = p.sub_category_id
+     LEFT JOIN brands b ON b.id = p.brand_id
      LEFT JOIN sponsored_products sp ON sp.product_id = p.id
      LEFT JOIN product_ranking_scores prs ON prs.product_id = p.id
      LEFT JOIN user_recent_activity ura ON ura.product_id = p.id AND ura.user_id = ? AND ura.activity_type IN ('view', 'click', 'search')
