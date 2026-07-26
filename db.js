@@ -34,11 +34,11 @@ function envValue(name, fallback) {
 loadLocalEnv();
 
 const renderFallbackConfig = {
-  DB_HOST: 'dpg-d8v1nomrnols73fr4uag-a',
+  DB_HOST: 'dpg-d9itb4j7uimc73c4psug-a',
   DB_PORT: '5432',
-  DB_USER: 'dbservice_652v_user',
-  DB_PASSWORD: 'HKyC4ZMAvLtRnhLLgbQ3dUmNfTt6kjjS',
-  DB_NAME: 'dbservice_652v',
+  DB_USER: 'jaipurgro_user',
+  DB_PASSWORD: '0eSR7H1fg47UrgED1zFPiD94S3pDGT7R',
+  DB_NAME: 'jaipurgro',
 };
 
 let fallbackConfigApplied = false;
