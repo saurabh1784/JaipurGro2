@@ -363,17 +363,14 @@ async function rejectProduct(req, res) {
 }
 
 async function visibleForClient(req, res) {
-  const clientId = isClient(req.authUser) ? req.authUser.id : req.query.client_id;
-  if (!clientId && !isAdminLike(req.authUser)) {
-    return res.status(422).json({ success: false, message: 'Client ID is required' });
-  }
+  const clientId = isClient(req.authUser) ? req.authUser.id : (req.query.client_id || null);
 
   try {
-    if (req.query.search) {
+    if (req.query.search && clientId) {
       await ProductSearch.trackSearch({
         userId: clientId,
         keyword: req.query.search,
-      });
+      }).catch(() => {});
     }
     const filters = {
       vendor_id: req.query.vendor_id,
