@@ -44,6 +44,7 @@
     <section class="settings-shell">
       <div class="settings-tabs" role="tablist" aria-label="Settings tabs">
         <button class="settings-tab active" type="button" data-tab="general">General</button>
+        <button class="settings-tab" type="button" data-tab="vendor-settings">Vendor Settings</button>
         <button class="settings-tab" type="button" data-tab="invoice">Invoice Settings</button>
         <button class="settings-tab" type="button" data-tab="email">Email</button>
         <button class="settings-tab" type="button" data-tab="firebase">Firebase</button>
@@ -314,6 +315,27 @@
         </div>
       </section>
       <% } %>
+
+      <section class="settings-panel" id="vendor-settings" aria-labelledby="vendor-settings-tab">
+        <div class="panel-header green-panel-header">
+          <h2>Vendor Settings</h2>
+          <p>Configure vendor registration rules, GST verification requirement, and approval workflow.</p>
+        </div>
+        <div class="settings-grid" style="background:#ffffff; padding:24px; border-radius:12px; border:1px solid #cbd5e1; margin-bottom:20px;">
+          <label style="display:flex; align-items:flex-start; gap:14px; cursor:pointer; grid-column:1 / -1;">
+            <input type="checkbox" id="gstMandatoryCheckbox" <%= (settings.vendor && settings.vendor.gstMandatory) ? 'checked' : '' %> style="width:22px; height:22px; margin-top:2px; accent-color:#0f766e; cursor:pointer;" />
+            <div>
+              <strong style="font-size:1.05rem; color:#0f172a; display:block;">GST Mandatory</strong>
+              <p style="font-size:0.88rem; color:#64748b; margin-top:4px; line-height:1.4;">
+                When enabled, vendors <strong>must</strong> enter a valid GST Number during registration. When disabled, vendors are shown a "GST Not Applicable" checkbox which allows skipping the GST Number field. Duplicate GST numbers are always blocked across the system.
+              </p>
+            </div>
+          </label>
+        </div>
+        <div>
+          <button type="button" class="settings-save" onclick="saveVendorSettings()">Save Vendor Settings</button>
+        </div>
+      </section>
 
       <form class="settings-panel" id="invoice" aria-labelledby="invoice-tab">
         <div class="panel-header purple-header settings-purple-header">
@@ -4781,6 +4803,24 @@
   async function toggleManagedArea(id,isActive){const response=await fetch(`/api/areas/${id}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({is_active:isActive})});const data=await response.json();document.getElementById('areaManagementMessage').textContent=data.message||'';if(data.success)loadManagedAreas()}
   async function deleteManagedArea(id){if(!confirm('Delete this area? Linked records will require an additional confirmation.'))return;let response=await fetch(`/api/areas/${id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:'{}'});let data=await response.json();if(data.confirmation_required&&confirm(`${data.message}\n\nLinked records: ${JSON.stringify(data.links)}\n\nDelete anyway?`)){response=await fetch(`/api/areas/${id}?confirm=1`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});data=await response.json()}document.getElementById('areaManagementMessage').textContent=data.message||'';if(data.success)loadManagedAreas()}
   function manageAreaBoundary(id){window.location.href=`/area-definitions?area_id=${encodeURIComponent(id)}`}
+  async function saveVendorSettings() {
+    const isMandatory = document.getElementById('gstMandatoryCheckbox').checked;
+    try {
+      const res = await fetch('/settings/vendor', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ gstMandatory: isMandatory }),
+      });
+      const data = await res.json();
+      if (data.success) {
+        alert(data.message || 'Vendor settings saved successfully');
+      } else {
+        alert(data.message || 'Unable to save vendor settings');
+      }
+    } catch (err) {
+      alert('Failed to save vendor settings');
+    }
+  }
   document.addEventListener('DOMContentLoaded',()=>{document.getElementById('addManagedAreaButton')?.addEventListener('click',()=>openAreaManager());if(document.getElementById('managedAreaRows'))loadManagedAreas()});
 </script></body>
 </html>

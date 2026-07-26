@@ -38,11 +38,36 @@ async function signup(req, res) {
     return res.status(409).json({ success: false, message: `A user with this ${field} already exists` });
   }
 
+  const gstNumber = String(req.body.gst_number || req.body.gstNumber || '').trim();
+  const gstNotApplicable = Boolean(req.body.gst_not_applicable || req.body.gstNotApplicable);
+
+  if (role === 'Vendor') {
+    const appSettingsController = require('./appSettingsController');
+    const Vendor = require('../models/Vendor');
+    const isGstMandatory = await appSettingsController.getGstMandatory();
+
+    if (isGstMandatory && !gstNumber) {
+      return res.status(422).json({ success: false, message: 'GST Number is required for vendor registration.' });
+    }
+
+    if (!isGstMandatory && !gstNotApplicable && !gstNumber) {
+      return res.status(422).json({ success: false, message: 'GST Number is required unless GST Not Applicable is checked.' });
+    }
+
+    if (gstNumber) {
+      const existingGst = await Vendor.gstNumberTaken({ gst_number: gstNumber });
+      if (existingGst) {
+        return res.status(422).json({ success: false, message: 'A vendor with this GST Number is already registered.' });
+      }
+    }
+  }
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
     const hashedPassword = await bcrypt.hash(password, 10);
-    const userId = await User.create({ name, email, phone, password: hashedPassword, role }, connection);
+    const initialStatus = role === 'Vendor' ? 'pending' : 'active';
+    const userId = await User.create({ name, email, phone, password: hashedPassword, role, status: initialStatus }, connection);
     await Profile.createEmptyForRole(userId, role, connection);
     if (city && role === 'Client') {
       await connection.query(
@@ -50,10 +75,10 @@ async function signup(req, res) {
         [city, area || null, userId]
       );
     }
-    if (city && role === 'Vendor') {
+    if (role === 'Vendor') {
       await connection.query(
-        'UPDATE vendor_profiles SET city = $1 WHERE user_id = $2',
-        [city, userId]
+        'UPDATE vendor_profiles SET city = $1, gst_number = $2 WHERE user_id = $3',
+        [city || null, gstNumber || null, userId]
       );
     }
     if (city && ['staff', 'deliveryperson'].includes(String(role).toLowerCase())) {

@@ -91,7 +91,7 @@ const renderAppSettings = async (req, res) => {
     const clientLogo = await settingValue('client_app_logo', '/assets/images/GroLogo.png');
     const vendorLogo = await settingValue('vendor_app_logo', '/assets/images/GroLogo.png');
     const deliveryLogo = await settingValue('delivery_app_logo', '/assets/images/GroLogo.png');
-    const appName = await settingValue('app_name', 'JaipurGro');
+    const appName = await settingValue('app_name', 'Groxen Dashboard');
 
     const clientPlayStore = await settingValue('client_app_playstore_url', '');
     const clientAppStore = await settingValue('client_app_appstore_url', '');
@@ -286,7 +286,7 @@ const getPublicAppLogos = async (req, res) => {
     const clientLogoRel = await settingValue('client_app_logo', '');
     const vendorLogoRel = await settingValue('vendor_app_logo', '');
     const deliveryLogoRel = await settingValue('delivery_app_logo', '');
-    const appName = await settingValue('app_name', 'JaipurGro');
+    const appName = await settingValue('app_name', 'Groxen Dashboard');
 
     const clientPlayStore = await settingValue('client_app_playstore_url', '');
     const clientAppStore = await settingValue('client_app_appstore_url', '');
@@ -477,7 +477,16 @@ const getPublicSocialProfiles = async (req, res) => {
     console.error('Error fetching public social profiles:', error);
     return res.status(500).json({ success: false, message: 'Failed to retrieve social profiles' });
   }
-};
+}
+
+async function getGstMandatory() {
+  const val = await settingValue('gst_mandatory', 'false');
+  return val === 'true' || val === '1';
+}
+
+async function setGstMandatory(isMandatory) {
+  await saveSetting('gst_mandatory', isMandatory ? 'true' : 'false');
+}
 
 module.exports = {
   renderAppSettings,
@@ -490,4 +499,8 @@ module.exports = {
   toggleSocialProfileStatus,
   getPublicSocialProfiles,
   initSocialProfileTable,
+  getGstMandatory,
+  setGstMandatory,
+  settingValue,
+  saveSetting,
 };

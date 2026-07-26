@@ -30,6 +30,7 @@ function normalizeProduct(row) {
   const imageVersion = row.image_version || row.updated_at || row.created_at || '';
   return {
     ...row,
+    hsn_code: row.hsn_code || '',
     price: Number(row.price),
     weight_value: weightValue,
     weight_unit: weightUnit,
@@ -294,11 +295,12 @@ async function findByName(name) {
 async function create(data) {
   const [result] = await pool.query(
     `INSERT INTO products
-     (name, description, price, weight_value, weight_unit, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id, approval_status, created_by_vendor_id, approved_by, approved_at, rejection_reason)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (name, description, hsn_code, price, weight_value, weight_unit, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id, approval_status, created_by_vendor_id, approved_by, approved_at, rejection_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.name,
       data.description || null,
+      data.hsn_code ? String(data.hsn_code).trim() : null,
       data.price,
       data.weight_value || 0,
       cleanWeightUnit(data.weight_unit),
@@ -324,6 +326,7 @@ async function update(id, data) {
   const fields = [
     'name = ?',
     'description = ?',
+    'hsn_code = ?',
     'price = ?',
     'weight_value = ?',
     'weight_unit = ?',
@@ -334,7 +337,20 @@ async function update(id, data) {
     'sub_category_id = ?',
     'brand_id = ?',
   ];
-  const values = [data.name, data.description || null, data.price, data.weight_value || 0, cleanWeightUnit(data.weight_unit), data.weight_kg || 0, data.tax_name || null, data.tax_percentage ?? null, data.category_id, data.sub_category_id, data.brand_id];
+  const values = [
+    data.name,
+    data.description || null,
+    data.hsn_code ? String(data.hsn_code).trim() : null,
+    data.price,
+    data.weight_value || 0,
+    cleanWeightUnit(data.weight_unit),
+    data.weight_kg || 0,
+    data.tax_name || null,
+    data.tax_percentage ?? null,
+    data.category_id,
+    data.sub_category_id,
+    data.brand_id,
+  ];
 
   if (Object.prototype.hasOwnProperty.call(data, 'image_url')) {
     fields.push('image_url = ?');

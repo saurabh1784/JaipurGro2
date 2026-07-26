@@ -1,7 +1,7 @@
 const rolesAllowedForSignup = ['Vendor', 'Client', 'staff', 'deliveryPerson'];
 const allApiRoles = ['Admin', 'Vendor', 'Client'];
 const editableUserRoles = ['Admin', 'Vendor', 'Client', 'superadmin', 'admin', 'manager', 'staff', 'deliveryPerson', 'staff-l1', 'staff-l2', 'staff-l3', 'support-staff', 'accountant'];
-const statuses = ['active', 'inactive'];
+const statuses = ['pending', 'approved', 'active', 'inactive'];
 
 function isEmail(value) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(value);

@@ -335,6 +335,10 @@
           Tax %
           <input id="requestTaxPercentage" type="number" min="0" max="100" step="0.01" placeholder="Optional" />
         </label>
+        <label>
+          HSN Code
+          <input id="requestHsnCode" type="text" placeholder="e.g. 1006 / 0401" />
+        </label>
         <button class="settings-save" type="submit">Submit for Approval</button>
       </form>
     </div>
@@ -1842,6 +1846,7 @@
       payload.append('weight_unit', document.getElementById('requestWeightUnit').value);
       payload.append('tax_name', document.getElementById('requestTaxName').value);
       payload.append('tax_percentage', document.getElementById('requestTaxPercentage').value);
+      payload.append('hsn_code', document.getElementById('requestHsnCode').value.trim());
       const response = await fetch('/api/vendor-products/product-requests', {
         method: 'POST',
         headers: { Accept: 'application/json' },

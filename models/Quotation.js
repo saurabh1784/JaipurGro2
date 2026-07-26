@@ -377,7 +377,7 @@ async function createForCityVendors({ clientId, items }) {
          INNER JOIN vendor_profiles vp ON vp.user_id = u.id
          INNER JOIN vendor_categories vc ON vc.vendor_id = u.id AND vc.category_id = ?
          WHERE u.role = 'Vendor'
-           AND u.status = 'active'
+           AND u.status IN ('active', 'approved')
            AND u.is_deleted = 0
            AND LOWER(TRIM(vp.city)) = LOWER(TRIM(?))
            AND (? = '' OR LOWER(TRIM(vp.area)) = LOWER(TRIM(?)))`,

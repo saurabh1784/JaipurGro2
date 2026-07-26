@@ -168,6 +168,20 @@ async function emailOrPhoneTaken({ id = 0, email, phone }) {
   return rows[0] || null;
 }
 
+async function gstNumberTaken({ id = 0, gst_number }, connection = pool) {
+  const cleanGst = String(gst_number || '').trim().toUpperCase();
+  if (!cleanGst) return null;
+  const [rows] = await connection.query(
+    `SELECT vp.user_id
+     FROM vendor_profiles vp
+     INNER JOIN users u ON u.id = vp.user_id
+     WHERE u.is_deleted = 0 AND vp.user_id != ? AND UPPER(TRIM(vp.gst_number)) = ?
+     LIMIT 1`,
+    [id, cleanGst]
+  );
+  return rows[0] || null;
+}
+
 async function create(data) {
   const connection = await pool.getConnection();
   try {
@@ -285,6 +299,7 @@ module.exports = {
   list,
   findById,
   emailOrPhoneTaken,
+  gstNumberTaken,
   create,
   update,
   updateStatus,

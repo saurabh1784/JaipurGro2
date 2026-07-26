@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Vendor GST Tax Report</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .gst-report-shell {
+      max-width: 1200px;
+      margin: 0 auto;
+      padding: 24px;
+    }
+
+    .gst-header-card {
+      background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+      color: #ffffff;
+      border-radius: 16px;
+      padding: 24px 28px;
+      box-shadow: 0 10px 25px -5px rgba(15, 118, 110, 0.3);
+      margin-bottom: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      gap: 20px;
+    }
+
+    .gst-store-info h1 {
+      margin: 0 0 6px 0;
+      font-size: 1.6rem;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+
+    .gst-store-info p {
+      margin: 3px 0;
+      font-size: 0.92rem;
+      opacity: 0.92;
+    }
+
+    .gst-period-badge {
+      background: rgba(255, 255, 255, 0.18);
+      backdrop-filter: blur(8px);
+      padding: 10px 18px;
+      border-radius: 12px;
+      border: 1px solid rgba(255, 255, 255, 0.25);
+      text-align: right;
+    }
+
+    .gst-period-badge small {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      opacity: 0.85;
+      font-weight: 700;
+    }
+
+    .gst-period-badge strong {
+      font-size: 1.05rem;
+      font-weight: 800;
+    }
+
+    .gst-controls-bar {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 14px;
+      padding: 16px 20px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      flex-wrap: wrap;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .gst-filter-form {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+
+    .gst-filter-form label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #334155;
+    }
+
+    .gst-filter-form input[type="date"] {
+      padding: 8px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      background: #f8fafc;
+      color: #0f172a;
+    }
+
+    .gst-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 9px 16px;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      text-decoration: none;
+    }
+
+    .gst-btn-primary { background: #0f766e; color: #ffffff; }
+    .gst-btn-primary:hover { background: #115e59; }
+
+    .gst-btn-secondary { background: #f1f5f9; color: #334155; border: 1px solid #cbd5e1; }
+    .gst-btn-secondary:hover { background: #e2e8f0; }
+
+    .gst-btn-success { background: #059669; color: #ffffff; }
+    .gst-btn-success:hover { background: #047857; }
+
+    .gst-table-card {
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.06);
+      margin-bottom: 24px;
+    }
+
+    .gst-table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 0.9rem;
+    }
+
+    .gst-table th {
+      background: #f8fafc;
+      color: #475569;
+      font-weight: 700;
+      padding: 14px 16px;
+      border-bottom: 1.5px solid #e2e8f0;
+      text-transform: uppercase;
+      font-size: 0.76rem;
+      letter-spacing: 0.04em;
+    }
+
+    .gst-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid #f1f5f9;
+      color: #1e293b;
+    }
+
+    .gst-table tbody tr:hover {
+      background: #f8fafc;
+    }
+
+    .num-col { text-align: right; }
+
+    .gst-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+      gap: 14px;
+      margin-top: 24px;
+    }
+
+    .summary-card {
+      background: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 14px;
+      padding: 16px;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.04);
+    }
+
+    .summary-card.highlight {
+      background: linear-gradient(135deg, #0f766e, #0d9488);
+      color: #ffffff;
+      border-color: #0f766e;
+    }
+
+    .summary-card small {
+      display: block;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: #64748b;
+    }
+
+    .summary-card.highlight small { color: rgba(255, 255, 255, 0.85); }
+
+    .summary-card strong {
+      display: block;
+      font-size: 1.35rem;
+      font-weight: 800;
+      margin-top: 4px;
+    }
+
+    @media print {
+      body { background: #fff !important; color: #000 !important; }
+      .system-sidebar, .topbar, .gst-controls-bar, .crumb { display: none !important; }
+      .system-main { margin: 0 !important; padding: 0 !important; width: 100% !important; }
+      .gst-report-shell { max-width: 100% !important; padding: 0 !important; }
+      .gst-header-card { background: #fff !important; color: #000 !important; border: 2px solid #000 !important; box-shadow: none !important; }
+      .gst-period-badge { background: #fff !important; color: #000 !important; border: 1px solid #000 !important; }
+      .gst-table-card { border: 1px solid #000 !important; box-shadow: none !important; }
+      .gst-table th, .gst-table td { border-bottom: 1px solid #000 !important; }
+      .summary-card { border: 1px solid #000 !important; box-shadow: none !important; background: #fff !important; color: #000 !important; }
+      .summary-card small { color: #000 !important; }
+      .summary-card.highlight { background: #fff !important; color: #000 !important; }
+    }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Vendor / Reports / GST Tax Report</p>
+        <h1>Vendor GST Tax Report</h1>
+      </div>
+    </header>
+
+    <div class="gst-report-shell">
+      <!-- Store Header Info Card -->
+      <section class="gst-header-card">
+        <div class="gst-store-info">
+          <h1><%= report.storeName %></h1>
+          <p>📍 <%= report.storeAddress %></p>
+          <p>📑 <strong>GSTIN: <%= report.gstNumber %></strong></p>
+        </div>
+        <div class="gst-period-badge">
+          <small>Report Period</small>
+          <strong><%= report.period %></strong>
+        </div>
+      </section>
+
+      <!-- Date Filter Controls & Actions Bar -->
+      <section class="gst-controls-bar">
+        <form class="gst-filter-form" method="GET" action="/vendor/reports/gst">
+          <label>
+            Start Date:
+            <input type="date" name="startDate" value="<%= report.startDate %>" />
+          </label>
+          <label>
+            End Date:
+            <input type="date" name="endDate" value="<%= report.endDate %>" />
+          </label>
+          <button type="submit" class="gst-btn gst-btn-primary">Generate Report</button>
+          <a href="/vendor/reports/gst" class="gst-btn gst-btn-secondary">Reset Filter</a>
+        </form>
+
+        <div style="display:flex; gap:10px;">
+          <button type="button" class="gst-btn gst-btn-secondary" onclick="window.print();">🖨️ Print Report</button>
+          <a href="/vendor/reports/gst/export?startDate=<%= report.startDate %>&endDate=<%= report.endDate %>" class="gst-btn gst-btn-success">📥 Download CSV</a>
+        </div>
+      </section>
+
+      <!-- Detailed Invoices Table -->
+      <section class="gst-table-card">
+        <div style="padding: 16px 20px; border-bottom: 1px solid #e2e8f0; background: #f8fafc;">
+          <h3 style="margin:0; font-size:1.05rem; font-weight:800; color:#0f172a;">GST Tax Invoices</h3>
+        </div>
+        <div style="overflow-x: auto;">
+          <table class="gst-table">
+            <thead>
+              <tr>
+                <th>Bill Number</th>
+                <th>Bill Date</th>
+                <th class="num-col">Total Products</th>
+                <th class="num-col">Taxable Amount (₹)</th>
+                <th class="num-col">GST %</th>
+                <th class="num-col">GST Amount (₹)</th>
+                <th class="num-col">CGST Amount (50%)</th>
+                <th class="num-col">SGST Amount (50%)</th>
+                <th class="num-col">Invoice Total (₹)</th>
+              </tr>
+            </thead>
+            <tbody>
+              <% if (!report.invoices.length) { %>
+                <tr>
+                  <td colspan="9" style="text-align:center; padding:32px; color:#64748b;">No GST invoices found for the selected period.</td>
+                </tr>
+              <% } else { %>
+                <% report.invoices.forEach(function(inv) { %>
+                  <tr>
+                    <td><strong>#<%= inv.billNumber %></strong></td>
+                    <td><%= inv.billDate %></td>
+                    <td class="num-col"><%= inv.totalProducts %></td>
+                    <td class="num-col">₹<%= inv.taxableAmount.toFixed(2) %></td>
+                    <td class="num-col"><%= inv.gstPercentage.toFixed(2) %>%</td>
+                    <td class="num-col" style="color:#0f766e; font-weight:700;">₹<%= inv.gstAmount.toFixed(2) %></td>
+                    <td class="num-col">₹<%= inv.cgstAmount.toFixed(2) %></td>
+                    <td class="num-col">₹<%= inv.sgstAmount.toFixed(2) %></td>
+                    <td class="num-col"><strong>₹<%= inv.invoiceTotal.toFixed(2) %></strong></td>
+                  </tr>
+                <% }); %>
+              <% } %>
+            </tbody>
+          </table>
+        </div>
+      </section>
+
+      <!-- Report Summary Grid -->
+      <section>
+        <h3 style="margin:0 0 12px 0; font-size:1.1rem; font-weight:800; color:#0f172a;">Report Summary</h3>
+        <div class="gst-summary-grid">
+          <div class="summary-card">
+            <small>Total Invoices</small>
+            <strong><%= report.summary.totalInvoices %></strong>
+          </div>
+          <div class="summary-card">
+            <small>Total Products</small>
+            <strong><%= report.summary.totalProducts %></strong>
+          </div>
+          <div class="summary-card">
+            <small>Total Taxable Amount</small>
+            <strong>₹<%= report.summary.totalTaxableAmount.toFixed(2) %></strong>
+          </div>
+          <div class="summary-card">
+            <small>Total GST</small>
+            <strong style="color:#0f766e;">₹<%= report.summary.totalGst.toFixed(2) %></strong>
+          </div>
+          <div class="summary-card">
+            <small>Total CGST (50%)</small>
+            <strong>₹<%= report.summary.totalCgst.toFixed(2) %></strong>
+          </div>
+          <div class="summary-card">
+            <small>Total SGST (50%)</small>
+            <strong>₹<%= report.summary.totalSgst.toFixed(2) %></strong>
+          </div>
+          <div class="summary-card highlight">
+            <small>Grand Total</small>
+            <strong>₹<%= report.summary.grandTotal.toFixed(2) %></strong>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+</body>
+</html>

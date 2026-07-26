@@ -66,6 +66,7 @@ async function requestPayload(req, existing = {}) {
   const data = {
     name: String(req.body.name || '').trim(),
     description: String(req.body.description || '').trim(),
+    hsn_code: String(req.body.hsn_code || '').trim() || null,
     price: toNumber(req.body.price),
     quantity: toNumber(req.body.quantity || 0),
     weight_value: weightValue,
@@ -151,6 +152,9 @@ async function create(req, res) {
   if (!isVendor(req.authUser) && !isAdminLike(req.authUser)) {
     return res.status(403).json({ success: false, message: 'Only vendors or authorized users can create vendor products' });
   }
+  if (isVendor(req.authUser) && req.authUser.status === 'pending') {
+    return res.status(403).json({ success: false, message: 'Your vendor account is pending approval by admin. Product creation is disabled until approved.' });
+  }
 
   try {
     const vendorProduct = await VendorProduct.create({
@@ -173,6 +177,9 @@ async function create(req, res) {
 async function requestProduct(req, res) {
   if (!isVendor(req.authUser)) {
     return res.status(403).json({ success: false, message: 'Only vendors can request new products' });
+  }
+  if (req.authUser.status === 'pending') {
+    return res.status(403).json({ success: false, message: 'Your vendor account is pending approval by admin. Product requests are disabled until approved.' });
   }
   try {
     const { data, errors } = await requestPayload(req);

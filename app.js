@@ -33,6 +33,7 @@ const referralController = require('./controllers/referralController');
 const deletionRequestRoutes = require('./routes/deletionRequestRoutes');
 const deletionRequestController = require('./controllers/deletionRequestController');
 const orderController = require('./controllers/orderController');
+const vendorGstReportController = require('./controllers/vendorGstReportController');
 const walletController = require('./controllers/walletController');
 const userController = require('./controllers/userController');
 const managedProfileController = require('./controllers/managedProfileController');
@@ -1430,6 +1431,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('products', 'weight_value', 'DECIMAL(10,3) NOT NULL DEFAULT 0.000 AFTER price');
   await addColumnIfMissing('products', 'tax_name', 'VARCHAR(80) DEFAULT NULL AFTER image_url');
   await addColumnIfMissing('products', 'tax_percentage', 'DECIMAL(7,2) DEFAULT NULL AFTER tax_name');
+  await addColumnIfMissing('products', 'hsn_code', 'VARCHAR(20) DEFAULT NULL AFTER tax_percentage');
   await addColumnIfMissing('products', 'approval_status', "VARCHAR(20) NOT NULL DEFAULT 'approved' AFTER is_deleted");
   await addColumnIfMissing('products', 'created_by_vendor_id', 'INT UNSIGNED DEFAULT NULL AFTER approval_status');
   await addColumnIfMissing('products', 'approved_by', 'INT UNSIGNED DEFAULT NULL AFTER created_by_vendor_id');
@@ -2743,6 +2745,7 @@ function buildShell(user, activePath = '/dashboard') {
         navItem('Products', '/vendor-products', 'vendor.products', 'products', activePath.startsWith('/vendor-products')),
         navItem('Quotations', '/vendor/quotations', 'vendor.orders', 'orders', activePath.startsWith('/vendor/quotations')),
         navItem('Orders', '/orders/vendor', 'vendor.orders', 'orders', activePath.startsWith('/orders/vendor')),
+        navItem('GST Tax Report', '/vendor/reports/gst', null, 'reports', activePath.startsWith('/vendor/reports/gst')),
         navItem('Wallet', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
         navItem('Vendor Support', '/support/vendor', null, 'support', activePath.startsWith('/support/vendor')),
         navItem('Profile', '/profiles/' + user.id, 'vendor.profile', 'users', activePath.startsWith('/profiles')),
@@ -3504,7 +3507,7 @@ app.get('/login', (req, res) => {
   res.redirect('/admin');
 });
 
-app.get('/login/vendor', (req, res) => {
+app.get('/login/vendor', async (req, res) => {
   if (req.session && req.session.user && req.session.user.role === 'Vendor') {
     return res.redirect('/vendor/dashboard');
   }
@@ -3516,6 +3519,7 @@ app.get('/login/vendor', (req, res) => {
     demoCredentials: null,
     googleWebClientId: '',
     firebaseConfig: publicGoogleConfig().firebase,
+    isGstMandatory: await appSettingsController.getGstMandatory(),
     error: null,
   });
 });
@@ -4089,6 +4093,10 @@ app.get('/vendor/quotations', requireSessionRole('Vendor', '/login/vendor'), asy
 
 app.post('/vendor/quotations/:recipientId/submit', requireSessionRole('Vendor', '/login/vendor'), async (req, res) => {
   try {
+    const [vendorRows] = await pgPool.query("SELECT status FROM users WHERE id = $1 AND role = 'Vendor' AND is_deleted = 0", [req.session.user.id]);
+    if (vendorRows[0] && vendorRows[0].status === 'pending') {
+      return res.status(403).json({ success: false, message: 'Your vendor account is pending approval by admin. You cannot place bids until approved.' });
+    }
     const response = await Quotation.submitVendorResponse({
       recipientId: Number(req.params.recipientId),
       vendorId: req.session.user.id,
@@ -4501,6 +4509,10 @@ app.get('/api/vendor/notifications/stream', webOrJwtAuth, requireAuthRole('Vendo
 
 app.post('/api/vendor/quotations/:recipientId/submit', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
   try {
+    const [vendorRows] = await pgPool.query("SELECT status FROM users WHERE id = $1 AND role = 'Vendor' AND is_deleted = 0", [req.authUser.id]);
+    if (vendorRows[0] && vendorRows[0].status === 'pending') {
+      return res.status(403).json({ success: false, message: 'Your vendor account is pending approval by admin. You cannot place bids until approved.' });
+    }
     const response = await Quotation.submitVendorResponse({
       recipientId: Number(req.params.recipientId),
       vendorId: req.authUser.id,
@@ -4537,6 +4549,10 @@ app.post('/api/vendor/quotations/:recipientId/reject', webOrJwtAuth, requireAuth
     });
   }
 });
+
+app.get('/vendor/reports/gst', requireAuth, vendorGstReportController.renderVendorGstReport);
+app.get('/api/vendor/reports/gst', webOrJwtAuth, vendorGstReportController.getVendorGstReportApi);
+app.get('/vendor/reports/gst/export', webOrJwtAuth, vendorGstReportController.exportVendorGstReportCsv);
 
 app.post('/client/quotations/:recipientId/:decision', requireSessionRole('Client', '/login/client'), async (req, res) => {
   try {
@@ -7093,12 +7109,15 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
     message: req.query.message || null,
     settings: {
       general: {
-        appName: 'Grocery App',
+        appName: 'Groxen Dashboard',
         supportEmail: 'support@groceryapp.local',
         timezone: 'Asia/Kolkata',
         currency: 'INR',
         maintenanceMode: false,
         quotationSubmissionMinutes,
+      },
+      vendor: {
+        gstMandatory: await appSettingsController.getGstMandatory(),
       },
       bidding: { settings: biddingSettings },
       email: {
@@ -7141,6 +7160,27 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
       invoice: invoiceSettings,
     },
   });
+});
+
+app.get('/settings/vendor', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const gstMandatory = await appSettingsController.getGstMandatory();
+    res.json({ success: true, gstMandatory });
+  } catch (error) {
+    console.error('Vendor settings load error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load vendor settings' });
+  }
+});
+
+app.put('/settings/vendor', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const isMandatory = Boolean(req.body.gstMandatory || req.body.gst_mandatory);
+    await appSettingsController.setGstMandatory(isMandatory);
+    res.json({ success: true, message: 'Vendor settings saved successfully', gstMandatory: isMandatory });
+  } catch (error) {
+    console.error('Vendor settings save error:', error);
+    res.status(500).json({ success: false, message: 'Unable to save vendor settings' });
+  }
 });
 
 

@@ -252,6 +252,7 @@ function normalizeOrder(row, includeItems = false) {
       line_total: Number(item.line_total || 0),
       tax_name: item.tax_name || '',
       tax_percentage: Number(item.tax_percentage || 0),
+      hsn_code: item.hsn_code || '',
       tax_amount: Number(item.tax_amount || 0),
       taxable_amount: Number(item.taxable_amount || 0),
       vendor_name: item.vendor_name || '',

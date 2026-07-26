@@ -46,6 +46,8 @@
             Status
             <select id="statusFilter">
               <option value="">All Status</option>
+              <option value="pending">pending</option>
+              <option value="approved">approved</option>
               <option value="active">active</option>
               <option value="inactive">inactive</option>
             </select>
@@ -142,6 +144,8 @@
         <label>
           Status
           <select id="vendorStatus" required>
+            <option value="pending">pending</option>
+            <option value="approved">approved</option>
             <option value="active">active</option>
             <option value="inactive">inactive</option>
           </select>
@@ -475,10 +479,13 @@
             <td class="vendor-services-cell">${escapeHtml(categoriesText(vendor.categories) || '-')}</td>
             <td class="vendor-services-cell">${escapeHtml(servicesText(vendor.services) || '-')}</td>
             ${canManagePremiumVendors ? `<td>${vendor.is_premium_vendor ? '<span class="user-status-pill active">Premium</span>' : '<span class="user-status-pill inactive">Standard</span>'}<br><small>${Number(vendor.premium_commission_percent || 0).toFixed(2)}%</small></td>` : ''}
-            <td><span class="user-status-pill ${vendor.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(vendor.status)}</span></td>
+            <td><span class="user-status-pill ${['active', 'approved'].includes(vendor.status) ? 'active' : (vendor.status === 'pending' ? 'pending' : 'inactive')}">${escapeHtml(vendor.status)}</span></td>
             <td>
               <div class="user-actions">
-                <button type="button" onclick="toggleVendorStatus(${vendor.id})">${vendor.status === 'active' ? 'Deactivate' : 'Active'}</button>
+                ${vendor.status === 'pending'
+                  ? `<button type="button" style="background:#0f766e; color:#fff; font-weight:700;" onclick="approveVendorAccount(${vendor.id})">Approve</button>`
+                  : `<button type="button" onclick="toggleVendorStatus(${vendor.id})">${['active', 'approved'].includes(vendor.status) ? 'Deactivate' : 'Approve'}</button>`
+                }
                 <button type="button" onclick="openEditVendor(${vendor.id})">Edit</button>
                 <button type="button" onclick="changeVendorArea(${vendor.id})">Change Area</button>
                 <button type="button" onclick="askDeleteVendor(${vendor.id})">Delete</button>
@@ -559,7 +566,7 @@
     async function toggleVendorStatus(id) {
       const vendor = vendors.find((item) => item.id === id);
       if (!vendor) return;
-      const nextStatus = vendor.status === 'active' ? 'inactive' : 'active';
+      const nextStatus = ['active', 'approved'].includes(vendor.status) ? 'inactive' : 'approved';
       const response = await fetch(`/vendors/${id}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -568,6 +575,20 @@
       const data = await response.json();
       if (!data.success) {
         alert(data.message || 'Unable to update vendor status');
+        return;
+      }
+      loadVendors(currentPage);
+    }
+
+    async function approveVendorAccount(id) {
+      const response = await fetch(`/vendors/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'approved' }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to approve vendor account');
         return;
       }
       loadVendors(currentPage);
