@@ -341,6 +341,110 @@
   </div>
 
   <style>
+    /* Searchable Product Picker & Option Thumbnails */
+    .searchable-product-picker {
+      position: relative;
+      width: 100%;
+    }
+    .product-picker-search-input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      outline: none;
+      background: #ffffff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .product-picker-search-input:focus {
+      border-color: #0f766e;
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+    }
+    .product-picker-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 250px;
+      overflow-y: auto;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+      z-index: 9999;
+    }
+    .product-picker-option {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid #f1f5f9;
+      transition: background 0.15s ease;
+    }
+    .product-picker-option:last-child {
+      border-bottom: none;
+    }
+    .product-picker-option:hover {
+      background: #f0fdf4;
+    }
+    .product-picker-option-thumb {
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      min-height: 44px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background-color: #f8fafc;
+      display: block;
+    }
+    .product-picker-option-details {
+      flex: 1;
+      min-width: 0;
+    }
+    .product-picker-option-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #1e293b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .product-picker-option-meta {
+      font-size: 0.76rem;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .product-picker-option-price {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #059669;
+      white-space: nowrap;
+    }
+    .product-selected-badge {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #065f46;
+    }
+    .btn-clear-product {
+      background: #059669;
+      color: white;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
     /* Bulk Actions Bar */
     .bulk-actions-bar {
       display: flex;
@@ -609,17 +713,34 @@
       display: flex;
       flex-direction: column;
       background: #ffffff;
-      border: 1px solid #e2e8f0;
+      border: 1.5px solid #cbd5e1;
       border-radius: 16px;
       overflow: hidden;
-      box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+      box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.06), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
       transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
     }
 
+    .product-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3.5px;
+      background: linear-gradient(90deg, #0f766e 0%, #14b8a6 50%, #0d9488 100%);
+      z-index: 12;
+      opacity: 0.85;
+      transition: opacity 0.2s ease;
+    }
+
     .product-card:hover {
-      transform: translateY(-4px);
-      border-color: #cbd5e1;
-      box-shadow: 0 20px 30px -10px rgba(15, 23, 42, 0.12), 0 8px 15px -4px rgba(15, 23, 42, 0.06);
+      transform: translateY(-5px);
+      border-color: #0d9488;
+      box-shadow: 0 20px 32px -8px rgba(13, 148, 136, 0.18), 0 8px 16px -4px rgba(15, 23, 42, 0.08);
+    }
+
+    .product-card:hover::before {
+      opacity: 1;
     }
 
     .product-card-header {
@@ -965,16 +1086,16 @@
       gap: 16px;
       padding: 14px 18px;
       background: #ffffff;
-      border: 1px solid #e2e8f0;
-      border-radius: 12px;
-      box-shadow: 0 2px 6px rgba(15, 23, 42, 0.04);
+      border: 1.5px solid #cbd5e1;
+      border-radius: 14px;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
       transition: all 0.2s ease;
     }
 
     .product-row:hover {
       transform: translateY(-2px);
-      border-color: #cbd5e1;
-      box-shadow: 0 8px 18px rgba(15, 23, 42, 0.08);
+      border-color: #0d9488;
+      box-shadow: 0 10px 22px rgba(13, 148, 136, 0.12);
     }
 
     .product-row-info {
@@ -1306,7 +1427,15 @@
 
       dropdown.innerHTML = filtered.map((p) => `
         <div class="product-picker-option" onclick="onSelectApprovedProduct(${p.id})">
-          <img class="product-picker-option-thumb" src="${escapeHtml(p.image_url || '/default.png')}" alt="${escapeHtml(p.name)}" />
+          <img
+            class="product-picker-option-thumb"
+            data-product-placeholder
+            data-product-name="${escapeHtml(p.name)}"
+            src="${escapeHtml(p.image_url || '/default.png')}"
+            alt="${escapeHtml(p.name)}"
+            onerror="if(window.productImageFallback)window.productImageFallback(this)"
+            loading="lazy"
+          />
           <div class="product-picker-option-details">
             <div class="product-picker-option-title">${escapeHtml(p.name)}</div>
             <div class="product-picker-option-meta">${escapeHtml(p.category_name || '')} &bull; ${escapeHtml(p.sub_category_name || '')} &bull; ${escapeHtml(p.brand_name || '')}</div>
