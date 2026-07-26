@@ -10,9 +10,9 @@ async function initFileStorageTable() {
       CREATE TABLE IF NOT EXISTS uploaded_files_backup (
         file_path VARCHAR(255) PRIMARY KEY,
         mime_type VARCHAR(100) NOT NULL,
-        file_data LONGTEXT NOT NULL,
-        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
-      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
+        file_data TEXT NOT NULL,
+        updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+      );
     `);
 
     // Sync any existing files from public/uploads to DB on startup asynchronously
@@ -59,7 +59,8 @@ async function backupFileToDatabase(relPath, fullDiskPath) {
     await pool.query(
       `INSERT INTO uploaded_files_backup (file_path, mime_type, file_data)
        VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE mime_type = VALUES(mime_type), file_data = VALUES(file_data), updated_at = CURRENT_TIMESTAMP`,
+       ON CONFLICT (file_path) DO UPDATE
+       SET mime_type = EXCLUDED.mime_type, file_data = EXCLUDED.file_data, updated_at = CURRENT_TIMESTAMP`,
       [cleanRelPath, mimeType, base64Data]
     );
     return true;

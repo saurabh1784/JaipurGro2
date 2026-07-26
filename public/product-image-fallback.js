@@ -15,11 +15,11 @@
     if (image.dataset.placeholderComplete === 'true') {
       if (String(image.src || '').startsWith('data:image/svg+xml')) return;
       delete image.dataset.placeholderComplete;
-      delete image.dataset.logoFallbackTried;
     }
     const name = image.dataset.productName || image.alt || 'Product';
-    if (image.dataset.logoFallbackTried !== 'true') { image.dataset.logoFallbackTried = 'true'; image.src = logoPath; return; }
-    image.dataset.placeholderComplete = 'true'; image.src = fallbackSvg(name); image.style.backgroundColor = 'transparent';
+    image.dataset.placeholderComplete = 'true';
+    image.src = fallbackSvg(name);
+    image.style.backgroundColor = 'transparent';
   };
   function replaceServerDefault(image) {
     if (!(image instanceof HTMLImageElement) || !image.hasAttribute('data-product-placeholder')) return;
