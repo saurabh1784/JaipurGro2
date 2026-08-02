@@ -48,6 +48,7 @@
         <button class="settings-tab" type="button" data-tab="invoice">Invoice Settings</button>
         <button class="settings-tab" type="button" data-tab="email">Email</button>
         <button class="settings-tab" type="button" data-tab="firebase">Firebase</button>
+        <button class="settings-tab" type="button" data-tab="social-login">Social Login</button>
         <button class="settings-tab" type="button" data-tab="google-maps">Google Maps</button>
         <button class="settings-tab" type="button" data-tab="locations">Locations</button>
         <button class="settings-tab" type="button" data-tab="catalog">Catalog</button>
@@ -105,6 +106,167 @@
         </div>
         <button class="settings-save" type="button" onclick="saveQuotationSettings()">Save General Settings</button>
         <p class="commission-message" id="quotationSettingsMessage"></p>
+
+        <% if (isSuperAdmin) { %>
+          <!-- Superadmin Only Login Background Settings Card -->
+          <div style="margin-top: 28px; padding-top: 24px; border-top: 1px solid var(--border-color, #e2e8f0);">
+            <div class="panel-header" style="background: linear-gradient(135deg, #4a0e17 0%, #28050b 100%); color: #ffffff; padding: 14px 18px; border-radius: 10px; margin-bottom: 18px;">
+              <h3 style="margin: 0 0 4px 0; font-size: 1.05rem; font-weight: 800; color: #ffffff;">🎨 Login Page Background &amp; Appearance (Superadmin Only)</h3>
+              <p style="margin: 0; font-size: 0.82rem; opacity: 0.9; color: #fed7aa;">
+                Configure custom background image or background color for all Login Portals. 
+                <strong>Hierarchy Rules:</strong> Custom Image &gt; Custom Color &gt; Default Dark Maroon (<code>#4a0e17</code>).
+              </p>
+            </div>
+
+            <div class="settings-grid">
+              <label class="settings-wide">
+                Login Background Image URL or Upload
+                <div style="display: flex; gap: 10px; align-items: center; margin-top: 6px; flex-wrap: wrap;">
+                  <input type="text" id="loginBgImageUrl" value="<%= (typeof loginBg !== 'undefined' && loginBg) ? loginBg.loginBgImage : '' %>" placeholder="e.g. /uploads/login-bg/custom.jpg or https://example.com/bg.jpg" style="flex: 1; min-width: 260px;" onchange="updateLoginBgPreview()" />
+                  <input type="file" id="loginBgImageFile" accept="image/*" style="display: none;" data-skip-editor="true" data-no-image-editor="true" data-image-editor-bound="bypass" onchange="uploadLoginBgImage(this)" />
+                  <button type="button" class="settings-save" style="padding: 8px 14px; background: #0284c7; white-space: nowrap;" onclick="document.getElementById('loginBgImageFile').click()">📤 Upload Image</button>
+                  <button type="button" class="settings-save" style="padding: 8px 14px; background: #64748b; white-space: nowrap;" onclick="clearLoginBgImage()">Clear Image</button>
+                </div>
+              </label>
+
+              <label>
+                Login Background Color
+                <div style="display: flex; gap: 10px; align-items: center; margin-top: 6px;">
+                  <input type="color" id="loginBgColorPicker" value="<%= (typeof loginBg !== 'undefined' && loginBg && loginBg.loginBgColor && loginBg.loginBgColor.startsWith('#')) ? loginBg.loginBgColor : '#4a0e17' %>" onchange="document.getElementById('loginBgColorText').value = this.value; updateLoginBgPreview();" style="width: 44px; height: 38px; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer; padding: 2px;" />
+                  <input type="text" id="loginBgColorText" value="<%= (typeof loginBg !== 'undefined' && loginBg) ? loginBg.loginBgColor : '#4a0e17' %>" placeholder="e.g. #4a0e17" style="flex: 1;" onchange="document.getElementById('loginBgColorPicker').value = this.value; updateLoginBgPreview();" />
+                </div>
+              </label>
+
+              <div style="grid-column: 1 / -1;">
+                <label style="font-size: 0.82rem; font-weight: 700; color: var(--text-main, #334155);">Live Login Background Preview:</label>
+                <div id="loginBgPreviewBox" style="margin-top: 6px; height: 110px; border-radius: 12px; border: 1px dashed #cbd5e1; display: flex; align-items: center; justify-content: center; color: white; font-weight: bold; text-shadow: 0 2px 5px rgba(0,0,0,0.7); background-size: cover; background-position: center; transition: all 0.3s ease;">
+                  Login Page Background Preview
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-top: 18px; display: flex; align-items: center; gap: 14px;">
+              <button class="settings-save" type="button" style="background: linear-gradient(135deg, #4a0e17, #28050b);" onclick="saveLoginBgSettings()">💾 Save Login Background Settings</button>
+              <span id="loginBgSaveMessage" style="font-weight: 600; font-size: 0.86rem;"></span>
+            </div>
+          </div>
+
+          <script>
+            function uploadLoginBgImage(fileInput) {
+              const file = fileInput ? fileInput.files[0] : null;
+              if (!file) return;
+
+              const statusMsg = document.getElementById('loginBgSaveMessage');
+              if (statusMsg) {
+                statusMsg.style.color = '#0284c7';
+                statusMsg.textContent = '⏳ Uploading login background image...';
+              }
+
+              const formData = new FormData();
+              formData.append('image', file);
+
+              fetch('/settings/login-background/upload', {
+                method: 'POST',
+                body: formData,
+              })
+              .then(function(res) { return res.json(); })
+              .then(function(data) {
+                if (!data.success) throw new Error(data.message || 'Image upload failed');
+                const urlInput = document.getElementById('loginBgImageUrl');
+                if (urlInput) urlInput.value = data.imageUrl;
+                if (statusMsg) {
+                  statusMsg.style.color = '#166534';
+                  statusMsg.textContent = '✅ Image uploaded! Click "Save Login Background Settings" to apply.';
+                }
+                updateLoginBgPreview();
+              })
+              .catch(function(err) {
+                if (statusMsg) {
+                  statusMsg.style.color = '#991b1b';
+                  statusMsg.textContent = '❌ Upload error: ' + err.message;
+                }
+              });
+            }
+
+            function clearLoginBgImage() {
+              const urlInput = document.getElementById('loginBgImageUrl');
+              if (urlInput) urlInput.value = '';
+              updateLoginBgPreview();
+            }
+
+            function updateLoginBgPreview() {
+              const urlInput = document.getElementById('loginBgImageUrl');
+              const colorInput = document.getElementById('loginBgColorText');
+              const box = document.getElementById('loginBgPreviewBox');
+              if (!box) return;
+
+              const imgUrl = urlInput ? urlInput.value.trim() : '';
+              const colorVal = colorInput ? colorInput.value.trim() : '#4a0e17';
+
+              if (imgUrl) {
+                box.style.backgroundImage = "linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.65)), url('" + imgUrl + "')";
+                box.style.backgroundSize = '100% 100%';
+                box.style.backgroundPosition = 'center center';
+                box.style.backgroundColor = 'transparent';
+                box.textContent = 'Active Background: Custom Stretched Image (100% Screen Fit)';
+              } else if (colorVal && colorVal.toLowerCase() !== '#4a0e17') {
+                box.style.backgroundImage = 'none';
+                box.style.backgroundColor = colorVal;
+                box.textContent = 'Active Background: Custom Color (' + colorVal + ')';
+              } else {
+                box.style.backgroundColor = '#4a0e17';
+                box.style.backgroundImage = 'linear-gradient(135deg, #4a0e17 0%, #28050b 100%)';
+                box.textContent = 'Active Background: Default Dark Maroon (#4a0e17)';
+              }
+            }
+
+            function saveLoginBgSettings() {
+              const statusMsg = document.getElementById('loginBgSaveMessage');
+              if (statusMsg) {
+                statusMsg.style.color = '#0284c7';
+                statusMsg.textContent = 'Saving login background settings...';
+              }
+
+              const payload = {
+                loginBgImage: (document.getElementById('loginBgImageUrl') ? document.getElementById('loginBgImageUrl').value.trim() : ''),
+                loginBgColor: (document.getElementById('loginBgColorText') ? document.getElementById('loginBgColorText').value.trim() : ''),
+              };
+
+              fetch('/settings/login-background', {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(payload),
+              })
+              .then(function(res) { return res.json(); })
+              .then(function(data) {
+                if (!data.success) throw new Error(data.message || 'Failed to save settings');
+                if (statusMsg) {
+                  statusMsg.style.color = '#166534';
+                  statusMsg.textContent = '✅ Login background settings saved!';
+                }
+                updateLoginBgPreview();
+              })
+              .catch(function(err) {
+                if (statusMsg) {
+                  statusMsg.style.color = '#991b1b';
+                  statusMsg.textContent = '❌ Error: ' + err.message;
+                }
+              });
+            }
+
+            window.uploadLoginBgImage = uploadLoginBgImage;
+            window.clearLoginBgImage = clearLoginBgImage;
+            window.updateLoginBgPreview = updateLoginBgPreview;
+            window.saveLoginBgSettings = saveLoginBgSettings;
+
+            if (document.readyState === 'complete' || document.readyState === 'interactive') {
+              updateLoginBgPreview();
+            } else {
+              document.addEventListener('DOMContentLoaded', updateLoginBgPreview);
+            }
+            setTimeout(updateLoginBgPreview, 100);
+          </script>
+        <% } %>
       </section>
 
       <% if (isSuperAdmin) { %>
@@ -173,7 +335,7 @@
 
                 <div id="pcInspectorCard" style="display:none; background:#f1f5f9; border:1px solid #cbd5e1; border-radius:12px; padding:16px; margin-top:14px;">
                   <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:12px;">
-                    <span style="background:#dcfce7; color:#166534; font-size:12px; font-weight:700; padding:4px 10px; border-radius:12px; border:1px solid #bbf7d0;">âœ“ Valid JaipurGro Backup Snapshot</span>
+                    <span style="background:#dcfce7; color:#166534; font-size:12px; font-weight:700; padding:4px 10px; border-radius:12px; border:1px solid #bbf7d0;">✓ Valid Groxen Backup Snapshot</span>
                     <strong id="inspectorFileName" style="font-size:14px; color:#0f172a;">backup.json</strong>
                   </div>
                   <div style="display:grid; grid-template-columns: repeat(auto-fit, minmax(130px, 1fr)); gap:10px; background:#fff; padding:12px; border-radius:8px; border:1px solid #e2e8f0; font-size:13px;">
@@ -406,105 +568,234 @@
         <p class="commission-message" id="invoiceSettingsMessage"></p>
       </form>
 
-      <form class="settings-panel" id="email" aria-labelledby="email-tab">
+      <div class="settings-panel" id="email" aria-labelledby="email-tab">
         <div class="panel-header orange-header">
-          <h2>Email Settings</h2>
-          <p>SMTP configuration for signup, invoices, and operational alerts.</p>
+          <h2>Email &amp; SMTP Settings</h2>
+          <p>Email settings have been unified into the Message &amp; Email Communication Hub.</p>
         </div>
-        <div class="settings-grid">
-          <label>
-            Mail Driver
-            <select>
-              <option selected><%= settings.email.mailDriver %></option>
-              <option>SendGrid</option>
-              <option>Mailgun</option>
-            </select>
-          </label>
-          <label>
-            SMTP Host
-            <input type="text" value="<%= settings.email.host %>" />
-          </label>
-          <label>
-            SMTP Port
-            <input type="number" value="<%= settings.email.port %>" />
-          </label>
-          <label>
-            From Email
-            <input type="email" value="<%= settings.email.fromEmail %>" />
-          </label>
-          <label>
-            Encryption
-            <select>
-              <option selected><%= settings.email.encryption %></option>
-              <option>SSL</option>
-              <option>None</option>
-            </select>
-          </label>
+        <div style="background: #f0f9ff; border: 1.5px solid #bae6fd; border-radius: 16px; padding: 28px; text-align: center; margin-top: 15px;">
+          <div style="font-size: 40px; margin-bottom: 10px;">✉️</div>
+          <h3 style="margin: 0 0 8px 0; font-size: 20px; color: #0369a1;">Unified Message &amp; Email Hub</h3>
+          <p style="margin: 0 auto 20px auto; max-width: 600px; color: #0284c7; font-size: 14.5px; line-height: 1.5;">
+            Email configuration, SMTP credentials, live email testing, and event timing triggers (for Users, Vendors, and Delivery Partners) are now integrated into the <strong>Message &amp; Email Settings</strong> page.
+          </p>
+          <a href="/message-settings#email" class="settings-save" style="display: inline-block; background: #0284c7; color: white; text-decoration: none; padding: 12px 28px; border-radius: 10px; font-weight: 700; font-size: 15px;">
+            🚀 Open Message &amp; Email Settings Hub →
+          </a>
         </div>
-        <button class="settings-save" type="button">Save Email Settings</button>
-      </form>
+      </div>
 
       <form class="settings-panel" id="firebase" aria-labelledby="firebase-tab">
         <div class="panel-header blue-header">
           <h2>Firebase Settings</h2>
-          <p>Firebase project values for Google login, analytics, notifications, storage, and mobile clients.</p>
+          <p>Configure Firebase project credentials for Web SDK, push notifications, storage, and mobile clients.</p>
         </div>
         <div class="settings-grid">
           <label class="settings-wide">
             API Key
-            <input type="text" value="<%= settings.firebase.apiKey %>" readonly />
+            <input type="text" id="firebaseApiKey" value="<%= settings.firebase.apiKey %>" placeholder="e.g. AIzaSyCG0FluPYJBUtyKKYNtfVJv--M53I6PJTg" />
           </label>
           <label>
             Auth Domain
-            <input type="text" value="<%= settings.firebase.authDomain %>" readonly />
+            <input type="text" id="firebaseAuthDomain" value="<%= settings.firebase.authDomain %>" placeholder="e.g. groxen-522fb.firebaseapp.com" />
           </label>
           <label>
             Project ID
-            <input type="text" value="<%= settings.firebase.projectId %>" readonly />
+            <input type="text" id="firebaseProjectId" value="<%= settings.firebase.projectId %>" placeholder="e.g. groxen-522fb" />
           </label>
           <label>
             Messaging Sender ID
-            <input type="text" value="<%= settings.firebase.messagingSenderId %>" readonly />
+            <input type="text" id="firebaseMessagingSenderId" value="<%= settings.firebase.messagingSenderId %>" placeholder="e.g. 437730360569" />
           </label>
           <label>
             Storage Bucket
-            <input type="text" value="<%= settings.firebase.storageBucket %>" readonly />
+            <input type="text" id="firebaseStorageBucket" value="<%= settings.firebase.storageBucket %>" placeholder="e.g. groxen-522fb.firebasestorage.app" />
           </label>
           <label class="settings-wide">
             Firebase Web App ID
-            <input type="text" value="<%= settings.firebase.appId %>" readonly />
+            <input type="text" id="firebaseAppId" value="<%= settings.firebase.appId %>" placeholder="e.g. 1:437730360569:web:befe64bac9e8dc49fd3628" />
           </label>
           <label>
             Measurement ID
-            <input type="text" value="<%= settings.firebase.measurementId %>" readonly />
+            <input type="text" id="firebaseMeasurementId" value="<%= settings.firebase.measurementId %>" placeholder="e.g. G-3CZ4MV7RPS" />
           </label>
           <label class="settings-wide">
             Google Web Client ID
-            <input type="text" value="<%= settings.firebase.googleWebClientId || 'Set GOOGLE_WEB_CLIENT_ID in server environment' %>" readonly />
+            <input type="text" id="firebaseGoogleWebClientId" value="<%= settings.firebase.googleWebClientId || '' %>" placeholder="e.g. 437730360569-kft890puoh0m2f861q8k2mg2intqbur5.apps.googleusercontent.com" />
           </label>
           <label class="settings-wide">
-            Firebase Admin SDK
-            <input type="text" value="<%= settings.firebase.adminMessage %>" readonly />
+            Firebase Admin SDK Status
+            <input type="text" value="<%= settings.firebase.adminMessage %>" readonly style="background: #f1f5f9; color: #475569;" />
           </label>
           <label>
             Admin Project ID
-            <input type="text" value="<%= settings.firebase.adminProjectId || '-' %>" readonly />
+            <input type="text" value="<%= settings.firebase.adminProjectId || '-' %>" readonly style="background: #f1f5f9; color: #475569;" />
           </label>
           <label class="settings-wide">
             Admin Client Email
-            <input type="text" value="<%= settings.firebase.adminClientEmail || '-' %>" readonly />
+            <input type="text" value="<%= settings.firebase.adminClientEmail || '-' %>" readonly style="background: #f1f5f9; color: #475569;" />
           </label>
           <label class="settings-wide">
-            Server Key
-            <textarea placeholder="Paste Firebase server key"></textarea>
+            Server Key (Cloud Messaging)
+            <textarea id="firebaseServerKey" rows="3" placeholder="Paste Firebase Legacy Server Key if needed"><%= settings.firebase.serverKey || '' %></textarea>
           </label>
           <label class="settings-toggle">
-            <input type="checkbox" <%= settings.firebase.pushNotifications ? 'checked' : '' %> />
-            Push Notifications
+            <input type="checkbox" id="firebasePushNotifications" <%= settings.firebase.pushNotifications ? 'checked' : '' %> />
+            Push Notifications Enabled
           </label>
         </div>
-        <button class="settings-save" type="button" disabled>Loaded From Firebase Config</button>
+        <button class="settings-save" type="button" onclick="saveFirebaseSettings()">Save Firebase Settings</button>
+        <p class="commission-message" id="firebaseSettingsMessage"></p>
       </form>
+
+      <section class="settings-panel" id="social-login" aria-labelledby="social-login-tab">
+        <div class="panel-header blue-header" style="background: linear-gradient(135deg, #1e3a8a 0%, #1e40af 100%); color: #ffffff; padding: 18px 24px; border-radius: 12px; margin-bottom: 24px;">
+          <h2 style="margin: 0 0 6px 0; font-size: 1.35rem; font-weight: 800; color: #ffffff;">🔑 Social Login Settings</h2>
+          <p style="margin: 0; font-size: 0.9rem; opacity: 0.95; color: #dbeafe;">
+            Configure single sign-on (SSO) options for Google and Facebook login across Client, Vendor, and Delivery partner applications.
+          </p>
+        </div>
+
+        <div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 20px;">
+            <div>
+              <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; font-weight: 700; color: #0f172a;">🌐 Google Login Configuration</h3>
+              <p style="margin: 0; font-size: 0.85rem; color: #64748b;">Allow users to sign up and log in using their Google account.</p>
+            </div>
+            <label class="settings-toggle" style="margin: 0; font-weight: 700;">
+              <input type="checkbox" id="socialGoogleEnabled" <%= (settings.social && settings.social.googleEnabled) ? 'checked' : '' %> />
+              Enable Google Login
+            </label>
+          </div>
+
+          <div class="settings-grid">
+            <label class="settings-wide">
+              Google Web Client ID
+              <input type="text" id="socialGoogleClientId" value="<%= (settings.social && settings.social.googleClientId) || '' %>" placeholder="e.g. 437730360569-kft890puoh0m2f861q8k2mg2intqbur5.apps.googleusercontent.com" />
+              <small style="color: #64748b; margin-top: 4px; display: block;">OAuth 2.0 Web Client ID from Google Cloud Console. Used for token verification across all mobile &amp; web apps.</small>
+            </label>
+          </div>
+        </div>
+
+        <div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 20px;">
+            <div>
+              <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; font-weight: 700; color: #0f172a;">📘 Facebook Login Configuration</h3>
+              <p style="margin: 0; font-size: 0.85rem; color: #64748b;">Allow users to sign up and log in using their Facebook account.</p>
+            </div>
+            <label class="settings-toggle" style="margin: 0; font-weight: 700;">
+              <input type="checkbox" id="socialFacebookEnabled" <%= (settings.social && settings.social.facebookEnabled) ? 'checked' : '' %> />
+              Enable Facebook Login
+            </label>
+          </div>
+
+          <div class="settings-grid">
+            <label>
+              Facebook App ID
+              <input type="text" id="socialFacebookAppId" value="<%= (settings.social && settings.social.facebookAppId) || '' %>" placeholder="e.g. 1234567890" />
+              <small style="color: #64748b; margin-top: 4px; display: block;">Public Facebook Application ID from Meta for Developers.</small>
+            </label>
+
+            <label>
+              Facebook App Secret
+              <input type="password" id="socialFacebookAppSecret" value="<%= (settings.social && settings.social.facebookAppSecret) ? '*****' : '' %>" placeholder="Enter Facebook App Secret" autocomplete="off" />
+              <small style="color: #64748b; margin-top: 4px; display: block;">Stored securely on the server. Never shared with mobile clients.</small>
+            </label>
+          </div>
+        </div>
+
+        <!-- Mobile OTP Login Configuration Card -->
+        <div style="background: var(--card-bg, #ffffff); border: 1px solid var(--border-color, #e2e8f0); border-radius: 12px; padding: 24px; margin-bottom: 24px; box-shadow: 0 1px 3px rgba(0,0,0,0.05);">
+          <div style="border-bottom: 2px solid #f1f5f9; padding-bottom: 16px; margin-bottom: 20px;">
+            <h3 style="margin: 0 0 4px 0; font-size: 1.1rem; font-weight: 700; color: #0f172a;">📱 Mobile OTP Login Settings (Per-App &amp; Security Rules)</h3>
+            <p style="margin: 0; font-size: 0.85rem; color: #64748b;">Enable or disable Mobile OTP Login independently for each app, and configure OTP security parameters &amp; SMS provider credentials.</p>
+          </div>
+
+          <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; font-weight: 700; color: #334155;">Per-App Mobile OTP Enablement:</h4>
+          <div class="settings-grid" style="margin-bottom: 20px;">
+            <label class="settings-toggle" style="margin: 0; font-weight: 700;">
+              <input type="checkbox" id="otpClientEnabled" <%= (settings.otp && settings.otp.clientEnabled) ? 'checked' : '' %> />
+              Client App Mobile OTP Login
+            </label>
+            <label class="settings-toggle" style="margin: 0; font-weight: 700;">
+              <input type="checkbox" id="otpVendorEnabled" <%= (settings.otp && settings.otp.vendorEnabled) ? 'checked' : '' %> />
+              Vendor App Mobile OTP Login
+            </label>
+            <label class="settings-toggle" style="margin: 0; font-weight: 700;">
+              <input type="checkbox" id="otpDeliveryEnabled" <%= (settings.otp && settings.otp.deliveryEnabled) ? 'checked' : '' %> />
+              Delivery Partner App Mobile OTP Login
+            </label>
+          </div>
+
+          <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; font-weight: 700; color: #334155;">OTP Security &amp; Timer Rules:</h4>
+          <div class="settings-grid" style="margin-bottom: 20px;">
+            <label>
+              OTP Code Length
+              <input type="number" id="otpLength" min="4" max="8" value="<%= (settings.otp && settings.otp.length) || 6 %>" />
+            </label>
+            <label>
+              Expiry Time (Minutes)
+              <input type="number" id="otpExpiryMinutes" min="1" max="30" value="<%= (settings.otp && settings.otp.expiryMinutes) || 5 %>" />
+            </label>
+            <label>
+              Resend Cooldown (Seconds)
+              <input type="number" id="otpResendCooldown" min="15" max="300" value="<%= (settings.otp && settings.otp.resendCooldown) || 60 %>" />
+            </label>
+            <label>
+              Max Verification Attempts
+              <input type="number" id="otpMaxAttempts" min="1" max="10" value="<%= (settings.otp && settings.otp.maxAttempts) || 5 %>" />
+            </label>
+            <label>
+              Max Requests Per Hour
+              <input type="number" id="otpMaxRequestsPerHour" min="1" max="20" value="<%= (settings.otp && settings.otp.maxRequestsPerHour) || 5 %>" />
+            </label>
+            <label>
+              Block Duration (Minutes)
+              <input type="number" id="otpBlockDurationMinutes" min="5" max="1440" value="<%= (settings.otp && settings.otp.blockDurationMinutes) || 30 %>" />
+            </label>
+            <label>
+              Default Country Code
+              <input type="text" id="otpDefaultCountryCode" value="<%= (settings.otp && settings.otp.defaultCountryCode) || '+91' %>" />
+            </label>
+            <label class="settings-toggle" style="margin-top: 24px; font-weight: 700;">
+              <input type="checkbox" id="otpTestMode" <%= (settings.otp && settings.otp.testMode) ? 'checked' : '' %> />
+              Test Mode (Console Logger)
+            </label>
+          </div>
+
+          <h4 style="margin: 0 0 12px 0; font-size: 0.95rem; font-weight: 700; color: #334155;">SMS Gateway Provider (MSG91 Integration):</h4>
+          <div class="settings-grid">
+            <label>
+              SMS Provider
+              <select id="otpSmsProvider">
+                <option value="MSG91" <%= (!settings.otp || settings.otp.smsProvider === 'MSG91') ? 'selected' : '' %>>MSG91 SMS / OTP Gateway (Recommended)</option>
+                <option value="TestMode" <%= (settings.otp && settings.otp.smsProvider === 'TestMode') ? 'selected' : '' %>>Test Mode (Console Logger)</option>
+                <option value="MetaCloudAPI" <%= (settings.otp && settings.otp.smsProvider === 'MetaCloudAPI') ? 'selected' : '' %>>Meta Cloud API (WhatsApp/SMS)</option>
+                <option value="Twilio" <%= (settings.otp && settings.otp.smsProvider === 'Twilio') ? 'selected' : '' %>>Twilio SMS API</option>
+                <option value="CustomAPI" <%= (settings.otp && settings.otp.smsProvider === 'CustomAPI') ? 'selected' : '' %>>Custom HTTP SMS Gateway</option>
+              </select>
+            </label>
+            <label>
+              MSG91 AuthKey
+              <input type="password" id="otpMsg91AuthKey" value="<%= (settings.otp && settings.otp.msg91AuthKey) ? '*****' : '' %>" placeholder="Enter MSG91 AuthKey" autocomplete="off" />
+              <small style="color: #64748b; margin-top: 4px; display: block;">AuthKey from MSG91 Dashboard. Stored securely on backend.</small>
+            </label>
+            <label>
+              MSG91 DLT Template ID
+              <input type="text" id="otpMsg91TemplateId" value="<%= (settings.otp && settings.otp.msg91TemplateId) || '' %>" placeholder="e.g. 64a8b... or DLT Template ID" />
+              <small style="color: #64748b; margin-top: 4px; display: block;">Flow / DLT Template ID registered on MSG91.</small>
+            </label>
+            <label>
+              MSG91 Sender ID
+              <input type="text" id="otpMsg91SenderId" value="<%= (settings.otp && settings.otp.msg91SenderId) || 'GROXEN' %>" placeholder="e.g. GROXEN" />
+              <small style="color: #64748b; margin-top: 4px; display: block;">6-character DLT registered Sender ID.</small>
+            </label>
+          </div>
+        </div>
+
+        <button class="settings-save" type="button" onclick="saveSocialLoginSettings()" style="background: linear-gradient(135deg, #2563eb, #1d4ed8); padding: 12px 32px; font-weight: 700; border-radius: 8px;">Save Social &amp; OTP Settings</button>
+        <p class="commission-message" id="socialLoginSettingsMessage" style="margin-top: 12px; font-weight: 600;"></p>
+      </section>
 
       <section class="settings-panel" id="google-maps" aria-labelledby="google-maps-tab">
         <div class="panel-header blue-header">
@@ -675,7 +966,7 @@
               <h3 id="areaManagementTitle">Area Management</h3>
               <p>Create delivery areas, control availability, and manage map boundaries.</p>
             </div>
-            <button class="settings-save" id="addManagedAreaButton" type="button">Add Area</button>
+            <button class="settings-save" id="addManagedAreaButton" type="button" onclick="openAreaManager()">Add Area</button>
           </div>
 
           <div class="area-filter-grid">
@@ -1747,6 +2038,139 @@
       }
     }
 
+    function toggleEmailPasswordVisibility() {
+      const pwdInput = document.getElementById('emailPassword');
+      const toggleBtn = document.getElementById('pwdToggleIcon');
+      if (pwdInput.type === 'password') {
+        pwdInput.type = 'text';
+        toggleBtn.textContent = '🔒 Hide';
+      } else {
+        pwdInput.type = 'password';
+        toggleBtn.textContent = '👁️ Show';
+      }
+    }
+
+    async function saveEmailSettings() {
+      const msg = document.getElementById('emailSettingsMessage');
+      msg.style.color = '#0284c7';
+      msg.textContent = 'Saving email settings...';
+
+      const payload = {
+        status: document.getElementById('emailStatus').value,
+        mailDriver: document.getElementById('emailMailDriver').value,
+        host: document.getElementById('emailHost').value.trim(),
+        port: document.getElementById('emailPort').value.trim(),
+        encryption: document.getElementById('emailEncryption').value,
+        username: document.getElementById('emailUsername').value.trim(),
+        password: document.getElementById('emailPassword').value,
+        fromEmail: document.getElementById('emailFromEmail').value.trim(),
+        fromName: document.getElementById('emailFromName').value.trim(),
+      };
+
+      try {
+        const response = await fetch('/settings/email', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!data.success) {
+          throw new Error(data.message || 'Failed to save email settings');
+        }
+        msg.style.color = '#166534';
+        msg.textContent = '✅ ' + (data.message || 'Email settings saved successfully!');
+      } catch (err) {
+        msg.style.color = '#991b1b';
+        msg.textContent = '❌ ' + err.message;
+      }
+    }
+
+    async function sendTestEmail() {
+      const recipient = document.getElementById('testEmailRecipient').value.trim();
+      const subject = document.getElementById('testEmailSubject').value.trim();
+      const customBody = document.getElementById('testEmailBody').value.trim();
+
+      const resultDiv = document.getElementById('testEmailResult');
+      const btn = document.getElementById('sendTestEmailBtn');
+      const spinner = document.getElementById('testEmailSpinner');
+
+      if (!recipient) {
+        resultDiv.style.display = 'block';
+        resultDiv.style.background = '#fef2f2';
+        resultDiv.style.border = '1px solid #fca5a5';
+        resultDiv.style.color = '#991b1b';
+        resultDiv.innerHTML = '<strong>❌ Error:</strong> Please enter a recipient email address to send the test email.';
+        return;
+      }
+
+      btn.disabled = true;
+      btn.style.opacity = '0.6';
+      spinner.style.display = 'inline';
+      resultDiv.style.display = 'none';
+
+      // Current form settings if unsaved
+      const currentFormConfig = {
+        status: document.getElementById('emailStatus').value,
+        mailDriver: document.getElementById('emailMailDriver').value,
+        host: document.getElementById('emailHost').value.trim(),
+        port: document.getElementById('emailPort').value.trim(),
+        encryption: document.getElementById('emailEncryption').value,
+        username: document.getElementById('emailUsername').value.trim(),
+        password: document.getElementById('emailPassword').value,
+        fromEmail: document.getElementById('emailFromEmail').value.trim(),
+        fromName: document.getElementById('emailFromName').value.trim(),
+      };
+
+      try {
+        const response = await fetch('/settings/email/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            recipientEmail: recipient,
+            subject,
+            customBody,
+            config: currentFormConfig,
+          }),
+        });
+
+        const data = await response.json();
+
+        resultDiv.style.display = 'block';
+        if (data.success) {
+          resultDiv.style.background = '#f0fdf4';
+          resultDiv.style.border = '1px solid #86efac';
+          resultDiv.style.color = '#166534';
+          resultDiv.innerHTML = `
+            <div style="font-weight: bold; font-size: 15px; margin-bottom: 6px;">🎉 Test Email Sent Successfully!</div>
+            <div>Sent test mail to: <strong>${data.recipient || recipient}</strong></div>
+            ${data.messageId ? `<div style="font-size: 12px; color: #475569; margin-top: 4px;">Message ID: <code>${data.messageId}</code></div>` : ''}
+            ${data.response ? `<div style="font-size: 12px; color: #475569; margin-top: 2px;">Server Response: <code>${data.response}</code></div>` : ''}
+          `;
+        } else {
+          resultDiv.style.background = '#fef2f2';
+          resultDiv.style.border = '1px solid #fca5a5';
+          resultDiv.style.color = '#991b1b';
+          resultDiv.innerHTML = `
+            <div style="font-weight: bold; font-size: 15px; margin-bottom: 6px;">❌ Mail Sending Failed</div>
+            <div>${data.message || 'Unknown error occurred while sending email.'}</div>
+          `;
+        }
+      } catch (err) {
+        resultDiv.style.display = 'block';
+        resultDiv.style.background = '#fef2f2';
+        resultDiv.style.border = '1px solid #fca5a5';
+        resultDiv.style.color = '#991b1b';
+        resultDiv.innerHTML = `
+          <div style="font-weight: bold; font-size: 15px; margin-bottom: 6px;">❌ Network / Server Error</div>
+          <div>${err.message || 'Failed to send request to server.'}</div>
+        `;
+      } finally {
+        btn.disabled = false;
+        btn.style.opacity = '1';
+        spinner.style.display = 'none';
+      }
+    }
+
     document.querySelectorAll('.catalog-inner-tab').forEach((tab) => {
       tab.addEventListener('click', () => {
         document.querySelectorAll('.catalog-inner-tab').forEach((item) => item.classList.remove('active'));
@@ -1934,14 +2358,7 @@
           Slug
           <input id="catalogSlugInput" type="text" placeholder="auto-generated when empty" />
         </label>
-        <label class="catalog-tax-field" id="catalogTaxNameField">
-          Tax Name
-          <input id="catalogTaxNameInput" type="text" placeholder="Example: GST" />
-        </label>
-        <label class="catalog-tax-field" id="catalogTaxPercentageField">
-          Tax %
-          <input id="catalogTaxPercentageInput" type="number" min="0" max="100" step="0.01" />
-        </label>
+
         <label class="catalog-logo-field" id="catalogLogoField">
           Picture / Logo File
           <input id="catalogLogoInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
@@ -2437,14 +2854,10 @@
       document.getElementById('catalogModalTitle').textContent = `${item ? 'Edit' : 'Add'} ${type}`;
       document.getElementById('catalogNameInput').value = item ? item.name : '';
       document.getElementById('catalogSlugInput').value = item ? item.slug : '';
-      document.getElementById('catalogTaxNameInput').value = item && item.tax_name ? item.tax_name : '';
-      document.getElementById('catalogTaxPercentageInput').value = item && item.tax_percentage !== null && item.tax_percentage !== undefined ? Number(item.tax_percentage).toFixed(2) : '';
       document.getElementById('catalogActiveInput').checked = item ? item.is_active : true;
       document.getElementById('catalogCategoryField').style.display = type === 'subcategory' || type === 'brand' ? 'block' : 'none';
       document.getElementById('catalogSubcategoryField').style.display = type === 'brand' ? 'block' : 'none';
       document.getElementById('catalogLogoField').style.display = 'block';
-      document.getElementById('catalogTaxNameField').style.display = type === 'category' ? 'block' : 'none';
-      document.getElementById('catalogTaxPercentageField').style.display = type === 'category' ? 'block' : 'none';
       const catalogLogoInput = document.getElementById('catalogLogoInput');
       catalogLogoInput.value = '';
       catalogLogoInput.dataset.imagePreset = type === 'category' ? 'category' : (type === 'subcategory' ? 'subcategory' : 'brand');
@@ -2540,10 +2953,6 @@
       };
 
       if (type === 'subcategory') payload.category_id = document.getElementById('catalogCategoryInput').value;
-      if (type === 'category') {
-        payload.tax_name = document.getElementById('catalogTaxNameInput').value;
-        payload.tax_percentage = document.getElementById('catalogTaxPercentageInput').value;
-      }
       const catalogUrlVal = document.getElementById('catalogUrlInput').value.trim();
       const selectedLogo = document.getElementById('catalogLogoInput').files[0];
       const processedLogo = selectedLogo ? await fitImageForCatalogIcon(selectedLogo) : null;
@@ -4797,12 +5206,13 @@
   async function loadManagedAreas(){const params=new URLSearchParams();[['search','areaSearch'],['country_id','areaCountryFilter'],['state_id','areaStateFilter'],['city_id','areaCityFilter'],['status','areaStatusFilter']].forEach(([key,id])=>{const value=document.getElementById(id)?.value?.trim();if(value)params.set(key,value)});const response=await fetch(`/api/areas?${params}`,{headers:{Accept:'application/json'}});const data=await response.json();if(!data.success){document.getElementById('areaManagementMessage').textContent=data.message||'Unable to load areas';return}managedAreas=data.areas||[];areaLocations=data.locations||areaLocations;if(!(document.getElementById('areaCountryFilter')?.options.length>1))syncAreaHierarchyFilters();renderManagedAreas()}
   function boundaryBadge(area){const key=area.boundary_status==='created'?'created':area.boundary_status==='needs_update'?'needs-update':'not-created';return `<span class="area-badge ${key}">${areaEsc(area.boundary_status_label)}</span>`}
   function renderManagedAreas(){const body=document.getElementById('managedAreaRows');if(!managedAreas.length){body.innerHTML='<tr><td colspan="9">No areas match these filters.</td></tr>';return}body.innerHTML=managedAreas.map((area)=>`<tr><td class="area-name-cell"><strong>${areaEsc(area.name)}</strong><span>${areaEsc(area.description||'No description')}</span></td><td><code>${areaEsc(area.code)}</code></td><td>${areaEsc(area.city)}</td><td>${areaEsc(area.state)}</td><td>${areaEsc(area.country)}</td><td>${boundaryBadge(area)}</td><td><span class="area-badge ${area.delivery_enabled?'delivery':'inactive'}">${area.delivery_enabled?'Available':'Unavailable'}</span></td><td><button type="button" class="area-badge ${area.is_active?'active':'inactive'}" onclick="toggleManagedArea(${area.id},${area.is_active?'false':'true'})">${area.is_active?'Active':'Inactive'}</button></td><td><div class="area-row-actions"><button type="button" onclick="openAreaManager(${area.id})">Edit</button><button type="button" onclick="manageAreaBoundary(${area.id})">Draw on Map</button><button type="button" class="danger" onclick="deleteManagedArea(${area.id})">Delete</button></div></td></tr>`).join('')}
-  function openAreaManager(id=null){const dialog=document.getElementById('areaManagerDialog');const form=document.getElementById('areaManagerForm');if(!dialog||!form)return;const area=managedAreas.find((row)=>Number(row.id)===Number(id));form.reset();document.getElementById('managedAreaId').value=area?.id||'';document.getElementById('areaDialogTitle').textContent=area?'Edit Area':'Add Area';fillAreaSelect('managedAreaCountry',areaLocations.countryEntries||[],'Select country');if(area)document.getElementById('managedAreaCountry').value=String(area.country_id||'');syncManagedAreaStates();if(area)document.getElementById('managedAreaState').value=String(area.state_id||'');syncManagedAreaCities();if(area)document.getElementById('managedAreaCity').value=String(area.city_id||'');document.getElementById('managedAreaName').value=area?.name||'';document.getElementById('managedAreaCode').value=area?.code||'';document.getElementById('managedAreaDescription').value=area?.description||'';document.getElementById('managedAreaStatus').value=area?.is_active===false?'0':'1';document.getElementById('managedAreaDelivery').checked=area?.delivery_enabled!==false;document.getElementById('managedAreaBoundaryStatus').textContent=area?.boundary_status_label||'Boundary not created';if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','')}
+  async function openAreaManager(id=null){const dialog=document.getElementById('areaManagerDialog');const form=document.getElementById('areaManagerForm');if(!dialog||!form)return;if(!areaLocations.countryEntries||!areaLocations.countryEntries.length){await loadManagedAreas();}const area=managedAreas.find((row)=>Number(row.id)===Number(id));form.reset();document.getElementById('managedAreaId').value=area?.id||'';document.getElementById('areaDialogTitle').textContent=area?'Edit Area':'Add Area';fillAreaSelect('managedAreaCountry',areaLocations.countryEntries||[],'Select country');if(area)document.getElementById('managedAreaCountry').value=String(area.country_id||'');syncManagedAreaStates();if(area)document.getElementById('managedAreaState').value=String(area.state_id||'');syncManagedAreaCities();if(area)document.getElementById('managedAreaCity').value=String(area.city_id||'');document.getElementById('managedAreaName').value=area?.name||'';document.getElementById('managedAreaCode').value=area?.code||'';document.getElementById('managedAreaDescription').value=area?.description||'';document.getElementById('managedAreaStatus').value=area?.is_active===false?'0':'1';document.getElementById('managedAreaDelivery').checked=area?.delivery_enabled!==false;document.getElementById('managedAreaBoundaryStatus').textContent=area?.boundary_status_label||'Boundary not created';if(typeof dialog.showModal==='function')dialog.showModal();else dialog.setAttribute('open','')}
   function closeAreaManager(){const dialog=document.getElementById('areaManagerDialog');if(!dialog)return;if(typeof dialog.close==='function')dialog.close();else dialog.removeAttribute('open')}
   async function saveManagedArea(){const id=document.getElementById('managedAreaId').value;const payload={country_id:Number(document.getElementById('managedAreaCountry').value),state_id:Number(document.getElementById('managedAreaState').value),city_id:Number(document.getElementById('managedAreaCity').value),name:document.getElementById('managedAreaName').value.trim(),code:document.getElementById('managedAreaCode').value.trim(),description:document.getElementById('managedAreaDescription').value.trim(),is_active:document.getElementById('managedAreaStatus').value==='1',delivery_enabled:document.getElementById('managedAreaDelivery').checked};const response=await fetch(id?`/api/areas/${id}`:'/api/areas',{method:id?'PUT':'POST',headers:{'Content-Type':'application/json',Accept:'application/json'},body:JSON.stringify(payload)});const data=await response.json();if(!data.success){document.getElementById('areaManagementMessage').textContent=data.message||'Unable to save area';return}closeAreaManager();document.getElementById('areaManagementMessage').textContent=data.message;await loadManagedAreas()}
   async function toggleManagedArea(id,isActive){const response=await fetch(`/api/areas/${id}/status`,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({is_active:isActive})});const data=await response.json();document.getElementById('areaManagementMessage').textContent=data.message||'';if(data.success)loadManagedAreas()}
   async function deleteManagedArea(id){if(!confirm('Delete this area? Linked records will require an additional confirmation.'))return;let response=await fetch(`/api/areas/${id}`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:'{}'});let data=await response.json();if(data.confirmation_required&&confirm(`${data.message}\n\nLinked records: ${JSON.stringify(data.links)}\n\nDelete anyway?`)){response=await fetch(`/api/areas/${id}?confirm=1`,{method:'DELETE',headers:{'Content-Type':'application/json'},body:JSON.stringify({confirm:true})});data=await response.json()}document.getElementById('areaManagementMessage').textContent=data.message||'';if(data.success)loadManagedAreas()}
   function manageAreaBoundary(id){window.location.href=`/area-definitions?area_id=${encodeURIComponent(id)}`}
+  if(document.readyState==='loading'){document.addEventListener('DOMContentLoaded',loadManagedAreas);}else{loadManagedAreas();}
   async function saveVendorSettings() {
     const isMandatory = document.getElementById('gstMandatoryCheckbox').checked;
     try {
@@ -4815,13 +5225,230 @@
       if (data.success) {
         alert(data.message || 'Vendor settings saved successfully');
       } else {
-        alert(data.message || 'Unable to save vendor settings');
+        alert(data.message || 'Failed to save vendor settings');
       }
     } catch (err) {
       alert('Failed to save vendor settings');
     }
   }
-  document.addEventListener('DOMContentLoaded',()=>{document.getElementById('addManagedAreaButton')?.addEventListener('click',()=>openAreaManager());if(document.getElementById('managedAreaRows'))loadManagedAreas()});
+
+  // Superadmin Login Background Management Functions
+  async function uploadLoginBgImage(fileInput) {
+    const file = fileInput ? fileInput.files[0] : null;
+    if (!file) return;
+
+    const statusMsg = document.getElementById('loginBgSaveMessage');
+    if (statusMsg) {
+      statusMsg.style.color = '#0284c7';
+      statusMsg.textContent = '⏳ Uploading login background image...';
+    }
+
+    const formData = new FormData();
+    formData.append('image', file);
+
+    try {
+      const response = await fetch('/settings/login-background/upload', {
+        method: 'POST',
+        body: formData,
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.message || 'Image upload failed');
+
+      const urlInput = document.getElementById('loginBgImageUrl');
+      if (urlInput) urlInput.value = data.imageUrl;
+
+      if (statusMsg) {
+        statusMsg.style.color = '#166534';
+        statusMsg.textContent = '✅ Image uploaded! Click "Save Login Background Settings" to apply.';
+      }
+      updateLoginBgPreview();
+    } catch (err) {
+      if (statusMsg) {
+        statusMsg.style.color = '#991b1b';
+        statusMsg.textContent = '❌ Upload error: ' + err.message;
+      }
+    }
+  }
+
+  function clearLoginBgImage() {
+    const urlInput = document.getElementById('loginBgImageUrl');
+    if (urlInput) urlInput.value = '';
+    updateLoginBgPreview();
+  }
+
+  function updateLoginBgPreview() {
+    const urlInput = document.getElementById('loginBgImageUrl');
+    const colorInput = document.getElementById('loginBgColorText');
+    const box = document.getElementById('loginBgPreviewBox');
+    if (!box) return;
+
+    const imgUrl = urlInput ? urlInput.value.trim() : '';
+    const colorVal = colorInput ? colorInput.value.trim() : '#4a0e17';
+
+    if (imgUrl) {
+      box.style.backgroundImage = `linear-gradient(rgba(15, 23, 42, 0.45), rgba(15, 23, 42, 0.65)), url('${imgUrl}')`;
+      box.style.backgroundColor = 'transparent';
+      box.textContent = 'Active Background: Custom Image';
+    } else if (colorVal && colorVal.toLowerCase() !== '#4a0e17') {
+      box.style.backgroundImage = 'none';
+      box.style.backgroundColor = colorVal;
+      box.textContent = `Active Background: Custom Color (${colorVal})`;
+    } else {
+      box.style.backgroundColor = '#4a0e17';
+      box.style.backgroundImage = 'linear-gradient(135deg, #4a0e17 0%, #28050b 100%);';
+      box.textContent = 'Active Background: Default Dark Maroon (#4a0e17)';
+    }
+  }
+
+  async function saveLoginBgSettings() {
+    const statusMsg = document.getElementById('loginBgSaveMessage');
+    if (statusMsg) {
+      statusMsg.style.color = '#0284c7';
+      statusMsg.textContent = 'Saving login background settings...';
+    }
+
+    const payload = {
+      loginBgImage: document.getElementById('loginBgImageUrl')?.value?.trim() || '',
+      loginBgColor: document.getElementById('loginBgColorText')?.value?.trim() || '',
+    };
+
+    try {
+      const response = await fetch('/settings/login-background', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.message || 'Failed to save settings');
+
+      if (statusMsg) {
+        statusMsg.style.color = '#166534';
+        statusMsg.textContent = '✅ Login background settings saved!';
+      }
+      updateLoginBgPreview();
+    } catch (err) {
+      if (statusMsg) {
+        statusMsg.style.color = '#991b1b';
+        statusMsg.textContent = '❌ Error: ' + err.message;
+      }
+    }
+  }
+
+  async function saveSocialLoginSettings() {
+    const statusMsg = document.getElementById('socialLoginSettingsMessage');
+    if (statusMsg) {
+      statusMsg.style.color = '#0284c7';
+      statusMsg.textContent = 'Saving social & OTP login settings...';
+    }
+
+    const socialPayload = {
+      googleEnabled: document.getElementById('socialGoogleEnabled')?.checked || false,
+      googleClientId: document.getElementById('socialGoogleClientId')?.value?.trim() || '',
+      facebookEnabled: document.getElementById('socialFacebookEnabled')?.checked || false,
+      facebookAppId: document.getElementById('socialFacebookAppId')?.value?.trim() || '',
+      facebookAppSecret: document.getElementById('socialFacebookAppSecret')?.value?.trim() || '',
+    };
+
+    const otpPayload = {
+      clientEnabled: document.getElementById('otpClientEnabled')?.checked || false,
+      vendorEnabled: document.getElementById('otpVendorEnabled')?.checked || false,
+      deliveryEnabled: document.getElementById('otpDeliveryEnabled')?.checked || false,
+      length: parseInt(document.getElementById('otpLength')?.value || '6', 10),
+      expiryMinutes: parseInt(document.getElementById('otpExpiryMinutes')?.value || '5', 10),
+      resendCooldown: parseInt(document.getElementById('otpResendCooldown')?.value || '60', 10),
+      maxAttempts: parseInt(document.getElementById('otpMaxAttempts')?.value || '5', 10),
+      maxRequestsPerHour: parseInt(document.getElementById('otpMaxRequestsPerHour')?.value || '5', 10),
+      blockDurationMinutes: parseInt(document.getElementById('otpBlockDurationMinutes')?.value || '30', 10),
+      defaultCountryCode: document.getElementById('otpDefaultCountryCode')?.value?.trim() || '+91',
+      testMode: document.getElementById('otpTestMode')?.checked || false,
+      smsProvider: document.getElementById('otpSmsProvider')?.value || 'MSG91',
+      msg91AuthKey: document.getElementById('otpMsg91AuthKey')?.value?.trim() || '',
+      msg91TemplateId: document.getElementById('otpMsg91TemplateId')?.value?.trim() || '',
+      msg91SenderId: document.getElementById('otpMsg91SenderId')?.value?.trim() || 'GROXEN',
+    };
+
+    try {
+      const socialRes = await fetch('/settings/social-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(socialPayload),
+      });
+      const socialData = await socialRes.json();
+      if (!socialData.success) throw new Error(socialData.message || 'Failed to save social login settings');
+
+      const otpRes = await fetch('/settings/otp-login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(otpPayload),
+      });
+      const otpData = await otpRes.json();
+      if (!otpData.success) throw new Error(otpData.message || 'Failed to save OTP login settings');
+
+      if (statusMsg) {
+        statusMsg.style.color = '#166534';
+        statusMsg.textContent = '✅ Social & Mobile OTP Login settings saved successfully!';
+      }
+    } catch (err) {
+      if (statusMsg) {
+        statusMsg.style.color = '#991b1b';
+        statusMsg.textContent = '❌ Error: ' + err.message;
+      }
+    }
+  }
+
+  async function saveFirebaseSettings() {
+    const statusMsg = document.getElementById('firebaseSettingsMessage');
+    if (statusMsg) {
+      statusMsg.style.color = '#0284c7';
+      statusMsg.textContent = 'Saving Firebase settings...';
+    }
+
+    const payload = {
+      apiKey: document.getElementById('firebaseApiKey')?.value?.trim() || '',
+      authDomain: document.getElementById('firebaseAuthDomain')?.value?.trim() || '',
+      projectId: document.getElementById('firebaseProjectId')?.value?.trim() || '',
+      messagingSenderId: document.getElementById('firebaseMessagingSenderId')?.value?.trim() || '',
+      storageBucket: document.getElementById('firebaseStorageBucket')?.value?.trim() || '',
+      appId: document.getElementById('firebaseAppId')?.value?.trim() || '',
+      measurementId: document.getElementById('firebaseMeasurementId')?.value?.trim() || '',
+      googleWebClientId: document.getElementById('firebaseGoogleWebClientId')?.value?.trim() || '',
+      serverKey: document.getElementById('firebaseServerKey')?.value?.trim() || '',
+      pushNotifications: document.getElementById('firebasePushNotifications')?.checked || false,
+    };
+
+    try {
+      const response = await fetch('/settings/firebase', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!data.success) throw new Error(data.message || 'Failed to save Firebase settings');
+
+      if (statusMsg) {
+        statusMsg.style.color = '#166534';
+        statusMsg.textContent = '✅ Firebase settings saved successfully!';
+      }
+    } catch (err) {
+      if (statusMsg) {
+        statusMsg.style.color = '#991b1b';
+        statusMsg.textContent = '❌ Error: ' + err.message;
+      }
+    }
+  }
+
+  window.uploadLoginBgImage = uploadLoginBgImage;
+  window.clearLoginBgImage = clearLoginBgImage;
+  window.updateLoginBgPreview = updateLoginBgPreview;
+  window.saveLoginBgSettings = saveLoginBgSettings;
+  window.saveSocialLoginSettings = saveSocialLoginSettings;
+  window.saveFirebaseSettings = saveFirebaseSettings;
+
+  document.addEventListener('DOMContentLoaded', () => {
+    updateLoginBgPreview();
+    document.getElementById('addManagedAreaButton')?.addEventListener('click', () => openAreaManager());
+    if (document.getElementById('managedAreaRows')) loadManagedAreas();
+  });
 </script></body>
 </html>
 

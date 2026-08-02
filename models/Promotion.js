@@ -161,6 +161,53 @@ async function listCoupons() {
   return rows.map(normalizePromotion);
 }
 
+async function listCouponsForClient(userId = null) {
+  const [rows] = await pool.query(
+    `SELECT c.*,
+            (SELECT COUNT(*) FROM coupon_history ch WHERE ch.coupon_id = c.id) AS usage_count,
+            (SELECT COUNT(*) FROM coupon_history ch WHERE ch.coupon_id = c.id AND ch.user_id = ?) AS customer_usage_count
+     FROM coupons c
+     ORDER BY c.created_at DESC, c.id DESC`,
+    [userId || 0]
+  );
+
+  return rows.map((row) => {
+    const p = normalizePromotion(row);
+    const totalUsageCount = Number(row.usage_count || 0);
+    const customerUsageCount = Number(row.customer_usage_count || 0);
+
+    let isLocked = false;
+    let lockReason = '';
+
+    if (!p.is_active) {
+      isLocked = true;
+      lockReason = 'Disabled';
+    } else if (p.usage_limit !== null && p.usage_limit !== undefined && Number(p.usage_limit) <= 0) {
+      isLocked = true;
+      lockReason = 'Usage Limit Reached';
+    } else if (p.usage_limit && totalUsageCount >= Number(p.usage_limit)) {
+      isLocked = true;
+      lockReason = 'Usage Limit Reached';
+    } else if (userId && p.per_customer_limit && customerUsageCount >= Number(p.per_customer_limit)) {
+      isLocked = true;
+      lockReason = 'Per Customer Limit Reached';
+    }
+
+    const remainingLimit = p.usage_limit !== null && p.usage_limit !== undefined
+      ? Math.max(0, Number(p.usage_limit) - totalUsageCount)
+      : null;
+
+    return {
+      ...p,
+      usage_count: totalUsageCount,
+      customer_usage_count: customerUsageCount,
+      remaining_usage_limit: remainingLimit,
+      is_locked: isLocked,
+      lock_reason: lockReason,
+    };
+  });
+}
+
 async function createDiscount(data) {
   validateShape(data);
   const cityTarget = normalizeCityScope(data);
@@ -442,20 +489,76 @@ async function recordUsage({ orderId, userId, orderType, subtotal, discountAmoun
       Math.max(subtotal - discountAmount, 0),
     ]
   );
+
+  if (coupon && coupon.id) {
+    await connection.query(
+      `UPDATE coupons 
+       SET usage_limit = CASE WHEN usage_limit IS NOT NULL AND usage_limit > 0 THEN usage_limit - 1 ELSE usage_limit END
+       WHERE id = ?`,
+      [coupon.id]
+    ).catch(() => {});
+  }
 }
 
 async function listHistory() {
   const [rows] = await pool.query(
-    `SELECT ch.*, u.name AS user_name, u.email AS user_email, c.name AS coupon_name, d.name AS discount_name
+    `SELECT 
+        ch.id,
+        ch.created_at,
+        ch.order_id,
+        co.order_number,
+        ch.order_type,
+        ch.user_id,
+        COALESCE(u.name, CONCAT('Client #', ch.user_id)) AS user_name,
+        COALESCE(u.email, u.phone, '') AS user_email,
+        ch.code,
+        ch.subtotal_amount,
+        ch.discount_amount,
+        ch.final_amount,
+        c.name AS coupon_name,
+        d.name AS discount_name
      FROM coupon_history ch
      LEFT JOIN users u ON u.id = ch.user_id
+     LEFT JOIN client_orders co ON co.id = ch.order_id
      LEFT JOIN coupons c ON c.id = ch.coupon_id
      LEFT JOIN discounts d ON d.id = ch.discount_id
      ORDER BY ch.created_at DESC, ch.id DESC
      LIMIT 300`
-  );
-  return rows.map((row) => ({
+  ).catch(() => [[]]);
+
+  if (rows && rows.length > 0) {
+    return rows.map((row) => ({
+      ...row,
+      order_number: row.order_number || (row.order_id ? `#${row.order_id}` : '-'),
+      subtotal_amount: Number(row.subtotal_amount || 0),
+      discount_amount: Number(row.discount_amount || 0),
+      final_amount: Number(row.final_amount || 0),
+    }));
+  }
+
+  const [orderRows] = await pool.query(
+    `SELECT 
+        co.id AS order_id,
+        co.order_number,
+        co.created_at,
+        co.order_type,
+        co.user_id,
+        COALESCE(u.name, CONCAT('Client #', co.user_id)) AS user_name,
+        COALESCE(u.email, u.phone, '') AS user_email,
+        co.coupon_code AS code,
+        co.subtotal_amount,
+        co.discount_amount,
+        co.total_amount AS final_amount
+     FROM client_orders co
+     LEFT JOIN users u ON u.id = co.user_id
+     WHERE (co.coupon_code IS NOT NULL AND co.coupon_code != '') OR co.discount_amount > 0
+     ORDER BY co.created_at DESC, co.id DESC
+     LIMIT 300`
+  ).catch(() => [[]]);
+
+  return (orderRows || []).map((row) => ({
     ...row,
+    order_number: row.order_number || `#${row.order_id}`,
     subtotal_amount: Number(row.subtotal_amount || 0),
     discount_amount: Number(row.discount_amount || 0),
     final_amount: Number(row.final_amount || 0),
@@ -526,6 +629,7 @@ module.exports = {
   listDiscounts,
   listVendorDiscounts,
   listCoupons,
+  listCouponsForClient,
   listHistory,
   createDiscount,
   updateDiscount,

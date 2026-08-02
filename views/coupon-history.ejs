@@ -3,62 +3,207 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Coupon History</title>
+  <title>Coupon & Discount Usage History</title>
   <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .stats-row {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    .stat-card {
+      background: #ffffff;
+      padding: 18px 20px;
+      border-radius: 14px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.05);
+      border: 1px solid #e2e8f0;
+    }
+    .stat-card .stat-label {
+      font-size: 12px;
+      font-weight: 700;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .stat-card .stat-val {
+      font-size: 22px;
+      font-weight: 900;
+      color: #0f172a;
+      margin-top: 6px;
+    }
+    .code-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      background: #ccfbf1;
+      color: #0f766e;
+      border: 1px solid #99f6e4;
+      border-radius: 6px;
+      font-weight: 800;
+      font-size: 12px;
+      letter-spacing: 0.5px;
+    }
+    .order-badge {
+      display: inline-block;
+      padding: 3px 8px;
+      background: #f1f5f9;
+      color: #334155;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 12px;
+    }
+    .discount-val {
+      color: #16a34a;
+      font-weight: 800;
+    }
+    .search-box {
+      margin-bottom: 16px;
+      display: flex;
+      gap: 12px;
+    }
+    .search-input {
+      padding: 10px 16px;
+      border: 1px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 14px;
+      width: 100%;
+      max-width: 380px;
+    }
+  </style>
 </head>
 <body class="system-theme">
-  <%- include('partials/system_sidebar', { shell }) %>
+  <%- include('partials/system_sidebar', { shell: false }) %>
   <main class="system-main">
     <header class="topbar">
       <div>
-        <p class="crumb">Dashboard / Coupon History</p>
-        <h1>Coupon History</h1>
+        <p class="crumb">Dashboard / Promotions / Coupon & Discount History</p>
+        <h1>Coupon & Discount Usage History</h1>
+      </div>
+      <div style="display: flex; gap: 10px; align-items: center;">
+        <a href="/coupons" class="settings-save" style="background: #3b82f6; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; color: #ffffff; font-weight: 700; border-radius: 8px;">
+          🏷️ Coupons Page
+        </a>
+        <a href="/discounts" class="settings-save" style="background: #0f766e; text-decoration: none; display: inline-flex; align-items: center; gap: 6px; padding: 10px 16px; color: #ffffff; font-weight: 700; border-radius: 8px;">
+          ⚡ Discounts Page
+        </a>
       </div>
     </header>
 
+    <div class="stats-row">
+      <div class="stat-card">
+        <div class="stat-label">Total Redemptions</div>
+        <div class="stat-val" id="statRedemptions">0</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Total Discount Granted</div>
+        <div class="stat-val" style="color: #16a34a;" id="statDiscount">₹0.00</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-label">Net Sales Generated</div>
+        <div class="stat-val" style="color: #0f766e;" id="statSales">₹0.00</div>
+      </div>
+    </div>
+
     <section class="users-table-card">
+      <div class="search-box">
+        <input type="text" id="searchInput" class="search-input" placeholder="🔍 Search by Client Name, Code, or Order #" onkeyup="filterTable()" />
+      </div>
+
       <table class="wallets-table">
         <thead>
           <tr>
-            <th>Date</th>
+            <th>Date & Time</th>
             <th>Customer</th>
-            <th>Order</th>
+            <th>Order #</th>
             <th>Type</th>
-            <th>Coupon/Discount</th>
+            <th>Coupon / Code</th>
             <th>Subtotal</th>
             <th>Discount</th>
-            <th>Final</th>
+            <th>Final Total</th>
           </tr>
         </thead>
-        <tbody id="historyBody"><tr><td colspan="8">Loading...</td></tr></tbody>
+        <tbody id="historyBody">
+          <tr><td colspan="8" style="text-align: center; padding: 24px;">Loading usage history...</td></tr>
+        </tbody>
       </table>
     </section>
   </main>
+
   <script>
+    let allRows = [];
+
     function esc(value) {
       return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
     }
-    function money(value) { return 'INR ' + Number(value || 0).toFixed(2); }
-    function date(value) { return value ? new Date(value).toLocaleString() : ''; }
+    function money(value) { return '₹' + Number(value || 0).toFixed(2); }
+    function formatDate(value) {
+      if (!value) return '-';
+      const d = new Date(value);
+      return d.toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) + ' ' +
+             d.toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' });
+    }
 
     async function loadHistory() {
-      const response = await fetch('/api/coupons/history');
-      const data = await response.json();
-      const rows = data.history || [];
-      document.getElementById('historyBody').innerHTML = rows.length
-        ? rows.map((row) => `
+      try {
+        const response = await fetch('/api/coupons/history');
+        const data = await response.json();
+        allRows = data.history || [];
+
+        // Stats calculation
+        const totalRedemptions = allRows.length;
+        const totalDiscount = allRows.reduce((sum, r) => sum + Number(r.discount_amount || 0), 0);
+        const totalSales = allRows.reduce((sum, r) => sum + Number(r.final_amount || 0), 0);
+
+        document.getElementById('statRedemptions').textContent = totalRedemptions;
+        document.getElementById('statDiscount').textContent = money(totalDiscount);
+        document.getElementById('statSales').textContent = money(totalSales);
+
+        renderRows(allRows);
+      } catch (err) {
+        document.getElementById('historyBody').innerHTML = '<tr><td colspan="8" style="color: red; text-align: center;">Unable to load coupon history</td></tr>';
+      }
+    }
+
+    function renderRows(rows) {
+      const body = document.getElementById('historyBody');
+      if (!rows.length) {
+        body.innerHTML = '<tr><td colspan="8" style="text-align: center; padding: 24px; color: #64748b;">No coupon usage history records found.</td></tr>';
+        return;
+      }
+      body.innerHTML = rows.map((row) => {
+        const codeText = row.code || row.coupon_name || row.discount_name || 'AUTOMATIC';
+        const orderNum = row.order_number || (row.order_id ? `#${row.order_id}` : '-');
+        return `
           <tr>
-            <td>${date(row.created_at)}</td>
-            <td><strong>${esc(row.user_name)}</strong><span class="wallet-muted">${esc(row.user_email)}</span></td>
-            <td>#${row.order_id || '-'}</td>
-            <td>${esc(row.order_type)}</td>
-            <td>${esc(row.code || row.discount_name || row.coupon_name || 'Automatic discount')}</td>
+            <td>${formatDate(row.created_at)}</td>
+            <td>
+              <strong>${esc(row.user_name)}</strong>
+              ${row.user_email ? `<br/><span style="font-size: 11px; color: #64748b;">${esc(row.user_email)}</span>` : ''}
+            </td>
+            <td><span class="order-badge">${esc(orderNum)}</span></td>
+            <td><span style="font-size: 12px; font-weight: 600; text-transform: capitalize;">${esc(row.order_type || 'Direct')}</span></td>
+            <td><span class="code-badge">${esc(codeText)}</span></td>
             <td>${money(row.subtotal_amount)}</td>
-            <td>${money(row.discount_amount)}</td>
-            <td><strong>${money(row.final_amount)}</strong></td>
+            <td class="discount-val">-${money(row.discount_amount)}</td>
+            <td><strong style="color: #0f172a;">${money(row.final_amount)}</strong></td>
           </tr>
-        `).join('')
-        : '<tr><td colspan="8">No coupon history yet</td></tr>';
+        `;
+      }).join('');
+    }
+
+    function filterTable() {
+      const q = document.getElementById('searchInput').value.trim().toLowerCase();
+      if (!q) {
+        renderRows(allRows);
+        return;
+      }
+      const filtered = allRows.filter(r => 
+        String(r.user_name || '').toLowerCase().includes(q) ||
+        String(r.user_email || '').toLowerCase().includes(q) ||
+        String(r.code || r.coupon_name || r.discount_name || '').toLowerCase().includes(q) ||
+        String(r.order_number || r.order_id || '').toLowerCase().includes(q)
+      );
+      renderRows(filtered);
     }
 
     loadHistory();

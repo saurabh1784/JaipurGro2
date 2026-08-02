@@ -135,12 +135,21 @@ async function approvedProducts(req, res) {
   }
 
   try {
-    let categoryIds = [];
-    if (isVendor(req.authUser)) {
-      const categoriesByVendor = await Vendor.assignedCategories([req.authUser.id]);
-      categoryIds = (categoriesByVendor.get(Number(req.authUser.id)) || []).map((category) => category.id);
+    const limit = Number(req.query.limit) || 10000;
+    let products = await Product.listApproved(limit, null);
+
+    const search = String(req.query.search || req.query.q || '').trim().toLowerCase();
+    if (search) {
+      products = products.filter((p) => {
+        const idStr = String(p.id || '').toLowerCase();
+        const nameStr = String(p.name || '').toLowerCase();
+        const catStr = String(p.category_name || '').toLowerCase();
+        const subStr = String(p.sub_category_name || '').toLowerCase();
+        const brandStr = String(p.brand_name || '').toLowerCase();
+        return idStr.includes(search) || nameStr.includes(search) || catStr.includes(search) || subStr.includes(search) || brandStr.includes(search);
+      });
     }
-    const products = await Product.listApproved(Number(req.query.limit) || 200, categoryIds);
+
     return res.json({ success: true, products });
   } catch (error) {
     console.error('Approved product list error:', error);
@@ -386,6 +395,8 @@ async function visibleForClient(req, res) {
       sub_category_id: req.query.sub_category_id || req.query.subcategory_id,
       brand_id: req.query.brand_id,
       brand_name: req.query.brand_name,
+      city: req.query.city || req.headers['x-client-city'],
+      area: req.query.area || req.headers['x-client-area'],
     };
     const products = await VendorProduct.visibleForClient({
       ...filters,

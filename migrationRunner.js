@@ -42,8 +42,23 @@ async function runSingleMigration(db, migrationFile) {
 
   const connection = await db.getConnection();
   try {
+    const safeConnection = {
+      ...connection,
+      query: async (sql, params = []) => {
+        await connection.query('SAVEPOINT sp_mig').catch(() => {});
+        try {
+          const res = await connection.query(sql, params);
+          await connection.query('RELEASE SAVEPOINT sp_mig').catch(() => {});
+          return res;
+        } catch (err) {
+          await connection.query('ROLLBACK TO SAVEPOINT sp_mig').catch(() => {});
+          throw err;
+        }
+      },
+    };
+
     await connection.beginTransaction();
-    await migration.up(connection);
+    await migration.up(safeConnection);
     await connection.query(
       'INSERT INTO schema_migrations (id, name) VALUES (?, ?)',
       [id, name]
@@ -51,7 +66,7 @@ async function runSingleMigration(db, migrationFile) {
     await connection.commit();
     console.log(`Migration applied: ${id}`);
   } catch (error) {
-    await connection.rollback();
+    await connection.rollback().catch(() => {});
     throw error;
   } finally {
     connection.release();

@@ -2,7 +2,10 @@ const pool = require('../db');
 const Vendor = require('./Vendor');
 
 async function createEmpty(userId, connection = pool) {
-  await connection.query('INSERT INTO vendor_profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [userId]);
+  const { rows } = await connection.query('SELECT id FROM vendor_profiles WHERE user_id = $1 LIMIT 1', [userId]);
+  if (!rows || rows.length === 0) {
+    await connection.query('INSERT INTO vendor_profiles (user_id, account_health) VALUES ($1, 500)', [userId]);
+  }
 }
 
 async function findByUserId(userId) {
@@ -10,7 +13,9 @@ async function findByUserId(userId) {
   const profile = rows[0] || null;
   const categoriesByVendor = await Vendor.assignedCategories([userId]);
   const categories = categoriesByVendor.get(Number(userId)) || [];
+  const accountHealth = Number(profile && profile.account_health !== undefined && profile.account_health !== null ? profile.account_health : 500);
   return {
+    account_health: accountHealth,
     ...(profile || { user_id: Number(userId) }),
     categories,
     category_ids: categories.map((category) => Number(category.id)).filter(Boolean),
@@ -38,6 +43,7 @@ async function update(userId, data) {
     'zone_code',
     'gst_number',
     'services',
+    'account_health',
   ];
 
   for (const field of allowedFields) {
@@ -57,4 +63,36 @@ async function updateCategories(userId, categoryIds) {
   await Vendor.setCategories(userId, categoryIds);
 }
 
-module.exports = { createEmpty, findByUserId, update, updateCategories };
+async function deductAccountHealth(vendorId, penaltyPoints, reason = '', connection = pool) {
+  if (!vendorId || penaltyPoints <= 0) return 500;
+
+  await connection.query(
+    'INSERT INTO vendor_profiles (user_id, account_health) VALUES ($1, 500) ON CONFLICT (user_id) DO NOTHING',
+    [vendorId]
+  ).catch(() => {});
+
+  await connection.query(
+    `UPDATE vendor_profiles
+     SET account_health = GREATEST(0, COALESCE(account_health, 500) - $1)
+     WHERE user_id = $2`,
+    [penaltyPoints, vendorId]
+  );
+
+  const { rows } = await connection.query(
+    'SELECT account_health FROM vendor_profiles WHERE user_id = $1 LIMIT 1',
+    [vendorId]
+  );
+
+  const currentHealth = Number(rows[0] && rows[0].account_health !== undefined ? rows[0].account_health : 500);
+
+  if (currentHealth < 180) {
+    await connection.query(
+      "UPDATE users SET status = 'on_hold' WHERE id = $1 AND role = 'Vendor'",
+      [vendorId]
+    );
+  }
+
+  return currentHealth;
+}
+
+module.exports = { createEmpty, findByUserId, update, updateCategories, deductAccountHealth };

@@ -78,7 +78,7 @@ async function summaries(subjectType, subjectIds, connection = pool) {
 
   const placeholders = ids.map(() => '?').join(', ');
   const [overallRows] = await connection.query(
-    `SELECT subject_id, ROUND(AVG(overall_rating)::numeric, 2) AS average_rating, COUNT(*) AS review_count
+    `SELECT subject_id, ROUND(AVG(COALESCE(NULLIF(overall_rating::text, ''), '0')::numeric), 2) AS average_rating, COUNT(*) AS review_count
      FROM order_ratings
      WHERE subject_type = ? AND subject_id IN (${placeholders})
      GROUP BY subject_id`,
@@ -86,7 +86,7 @@ async function summaries(subjectType, subjectIds, connection = pool) {
   );
   const [categoryRows] = await connection.query(
     `SELECT rating.subject_id, category.category_key,
-            ROUND(AVG(category.score)::numeric, 2) AS average_rating,
+            ROUND(AVG(COALESCE(NULLIF(category.score::text, ''), '0')::numeric), 2) AS average_rating,
             COUNT(*) AS rating_count
      FROM order_rating_categories category
      INNER JOIN order_ratings rating ON rating.id = category.rating_id

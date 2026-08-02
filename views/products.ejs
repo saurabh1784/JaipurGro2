@@ -252,6 +252,7 @@
               <th>Main Category</th>
               <th>Subcategory</th>
               <th>Brand</th>
+              <th>HSN Code</th>
               <th>Tax</th>
               <th>Weight</th>
               <th>Search Boost</th>
@@ -261,7 +262,7 @@
             </tr>
           </thead>
           <tbody id="productsTableBody">
-            <tr><td colspan="14">Loading products...</td></tr>
+            <tr><td colspan="15">Loading products...</td></tr>
           </tbody>
         </table>
       </div>
@@ -728,7 +729,7 @@
 
     function renderProducts() {
       if (!products.length) {
-        tableBody.innerHTML = '<tr><td colspan="14">No products found</td></tr>';
+        tableBody.innerHTML = '<tr><td colspan="15">No products found</td></tr>';
       } else {
         tableBody.innerHTML = products.map((product) => `
           <tr id="product-row-${product.id}" class="${selectedProductIds.has(String(product.id)) ? 'selected-row' : ''}">
@@ -742,10 +743,10 @@
             <td>${escapeHtml(product.category_name)}</td>
             <td>${escapeHtml(product.sub_category_name)}</td>
             <td>${brandLogoMarkup({ name: product.brand_name, logo_path: product.brand_logo_path })}</td>
+            <td><strong style="color:#0f766e; font-size:0.88rem;">${escapeHtml(product.hsn_code || '-')}</strong></td>
             <td>
               <strong>${escapeHtml(product.applied_tax_name || product.tax_name || product.category_tax_name || 'No tax')}</strong><br>
               <small>${Number(product.applied_tax_percentage || 0).toFixed(2)}%${product.tax_percentage === null || product.tax_percentage === undefined ? ' category' : ' product'}</small>
-              ${product.hsn_code ? `<br><small style="color:#0f766e; font-weight:700;">HSN: ${escapeHtml(product.hsn_code)}</small>` : ''}
             </td>
             <td>
               <strong>${escapeHtml(weightLabel(product))}</strong><br>

@@ -1,5 +1,6 @@
 const express = require('express');
 const session = require('express-session');
+const PgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
 const fs = require('fs');
 const path = require('path');
@@ -11,7 +12,14 @@ const {
   restoreSnapshotOnStartup,
 } = require('./databaseSnapshot');
 const { runMigrations } = require('./migrationRunner');
+const { ensureAllSchemaTables } = require('./services/schemaSyncService');
 const vendorNotifications = require('./vendorNotifications');
+const {
+  validateCityAndAreaAccess,
+  getAllowedCitiesAndAreas,
+  getAdminAssignedCities,
+} = require('./services/locationFilterService');
+const dashboardCache = require('./services/dashboardCacheService');
 const authRoutes = require('./routes/authRoutes');
 const profileRoutes = require('./routes/profileRoutes');
 const productRoutes = require('./routes/productRoutes');
@@ -36,6 +44,7 @@ const orderController = require('./controllers/orderController');
 const vendorGstReportController = require('./controllers/vendorGstReportController');
 const walletController = require('./controllers/walletController');
 const userController = require('./controllers/userController');
+const getAssignedUserCity = userController.getAssignedUserCity;
 const managedProfileController = require('./controllers/managedProfileController');
 const catalogController = require('./controllers/catalogController');
 const commissionController = require('./controllers/commissionController');
@@ -72,6 +81,12 @@ const ContentPage = require('./models/ContentPage');
 const LocationOption = require('./models/LocationOption');
 const { findOrCreateGoogleClient, publicGoogleConfig } = require('./services/googleClientAuthService');
 const { firebaseAdminStatus } = require('./services/firebaseAdminService');
+const emailService = require('./services/emailService');
+const messageService = require('./services/messageService');
+const pushNotificationService = require('./services/pushNotificationService');
+const adminNotificationService = require('./services/adminNotificationService');
+const notificationTemplateService = require('./services/notificationTemplateService');
+const loginThemeService = require('./services/loginThemeService');
 const {
   uploadBrandLogo,
   handleUploadError,
@@ -119,6 +134,9 @@ const {
 } = require('./middleware/webOrJwtAuth');
 
 const app = express();
+app.set('trust proxy', 1);
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 const port = process.env.PORT || 3000;
 const appRevision = process.env.RENDER_GIT_COMMIT
   || process.env.COMMIT_SHA
@@ -416,10 +434,62 @@ const userSeeds = [
   { name: 'Vendor 5', email: 'vendor5@example.com', phone: '9000000105', password: 'password', role: 'Vendor', business_name: 'Vendor Store 5' },
 ];
 
+const urlService = require('./services/urlService');
+
+app.use((req, res, next) => {
+  res.header('Access-Control-Allow-Origin', '*');
+  res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS, PATCH');
+  res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization, X-User-Role, X-User-Id');
+  if (req.method === 'OPTIONS') {
+    return res.sendStatus(200);
+  }
+  res.locals.appUrl = urlService.getAppUrl(req);
+  res.locals.serverUrl = urlService.getServerUrl(req);
+  res.locals.getAbsoluteUrl = (pathStr) => urlService.getAbsoluteUrl(pathStr, req);
+  next();
+});
+
+const loginBgDir = path.join(__dirname, 'public', 'uploads', 'login-bg');
+if (!fs.existsSync(loginBgDir)) {
+  fs.mkdirSync(loginBgDir, { recursive: true });
+}
+
+const uploadLoginBg = multer({
+  storage: multer.diskStorage({
+    destination: (req, file, cb) => cb(null, loginBgDir),
+    filename: (req, file, cb) => {
+      const ext = path.extname(file.originalname || '.jpg');
+      cb(null, `login-bg-${Date.now()}${ext}`);
+    },
+  }),
+  limits: { fileSize: 10 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    if (/image/i.test(file.mimetype) || /\.(jpg|jpeg|png|webp|gif)$/i.test(file.originalname || '')) {
+      return cb(null, true);
+    }
+    return cb(new Error('Only image files are allowed for login background'));
+  },
+});
+
+app.use(async (req, res, next) => {
+  try {
+    res.locals.loginBg = await loginThemeService.getLoginBgSettings();
+  } catch (err) {
+    res.locals.loginBg = {
+      loginBgImage: '',
+      loginBgColor: '#4a0e17',
+      activeType: 'default_maroon',
+      activeStyle: 'background-color: #4a0e17; background-image: linear-gradient(135deg, #4a0e17 0%, #28050b 100%);',
+    };
+  }
+  next();
+});
+
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, 'views'));
 app.use(express.urlencoded({ extended: true }));
 app.use(express.json());
+
 app.use('/uploads', handleFileBackupMiddleware);
 app.use(express.static(path.join(__dirname, 'public')));
 app.get('/default.png', (req, res) => {
@@ -482,17 +552,57 @@ app.get('/api/system/status', async (req, res) => {
   }
 });
 
+const sessionStore = new PgSession({
+  pool: pgPool,
+  tableName: 'session',
+  createTableIfMissing: true,
+});
+
 app.use(
   session({
-    secret: 'jaipur_role_based_login_secret',
+    store: sessionStore,
+    secret: process.env.SESSION_SECRET || 'jaipur_role_based_login_secret',
     resave: false,
     saveUninitialized: false,
-    cookie: { maxAge: 1000 * 60 * 60 },
+    proxy: true,
+    cookie: {
+      maxAge: 1000 * 60 * 60 * 24 * 7,
+      secure: 'auto',
+      sameSite: 'lax',
+      path: '/'
+    },
   })
 );
 
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
+
+function getRoleSessionMaxAgeMs(role) {
+  const normalizedRole = String(role || '').toLowerCase().replace(/[\s_-]+/g, '');
+  if (normalizedRole === 'superadmin') {
+    return 2 * 60 * 60 * 1000; // 2 Hours for Superadmin
+  }
+  if (normalizedRole === 'admin') {
+    return 1 * 60 * 60 * 1000; // 1 Hour for Admin
+  }
+  if (normalizedRole.includes('staff') || normalizedRole === 'manager' || normalizedRole === 'operator') {
+    return 3 * 60 * 60 * 1000; // 3 Hours for Staff
+  }
+  if (normalizedRole === 'vendor' || normalizedRole === 'provider') {
+    return 24 * 60 * 60 * 1000; // 24 Hours for Vendor
+  }
+  if (normalizedRole === 'client' || normalizedRole === 'customer') {
+    return 100 * 365 * 24 * 60 * 60 * 1000; // Never / Persistent for Client (100 Years)
+  }
+  return 24 * 60 * 60 * 1000; // Default 24 Hours fallback
+}
+
+function applyRoleSessionMaxAge(req, user) {
+  if (!req.session || !user) return;
+  const roleName = user.roleName || user.role || 'staff';
+  const maxAgeMs = getRoleSessionMaxAgeMs(roleName);
+  req.session.cookie.maxAge = maxAgeMs;
+}
 
 let pool = pgPool;
 
@@ -507,7 +617,7 @@ function parsePermissions(value) {
 
   try {
     return JSON.parse(value);
-  } catch {
+  } catch (err) {
     return [];
   }
 }
@@ -562,7 +672,14 @@ function requireSessionRole(role, loginPath) {
       return res.redirect(loginPath);
     }
 
-    if (req.session.user.role !== role) {
+    if (isSuperAdminUser(req.session.user)) {
+      return next();
+    }
+
+    const userRole = String(req.session.user.role || req.session.user.roleName || '').toLowerCase();
+    const targetRole = String(role || '').toLowerCase();
+
+    if (userRole !== targetRole) {
       return res.redirect(loginPath);
     }
 
@@ -573,10 +690,15 @@ function requireSessionRole(role, loginPath) {
 function requireAuthRole(role) {
   return (req, res, next) => {
     const user = req.authUser || (req.session && req.session.user);
-    if (!user || user.role !== role) {
-      return res.status(403).json({ success: false, message: `Only ${role} users can access this resource` });
+    if (!user) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
     }
-    next();
+    const userRole = String(user.role || user.roleName || '').toLowerCase();
+    const targetRole = String(role || '').toLowerCase();
+    if (isSuperAdminUser(user) || userRole === targetRole) {
+      return next();
+    }
+    return res.status(403).json({ success: false, message: `Only ${role} users can access this resource` });
   };
 }
 
@@ -680,7 +802,7 @@ async function settingValue(key, fallback = '') {
     return rows[0] && rows[0].setting_value !== null && rows[0].setting_value !== undefined
       ? String(rows[0].setting_value)
       : fallback;
-  } catch {
+  } catch (err) {
     return fallback;
   }
 }
@@ -718,7 +840,7 @@ async function deletedRoleSlugs() {
     const raw = await settingValue('deleted_role_slugs', '[]');
     const parsed = JSON.parse(raw || '[]');
     return Array.isArray(parsed) ? parsed.map((slug) => String(slug)).filter(Boolean) : [];
-  } catch {
+  } catch (err) {
     return [];
   }
 }
@@ -816,7 +938,7 @@ function uploadedProductImagePath(productName) {
         .filter((entry) => entry.isFile())
         .map((entry) => entry.name)
         .filter((name) => /\.(png|jpe?g|webp|gif)$/i.test(name));
-    } catch {
+    } catch (err) {
       uploadedProductImageFiles = [];
     }
   }
@@ -986,16 +1108,40 @@ async function seedIndianProducts() {
 
 async function initDatabase(options = {}) {
   const { restoreSnapshot = true } = options;
-  console.log('Database init: ensure database');
-  await pgPool.ensureDatabase();
-  console.log('Database init: connectivity check');
-  await pool.query('SELECT 1');
-  console.log('Database init: syncing schema');
-  await referralController.initReferralTables();
-  await deletionRequestController.initDeletionTables();
-  await initFileStorageTable();
-  await ProductVariant.initProductVariantsSystem();
-  await VendorInventory.initVendorInventorySystem();
+  try {
+    console.log('Database init: ensure database');
+    await pgPool.ensureDatabase().catch(() => {});
+    console.log('Database init: connectivity check');
+    await pool.query('SELECT 1');
+    await addColumnIfMissing('users', 'social_provider', 'VARCHAR(50) DEFAULT NULL').catch(() => {});
+    await addColumnIfMissing('users', 'social_provider_id', 'VARCHAR(255) DEFAULT NULL').catch(() => {});
+    await addColumnIfMissing('users', 'profile_image', 'TEXT DEFAULT NULL').catch(() => {});
+    await addColumnIfMissing('vendor_profiles', 'account_health', 'INTEGER NOT NULL DEFAULT 500').catch(() => {});
+    await pgPool.addEssentialIndexes().catch(() => {});
+  } catch (err) {
+    console.warn('[Database Init Warning]: Database service not reachable on startup. App will serve requests and retry DB connections lazily.', err.message);
+    return false;
+  }
+
+  let shouldSyncSchema = true;
+  try {
+    await pool.query('SELECT 1 FROM users LIMIT 1');
+    if (!process.argv.includes('--sync-schema-only')) {
+      shouldSyncSchema = false;
+      console.log('Database init: schema already initialized (sync skipped for instant startup)');
+    }
+  } catch (err) {
+    shouldSyncSchema = true;
+  }
+
+  if (shouldSyncSchema) {
+    console.log('Database init: syncing schema');
+    await ensureAllSchemaTables(pool);
+    await referralController.initReferralTables();
+    await deletionRequestController.initDeletionTables();
+    await initFileStorageTable();
+    await ProductVariant.initProductVariantsSystem();
+    await VendorInventory.initVendorInventorySystem();
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS app_settings (
@@ -1067,6 +1213,9 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('users', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
   await addColumnIfMissing('users', 'city', 'VARCHAR(100) DEFAULT NULL AFTER state');
   await addColumnIfMissing('users', 'area', 'VARCHAR(120) DEFAULT NULL AFTER city');
+  await addColumnIfMissing('users', 'social_provider', 'VARCHAR(50) DEFAULT NULL');
+  await addColumnIfMissing('users', 'social_provider_id', 'VARCHAR(255) DEFAULT NULL');
+  await addColumnIfMissing('users', 'profile_image', 'TEXT DEFAULT NULL');
   await addColumnIfMissing('users', 'assigned_admin_id', 'INT UNSIGNED DEFAULT NULL AFTER area');
   await addColumnIfMissing('users', 'created_by', 'INT UNSIGNED DEFAULT NULL AFTER assigned_admin_id');
   await addColumnIfMissing('users', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
@@ -1222,6 +1371,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('vendor_profiles', 'signature_path', 'VARCHAR(255) DEFAULT NULL AFTER storefront_image_path');
   await addColumnIfMissing('vendor_profiles', 'is_premium_vendor', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER services');
   await addColumnIfMissing('vendor_profiles', 'premium_commission_percent', 'DECIMAL(5,2) NOT NULL DEFAULT 0.00 AFTER is_premium_vendor');
+  await addColumnIfMissing('vendor_profiles', 'account_health', 'INTEGER NOT NULL DEFAULT 500');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS client_profiles (
@@ -1288,6 +1438,16 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('admin_profiles', 'state', 'VARCHAR(80) DEFAULT NULL AFTER country');
   await addColumnIfMissing('admin_profiles', 'city', 'VARCHAR(100) DEFAULT NULL AFTER state');
   await addColumnIfMissing('admin_profiles', 'area', 'VARCHAR(120) DEFAULT NULL AFTER city');
+  await addColumnIfMissing('admin_profiles', 'assigned_cities', 'TEXT DEFAULT NULL AFTER city');
+
+  // Performance Indexes for location and status queries
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_users_role_city ON users (LOWER(role), is_deleted, city)').catch(() => {});
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_client_profiles_city ON client_profiles (city)').catch(() => {});
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_vendor_profiles_city ON vendor_profiles (city)').catch(() => {});
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_delivery_profiles_city ON delivery_person_profiles (city)').catch(() => {});
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_client_orders_shipping_city ON client_orders (shipping_city, shipping_area, status)').catch(() => {});
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_client_order_items_product ON client_order_items (vendor_product_id, order_id)').catch(() => {});
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_products_deleted_approval ON products (is_deleted, approval_status)').catch(() => {});
   await pool.query(`
     CREATE TABLE IF NOT EXISTS user_audit_logs (
       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
@@ -1650,46 +1810,6 @@ async function initDatabase(options = {}) {
      ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
    `);
 
-   await pool.query(`
-     CREATE TABLE IF NOT EXISTS client_orders (
-       id INT UNSIGNED NOT NULL AUTO_INCREMENT,
-       order_number VARCHAR(10) DEFAULT NULL,
-       user_id INT UNSIGNED NOT NULL,
-       vendor_id INT UNSIGNED DEFAULT NULL,
-       total_amount DECIMAL(12,2) NOT NULL,
-       status VARCHAR(20) NOT NULL DEFAULT 'pending',
-       delivery_status VARCHAR(20) NOT NULL DEFAULT 'pending',
-       delivery_partner_id INT UNSIGNED DEFAULT NULL,
-       delivery_otp VARCHAR(10) DEFAULT NULL,
-       pickup_otp VARCHAR(10) DEFAULT NULL,
-       auto_delivery_offer_id INT UNSIGNED DEFAULT NULL,
-       client_name VARCHAR(100) DEFAULT NULL,
-       client_phone VARCHAR(30) DEFAULT NULL,
-       client_address TEXT DEFAULT NULL,
-       shipping_address_id INT UNSIGNED DEFAULT NULL,
-       shipping_name VARCHAR(120) DEFAULT NULL,
-       shipping_phone VARCHAR(30) DEFAULT NULL,
-       shipping_address TEXT DEFAULT NULL,
-       shipping_area VARCHAR(120) DEFAULT NULL,
-       shipping_city VARCHAR(80) DEFAULT NULL,
-       shipping_state VARCHAR(80) DEFAULT NULL,
-       shipping_country VARCHAR(80) DEFAULT NULL,
-       shipping_pincode VARCHAR(20) DEFAULT NULL,
-       assigned_at TIMESTAMP NULL DEFAULT NULL,
-       ready_at TIMESTAMP NULL DEFAULT NULL,
-       delivered_at TIMESTAMP NULL DEFAULT NULL,
-       created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-       updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-       PRIMARY KEY (id),
-       KEY idx_client_orders_user (user_id),
-       KEY idx_client_orders_vendor (vendor_id),
-       KEY idx_client_orders_delivery_partner (delivery_partner_id),
-       KEY idx_client_orders_delivery_status (delivery_status),
-       CONSTRAINT fk_client_orders_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
-       CONSTRAINT fk_client_orders_vendor FOREIGN KEY (vendor_id) REFERENCES users(id) ON DELETE SET NULL,
-       CONSTRAINT fk_client_orders_delivery_partner FOREIGN KEY (delivery_partner_id) REFERENCES users(id) ON DELETE SET NULL
-     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
-   `);
 
    // Add new columns to existing client_orders table if missing
   await addColumnIfMissing('client_orders', 'order_number', 'VARCHAR(10) DEFAULT NULL AFTER id');
@@ -1964,6 +2084,17 @@ async function initDatabase(options = {}) {
       CONSTRAINT fk_support_ticket_requester FOREIGN KEY (requester_id) REFERENCES users(id) ON DELETE CASCADE
     ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4;
   `);
+
+  await addColumnIfMissing('support_tickets', 'order_id', 'INT UNSIGNED DEFAULT NULL AFTER requester_role');
+  await addColumnIfMissing('support_tickets', 'delivery_partner_id', 'INT UNSIGNED DEFAULT NULL AFTER order_id');
+  await addColumnIfMissing('support_tickets', 'category', "VARCHAR(100) DEFAULT 'General' AFTER delivery_partner_id");
+  await addColumnIfMissing('support_tickets', 'description', 'TEXT DEFAULT NULL AFTER category');
+  await addColumnIfMissing('support_tickets', 'assigned_staff_id', 'INT UNSIGNED DEFAULT NULL AFTER status');
+  await addColumnIfMissing('support_tickets', 'resolution', 'TEXT DEFAULT NULL AFTER assigned_staff_id');
+
+  await addColumnIfMissing('client_orders', 'cancelled_by', 'VARCHAR(50) DEFAULT NULL AFTER status');
+  await addColumnIfMissing('client_orders', 'cancellation_reason', 'TEXT DEFAULT NULL AFTER cancelled_by');
+  await addColumnIfMissing('client_orders', 'cancelled_at', 'TIMESTAMP NULL DEFAULT NULL AFTER cancellation_reason');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS support_ticket_messages (
@@ -2656,6 +2787,7 @@ async function initDatabase(options = {}) {
     'INSERT INTO schema_sync_runs (revision) VALUES (?)',
     [appRevision]
   );
+  }
   console.log('Database init: running migrations');
   await runMigrations(pgPool);
   console.log('Database init: checking snapshot restore');
@@ -2665,21 +2797,36 @@ async function initDatabase(options = {}) {
 }
 
 async function getUserWithRoles(email) {
-  const [rows] = await pool.query(
-    `SELECT u.id, u.name, u.email, u.password, u.role, u.status, u.theme_mode,
-            COALESCE(NULLIF(u.country, ''), ap.country, cp.country, vp.country, '') AS country,
-            COALESCE(NULLIF(u.state, ''), ap.state, cp.state, vp.state, '') AS state,
-            COALESCE(NULLIF(u.city, ''), ap.city, cp.city, vp.city, dpp.city, '') AS city,
-            COALESCE(NULLIF(u.area, ''), ap.area, cp.area, vp.area, dpp.area, '') AS area
-     FROM users u
-     LEFT JOIN admin_profiles ap ON ap.user_id = u.id
-     LEFT JOIN client_profiles cp ON cp.user_id = u.id
-     LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
-     LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
-     WHERE LOWER(u.email) = LOWER(?) AND u.is_deleted = 0
-     LIMIT 1`,
-    [email]
-  );
+  let rows = [];
+  try {
+    const [r] = await pool.query(
+      `SELECT u.id, u.name, u.email, u.password, u.role, u.status, u.theme_mode,
+              COALESCE(NULLIF(u.country, ''), ap.country, cp.country, vp.country, '') AS country,
+              COALESCE(NULLIF(u.state, ''), ap.state, cp.state, vp.state, '') AS state,
+              COALESCE(NULLIF(u.city, ''), ap.city, cp.city, vp.city, dpp.city, '') AS city,
+              COALESCE(NULLIF(u.area, ''), ap.area, cp.area, vp.area, dpp.area, '') AS area
+       FROM users u
+       LEFT JOIN admin_profiles ap ON ap.user_id = u.id
+       LEFT JOIN client_profiles cp ON cp.user_id = u.id
+       LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+       LEFT JOIN delivery_person_profiles dpp ON dpp.user_id = u.id
+       WHERE LOWER(u.email) = LOWER(?) AND COALESCE(u.is_deleted, 0) = 0
+       LIMIT 1`,
+      [email]
+    );
+    rows = r;
+  } catch (err) {
+    // Graceful fallback if profile tables are missing
+    const [r] = await pool.query(
+      `SELECT id, name, email, password, role, status, theme_mode, country, state, city, area
+       FROM users
+       WHERE LOWER(email) = LOWER(?) AND COALESCE(is_deleted, 0) = 0
+       LIMIT 1`,
+      [email]
+    );
+    rows = r;
+  }
+
   if (rows.length === 0) {
     return null;
   }
@@ -2688,14 +2835,20 @@ async function getUserWithRoles(email) {
   if (user.status !== 'active') {
     return null;
   }
-  const [roles] = await pool.query(
-    `SELECT r.id, r.name, r.slug, r.level, r.permissions
-     FROM roles r
-     INNER JOIN user_roles ur ON ur.role_id = r.id
-     WHERE ur.user_id = ?
-     ORDER BY r.level ASC, r.name ASC`,
-    [user.id]
-  );
+  let roles = [];
+  try {
+    const [r] = await pool.query(
+      `SELECT r.id, r.name, r.slug, r.level, r.permissions
+       FROM roles r
+       INNER JOIN user_roles ur ON ur.role_id = r.id
+       WHERE ur.user_id = ?
+       ORDER BY r.level ASC, r.name ASC`,
+      [user.id]
+    );
+    roles = r;
+  } catch (e) {
+    roles = [];
+  }
 
   const normalizedRoles = roles.length
     ? roles.map((role) => ({ ...role, permissions: parsePermissions(role.permissions) }))
@@ -2741,14 +2894,20 @@ function buildShell(user, activePath = '/dashboard') {
       roleTitle: user.roleName || 'Vendor',
       themeMode: user.themeMode || user.theme_mode || 'light',
       navItems: [
-        navItem('Dashboard', '/vendor/dashboard', 'vendor.dashboard', 'dashboard', activePath.startsWith('/vendor/dashboard')),
-        navItem('Products', '/vendor-products', 'vendor.products', 'products', activePath.startsWith('/vendor-products')),
-        navItem('Quotations', '/vendor/quotations', 'vendor.orders', 'orders', activePath.startsWith('/vendor/quotations')),
-        navItem('Orders', '/orders/vendor', 'vendor.orders', 'orders', activePath.startsWith('/orders/vendor')),
-        navItem('GST Tax Report', '/vendor/reports/gst', null, 'reports', activePath.startsWith('/vendor/reports/gst')),
-        navItem('Wallet', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
-        navItem('Vendor Support', '/support/vendor', null, 'support', activePath.startsWith('/support/vendor')),
-        navItem('Profile', '/profiles/' + user.id, 'vendor.profile', 'users', activePath.startsWith('/profiles')),
+        navGroup('Dashboard & Profile', '/vendor/dashboard', 'vendor.dashboard', 'dashboard', activePath.startsWith('/vendor/dashboard') || activePath.startsWith('/profiles'), [
+          navItem('Dashboard Overview', '/vendor/dashboard', 'vendor.dashboard', 'dashboard', activePath.startsWith('/vendor/dashboard')),
+          navItem('My Profile', '/profiles/' + user.id, 'vendor.profile', 'users', activePath.startsWith('/profiles')),
+        ]),
+        navGroup('Products & Sales', '/vendor-products', 'vendor.products', 'products', activePath.startsWith('/vendor-products') || activePath.startsWith('/vendor/quotations') || activePath.startsWith('/orders/vendor') || activePath.startsWith('/vendor/reports/gst'), [
+          navItem('My Products', '/vendor-products', 'vendor.products', 'products', activePath.startsWith('/vendor-products')),
+          navItem('Product Quotations', '/vendor/quotations', 'vendor.orders', 'orders', activePath.startsWith('/vendor/quotations')),
+          navItem('Customer Orders', '/orders/vendor', 'vendor.orders', 'orders', activePath.startsWith('/orders/vendor')),
+          navItem('GST Tax Report', '/vendor/reports/gst', null, 'reports', activePath.startsWith('/vendor/reports/gst')),
+        ]),
+        navGroup('Wallet & Support', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets') || activePath.startsWith('/support'), [
+          navItem('My Wallet', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
+          navItem('Vendor Support', '/support/vendor', null, 'support', activePath.startsWith('/support/vendor')),
+        ]),
       ],
     };
   }
@@ -2758,44 +2917,50 @@ function buildShell(user, activePath = '/dashboard') {
       roleTitle: user.roleName || 'Client',
       themeMode: user.themeMode || user.theme_mode || 'light',
       navItems: [
-        navItem('Dashboard', '/client/dashboard', 'client.dashboard', 'dashboard', activePath.startsWith('/client/dashboard')),
-        navItem('Products', '/vendor-products/client-visible', 'client.products', 'products', activePath.startsWith('/vendor-products/client-visible')),
-        navItem('Quotations', '/client/quotations', 'client.orders', 'orders', activePath.startsWith('/client/quotations')),
-        navItem('Orders', '/orders/client', 'client.orders', 'orders', activePath.startsWith('/orders/client')),
-        navItem('Wallet', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
-        navItem('Client Support', '/support/client', null, 'support', activePath.startsWith('/support/client')),
-        navItem('Profile', '/profiles/' + user.id, 'client.profile', 'users', activePath.startsWith('/profiles')),
+        navGroup('Dashboard & Profile', '/client/dashboard', 'client.dashboard', 'dashboard', activePath.startsWith('/client/dashboard') || activePath.startsWith('/profiles'), [
+          navItem('Dashboard Overview', '/client/dashboard', 'client.dashboard', 'dashboard', activePath.startsWith('/client/dashboard')),
+          navItem('My Profile', '/profiles/' + user.id, 'client.profile', 'users', activePath.startsWith('/profiles')),
+        ]),
+        navGroup('Store & Orders', '/vendor-products/client-visible', 'client.products', 'products', activePath.startsWith('/vendor-products') || activePath.startsWith('/client/quotations') || activePath.startsWith('/orders/client'), [
+          navItem('Browse Products', '/vendor-products/client-visible', 'client.products', 'products', activePath.startsWith('/vendor-products/client-visible')),
+          navItem('My Quotations', '/client/quotations', 'client.orders', 'orders', activePath.startsWith('/client/quotations')),
+          navItem('My Orders', '/orders/client', 'client.orders', 'orders', activePath.startsWith('/orders/client')),
+        ]),
+        navGroup('Wallet & Support', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets') || activePath.startsWith('/support'), [
+          navItem('My Wallet', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
+          navItem('Client Support', '/support/client', null, 'support', activePath.startsWith('/support/client')),
+        ]),
       ],
     };
   }
 
   const can = (permission) => roleCan(user, permission);
   const navItems = [
-    navItem('Dashboard', '/dashboard', 'dashboard.view', 'dashboard', activePath === '/dashboard'),
-    navGroup('Users', '/users', 'users.manage', 'users', activePath.startsWith('/users') || activePath.startsWith('/referral'), [
+    navGroup('Dashboard', '/dashboard', 'dashboard.view', 'dashboard', activePath === '/dashboard', [
+      navItem('Overview Dashboard', '/dashboard', 'dashboard.view', 'dashboard', activePath === '/dashboard'),
+    ]),
+    navGroup('User Management', '/users', 'users.manage', 'users', activePath.startsWith('/users') || activePath.startsWith('/roles') || activePath.startsWith('/referral'), [
       navItem('All Users', '/users', 'users.manage', 'users', activePath === '/users'),
+      navItem('Roles & Permissions', '/roles', 'roles.manage', 'roles', activePath.startsWith('/roles')),
       navItem('Account Deletion Requests', '/users/deletion-requests', 'users.manage', 'users', activePath.startsWith('/users/deletion-requests')),
       navItem('Referral Settings', '/referral-settings', 'users.manage', 'settings', activePath.startsWith('/referral-settings')),
       navItem('Referral Share Messages', '/referral-messages/share', 'users.manage', 'settings', activePath.startsWith('/referral-messages/share') || (activePath.startsWith('/referral-messages') && !activePath.includes('savings'))),
       navItem('Savings Share Messages', '/referral-messages/savings', 'users.manage', 'settings', activePath.startsWith('/referral-messages/savings')),
       navItem('Referral Report', '/referral-report', 'users.manage', 'reports', activePath.startsWith('/referral-report')),
     ]),
-    navItem('Roles', '/roles', 'roles.manage', 'roles', activePath.startsWith('/roles')),
-    navItem('Clients', '/clients', 'clients.manage', 'clients', activePath.startsWith('/clients')),
-    navItem('Vendors', '/vendors', 'vendors.manage', 'vendors', activePath.startsWith('/vendors')),
-    navGroup('Products', '/products', 'products.manage', 'products', activePath.startsWith('/products') || activePath.startsWith('/admin/variation-types') || activePath.startsWith('/admin/variation-approvals'), [
+    navGroup('Party Management', '/clients', 'clients.manage', 'clients', activePath.startsWith('/clients') || activePath.startsWith('/vendors'), [
+      navItem('Clients Management', '/clients', 'clients.manage', 'clients', activePath.startsWith('/clients')),
+      navItem('Vendors Management', '/vendors', 'vendors.manage', 'vendors', activePath.startsWith('/vendors')),
+    ]),
+    navGroup('Products Catalog', '/products', 'products.manage', 'products', activePath.startsWith('/products') || activePath.startsWith('/admin/variation-types') || activePath.startsWith('/admin/variation-approvals'), [
       navItem('All Products', '/products', 'products.manage', 'products', activePath === '/products' || (activePath.startsWith('/products') && !activePath.startsWith('/products/images'))),
       navItem('Variation Types', '/admin/variation-types', 'products.manage', 'settings', activePath.startsWith('/admin/variation-types')),
       navItem('Vendor Approvals', '/admin/variation-approvals', 'products.manage', 'settings', activePath.startsWith('/admin/variation-approvals')),
       navItem('Product Images', '/products/images', 'products.manage', 'products', activePath.startsWith('/products/images')),
     ]),
-    navItem('Wallets', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
-    ...(walletController.isAdminWalletUser(user)
-      ? [navItem('Admin Wallet Transactions', '/admin-wallet-transactions', null, 'wallets', activePath.startsWith('/admin-wallet-transactions'))]
-      : []),
-    navItem('Orders', '/orders/admin/dashboard', 'orders.manage', 'orders', activePath.startsWith('/orders/admin') && !activePath.startsWith('/orders/admin/delivery-dashboard')),
-    navGroup('Delivery Dashboard', '/delivery-dashboard', 'orders.manage', 'delivery',
-      activePath.startsWith('/delivery-dashboard')
+    navGroup('Order & Delivery', '/delivery-dashboard', 'orders.manage', 'delivery',
+      activePath.startsWith('/orders/admin')
+      || activePath.startsWith('/delivery-dashboard')
       || activePath.startsWith('/delivery-partner-status')
       || activePath.startsWith('/delivery-persons')
       || activePath.startsWith('/delivery-types')
@@ -2803,7 +2968,9 @@ function buildShell(user, activePath = '/dashboard') {
       || activePath.startsWith('/default-delivery-rules')
       || activePath.startsWith('/vehicle-categories')
       || activePath.startsWith('/area-definitions'), [
-      navItem('Dashboard', '/delivery-dashboard', 'orders.manage', 'dashboard', activePath.startsWith('/delivery-dashboard')),
+      navItem('Customer Orders', '/orders/admin/dashboard', 'orders.manage', 'orders', activePath.startsWith('/orders/admin') && !activePath.startsWith('/orders/admin/delivery-dashboard')),
+      navItem('Order Info & Audit Stats', '/order-information', 'orders.manage', 'reports', activePath.startsWith('/order-information')),
+      navItem('Delivery Dashboard', '/delivery-dashboard', 'orders.manage', 'dashboard', activePath.startsWith('/delivery-dashboard')),
       navItem('Delivery Partner Status', '/delivery-partner-status', 'orders.manage', 'delivery', activePath.startsWith('/delivery-partner-status')),
       navItem('Delivery Persons', '/delivery-persons', 'orders.manage', 'delivery', activePath.startsWith('/delivery-persons')),
       navItem('Delivery Area Management', '/delivery-types', 'settings.manage', 'delivery', activePath.startsWith('/delivery-types')),
@@ -2812,19 +2979,31 @@ function buildShell(user, activePath = '/dashboard') {
       navItem('Vehicle Categories', '/vehicle-categories', 'settings.manage', 'settings', activePath.startsWith('/vehicle-categories')),
       navItem('Area Definition', '/area-definitions', 'settings.manage', 'settings', activePath.startsWith('/area-definitions')),
     ]),
-    navGroup('Support', '/support', 'support.manage', 'support', activePath.startsWith('/support'), [
-      navItem('Client Support', '/support/clients', 'support.manage', 'support', activePath.startsWith('/support/clients')),
-      navItem('Vendor Support', '/support/vendors', 'support.manage', 'support', activePath.startsWith('/support/vendors')),
+    navGroup('Wallets & Finance', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets') || activePath.startsWith('/admin-wallet-transactions') || activePath.startsWith('/vendor-withdrawals') || activePath.startsWith('/delivery-withdrawals'), [
+      navItem('User Wallets', '/wallets', 'wallets.view', 'wallets', activePath.startsWith('/wallets')),
+      navItem('Vendor Withdrawals', '/vendor-withdrawals', 'vendors.manage', 'wallets', activePath.startsWith('/vendor-withdrawals')),
+      navItem('Delivery Withdrawals', '/delivery-withdrawals', 'orders.manage', 'wallets', activePath.startsWith('/delivery-withdrawals')),
+      ...(walletController.isAdminWalletUser(user)
+        ? [navItem('Admin Wallet Transactions', '/admin-wallet-transactions', null, 'wallets', activePath.startsWith('/admin-wallet-transactions'))]
+        : []),
     ]),
-    navGroup('Discounts', '/discounts', null, 'discounts', activePath.startsWith('/discounts') || activePath.startsWith('/coupons'), [
+    navGroup('Discounts & Promotions', '/discounts', null, 'discounts', activePath.startsWith('/discounts') || activePath.startsWith('/coupons') || activePath.startsWith('/advertisements'), [
       navItem('Discounts', '/discounts', 'discounts.view', 'discounts', activePath.startsWith('/discounts')),
       navItem('Coupons', '/coupons', 'coupons.view', 'coupons', activePath === '/coupons'),
       navItem('Coupon History', '/coupons/history', 'coupon_history.view', 'reports', activePath.startsWith('/coupons/history')),
+      navItem('Advertisements', '/advertisements', 'advertisements.view', 'discounts', activePath.startsWith('/advertisements')),
     ]),
-    navItem('Advertisements', '/advertisements', 'advertisements.view', 'discounts', activePath.startsWith('/advertisements')),
-    navItem('App Settings', '/app-settings', 'settings.manage', 'settings', activePath.startsWith('/app-settings')),
-    navItem('Reports', '#', 'reports.view', 'reports', false),
-    navItem('Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings')),
+    navGroup('Help & Support', '/support', 'support.manage', 'support', activePath.startsWith('/support'), [
+      navItem('Client Support', '/support/clients', 'support.manage', 'support', activePath.startsWith('/support/clients')),
+      navItem('Vendor Support', '/support/vendors', 'support.manage', 'support', activePath.startsWith('/support/vendors')),
+    ]),
+    navGroup('System Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings') || activePath.startsWith('/app-settings') || activePath.startsWith('/message-settings') || activePath.startsWith('/system-backups'), [
+      navItem('General & System Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings') && !activePath.startsWith('/settings/message')),
+      navItem('Message & OTP Settings', '/message-settings', 'settings.manage', 'support', activePath.startsWith('/message-settings')),
+      navItem('App Settings', '/app-settings', 'settings.manage', 'settings', activePath.startsWith('/app-settings')),
+      navItem('Server Backups (24h)', '/system-backups', 'settings.manage', 'settings', activePath.startsWith('/system-backups')),
+      navItem('Reports', '#', 'reports.view', 'reports', false),
+    ]),
   ]
     .map((item) => item.children
       ? { ...item, children: item.children.filter((child) => !child.permission || can(child.permission)) }
@@ -2960,8 +3139,8 @@ async function applyAdminDashboardStats(dashboard, user) {
        (SELECT COUNT(*) FROM roles) AS role_count,
        (SELECT COUNT(*) FROM products WHERE is_deleted = 0) AS product_count,
        (SELECT COUNT(*) FROM products WHERE is_deleted = 0 AND approval_status = 'pending') AS pending_products,
-       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND vp.quantity > 0 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vprof.city, ''), ''))) = LOWER(TRIM(?)))) AS active_stock_items,
-       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND vp.quantity <= 5 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vprof.city, ''), ''))) = LOWER(TRIM(?)))) AS low_stock_items,
+       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND CAST(COALESCE(NULLIF(vp.quantity, ''), '0') AS NUMERIC) > 0 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vprof.city, ''), ''))) = LOWER(TRIM(?)))) AS active_stock_items,
+       (SELECT COUNT(*) FROM vendor_products vp INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id WHERE vp.status = 'active' AND CAST(COALESCE(NULLIF(vp.quantity, ''), '0') AS NUMERIC) <= 5 AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(vprof.city, ''), ''))) = LOWER(TRIM(?)))) AS low_stock_items,
 
        (SELECT COUNT(*) FROM client_orders o WHERE (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS order_count,
        (SELECT COUNT(*) FROM client_orders o WHERE o.status = 'pending' AND (NOT ? OR LOWER(TRIM(COALESCE(NULLIF(o.shipping_city, ''), ''))) = LOWER(TRIM(?)))) AS pending_orders,
@@ -3098,8 +3277,12 @@ async function applyAdminDashboardStats(dashboard, user) {
 async function buildDashboardData(user, activePath = '/dashboard') {
   const dashboard = buildDashboard(user, activePath);
 
-  if (['admin', 'superadmin'].includes(String(user.role || '').toLowerCase()) || isSuperAdminUser(user)) {
-    await applyAdminDashboardStats(dashboard, user);
+  try {
+    if (['admin', 'superadmin'].includes(String(user && user.role || '').toLowerCase()) || isSuperAdminUser(user)) {
+      await applyAdminDashboardStats(dashboard, user).catch((err) => console.error('Admin stats warning:', err.message));
+    }
+  } catch (err) {
+    console.error('Error preparing dashboard stats:', err.message);
   }
 
   if (user.role === 'Vendor') {
@@ -3492,7 +3675,7 @@ app.get('/', (req, res) => {
     return res.redirect('/dashboard');
   }
 
-  res.render('landing');
+  res.render('login', { error: null });
 });
 
 app.get('/admin', (req, res) => {
@@ -3540,11 +3723,26 @@ app.get('/login/client', (req, res) => {
   });
 });
 
+app.get(['/superadmin', '/superadmin/login', '/login/superadmin'], (req, res) => {
+  res.render('superadmin_login', { error: req.query.err || null });
+});
+
 app.get('/login/staff', (req, res) => {
   if (req.session && req.session.user) {
     return res.redirect('/dashboard');
   }
   res.render('login', { error: null, selectedRole: 'staff' });
+});
+
+app.get('/login/delivery', (req, res) => {
+  if (req.session && req.session.user) {
+    return res.redirect('/dashboard');
+  }
+  res.render('login', { error: null, selectedRole: 'staff' });
+});
+
+app.get('/login/delivery-partner', (req, res) => {
+  res.redirect('/login/delivery');
 });
 
 app.get('/staff', (req, res) => {
@@ -3561,6 +3759,45 @@ app.use((req, res, next) => {
   next();
 });
 
+async function handleSuperAdminLogin(req, res) {
+  const email = String(req.body.email || '').trim().toLowerCase();
+  const password = String(req.body.password || '');
+
+  if (!email || !password) {
+    return res.render('superadmin_login', { error: 'Please enter both email and password.' });
+  }
+
+  try {
+    const user = await getUserWithRoles(email);
+    if (!user) {
+      return res.render('superadmin_login', { error: 'Invalid credentials.' });
+    }
+
+    if (!isSuperAdminUser(user)) {
+      return res.render('superadmin_login', { error: 'Access denied. Only Superadmin accounts can log in via this portal.' });
+    }
+
+    const passwordMatches = await bcrypt.compare(password, user.password);
+    if (!passwordMatches) {
+      return res.render('superadmin_login', { error: 'Invalid credentials.' });
+    }
+
+    delete user.password;
+    req.session.user = user;
+    applyRoleSessionMaxAge(req, user);
+    return req.session.save((err) => {
+      if (err) console.error('Superadmin session save error:', err);
+      res.redirect('/dashboard');
+    });
+  } catch (error) {
+    console.error('Superadmin login error:', error);
+    res.render('superadmin_login', { error: 'Unable to process login. Please try again later.' });
+  }
+}
+
+app.post('/superadmin', handleSuperAdminLogin);
+app.post('/superadmin/login', handleSuperAdminLogin);
+
 async function handleAdminLogin(req, res) {
   const email = String(req.body.email || '').trim().toLowerCase();
   const password = String(req.body.password || '');
@@ -3574,6 +3811,20 @@ async function handleAdminLogin(req, res) {
     const user = await getUserWithRoles(email);
     if (!user) {
       return res.render('login', { error: 'Invalid credentials.', selectedRole });
+    }
+
+    if (isSuperAdminUser(user)) {
+      const passwordMatches = await bcrypt.compare(password, user.password);
+      if (!passwordMatches) {
+        return res.render('login', { error: 'Invalid credentials.', selectedRole });
+      }
+      delete user.password;
+      req.session.user = user;
+      applyRoleSessionMaxAge(req, user);
+      return req.session.save((err) => {
+        if (err) console.error('Admin superadmin session save error:', err);
+        res.redirect('/dashboard');
+      });
     }
 
     const userRole = String(user.role || '').toLowerCase();
@@ -3598,11 +3849,9 @@ async function handleAdminLogin(req, res) {
 
     if (selectedRole && selectedRole !== 'all') {
       let matchesSelected = false;
-      if (selectedRole === 'superadmin' && isSuperAdminUser(user)) {
+      if (selectedRole === 'admin' && (userRole === 'admin' || userRole === 'superadmin')) {
         matchesSelected = true;
-      } else if (selectedRole === 'admin' && (userRole === 'admin' || isSuperAdminUser(user))) {
-        matchesSelected = true;
-      } else if (selectedRole === 'staff' && (userRole.includes('staff') || userRole === 'manager' || userRole === 'operator')) {
+      } else if (selectedRole === 'staff' && (userRole.includes('staff') || userRole === 'manager' || userRole === 'operator' || userRole === 'deliveryperson')) {
         matchesSelected = true;
       } else if (userRole === selectedRole) {
         matchesSelected = true;
@@ -3623,10 +3872,14 @@ async function handleAdminLogin(req, res) {
 
     delete user.password;
     req.session.user = user;
-    res.redirect('/dashboard');
+    applyRoleSessionMaxAge(req, user);
+    return req.session.save((err) => {
+      if (err) console.error('Admin session save error:', err);
+      res.redirect('/dashboard');
+    });
   } catch (error) {
     console.error('Login error:', error);
-    res.render('login', { error: 'Unable to process login. Please try again later.', selectedRole });
+    res.render('login', { error: `Unable to process login: ${error.message || 'Database error'}`, selectedRole });
   }
 }
 
@@ -3653,6 +3906,18 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
 
   try {
     const rawUser = await User.findByEmailOrPhoneIdentifier(identifier);
+    if (rawUser && isSuperAdminUser(rawUser)) {
+      return res.render('role_login', {
+        roleLabel,
+        roleSlug: expectedRole,
+        loginPath,
+        demoCredentials: null,
+        googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
+        firebaseConfig: publicGoogleConfig().firebase,
+        error: 'Superadmin accounts must log in exclusively via the /superadmin portal.',
+      });
+    }
+
     if (!rawUser || rawUser.role !== expectedRole || rawUser.status !== 'active') {
       return res.render('role_login', {
         roleLabel,
@@ -3692,7 +3957,11 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
       permissions: fallbackPermissions,
     };
     req.session.user = user;
-    return res.redirect(dashboardPath);
+    applyRoleSessionMaxAge(req, user);
+    return req.session.save((err) => {
+      if (err) console.error('Role session save error:', err);
+      res.redirect(dashboardPath);
+    });
   } catch (error) {
     console.error(`${roleLabel} login error:`, error);
     return res.render('role_login', {
@@ -3727,7 +3996,7 @@ app.post('/login/client/google', async (req, res) => {
   try {
     const rawUser = await findOrCreateGoogleClient(idToken);
     const fallbackPermissions = ['dashboard.view', 'wallets.view', 'coupons.apply'];
-    req.session.user = {
+    const user = {
       id: rawUser.id,
       name: rawUser.name,
       email: rawUser.email,
@@ -3737,7 +4006,12 @@ app.post('/login/client/google', async (req, res) => {
       roles: [{ id: null, name: rawUser.role, slug: rawUser.role, level: 99, permissions: fallbackPermissions }],
       permissions: fallbackPermissions,
     };
-    return res.redirect('/client/dashboard');
+    req.session.user = user;
+    applyRoleSessionMaxAge(req, user);
+    return req.session.save((err) => {
+      if (err) console.error('Google client session save error:', err);
+      res.redirect('/client/dashboard');
+    });
   } catch (error) {
     console.error('Client Google web login error:', error);
     return res.render('role_login', {
@@ -3752,21 +4026,825 @@ app.post('/login/client/google', async (req, res) => {
   }
 });
 
+function canViewLiveStatus(user) {
+  if (!user) return false;
+  const role = String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '');
+  if (['superadmin', 'admin', 'staff', 'staffl1', 'staffl2', 'staffl3', 'supportstaff', 'manager'].includes(role)) return true;
+  if (isSuperAdminUser(user)) return true;
+  if (Array.isArray(user.roles)) {
+    return user.roles.some((r) => ['superadmin', 'admin', 'staff', 'staffl1', 'staffl2', 'staffl3', 'supportstaff', 'manager'].includes(String(r.slug || r.name || '').toLowerCase().replace(/[\s_-]+/g, '')));
+  }
+  return false;
+}
+
+app.get('/api/dashboard/cities-areas', requireAuth, async (req, res) => {
+  try {
+    const data = await getAllowedCitiesAndAreas(req.session.user);
+    return res.json({ success: true, ...data });
+  } catch (err) {
+    console.error('Error in /api/dashboard/cities-areas:', err);
+    return res.status(500).json({ success: false, message: 'Failed to fetch location options' });
+  }
+});
+
+app.get('/api/dashboard/live-status', requireAuth, async (req, res) => {
+  const user = req.session.user;
+  if (!canViewLiveStatus(user)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized to view live status' });
+  }
+
+  // Backend Security Validation
+  const access = await validateCityAndAreaAccess(user, req.query.city);
+  if (!access.allowed) {
+    return res.status(access.statusCode || 403).json({ success: false, message: access.message });
+  }
+
+  const range = String(req.query.range || 'today').toLowerCase();
+  const cacheKey = `live_status:${user.id}:${access.selectedCity}:${range}:${req.query.fromDate || ''}:${req.query.toDate || ''}`;
+  const cachedData = dashboardCache.get(cacheKey);
+  if (cachedData) {
+    return res.json(cachedData);
+  }
+
+  try {
+    const targetCities = access.targetCities.map((c) => c.toLowerCase());
+    const hasCity = targetCities.length > 0;
+
+    const now = new Date();
+    let startDate, endDate;
+
+    if (range === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    } else if (range === 'custom' && req.query.fromDate && req.query.toDate) {
+      startDate = new Date(`${req.query.fromDate}T00:00:00`);
+      endDate = new Date(`${req.query.toDate}T23:59:59`);
+    } else {
+      // today
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    }
+
+    // 1. Summary Cards & Online Counts
+    const { rows: summaryRows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(*) FROM users u
+         LEFT JOIN client_profiles cp ON cp.user_id = u.id
+         WHERE u.is_deleted = 0
+           AND LOWER(REPLACE(REPLACE(u.role, ' ', ''), '_', '')) = 'client'
+           AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), cp.city, ''))) = ANY($2::text[]))
+        ) AS total_clients,
+
+        (SELECT COUNT(*) FROM users u
+         LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+         WHERE u.is_deleted = 0
+           AND LOWER(REPLACE(REPLACE(u.role, ' ', ''), '_', '')) IN ('vendor', 'provider')
+           AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), vp.city, ''))) = ANY($2::text[]))
+        ) AS total_vendors,
+
+        (SELECT COUNT(*) FROM users u
+         LEFT JOIN delivery_person_profiles dp ON dp.user_id = u.id
+         WHERE u.is_deleted = 0
+           AND LOWER(REPLACE(REPLACE(u.role, ' ', ''), '_', '')) IN ('deliveryperson', 'deliverypartner', 'deliverypersonnel')
+           AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), dp.city, ''))) = ANY($2::text[]))
+        ) AS total_delivery_partners,
+
+        (SELECT COUNT(*) FROM users u
+         LEFT JOIN client_profiles cp ON cp.user_id = u.id
+         WHERE u.is_deleted = 0
+           AND LOWER(REPLACE(REPLACE(u.role, ' ', ''), '_', '')) = 'client'
+           AND u.updated_at >= NOW() - INTERVAL '15 minutes'
+           AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), cp.city, ''))) = ANY($2::text[]))
+        ) AS online_clients,
+
+        (SELECT COUNT(*) FROM users u
+         LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
+         WHERE u.is_deleted = 0
+           AND LOWER(REPLACE(REPLACE(u.role, ' ', ''), '_', '')) IN ('vendor', 'provider')
+           AND u.updated_at >= NOW() - INTERVAL '15 minutes'
+           AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), vp.city, ''))) = ANY($2::text[]))
+        ) AS online_vendors,
+
+        (SELECT COUNT(*) FROM users u
+         LEFT JOIN delivery_person_profiles dp ON dp.user_id = u.id
+         WHERE u.is_deleted = 0
+           AND LOWER(REPLACE(REPLACE(u.role, ' ', ''), '_', '')) IN ('deliveryperson', 'deliverypartner', 'deliverypersonnel')
+           AND COALESCE(dp.is_available, 1) = 1
+           AND u.updated_at >= NOW() - INTERVAL '15 minutes'
+           AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), dp.city, ''))) = ANY($2::text[]))
+        ) AS online_delivery_partners
+    `, [hasCity, targetCities]);
+
+    // 2. Quotation & Bidding Metrics
+    const { rows: quotationRows } = await pool.query(`
+      SELECT
+        COUNT(*) FILTER (WHERE status IN ('pending', 'active')) AS live_quotations,
+        COUNT(*) FILTER (WHERE status IN ('pending', 'active') AND bids_count > 0) AS receiving_bids,
+        COUNT(*) FILTER (WHERE status IN ('pending', 'active') AND bids_count = 0) AS waiting_vendor_bids,
+        COUNT(*) FILTER (WHERE status IN ('pending', 'active') AND expires_at IS NOT NULL AND expires_at <= NOW() + INTERVAL '2 hours') AS near_expiry,
+        COUNT(*) FILTER (WHERE status IN ('completed', 'accepted')) AS completed_quotations,
+        COUNT(*) FILTER (WHERE status IN ('closed', 'expired') AND bids_count = 0) AS closed_without_bid,
+        COALESCE(SUM(bids_count), 0) AS total_bids_received,
+        COUNT(DISTINCT main_vendor) AS participating_vendors
+      FROM (
+        SELECT qr.id, qr.status, qr.expires_at, qr.created_at,
+               COUNT(qvr.id) AS bids_count,
+               MAX(qvr.vendor_id) AS main_vendor
+        FROM quotation_requests qr
+        LEFT JOIN quotation_vendor_recipients qvr ON qvr.quotation_request_id = qr.id AND qvr.status IN ('submitted', 'accepted')
+        WHERE qr.created_at >= $1 AND qr.created_at <= $2
+          AND ($3 = false OR LOWER(TRIM(COALESCE(qr.client_city, ''))) = ANY($4::text[]))
+        GROUP BY qr.id, qr.status, qr.expires_at, qr.created_at
+      ) q_summary
+    `, [startDate, endDate, hasCity, targetCities]);
+
+    // 3. Live Order Status Breakdown
+    const { rows: orderRows } = await pool.query(`
+      SELECT
+        COUNT(*) AS total_orders,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'pending') AS pending_orders,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'accepted') AS accepted_orders,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('processing', 'in_progress')) AS processing_orders,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('ready_for_pickup', 'ready')) AS ready_for_pickup,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('assigned', 'assigned_to_dp')) AS assigned_to_dp,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'picked_up') AS picked_up,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('on_the_way', 'out_for_delivery')) AS on_the_way,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('delivered', 'completed')) AS delivered_orders,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('cancelled', 'rejected')) AS cancelled_orders,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'failed') AS failed_orders,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'returned') AS returned_orders,
+        COUNT(*) FILTER (WHERE LOWER(status) = 'refunded') AS refunded_orders,
+
+        -- Operational Alerts
+        COUNT(*) FILTER (WHERE LOWER(status) = 'pending' AND created_at <= NOW() - INTERVAL '5 minutes') AS waiting_vendor_acceptance,
+        COUNT(*) FILTER (WHERE LOWER(status) IN ('accepted', 'processing') AND delivery_partner_id IS NULL) AS waiting_delivery_assignment,
+        COUNT(*) FILTER (WHERE LOWER(status) NOT IN ('delivered', 'completed', 'cancelled', 'rejected', 'returned', 'refunded') AND created_at <= NOW() - INTERVAL '2 hours') AS delayed_orders
+      FROM client_orders o
+      WHERE o.created_at >= $1 AND o.created_at <= $2
+        AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($4::text[]))
+    `, [startDate, endDate, hasCity, targetCities]);
+
+    // 4. Complaints Count
+    const { rows: complaintRows } = await pool.query(`
+      SELECT COUNT(*) AS active_complaints
+      FROM support_tickets st
+      LEFT JOIN client_orders o ON o.id = st.order_id
+      WHERE st.status = 'Open' AND st.order_id IS NOT NULL
+        AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+    `, [hasCity, targetCities]);
+
+    // 5. Current Online Activity Metrics
+    const { rows: activityRows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(DISTINCT qvr.vendor_id) FROM quotation_vendor_recipients qvr INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id WHERE qvr.created_at >= CURRENT_DATE AND qvr.status IN ('submitted', 'accepted') AND ($1 = false OR LOWER(TRIM(COALESCE(qr.client_city, ''))) = ANY($2::text[]))) AS vendors_bidding,
+        (SELECT COUNT(*) FROM users u LEFT JOIN delivery_person_profiles dp ON dp.user_id = u.id WHERE LOWER(u.role) IN ('deliveryperson', 'delivery_person', 'deliverypartner', 'delivery_partner') AND u.is_deleted = 0 AND COALESCE(dp.is_available, 1) = 1 AND u.id NOT IN (SELECT COALESCE(delivery_partner_id, 0) FROM client_orders WHERE status IN ('Assigned', 'Accepted', 'Picked Up', 'On the Way', 'Out for Delivery')) AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), dp.city, ''))) = ANY($2::text[]))) AS dp_free,
+        (SELECT COUNT(*) FROM users u LEFT JOIN delivery_person_profiles dp ON dp.user_id = u.id WHERE LOWER(u.role) IN ('deliveryperson', 'delivery_person', 'deliverypartner', 'delivery_partner') AND u.is_deleted = 0 AND COALESCE(dp.is_available, 1) = 1 AND u.id IN (SELECT COALESCE(delivery_partner_id, 0) FROM client_orders WHERE status IN ('Assigned', 'Accepted', 'Picked Up', 'On the Way', 'Out for Delivery')) AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), dp.city, ''))) = ANY($2::text[]))) AS dp_on_order,
+        (SELECT COUNT(*) FROM users u LEFT JOIN delivery_person_profiles dp ON dp.user_id = u.id WHERE LOWER(u.role) IN ('deliveryperson', 'delivery_person', 'deliverypartner', 'delivery_partner') AND u.is_deleted = 0 AND COALESCE(dp.is_available, 1) = 1 AND u.id IN (SELECT COALESCE(delivery_partner_id, 0) FROM client_orders WHERE status IN ('On the Way', 'Out for Delivery')) AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), dp.city, ''))) = ANY($2::text[]))) AS dp_on_the_way,
+        (SELECT COUNT(DISTINCT client_id) FROM client_orders WHERE status IN ('On the Way', 'Out for Delivery', 'Picked Up') AND ($1 = false OR LOWER(TRIM(COALESCE(shipping_city, ''))) = ANY($2::text[]))) AS clients_tracking
+    `, [hasCity, targetCities]);
+
+    const summary = summaryRows[0] || {};
+    const quotations = quotationRows[0] || {};
+    const orders = orderRows[0] || {};
+    const complaints = complaintRows[0] || {};
+    const activity = activityRows[0] || {};
+
+    const responsePayload = {
+      success: true,
+      lastUpdated: new Date().toLocaleTimeString(),
+      selectedCity: access.selectedCity,
+      assignedCities: access.assignedCities,
+      isSuper: access.isSuper,
+      summary: {
+        totalClients: Number(summary.total_clients || 0),
+        totalVendors: Number(summary.total_vendors || 0),
+        totalDeliveryPartners: Number(summary.total_delivery_partners || 0),
+        onlineClients: Number(summary.online_clients || 0),
+        onlineVendors: Number(summary.online_vendors || 0),
+        onlineDeliveryPartners: Number(summary.online_delivery_partners || 0),
+      },
+      quotations: {
+        totalLive: Number(quotations.live_quotations || 0),
+        receivingBids: Number(quotations.receiving_bids || 0),
+        waitingVendorBids: Number(quotations.waiting_vendor_bids || 0),
+        nearExpiry: Number(quotations.near_expiry || 0),
+        completed: Number(quotations.completed_quotations || 0),
+        closedWithoutBid: Number(quotations.closed_without_bid || 0),
+        totalBidsReceived: Number(quotations.total_bids_received || 0),
+        participatingVendors: Number(quotations.participating_vendors || 0),
+      },
+      orders: {
+        total: Number(orders.total_orders || 0),
+        pending: Number(orders.pending_orders || 0),
+        accepted: Number(orders.accepted_orders || 0),
+        processing: Number(orders.processing_orders || 0),
+        readyForPickup: Number(orders.ready_for_pickup || 0),
+        assignedToDp: Number(orders.assigned_to_dp || 0),
+        pickedUp: Number(orders.picked_up || 0),
+        onTheWay: Number(orders.on_the_way || 0),
+        delivered: Number(orders.delivered_orders || 0),
+        cancelled: Number(orders.cancelled_orders || 0),
+        failed: Number(orders.failed_orders || 0),
+        returned: Number(orders.returned_orders || 0),
+        refunded: Number(orders.refunded_orders || 0),
+        waitingVendorAcceptance: Number(orders.waiting_vendor_acceptance || 0),
+        waitingDeliveryAssignment: Number(orders.waiting_delivery_assignment || 0),
+        delayedOrders: Number(orders.delayed_orders || 0),
+        activeComplaints: Number(complaints.active_complaints || 0),
+      },
+      activity: {
+        onlineClients: Number(summary.online_clients || 0),
+        onlineVendors: Number(summary.online_vendors || 0),
+        onlineDeliveryPartners: Number(summary.online_delivery_partners || 0),
+        vendorsBidding: Number(activity.vendors_bidding || 0),
+        dpFree: Number(activity.dp_free || 0),
+        dpOnOrder: Number(activity.dp_on_order || 0),
+        dpOnTheWay: Number(activity.dp_on_the_way || 0),
+        clientsTracking: Number(activity.clients_tracking || 0),
+      },
+    };
+
+    dashboardCache.set(cacheKey, responsePayload, 300);
+    return res.json(responsePayload);
+  } catch (error) {
+    console.error('Error fetching live status metrics:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load live status metrics' });
+  }
+});
+
+app.get('/api/dashboard/live-details', requireAuth, async (req, res) => {
+  const user = req.session.user;
+  if (!canViewLiveStatus(user)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized' });
+  }
+
+  const access = await validateCityAndAreaAccess(user, req.query.city);
+  if (!access.allowed) {
+    return res.status(access.statusCode || 403).json({ success: false, message: access.message });
+  }
+
+  const type = String(req.query.type || '').trim();
+  const targetCities = access.targetCities.map((c) => c.toLowerCase());
+  const hasCity = targetCities.length > 0;
+
+  try {
+    let items = [];
+    if (type.startsWith('quotation_') || ['totalLive', 'receivingBids', 'waitingVendorBids', 'nearExpiry', 'completed', 'closedWithoutBid'].includes(type)) {
+      let typeCond = "1=1";
+      if (type === 'receivingBids') typeCond = "qr.status IN ('pending', 'active') AND EXISTS (SELECT 1 FROM quotation_vendor_recipients qvr WHERE qvr.quotation_request_id = qr.id AND qvr.status IN ('submitted', 'accepted'))";
+      else if (type === 'waitingVendorBids') typeCond = "qr.status IN ('pending', 'active') AND NOT EXISTS (SELECT 1 FROM quotation_vendor_recipients qvr WHERE qvr.quotation_request_id = qr.id AND qvr.status IN ('submitted', 'accepted'))";
+      else if (type === 'nearExpiry') typeCond = "qr.status IN ('pending', 'active') AND qr.expires_at IS NOT NULL AND qr.expires_at <= NOW() + INTERVAL '2 hours'";
+      else if (type === 'completed') typeCond = "qr.status IN ('completed', 'accepted')";
+      else if (type === 'closedWithoutBid') typeCond = "qr.status IN ('closed', 'expired')";
+      else typeCond = "qr.status IN ('pending', 'active')";
+
+      const { rows } = await pool.query(`
+        SELECT qr.id, qr.client_name, qr.client_city, qr.total_amount, qr.status, qr.created_at, qr.expires_at,
+               (SELECT COUNT(*) FROM quotation_vendor_recipients qvr WHERE qvr.quotation_request_id = qr.id AND qvr.status IN ('submitted', 'accepted')) AS bid_count
+        FROM quotation_requests qr
+        WHERE ${typeCond}
+          AND ($1 = false OR LOWER(TRIM(COALESCE(qr.client_city, ''))) = ANY($2::text[]))
+        ORDER BY qr.created_at DESC
+        LIMIT 50
+      `, [hasCity, targetCities]);
+      items = rows.map((r) => ({
+        id: `#QR-${r.id}`,
+        title: `Client: ${r.client_name || 'Anonymous'} (${r.client_city || 'City'})`,
+        sub: `Amount: INR ${Number(r.total_amount || 0).toFixed(2)} | Bids: ${r.bid_count}`,
+        status: r.status,
+        date: r.created_at,
+      }));
+    } else {
+      let typeCond = "1=1";
+      if (type === 'waitingVendorAcceptance') typeCond = "status = 'pending' AND created_at <= NOW() - INTERVAL '5 minutes'";
+      else if (type === 'waitingDeliveryAssignment') typeCond = "status IN ('accepted', 'processing') AND delivery_partner_id IS NULL";
+      else if (type === 'delayedOrders') typeCond = "status NOT IN ('delivered', 'completed', 'cancelled', 'rejected', 'returned', 'refunded') AND expected_delivery_time IS NOT NULL AND expected_delivery_time < NOW()";
+      else if (type === 'activeComplaints') typeCond = "status = 'Open' AND order_id IS NOT NULL";
+      else if (type) typeCond = `LOWER(status) = '${type.toLowerCase()}'`;
+
+      if (type === 'activeComplaints') {
+        const { rows } = await pool.query(`
+          SELECT st.id, st.requester_role, st.subject, st.status, st.created_at, st.order_id
+          FROM support_tickets st
+          LEFT JOIN client_orders o ON o.id = st.order_id
+          WHERE st.status = 'Open' AND st.order_id IS NOT NULL
+            AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+          ORDER BY st.created_at DESC
+          LIMIT 50
+        `, [hasCity, targetCities]);
+        items = rows.map((r) => ({
+          id: `#TICKET-${r.id}`,
+          title: `Order #${r.order_id} Complaint: ${r.subject}`,
+          sub: `Requester: ${r.requester_role || 'User'}`,
+          status: r.status,
+          date: r.created_at,
+        }));
+      } else {
+        const { rows } = await pool.query(`
+          SELECT id, client_name, vendor_name, total_amount, status, created_at
+          FROM client_orders
+          WHERE ${typeCond}
+            AND ($1 = false OR LOWER(TRIM(COALESCE(shipping_city, ''))) = ANY($2::text[]))
+          ORDER BY created_at DESC
+          LIMIT 50
+        `, [hasCity, targetCities]);
+        items = rows.map((r) => ({
+          id: `#ORDER-${r.id}`,
+          title: `Client: ${r.client_name || '-'} | Vendor: ${r.vendor_name || '-'}`,
+          sub: `Amount: INR ${Number(r.total_amount || 0).toFixed(2)}`,
+          status: r.status,
+          date: r.created_at,
+        }));
+      }
+    }
+
+    return res.json({ success: true, type, items });
+  } catch (err) {
+    console.error('Error fetching live details:', err);
+    return res.status(500).json({ success: false, message: 'Unable to load details' });
+  }
+});
+
+app.get('/api/dashboard/product-stats', requireAuth, async (req, res) => {
+  const user = req.session.user;
+
+  // Backend Access Control
+  const access = await validateCityAndAreaAccess(user, req.query.city, req.query.area);
+  if (!access.allowed) {
+    return res.status(access.statusCode || 403).json({ success: false, message: access.message });
+  }
+
+  const selectedArea = access.selectedArea ? access.selectedArea.toLowerCase() : '';
+  const cacheKey = `prod_stats:${user.id}:${access.selectedCity}:${selectedArea}`;
+  const cachedData = dashboardCache.get(cacheKey);
+  if (cachedData) {
+    return res.json(cachedData);
+  }
+
+  try {
+    const targetCities = access.targetCities.map((c) => c.toLowerCase());
+    const hasCity = targetCities.length > 0;
+    const hasArea = Boolean(selectedArea);
+
+    // 1. Metric Counts
+    const { rows: countsRows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(DISTINCT vp.product_id)
+         FROM vendor_products vp
+         INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+         INNER JOIN products p ON p.id = vp.product_id
+         WHERE p.is_deleted = 0 AND vp.status = 'active'
+           AND ($1 = false OR LOWER(TRIM(COALESCE(vprof.city, ''))) = ANY($2::text[]))
+           AND ($3 = false OR LOWER(TRIM(COALESCE(vprof.area, ''))) = $4)
+        ) AS active_products,
+
+        (SELECT COUNT(DISTINCT vp.product_id)
+         FROM vendor_products vp
+         INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+         INNER JOIN products p ON p.id = vp.product_id
+         WHERE p.is_deleted = 0 AND vp.status = 'inactive'
+           AND ($1 = false OR LOWER(TRIM(COALESCE(vprof.city, ''))) = ANY($2::text[]))
+           AND ($3 = false OR LOWER(TRIM(COALESCE(vprof.area, ''))) = $4)
+        ) AS inactive_products,
+
+        (SELECT COUNT(*) FROM products p WHERE p.is_deleted = 0 AND p.approval_status = 'approved') AS approved_products,
+        (SELECT COUNT(*) FROM products p WHERE p.is_deleted = 0 AND p.approval_status = 'pending') AS pending_products,
+
+        (SELECT COUNT(DISTINCT vp.product_id)
+         FROM vendor_products vp
+         INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+         INNER JOIN products p ON p.id = vp.product_id
+         WHERE p.is_deleted = 0 AND vp.quantity <= 0
+           AND ($1 = false OR LOWER(TRIM(COALESCE(vprof.city, ''))) = ANY($2::text[]))
+           AND ($3 = false OR LOWER(TRIM(COALESCE(vprof.area, ''))) = $4)
+        ) AS out_of_stock_products,
+
+        (SELECT COUNT(DISTINCT vp.product_id)
+         FROM vendor_products vp
+         INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+         INNER JOIN products p ON p.id = vp.product_id
+         WHERE p.is_deleted = 0 AND vp.quantity > 0 AND vp.quantity <= 5
+           AND ($1 = false OR LOWER(TRIM(COALESCE(vprof.city, ''))) = ANY($2::text[]))
+           AND ($3 = false OR LOWER(TRIM(COALESCE(vprof.area, ''))) = $4)
+        ) AS low_inventory_products
+    `, [hasCity, targetCities, hasArea, selectedArea]);
+
+    // 2. Most Sold Products
+    const { rows: mostSoldRows } = await pool.query(`
+      SELECT p.id AS product_id, p.name AS product_name, p.image_url,
+             COALESCE(c.name, 'General') AS category_name,
+             COALESCE(SUM(coi.quantity), 0) AS total_qty_sold,
+             COUNT(DISTINCT coi.order_id) AS total_orders,
+             COALESCE(SUM(coi.quantity * coi.unit_price), 0) AS total_sales_amount
+      FROM client_order_items coi
+      INNER JOIN client_orders o ON o.id = coi.order_id
+      INNER JOIN vendor_products vp ON vp.id = coi.vendor_product_id
+      INNER JOIN products p ON p.id = vp.product_id
+      LEFT JOIN categories c ON c.id = p.category_id
+      WHERE o.status NOT IN ('cancelled', 'rejected', 'failed')
+        AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+        AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $4)
+      GROUP BY p.id, p.name, p.image_url, c.name
+      ORDER BY total_qty_sold DESC, total_sales_amount DESC
+      LIMIT 10
+    `, [hasCity, targetCities, hasArea, selectedArea]);
+
+    // 3. Most Returned Products
+    const { rows: mostReturnedRows } = await pool.query(`
+      SELECT p.id AS product_id, p.name AS product_name, p.image_url,
+             COALESCE(c.name, 'General') AS category_name,
+             COALESCE(SUM(coi.quantity), 0) AS total_qty_returned,
+             COUNT(DISTINCT coi.order_id) AS total_orders
+      FROM client_order_items coi
+      INNER JOIN client_orders o ON o.id = coi.order_id
+      INNER JOIN vendor_products vp ON vp.id = coi.vendor_product_id
+      INNER JOIN products p ON p.id = vp.product_id
+      LEFT JOIN categories c ON c.id = p.category_id
+      WHERE LOWER(o.status) IN ('returned', 'refunded')
+        AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+        AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $4)
+      GROUP BY p.id, p.name, p.image_url, c.name
+      ORDER BY total_qty_returned DESC, total_orders DESC
+      LIMIT 10
+    `, [hasCity, targetCities, hasArea, selectedArea]);
+
+    // 4. Products with Highest Revenue
+    const { rows: highestRevenueRows } = await pool.query(`
+      SELECT p.id AS product_id, p.name AS product_name, p.image_url,
+             COALESCE(c.name, 'General') AS category_name,
+             COALESCE(SUM(coi.quantity * coi.unit_price), 0) AS total_revenue,
+             COALESCE(SUM(coi.quantity), 0) AS total_qty_sold
+      FROM client_order_items coi
+      INNER JOIN client_orders o ON o.id = coi.order_id
+      INNER JOIN vendor_products vp ON vp.id = coi.vendor_product_id
+      INNER JOIN products p ON p.id = vp.product_id
+      LEFT JOIN categories c ON c.id = p.category_id
+      WHERE o.status NOT IN ('cancelled', 'rejected', 'failed')
+        AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+        AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $4)
+      GROUP BY p.id, p.name, p.image_url, c.name
+      ORDER BY total_revenue DESC
+      LIMIT 10
+    `, [hasCity, targetCities, hasArea, selectedArea]);
+
+    // 5. Products with Lowest Sales
+    const { rows: lowestSalesRows } = await pool.query(`
+      SELECT p.id AS product_id, p.name AS product_name, p.image_url,
+             COALESCE(c.name, 'General') AS category_name,
+             COALESCE(SUM(coi.quantity), 0) AS total_qty_sold
+      FROM products p
+      INNER JOIN vendor_products vp ON vp.product_id = p.id
+      INNER JOIN vendor_profiles vprof ON vprof.user_id = vp.vendor_id
+      LEFT JOIN client_order_items coi ON coi.vendor_product_id = vp.id
+      LEFT JOIN client_orders o ON o.id = coi.order_id AND o.status NOT IN ('cancelled', 'rejected', 'failed')
+      LEFT JOIN categories c ON c.id = p.category_id
+      WHERE p.is_deleted = 0
+        AND ($1 = false OR LOWER(TRIM(COALESCE(vprof.city, ''))) = ANY($2::text[]))
+        AND ($3 = false OR LOWER(TRIM(COALESCE(vprof.area, ''))) = $4)
+      GROUP BY p.id, p.name, p.image_url, c.name
+      ORDER BY total_qty_sold ASC, p.id ASC
+      LIMIT 10
+    `, [hasCity, targetCities, hasArea, selectedArea]);
+
+    // 6. Top Selling Categories & Subcategories
+    const { rows: topCategoriesRows } = await pool.query(`
+      SELECT c.id, c.name AS category_name,
+             COALESCE(SUM(coi.quantity), 0) AS total_qty,
+             COALESCE(SUM(coi.quantity * coi.unit_price), 0) AS total_sales
+      FROM client_order_items coi
+      INNER JOIN client_orders o ON o.id = coi.order_id
+      INNER JOIN vendor_products vp ON vp.id = coi.vendor_product_id
+      INNER JOIN products p ON p.id = vp.product_id
+      INNER JOIN categories c ON c.id = p.category_id
+      WHERE o.status NOT IN ('cancelled', 'rejected', 'failed')
+        AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+        AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $4)
+      GROUP BY c.id, c.name
+      ORDER BY total_sales DESC
+      LIMIT 10
+    `, [hasCity, targetCities, hasArea, selectedArea]);
+
+    const { rows: topSubcategoriesRows } = await pool.query(`
+      SELECT sc.id, sc.name AS subcategory_name, c.name AS category_name,
+             COALESCE(SUM(coi.quantity), 0) AS total_qty,
+             COALESCE(SUM(coi.quantity * coi.unit_price), 0) AS total_sales
+      FROM client_order_items coi
+      INNER JOIN client_orders o ON o.id = coi.order_id
+      INNER JOIN vendor_products vp ON vp.id = coi.vendor_product_id
+      INNER JOIN products p ON p.id = vp.product_id
+      INNER JOIN sub_categories sc ON sc.id = p.sub_category_id
+      INNER JOIN categories c ON c.id = p.category_id
+      WHERE o.status NOT IN ('cancelled', 'rejected', 'failed')
+        AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+        AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $4)
+      GROUP BY sc.id, sc.name, c.name
+      ORDER BY total_sales DESC
+      LIMIT 10
+    `, [hasCity, targetCities, hasArea, selectedArea]);
+
+    // 7. Area Performance Analytics
+    const { rows: salesAreasRows } = await pool.query(`
+      SELECT o.shipping_area AS area_name,
+             COUNT(o.id) AS total_orders,
+             COALESCE(SUM(o.total_amount), 0) AS total_sales
+      FROM client_orders o
+      WHERE o.shipping_area IS NOT NULL AND TRIM(o.shipping_area) <> ''
+        AND o.status NOT IN ('cancelled', 'rejected', 'failed')
+        AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+      GROUP BY o.shipping_area
+      ORDER BY total_sales DESC
+      LIMIT 10
+    `, [hasCity, targetCities]);
+
+    const { rows: returnAreasRows } = await pool.query(`
+      SELECT o.shipping_area AS area_name,
+             COUNT(o.id) AS total_returns
+      FROM client_orders o
+      WHERE o.shipping_area IS NOT NULL AND TRIM(o.shipping_area) <> ''
+        AND LOWER(o.status) IN ('returned', 'refunded')
+        AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[]))
+      GROUP BY o.shipping_area
+      ORDER BY total_returns DESC
+      LIMIT 10
+    `, [hasCity, targetCities]);
+
+    // 8. Area Stats Breakdown
+    const { rows: areaStatsRows } = await pool.query(`
+      SELECT
+        (SELECT COUNT(DISTINCT vp.user_id) FROM vendor_profiles vp WHERE ($1 = false OR LOWER(TRIM(COALESCE(vp.city, ''))) = ANY($2::text[])) AND ($3 = false OR LOWER(TRIM(COALESCE(vp.area, ''))) = $4)) AS active_vendors_in_area,
+        (SELECT COUNT(DISTINCT cp.user_id) FROM client_profiles cp WHERE ($1 = false OR LOWER(TRIM(COALESCE(cp.city, ''))) = ANY($2::text[])) AND ($3 = false OR LOWER(TRIM(COALESCE(cp.area, ''))) = $4)) AS active_clients_in_area,
+        (SELECT COUNT(*) FROM client_orders o WHERE o.status NOT IN ('cancelled', 'rejected', 'failed') AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[])) AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $4)) AS total_orders_in_area,
+        (SELECT COALESCE(SUM(total_amount), 0) FROM client_orders o WHERE o.status NOT IN ('cancelled', 'rejected', 'failed') AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[])) AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $4)) AS total_sales_in_area,
+        (SELECT COUNT(*) FROM client_orders o WHERE LOWER(o.status) IN ('returned', 'refunded') AND ($1 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($2::text[])) AND ($3 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $4)) AS total_returns_in_area
+    `, [hasCity, targetCities, hasArea, selectedArea]);
+
+    const counts = countsRows[0] || {};
+    const areaStats = areaStatsRows[0] || {};
+    const bestSellingArea = salesAreasRows[0] ? salesAreasRows[0].area_name : 'N/A';
+
+    const responsePayload = {
+      success: true,
+      selectedCity: access.selectedCity,
+      selectedArea: access.selectedArea,
+      assignedCities: access.assignedCities,
+      metrics: {
+        totalActiveProducts: Number(counts.active_products || 0),
+        totalInactiveProducts: Number(counts.inactive_products || 0),
+        totalApprovedProducts: Number(counts.approved_products || 0),
+        totalPendingProducts: Number(counts.pending_products || 0),
+        totalOutOfStockProducts: Number(counts.out_of_stock_products || 0),
+        totalLowInventoryProducts: Number(counts.low_inventory_products || 0),
+      },
+      mostSoldProducts: mostSoldRows.map((r) => ({
+        productId: r.product_id,
+        name: r.product_name,
+        imageUrl: r.image_url || '/placeholder.png',
+        category: r.category_name,
+        totalQuantitySold: Number(r.total_qty_sold || 0),
+        totalOrders: Number(r.total_orders || 0),
+        salesAmount: Number(r.total_sales_amount || 0),
+      })),
+      mostReturnedProducts: mostReturnedRows.map((r) => ({
+        productId: r.product_id,
+        name: r.product_name,
+        imageUrl: r.image_url || '/placeholder.png',
+        category: r.category_name,
+        totalQuantityReturned: Number(r.total_qty_returned || 0),
+        totalOrders: Number(r.total_orders || 0),
+      })),
+      highestRevenueProducts: highestRevenueRows.map((r) => ({
+        productId: r.product_id,
+        name: r.product_name,
+        imageUrl: r.image_url || '/placeholder.png',
+        category: r.category_name,
+        totalRevenue: Number(r.total_revenue || 0),
+        totalQuantitySold: Number(r.total_qty_sold || 0),
+      })),
+      lowestSalesProducts: lowestSalesRows.map((r) => ({
+        productId: r.product_id,
+        name: r.product_name,
+        imageUrl: r.image_url || '/placeholder.png',
+        category: r.category_name,
+        totalQuantitySold: Number(r.total_qty_sold || 0),
+      })),
+      topCategories: topCategoriesRows.map((r) => ({
+        id: r.id,
+        name: r.category_name,
+        totalQuantity: Number(r.total_qty || 0),
+        totalSales: Number(r.total_sales || 0),
+      })),
+      topSubcategories: topSubcategoriesRows.map((r) => ({
+        id: r.id,
+        name: r.subcategory_name,
+        category: r.category_name,
+        totalQuantity: Number(r.total_qty || 0),
+        totalSales: Number(r.total_sales || 0),
+      })),
+      highestSalesAreas: salesAreasRows.map((r) => ({
+        areaName: r.area_name,
+        totalOrders: Number(r.total_orders || 0),
+        totalSales: Number(r.total_sales || 0),
+      })),
+      highestReturnAreas: returnAreasRows.map((r) => ({
+        areaName: r.area_name,
+        totalReturns: Number(r.total_returns || 0),
+      })),
+      areaMetrics: {
+        bestSellingArea,
+        totalOrdersByArea: Number(areaStats.total_orders_in_area || 0),
+        totalSalesByArea: Number(areaStats.total_sales_in_area || 0),
+        totalReturnedProductsByArea: Number(areaStats.total_returns_in_area || 0),
+        activeVendorsByArea: Number(areaStats.active_vendors_in_area || 0),
+        activeClientsByArea: Number(areaStats.active_clients_in_area || 0),
+      },
+    };
+
+    dashboardCache.set(cacheKey, responsePayload, 300);
+    return res.json(responsePayload);
+  } catch (err) {
+    console.error('Error in /api/dashboard/product-stats:', err);
+    return res.status(500).json({ success: false, message: 'Unable to load product statistics' });
+  }
+});
+
+// --- GET /api/orders/amount-distribution ---
+app.get('/api/orders/amount-distribution', requireAuth, async (req, res) => {
+  const user = req.session.user;
+  if (!canViewLiveStatus(user)) {
+    return res.status(403).json({ success: false, message: 'Unauthorized access' });
+  }
+
+  const access = await validateCityAndAreaAccess(user, req.query.city, req.query.area);
+  if (!access.allowed) {
+    return res.status(access.statusCode || 403).json({ success: false, message: access.message });
+  }
+
+  const range = String(req.query.range || 'today').toLowerCase();
+  const statusFilter = String(req.query.status || '').trim().toLowerCase();
+
+  try {
+    const targetCities = access.targetCities.map((c) => c.toLowerCase());
+    const hasCity = targetCities.length > 0;
+    const selectedArea = access.selectedArea ? access.selectedArea.toLowerCase() : '';
+    const hasArea = Boolean(selectedArea);
+
+    const now = new Date();
+    let startDate, endDate;
+
+    if (range === 'week') {
+      const day = now.getDay() || 7;
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() - day + 1, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate() + (7 - day), 23, 59, 59);
+    } else if (range === 'month') {
+      startDate = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth() + 1, 0, 23, 59, 59);
+    } else if (range === 'custom' && req.query.fromDate && req.query.toDate) {
+      startDate = new Date(`${req.query.fromDate}T00:00:00`);
+      endDate = new Date(`${req.query.toDate}T23:59:59`);
+    } else {
+      // today
+      startDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+      endDate = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59);
+    }
+
+    const singleOrderId = req.query.order_id ? Number(req.query.order_id) : 0;
+    const hasSingleOrderId = Boolean(singleOrderId > 0);
+
+    const hasStatus = Boolean(statusFilter && statusFilter !== 'all');
+
+    const { rows } = await pool.query(`
+      SELECT
+        o.id AS order_id,
+        o.created_at AS order_date,
+        COALESCE(NULLIF(TRIM(o.shipping_city), ''), 'Jaipur') AS city,
+        COALESCE(NULLIF(TRIM(o.shipping_area), ''), 'General') AS area,
+        COALESCE(o.total_amount, 0) AS total_order_amount,
+        COALESCE(o.subtotal, (o.total_amount - COALESCE(o.delivery_fee, 0) - COALESCE(o.platform_fee, 0))) AS vendor_amount,
+        COALESCE(o.delivery_fee, 0) AS delivery_fee,
+        COALESCE(o.platform_fee, 0) AS platform_fee,
+        COALESCE(o.delivery_commission, 0) AS delivery_commission,
+        COALESCE(o.payment_status, 'Paid') AS payment_status,
+        COALESCE(o.status, 'Pending') AS order_status
+      FROM client_orders o
+      WHERE ($9 = true OR (o.created_at >= $1 AND o.created_at <= $2))
+        AND ($9 = true OR $3 = false OR LOWER(TRIM(COALESCE(o.shipping_city, ''))) = ANY($4::text[]))
+        AND ($9 = true OR $5 = false OR LOWER(TRIM(COALESCE(o.shipping_area, ''))) = $6)
+        AND ($9 = true OR $7 = false OR LOWER(TRIM(COALESCE(o.status, ''))) = $8)
+        AND ($9 = false OR o.id = $10)
+      ORDER BY o.id DESC
+    `, [startDate, endDate, hasCity, targetCities, hasArea, selectedArea, hasStatus, statusFilter, hasSingleOrderId, singleOrderId]);
+
+    let totalOrderAmountReceived = 0;
+    let totalVendorAmount = 0;
+    let totalDeliveryPartnerAmount = 0;
+    let totalAdminCommissionSum = 0;
+    let totalPlatformFeeSum = 0;
+    let totalDeliveryCommissionSum = 0;
+    let totalGstSum = 0;
+    let totalFinalAdminEarningSum = 0;
+    let totalAmountDistributedSum = 0;
+
+    const ordersData = rows.map((r) => {
+      const orderAmount = Number(r.total_order_amount || 0);
+      const dpAmount = Number(r.delivery_partner_amount || 0);
+      const platformFee = Number(r.platform_fee || 0);
+      const deliveryCommission = Number(r.delivery_commission || 0);
+
+      let vendorAmount = Number(r.vendor_amount || 0);
+      if (vendorAmount <= 0) {
+        vendorAmount = Math.max(0, orderAmount - dpAmount - platformFee - deliveryCommission);
+      }
+
+      let totalAdminCommission = platformFee + deliveryCommission;
+      if (totalAdminCommission <= 0 && orderAmount > 0) {
+        totalAdminCommission = Math.max(0, orderAmount - vendorAmount - dpAmount);
+      }
+
+      // GST on Admin Commission: 18% of Total Admin Commission
+      const gstAmount = Number((totalAdminCommission * 0.18).toFixed(2));
+      const finalAdminEarning = Number((totalAdminCommission - gstAmount).toFixed(2));
+      const amountDistributed = Number((vendorAmount + dpAmount + finalAdminEarning + gstAmount).toFixed(2));
+
+      totalOrderAmountReceived += orderAmount;
+      totalVendorAmount += vendorAmount;
+      totalDeliveryPartnerAmount += dpAmount;
+      totalAdminCommissionSum += totalAdminCommission;
+      totalPlatformFeeSum += platformFee;
+      totalDeliveryCommissionSum += deliveryCommission;
+      totalGstSum += gstAmount;
+      totalFinalAdminEarningSum += finalAdminEarning;
+      totalAmountDistributedSum += amountDistributed;
+
+      return {
+        orderId: r.order_id,
+        orderDate: r.order_date,
+        city: r.city,
+        area: r.area,
+        totalOrderAmount: orderAmount,
+        vendorAmount,
+        deliveryPartnerAmount: dpAmount,
+        platformFee,
+        deliveryCommission,
+        totalAdminCommission,
+        gstAmount,
+        finalAdminEarning,
+        paymentStatus: r.payment_status,
+        distributionStatus: 'Distributed',
+      };
+    });
+
+    return res.json({
+      success: true,
+      selectedCity: access.selectedCity,
+      selectedArea: access.selectedArea,
+      assignedCities: access.assignedCities,
+      summary: {
+        totalOrderAmountReceived: Number(totalOrderAmountReceived.toFixed(2)),
+        totalVendorAmount: Number(totalVendorAmount.toFixed(2)),
+        totalDeliveryPartnerAmount: Number(totalDeliveryPartnerAmount.toFixed(2)),
+        totalAdminCommission: Number(totalAdminCommissionSum.toFixed(2)),
+        totalPlatformFee: Number(totalPlatformFeeSum.toFixed(2)),
+        totalDeliveryCommission: Number(totalDeliveryCommissionSum.toFixed(2)),
+        totalGstOnAdminCommission: Number(totalGstSum.toFixed(2)),
+        totalFinalAdminEarning: Number(totalFinalAdminEarningSum.toFixed(2)),
+        totalAmountDistributed: Number(totalAmountDistributedSum.toFixed(2)),
+      },
+      orders: ordersData,
+    });
+  } catch (error) {
+    console.error('Error fetching amount distribution:', error);
+    return res.status(500).json({ success: false, message: 'Failed to fetch amount distribution' });
+  }
+});
+
 app.get('/dashboard', requireAuth, async (req, res) => {
-  if (req.session.user.role === 'Vendor') {
+  if (req.session && req.session.user && req.session.user.role === 'Vendor') {
     return res.redirect('/vendor/dashboard');
   }
 
-  if (req.session.user.role === 'Client') {
+  if (req.session && req.session.user && req.session.user.role === 'Client') {
     return res.redirect('/client/dashboard');
   }
 
-  res.render('dashboard', {
-    user: req.session.user,
-    dashboard: await buildDashboardData(req.session.user, req.path),
-    error: req.query.error || null,
-    message: req.query.message || null,
-  });
+  try {
+    const dashboardData = await buildDashboardData(req.session.user, req.path);
+    res.render('dashboard', {
+      user: req.session.user,
+      canViewLiveStatus: canViewLiveStatus(req.session.user),
+      dashboard: dashboardData,
+      error: req.query.error || null,
+      message: req.query.message || null,
+    });
+  } catch (error) {
+    console.error('Dashboard render error:', error);
+    res.render('dashboard', {
+      user: req.session.user,
+      canViewLiveStatus: canViewLiveStatus(req.session.user),
+      dashboard: buildDashboard(req.session.user, req.path),
+      error: null,
+      message: null,
+    });
+  }
 });
 
 app.post('/admin/maintenance/clear-quotations-orders', requireAuth, requireAdminMaintenance, async (req, res) => {
@@ -4179,11 +5257,11 @@ async function getAvailableCatalogIdsForClient({ userId, city = '', area = '' })
   const [rows] = await pool.query(
     `SELECT DISTINCT p.category_id, p.sub_category_id, p.brand_id, vprof.city AS vendor_city, vprof.area AS vendor_area
      FROM vendor_products vp
-     INNER JOIN products p ON p.id = vp.product_id AND p.is_deleted = 0 AND p.approval_status = 'approved'
-     INNER JOIN users u ON u.id = vp.vendor_id AND u.is_deleted = 0 AND LOWER(u.status) = 'active' AND LOWER(u.role) = 'vendor'
-     INNER JOIN vendor_profiles vprof ON vprof.user_id = u.id
+     INNER JOIN products p ON p.id::text = vp.product_id::text AND p.is_deleted = 0 AND p.approval_status = 'approved'
+     INNER JOIN users u ON u.id::text = vp.vendor_id::text AND u.is_deleted = 0 AND LOWER(u.status) = 'active' AND LOWER(u.role) = 'vendor'
+     INNER JOIN vendor_profiles vprof ON vprof.user_id::text = u.id::text
      WHERE vp.status = 'active'
-       AND vp.quantity > 0
+       AND CAST(COALESCE(vp.quantity, 0) AS NUMERIC) > 0
        AND (
          ? = '' OR
          TRIM(COALESCE(vprof.city, '')) = '' OR
@@ -4726,7 +5804,7 @@ app.get('/vendor-products', requireAuth, requireSessionRole('Vendor', '/login/ve
     ]);
     const vendorAssigned = categoriesByVendorMap.get(Number(req.session.user.id)) || [];
     const categoryIds = vendorAssigned.map((c) => c.id);
-    const approvedProducts = await Product.listApproved(2000, categoryIds.length ? categoryIds : null);
+    const approvedProducts = await Product.listApproved(10000, null);
     const vendorCategories = vendorAssigned.length > 0 ? vendorAssigned : categories;
 
     res.render('vendor-products', {
@@ -4749,8 +5827,35 @@ app.get('/vendor-products', requireAuth, requireSessionRole('Vendor', '/login/ve
       categories: [],
       subcategories: [],
       brands: [],
-      error: 'Unable to load products',
     });
+  }
+});
+
+app.get('/api/vendor-products/approved-catalog', webOrJwtAuth, async (req, res) => {
+  try {
+    const q = String(req.query.q || req.query.search || '').trim().toLowerCase();
+    const categoryId = req.query.category_id ? parseInt(req.query.category_id, 10) : null;
+    const subcategoryId = req.query.sub_category_id ? parseInt(req.query.sub_category_id, 10) : null;
+
+    let approvedProducts = await Product.listApproved(10000, categoryId ? [categoryId] : null);
+
+    if (subcategoryId) {
+      approvedProducts = approvedProducts.filter((p) => Number(p.sub_category_id) === subcategoryId);
+    }
+    if (q) {
+      approvedProducts = approvedProducts.filter((p) => {
+        const idStr = String(p.id || p.product_id || '').toLowerCase();
+        const nameStr = String(p.name || p.product_name || '').toLowerCase();
+        const brandStr = String(p.brand_name || '').toLowerCase();
+        const catStr = String(p.category_name || '').toLowerCase();
+        const subStr = String(p.sub_category_name || '').toLowerCase();
+        return idStr.includes(q) || nameStr.includes(q) || brandStr.includes(q) || catStr.includes(q) || subStr.includes(q);
+      });
+    }
+    return res.json({ success: true, products: approvedProducts, total: approvedProducts.length });
+  } catch (error) {
+    console.error('Approved catalog fetch error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch approved products catalog', products: [] });
   }
 });
 
@@ -4848,6 +5953,97 @@ app.use('/wallets', webOrJwtAuth, requireWalletAccess, walletRoutes);
 app.use('/api/wallets', webOrJwtAuth, requireWalletAccess, walletRoutes);
 app.get('/admin-wallet-transactions', webOrJwtAuth, requireAdminWalletTransactions, walletController.adminTransactionsPage);
 app.get('/api/admin-wallet-transactions', webOrJwtAuth, requireAdminWalletTransactions, walletController.adminTransactions);
+
+const vendorWithdrawalController = require('./controllers/vendorWithdrawalController');
+app.get('/api/vendor/bank-account', webOrJwtAuth, vendorWithdrawalController.getBankAccount);
+app.post('/api/vendor/bank-account', webOrJwtAuth, vendorWithdrawalController.saveBankAccount);
+app.post('/api/vendor/withdrawals', webOrJwtAuth, vendorWithdrawalController.createRequest);
+app.get('/api/vendor/withdrawals', webOrJwtAuth, vendorWithdrawalController.listVendorWithdrawals);
+
+app.get('/vendor-withdrawals', webOrJwtAuth, requirePermission('vendors.manage'), (req, res, next) => {
+  res.locals.shell = buildShell(req.session?.user || req.authUser || {}, req.path);
+  return vendorWithdrawalController.listAdminWithdrawals(req, res, next);
+});
+app.get('/api/admin/vendor-withdrawals', webOrJwtAuth, requirePermission('vendors.manage'), vendorWithdrawalController.listAdminWithdrawals);
+app.put('/api/admin/vendor-withdrawals/:id/approve', webOrJwtAuth, requirePermission('vendors.manage'), vendorWithdrawalController.approveWithdrawal);
+app.put('/api/admin/vendor-withdrawals/:id/reject', webOrJwtAuth, requirePermission('vendors.manage'), vendorWithdrawalController.rejectWithdrawal);
+
+const deliveryWithdrawalController = require('./controllers/deliveryWithdrawalController');
+app.get('/api/orders/delivery/bank-account', webOrJwtAuth, deliveryWithdrawalController.getBankAccount);
+app.get('/api/delivery/bank-account', webOrJwtAuth, deliveryWithdrawalController.getBankAccount);
+app.post('/api/orders/delivery/bank-account', webOrJwtAuth, deliveryWithdrawalController.saveBankAccount);
+app.post('/api/delivery/bank-account', webOrJwtAuth, deliveryWithdrawalController.saveBankAccount);
+app.post('/api/orders/delivery/withdrawals', webOrJwtAuth, deliveryWithdrawalController.createRequest);
+app.post('/api/delivery/withdrawals', webOrJwtAuth, deliveryWithdrawalController.createRequest);
+app.get('/api/orders/delivery/withdrawals', webOrJwtAuth, deliveryWithdrawalController.listDeliveryWithdrawals);
+app.get('/api/delivery/withdrawals', webOrJwtAuth, deliveryWithdrawalController.listDeliveryWithdrawals);
+
+app.get('/delivery-withdrawals', webOrJwtAuth, requirePermission('orders.manage'), (req, res, next) => {
+  res.locals.shell = buildShell(req.session?.user || req.authUser || {}, req.path);
+  return deliveryWithdrawalController.listAdminWithdrawals(req, res, next);
+});
+app.get('/api/admin/delivery-withdrawals', webOrJwtAuth, requirePermission('orders.manage'), deliveryWithdrawalController.listAdminWithdrawals);
+app.put('/api/admin/delivery-withdrawals/:id/approve', webOrJwtAuth, requirePermission('orders.manage'), deliveryWithdrawalController.approveWithdrawal);
+app.put('/api/admin/delivery-withdrawals/:id/reject', webOrJwtAuth, requirePermission('orders.manage'), deliveryWithdrawalController.rejectWithdrawal);
+
+const backupService = require('./services/backupService');
+const backupController = require('./controllers/backupController');
+app.get('/system-backups', webOrJwtAuth, requirePermission('settings.manage'), (req, res, next) => {
+  res.locals.shell = buildShell(req.session?.user || req.authUser || {}, req.path);
+  return backupController.listBackups(req, res, next);
+});
+app.get('/api/admin/backups', webOrJwtAuth, requirePermission('settings.manage'), backupController.listBackups);
+app.post('/api/admin/backups/create', webOrJwtAuth, requirePermission('settings.manage'), backupController.createBackup);
+app.get('/api/admin/backups/download/:filename', webOrJwtAuth, requirePermission('settings.manage'), backupController.downloadBackup);
+app.delete('/api/admin/backups/:filename', webOrJwtAuth, requirePermission('settings.manage'), backupController.deleteBackup);
+
+backupService.scheduleMidnightBackup();
+const orderInfoService = require('./services/orderInfoService');
+
+app.get('/order-information', requireAuth, requirePermission('orders.manage'), async (req, res) => {
+  try {
+    const { search, startDate, endDate, status, page, limit } = req.query;
+    const result = await orderInfoService.searchOrderInfoList({
+      search,
+      startDate,
+      endDate,
+      status,
+      page,
+      limit,
+    });
+    res.render('order-information', {
+      title: 'Order Information & Full Statistics - JaipurGro',
+      user: req.session.user,
+      shell: buildShell(req.session.user, req.path),
+      orders: result.orders,
+      totalCount: result.totalCount,
+      currentPage: result.currentPage,
+      totalPages: result.totalPages,
+      filters: {
+        search: search || '',
+        startDate: startDate || '',
+        endDate: endDate || '',
+        status: status || '',
+      },
+    });
+  } catch (err) {
+    console.error('Error rendering order-information page:', err);
+    res.status(500).send(err.message);
+  }
+});
+
+app.get('/api/orders/info-details/:id', requireAuth, requirePermission('orders.manage'), async (req, res) => {
+  try {
+    const orderId = Number(req.params.id);
+    const stats = await orderInfoService.getOrderDetailedStats(orderId);
+    if (!stats) return res.status(404).json({ success: false, message: 'Order statistics not found' });
+    res.json({ success: true, stats });
+  } catch (err) {
+    console.error('Error fetching order detailed stats:', err);
+    res.status(500).json({ success: false, message: err.message });
+  }
+});
+
 app.get('/delivery-dashboard', requireAuth, requirePermission('orders.manage'), orderController.deliveryDashboardPage);
 app.get('/delivery-partner-status', requireAuth, requirePermission('orders.manage'), orderController.deliveryPartnerStatusPage);
 app.use('/delivery-persons', requireAuth, requirePermission('orders.manage'), deliveryPersonRoutes);
@@ -4909,6 +6105,16 @@ app.post(['/client/quotations', '/api/client/quotations'], webOrJwtAuth, require
         city: categoryQuotation.city,
         totalAmount: categoryQuotation.totalAmount,
       });
+    }
+    try {
+      adminNotificationService.notifyAdmin({
+        type: 'new_quotation_raised',
+        title: 'New Quotation Raised',
+        message: `New Quotation #${createdQuotations[0]?.id || ''} raised for category: ${createdQuotations[0]?.categoryName || 'General'}.`,
+        link: '/quotations',
+      });
+    } catch (adminErr) {
+      console.error('Error broadcasting admin quotation notification:', adminErr);
     }
     console.log(`[quotation] client ${req.authUser.id} created ${createdQuotations.length} category quotation(s) for ${quotation.vendorCount} vendor(s) in ${quotation.city}`);
 
@@ -5045,7 +6251,9 @@ function money(value) {
 
 function normalizePaymentMethod(value) {
   const method = String(value || 'wallet').trim().toLowerCase();
-  return method === 'cod' || method === 'cash_on_delivery' ? 'cod' : 'wallet';
+  if (method === 'cod' || method === 'cash_on_delivery') return 'cod';
+  if (method === 'razorpay' || method === 'online' || method === 'gateway' || method === 'upi') return 'razorpay';
+  return 'wallet';
 }
 
 function codEligibility({ areaPricing, client, totalAmount }) {
@@ -5979,6 +7187,50 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
       }
 
       await connection.commit();
+
+      // Dispatch User Order Invoice & Vendor New Order Notifications via Dynamic Notification Engine
+      try {
+        const { notifyUserEvent, notifyVendorEvent } = require('./services/notificationDispatcher');
+        for (const notification of vendorOrderNotifications) {
+          notifyUserEvent({
+            phone: clientPhone || '',
+            email: req.authUser ? req.authUser.email : '',
+            name: clientName || 'Customer',
+            eventType: 'order_invoice',
+            data: {
+              orderId: notification.orderId,
+              orderNumber: notification.orderNumber,
+              totalAmount: notification.totalAmount,
+              itemsTotal: subtotalAmount.toFixed(2),
+              deliveryFee: '0.00',
+              deliveryAddress: shippingAddress || 'N/A',
+              status: 'Pending Acceptance',
+            },
+          }).catch((err) => console.error('[Order System] Error dispatching User order_invoice notification:', err));
+
+          pool.query('SELECT u.email, u.phone, u.name FROM users u JOIN vendors v ON v.user_id = u.id WHERE v.id = ? LIMIT 1', [notification.vendorId])
+            .then(([vRows]) => {
+              if (vRows && vRows[0]) {
+                notifyVendorEvent({
+                  vendorEmail: vRows[0].email,
+                  vendorPhone: vRows[0].phone,
+                  vendorName: vRows[0].name || 'Vendor Partner',
+                  eventType: 'new_order',
+                  data: {
+                    orderId: notification.orderId,
+                    orderNumber: notification.orderNumber,
+                    totalAmount: notification.totalAmount,
+                    storeName: 'JaipurGro Partner Store',
+                  },
+                }).catch((err) => console.error('[Order System] Error dispatching Vendor new_order notification:', err));
+              }
+            })
+            .catch((err) => console.error('[Order System] Error fetching vendor for notification:', err));
+        }
+      } catch (notifErr) {
+        console.error('[Order System] Error dispatching post-order notifications:', notifErr);
+      }
+
       for (const notification of vendorOrderNotifications) {
         vendorNotifications.notifyVendor(notification.vendorId, {
           type: 'order',
@@ -5990,6 +7242,16 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
           orderType: 'direct',
           totalAmount: notification.totalAmount,
         });
+      }
+      try {
+        adminNotificationService.notifyAdmin({
+          type: 'new_order',
+          title: 'New Order Placed',
+          message: `New Order #${createdOrders[0]?.orderNumber || createdOrders[0]?.id || ''} placed for ₹${createdOrders[0]?.totalAmount || '0.00'}.`,
+          link: '/orders',
+        });
+      } catch (adminErr) {
+        console.error('Error broadcasting admin order notification:', adminErr);
       }
       for (const purchased of purchasedProducts) {
         await ProductSearch.trackPurchase({
@@ -6065,19 +7327,22 @@ async function promotionCityOptions() {
 }
 
 async function advertisementAreaOptions() {
-  const [areaRows] = await pool.query(
-    `SELECT DISTINCT city, name AS area FROM area_definitions WHERE city IS NOT NULL AND TRIM(city) <> '' AND name IS NOT NULL AND TRIM(name) <> ''
-     UNION
-     SELECT DISTINCT city, area FROM client_profiles WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> ''
-     UNION
-     SELECT DISTINCT city, area FROM client_delivery_addresses WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> ''
-     UNION
-     SELECT DISTINCT city, area FROM delivery_partner_settings WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> ''
-     ORDER BY city, area`
-  );
-  return areaRows
-    .map((row) => ({ city: normalizeCityName(row.city), area: normalizeCityName(row.area) }))
-    .filter((row) => row.city && row.area);
+  try {
+    const [areaRows] = await pool.query(
+      `SELECT DISTINCT city, name AS area FROM area_definitions WHERE city IS NOT NULL AND TRIM(city) <> '' AND name IS NOT NULL AND TRIM(name) <> ''
+       UNION
+       SELECT DISTINCT city, area FROM client_profiles WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> ''
+       UNION
+       SELECT DISTINCT city, area FROM client_delivery_addresses WHERE city IS NOT NULL AND TRIM(city) <> '' AND area IS NOT NULL AND TRIM(area) <> ''
+       ORDER BY city, area`
+    );
+    return areaRows
+      .map((row) => ({ city: normalizeCityName(row.city), area: normalizeCityName(row.area) }))
+      .filter((row) => row.city && row.area);
+  } catch (err) {
+    console.error('advertisementAreaOptions load error:', err.message);
+    return [];
+  }
 }
 
 async function googleMapsBrowserSettings() {
@@ -6281,7 +7546,14 @@ app.get('/area-options', requireAuth, async (req, res) => {
 
 app.get('/api/area-definitions/options', async (req, res) => {
   try {
+    const LocationOption = require('./models/LocationOption');
     const mappedAreas = await AreaDefinition.list({ includeInactive: false });
+    const locationData = await LocationOption.list().catch(() => null);
+    const allVehicles = await DeliveryPricing.listVehicles().catch(() => []);
+    const activeVehicles = allVehicles
+      .filter((v) => v.is_active)
+      .map((v) => ({ id: v.id, name: v.name, code: v.code }));
+
     const areaRows = [];
     const seenAreas = new Set();
 
@@ -6292,6 +7564,7 @@ app.get('/api/area-definitions/options', async (req, res) => {
       seenAreas.add(key);
       areaRows.push({
         id: area.id,
+        state: area.state || 'Rajasthan',
         city: area.city,
         name: area.name,
         polygon: area.polygon,
@@ -6302,6 +7575,28 @@ app.get('/api/area-definitions/options', async (req, res) => {
       });
     }
 
+    const stateCitiesMap = {};
+    if (locationData && locationData.cityEntriesDetailed) {
+      for (const entry of locationData.cityEntriesDetailed) {
+        if (!entry.state || !entry.name) continue;
+        const st = entry.state.trim();
+        const ct = entry.name.trim();
+        stateCitiesMap[st] = stateCitiesMap[st] || new Set();
+        stateCitiesMap[st].add(ct);
+      }
+    }
+    for (const area of areaRows) {
+      const st = area.state || 'Rajasthan';
+      stateCitiesMap[st] = stateCitiesMap[st] || new Set();
+      stateCitiesMap[st].add(area.city);
+    }
+
+    const statesList = Object.keys(stateCitiesMap).sort();
+    const formattedStateCities = {};
+    for (const st of statesList) {
+      formattedStateCities[st] = [...stateCitiesMap[st]].sort();
+    }
+
     const citySet = new Set([
       ...(await promotionCityOptions()),
       ...areaRows.map((area) => area.city),
@@ -6309,10 +7604,13 @@ app.get('/api/area-definitions/options', async (req, res) => {
 
     res.json({
       success: true,
+      states: statesList,
+      stateCities: formattedStateCities,
       cities: [...citySet].sort((left, right) => left.localeCompare(right)),
       areas: areaRows.sort((left, right) => (
         left.city.localeCompare(right.city) || left.name.localeCompare(right.name)
       )),
+      vehicles: activeVehicles,
     });
   } catch (error) {
     console.error('Mobile area options load error:', error);
@@ -6511,27 +7809,57 @@ async function advertisementPayload(body) {
 }
 
 app.get('/discounts', requireAuth, requirePermission('discounts.view'), async (req, res) => {
-  res.render('promotions', {
-    user: req.session.user,
-    mode: 'discounts',
-    title: 'Discounts',
-    canCreate: roleCan(req.session.user, 'discounts.create'),
-    canEdit: roleCan(req.session.user, 'discounts.edit'),
-    canDelete: roleCan(req.session.user, 'discounts.delete'),
-    cityOptions: await promotionCityOptions(),
-  });
+  try {
+    const cityOptions = await promotionCityOptions().catch(() => []);
+    res.render('promotions', {
+      user: req.session.user,
+      mode: 'discounts',
+      title: 'Discounts',
+      canCreate: roleCan(req.session.user, 'discounts.create'),
+      canEdit: roleCan(req.session.user, 'discounts.edit'),
+      canDelete: roleCan(req.session.user, 'discounts.delete'),
+      cityOptions,
+    });
+  } catch (error) {
+    console.error('Discounts route error:', error);
+    res.render('promotions', {
+      user: req.session.user,
+      mode: 'discounts',
+      title: 'Discounts',
+      canCreate: roleCan(req.session.user, 'discounts.create'),
+      canEdit: roleCan(req.session.user, 'discounts.edit'),
+      canDelete: roleCan(req.session.user, 'discounts.delete'),
+      cityOptions: [],
+      error: 'Unable to load promotion cities.',
+    });
+  }
 });
 
 app.get('/coupons', requireAuth, requirePermission('coupons.view'), async (req, res) => {
-  res.render('promotions', {
-    user: req.session.user,
-    mode: 'coupons',
-    title: 'Coupons',
-    canCreate: roleCan(req.session.user, 'coupons.create'),
-    canEdit: roleCan(req.session.user, 'coupons.edit'),
-    canDelete: roleCan(req.session.user, 'coupons.delete'),
-    cityOptions: await promotionCityOptions(),
-  });
+  try {
+    const cityOptions = await promotionCityOptions().catch(() => []);
+    res.render('promotions', {
+      user: req.session.user,
+      mode: 'coupons',
+      title: 'Coupons',
+      canCreate: roleCan(req.session.user, 'coupons.create'),
+      canEdit: roleCan(req.session.user, 'coupons.edit'),
+      canDelete: roleCan(req.session.user, 'coupons.delete'),
+      cityOptions,
+    });
+  } catch (error) {
+    console.error('Coupons route error:', error);
+    res.render('promotions', {
+      user: req.session.user,
+      mode: 'coupons',
+      title: 'Coupons',
+      canCreate: roleCan(req.session.user, 'coupons.create'),
+      canEdit: roleCan(req.session.user, 'coupons.edit'),
+      canDelete: roleCan(req.session.user, 'coupons.delete'),
+      cityOptions: [],
+      error: 'Unable to load coupon cities.',
+    });
+  }
 });
 
 app.get('/coupons/history', requireAuth, requirePermission('coupon_history.view'), (req, res) => {
@@ -6539,18 +7867,40 @@ app.get('/coupons/history', requireAuth, requirePermission('coupon_history.view'
 });
 
 app.get('/advertisements', requireAuth, requirePermission('advertisements.view'), async (req, res) => {
-  res.render('advertisements', {
-    user: req.session.user,
-    shell: buildShell(req.session.user, req.path),
-    title: 'Advertisements',
-    canCreate: roleCan(req.session.user, 'advertisements.create'),
-    canEdit: roleCan(req.session.user, 'advertisements.edit'),
-    canDelete: roleCan(req.session.user, 'advertisements.delete'),
-    cityOptions: await promotionCityOptions(),
-    categories: (await Catalog.listCategories()).filter((category) => category.status === 'active'),
-    areaOptions: await advertisementAreaOptions(),
-    platforms: Advertisement.PLATFORM_VALUES,
-  });
+  try {
+    const cityOptions = await promotionCityOptions().catch(() => []);
+    const categories = (await Catalog.listCategories().catch(() => [])).filter((category) => category.status === 'active');
+    const areaOptions = await advertisementAreaOptions().catch(() => []);
+    const platforms = Advertisement && Advertisement.PLATFORM_VALUES ? Advertisement.PLATFORM_VALUES : ['web', 'app', 'android', 'ios'];
+
+    res.render('advertisements', {
+      user: req.session.user,
+      shell: buildShell(req.session.user, req.path),
+      title: 'Advertisements',
+      canCreate: roleCan(req.session.user, 'advertisements.create'),
+      canEdit: roleCan(req.session.user, 'advertisements.edit'),
+      canDelete: roleCan(req.session.user, 'advertisements.delete'),
+      cityOptions,
+      categories,
+      areaOptions,
+      platforms,
+    });
+  } catch (error) {
+    console.error('Advertisements page error:', error);
+    res.render('advertisements', {
+      user: req.session.user,
+      shell: buildShell(req.session.user, req.path),
+      title: 'Advertisements',
+      canCreate: roleCan(req.session.user, 'advertisements.create'),
+      canEdit: roleCan(req.session.user, 'advertisements.edit'),
+      canDelete: roleCan(req.session.user, 'advertisements.delete'),
+      cityOptions: [],
+      categories: [],
+      areaOptions: [],
+      platforms: ['web', 'app', 'android', 'ios'],
+      error: 'Unable to load full advertisement options.',
+    });
+  }
 });
 
 function canManageSupport(user) {
@@ -6687,48 +8037,73 @@ app.get('/api/discounts', webOrJwtAuth, requirePermission('discounts.view'), asy
   res.json({ success: true, discounts: await Promotion.listDiscounts() });
 });
 
-app.get('/api/promotions/active-display', webOrJwtAuth, async (req, res) => {
-  const userId = req.authUser && req.authUser.id;
-  const platform = req.query.platform || 'client_app';
-  const page = req.query.page || 'home';
-  const inHouseAdvertisements = await Advertisement.activeListForDisplay({
-    platform,
-    page,
-    adTypes: ['page_banner', 'offer_banner', 'in_app_card'],
-    userId,
-    query: req.query,
-  });
-  const vendorAdvertisements = await Promotion.activeDisplayPromotions(userId, { vendorOnly: true });
-  const advertisements = [
-    ...inHouseAdvertisements.map((advertisement) => ({
-      id: advertisement.id,
-      promo_type: 'in_house_ad',
-      content_priority: 1,
-      name: advertisement.title,
-      code: '',
-      description: advertisement.description,
-      image_path: advertisement.image_path,
-      ad_type: advertisement.ad_type,
-      background_color: '#101820',
-      text_color: '#ffffff',
-      scroll_message: advertisement.description || advertisement.title,
-      start_at: advertisement.start_at,
-      expires_at: advertisement.end_at,
-      vendor_id: null,
-      vendor_name: '',
-      vendor_store_name: 'groxen',
-      vendor_logo_path: '',
-      vendor_storefront_image_path: '',
-    })),
-    ...vendorAdvertisements,
-  ];
-  const promotions = advertisements.length
-    ? advertisements
-    : await Promotion.activeDisplayPromotions(userId, { offersOnly: true });
-  res.json({ success: true, promotions });
+app.get('/api/promotions/active-display', async (req, res) => {
+  try {
+    const authUser = req.authUser || (req.session && req.session.user);
+    const userId = authUser && authUser.id;
+    const platform = req.query.platform || 'client_app';
+    const page = req.query.page || 'home';
+
+    const inHouseAdvertisements = await Advertisement.activeListForDisplay({
+      platform,
+      page,
+      adTypes: ['page_banner', 'offer_banner', 'in_app_card'],
+      userId,
+      query: req.query,
+    }).catch(() => []);
+
+    const vendorAdvertisements = await Promotion.activeDisplayPromotions(userId, { vendorOnly: true }).catch(() => []);
+    const offers = await Promotion.activeDisplayPromotions(userId, { offersOnly: true }).catch(() => []);
+    const coupons = await Promotion.listCoupons().catch(() => []);
+
+    const activeCoupons = coupons
+      .filter((p) => p && (p.is_active === true || p.is_active === 1))
+      .map((p) => ({
+        id: p.id,
+        promo_type: 'coupon',
+        content_priority: 3,
+        name: p.name || p.code || 'Special Offer',
+        code: p.code || '',
+        description: p.description || p.scroll_message || '',
+        image_path: p.image_path || '',
+        background_color: p.background_color || '#0f766e',
+        text_color: p.text_color || '#ffffff',
+        scroll_message: p.scroll_message || `Use code ${p.code} for discount!`,
+        start_at: p.start_at,
+        expires_at: p.expires_at,
+      }));
+
+    const advertisements = [
+      ...inHouseAdvertisements.map((advertisement) => ({
+        id: advertisement.id,
+        promo_type: 'in_house_ad',
+        content_priority: 1,
+        name: advertisement.title,
+        code: '',
+        description: advertisement.description,
+        image_path: advertisement.image_path,
+        ad_type: advertisement.ad_type,
+        background_color: '#101820',
+        text_color: '#ffffff',
+        scroll_message: advertisement.description || advertisement.title,
+        start_at: advertisement.start_at,
+        expires_at: advertisement.end_at,
+      })),
+      ...vendorAdvertisements,
+      ...offers,
+      ...activeCoupons,
+    ];
+
+    res.json({ success: true, promotions: advertisements });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Unable to fetch active promotions' });
+  }
 });
 
 app.get('/api/advertisements', webOrJwtAuth, requirePermission('advertisements.view'), async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+  res.setHeader('Pragma', 'no-cache');
+  res.setHeader('Expires', '0');
   res.json({ success: true, advertisements: await Advertisement.list() });
 });
 
@@ -6782,10 +8157,13 @@ app.post('/api/advertisements/:id/click', webOrJwtAuth, async (req, res) => {
   });
   res.json({ success: true });
 });
+
 app.post('/api/advertisements', webOrJwtAuth, requirePermission('advertisements.create'), uploadAdvertisementImage.single('image'), handleAdvertisementImageUploadError, async (req, res) => {
   try {
     const id = await Advertisement.create({ ...(await advertisementPayload(req.body)), image_path: advertisementImagePath(req.file) });
-    res.status(201).json({ success: true, id, message: 'Advertisement created' });
+    const allAds = await Advertisement.list();
+    const advertisement = allAds.find((item) => Number(item.id) === Number(id)) || null;
+    res.status(201).json({ success: true, id, advertisement, message: 'Advertisement created' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to create advertisement' });
   }
@@ -6794,7 +8172,9 @@ app.post('/api/advertisements', webOrJwtAuth, requirePermission('advertisements.
 app.put('/api/advertisements/:id', webOrJwtAuth, requirePermission('advertisements.edit'), uploadAdvertisementImage.single('image'), handleAdvertisementImageUploadError, async (req, res) => {
   try {
     await Advertisement.update(req.params.id, { ...(await advertisementPayload(req.body)), image_path: advertisementImagePath(req.file) });
-    res.json({ success: true, message: 'Advertisement updated' });
+    const allAds = await Advertisement.list();
+    const advertisement = allAds.find((item) => Number(item.id) === Number(req.params.id)) || null;
+    res.json({ success: true, advertisement, message: 'Advertisement updated' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update advertisement' });
   }
@@ -6803,7 +8183,9 @@ app.put('/api/advertisements/:id', webOrJwtAuth, requirePermission('advertisemen
 app.put('/api/advertisements/:id/status', webOrJwtAuth, requirePermission('advertisements.edit'), async (req, res) => {
   try {
     await Advertisement.updateStatus(req.params.id, req.body.status);
-    res.json({ success: true, message: 'Advertisement status updated' });
+    const allAds = await Advertisement.list();
+    const advertisement = allAds.find((item) => Number(item.id) === Number(req.params.id)) || null;
+    res.json({ success: true, advertisement, message: 'Advertisement status updated' });
   } catch (error) {
     res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update advertisement status' });
   }
@@ -6811,7 +8193,7 @@ app.put('/api/advertisements/:id/status', webOrJwtAuth, requirePermission('adver
 
 app.delete('/api/advertisements/:id', webOrJwtAuth, requirePermission('advertisements.delete'), async (req, res) => {
   await Advertisement.remove(req.params.id);
-  res.json({ success: true, message: 'Advertisement deleted' });
+  res.json({ success: true, id: req.params.id, message: 'Advertisement deleted' });
 });
 
 app.get('/api/vendor/offers', webOrJwtAuth, requireAuthRole('Vendor'), async (req, res) => {
@@ -6858,6 +8240,61 @@ app.delete('/api/discounts/:id', webOrJwtAuth, requirePermission('discounts.dele
   res.json({ success: true, message: 'Discount deleted' });
 });
 
+app.get('/api/promotions', async (req, res) => {
+  try {
+    const authUser = req.authUser || (req.session && req.session.user);
+    const userId = authUser && authUser.id;
+    const coupons = await Promotion.listCouponsForClient(userId).catch(() => []);
+    const discounts = await Promotion.listDiscounts().catch(() => []);
+
+    const formattedCoupons = coupons.map((p) => ({
+      id: p.id,
+      code: p.code || p.name || 'OFFER',
+      name: p.name || p.code || 'Special Offer',
+      description: p.description || p.scroll_message || 'Get discount on your grocery order',
+      value_type: p.value_type || 'percentage',
+      value: Number(p.value || 0),
+      min_order_amount: Number(p.min_order_amount || 0),
+      usage_limit: p.usage_limit,
+      per_customer_limit: p.per_customer_limit,
+      usage_count: p.usage_count || 0,
+      customer_usage_count: p.customer_usage_count || 0,
+      remaining_usage_limit: p.remaining_usage_limit,
+      is_locked: Boolean(p.is_locked),
+      lock_reason: p.lock_reason || '',
+      background_color: p.background_color || '#0f766e',
+      text_color: p.text_color || '#ffffff',
+      scroll_message: p.scroll_message || '',
+    }));
+
+    const formattedDiscounts = discounts
+      .filter((p) => p && (p.is_active || p.isActive))
+      .map((p) => ({
+        id: p.id,
+        code: p.code || p.name || 'OFFER',
+        name: p.name || p.code || 'Special Offer',
+        description: p.description || p.scroll_message || 'Get discount on your grocery order',
+        value_type: p.value_type || 'percentage',
+        value: Number(p.value || 0),
+        min_order_amount: Number(p.min_order_amount || 0),
+        usage_limit: p.usage_limit,
+        per_customer_limit: p.per_customer_limit,
+        usage_count: 0,
+        customer_usage_count: 0,
+        remaining_usage_limit: p.usage_limit,
+        is_locked: !p.is_active,
+        lock_reason: !p.is_active ? 'Disabled' : '',
+        background_color: p.background_color || '#0f766e',
+        text_color: p.text_color || '#ffffff',
+        scroll_message: p.scroll_message || '',
+      }));
+
+    res.json({ success: true, promotions: [...formattedCoupons, ...formattedDiscounts] });
+  } catch (error) {
+    res.status(500).json({ success: false, message: 'Unable to load promotions' });
+  }
+});
+
 app.get('/api/coupons', webOrJwtAuth, requirePermission('coupons.view'), async (req, res) => {
   res.json({ success: true, coupons: await Promotion.listCoupons() });
 });
@@ -6890,7 +8327,7 @@ app.get('/api/coupons/history', webOrJwtAuth, requirePermission('coupon_history.
 });
 
 function contentPagePublicUrl(req, page) {
-  const host = `${req.protocol}://${req.get('host')}`;
+  const host = urlService.getAppUrl(req);
   return `${host}/content-pages/${encodeURIComponent(page.app_name)}/${encodeURIComponent(page.page_type)}`;
 }
 
@@ -7074,92 +8511,218 @@ app.get('/content-pages/:appName/:pageType', async (req, res) => {
   }
 });
 app.get('/settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
-  const googleConfig = publicGoogleConfig();
-  const firebaseAdmin = firebaseAdminStatus();
-  const maps = await settingGroup([
-    'google_maps_browser_api_key',
-    'google_maps_android_api_key',
-    'google_distance_api_key',
-    'google_maps_map_id',
-    'google_maps_default_origin',
-    'google_maps_default_destination',
-  ]);
-  const quotationSubmissionMinutes = Number(await settingValue('quotation_submission_minutes', '1440')) || 1440;
-  const biddingSettings = await BiddingSetting.list();
-  const invoiceSettings = await getInvoiceSettings();
-  const locationSettings = await getLocationSettings();
-  const canRunMaintenance = isSuperAdminUser(req.session.user);
-  const canManageCommissions = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
-  let databaseBackups = [];
-  if (canRunMaintenance) {
-    try {
-      databaseBackups = listManualBackupFiles();
-    } catch (error) {
-      console.error('Database backup list error:', error);
+  try {
+    const googleConfig = publicGoogleConfig();
+    const firebaseAdmin = firebaseAdminStatus();
+    const maps = await settingGroup([
+      'google_maps_browser_api_key',
+      'google_maps_android_api_key',
+      'google_distance_api_key',
+      'google_maps_map_id',
+      'google_maps_default_origin',
+      'google_maps_default_destination',
+    ]).catch(() => ({}));
+    const quotationSubmissionMinutes = Number(await settingValue('quotation_submission_minutes', '1440').catch(() => '1440')) || 1440;
+    const biddingSettings = await BiddingSetting.list().catch(() => []);
+    const invoiceSettings = await getInvoiceSettings().catch(() => ({}));
+    const locationSettings = await getLocationSettings().catch(() => ({ countries: [], states: [], cities: [] }));
+    const canRunMaintenance = isSuperAdminUser(req.session.user);
+    const canManageCommissions = isSuperAdminUser(req.session.user) || ['admin', 'superadmin'].includes(String(req.session.user && req.session.user.role || '').toLowerCase());
+    let databaseBackups = [];
+    if (canRunMaintenance) {
+      try {
+        databaseBackups = listManualBackupFiles();
+      } catch (error) {
+        console.error('Database backup list error:', error);
+      }
     }
+    let maintenance = null;
+    if (canRunMaintenance) {
+      try {
+        maintenance = await getAdminMaintenanceStats();
+      } catch (error) {
+        console.error('Admin maintenance stats error:', error);
+      }
+    }
+    let gstMandatory = true;
+    try {
+      gstMandatory = await appSettingsController.getGstMandatory();
+    } catch (error) {
+      console.error('GST Mandatory setting fetch error:', error);
+    }
+    let emailSettings = {};
+    try {
+      emailSettings = await emailService.getEmailSettings();
+    } catch (error) {
+      console.error('Email settings fetch error:', error);
+    }
+    let socialSettings = {};
+    try {
+      const socialAuthService = require('./services/socialAuthService');
+      socialSettings = await socialAuthService.getSocialSettings();
+    } catch (error) {
+      console.error('Social settings fetch error:', error);
+    }
+    let otpSettings = {};
+    try {
+      const otpAuthService = require('./services/otpAuthService');
+      otpSettings = await otpAuthService.getOtpSettings();
+    } catch (error) {
+      console.error('OTP settings fetch error:', error);
+    }
+    let firebaseSettings = {};
+    try {
+      const { getFirebaseSettings } = require('./services/googleClientAuthService');
+      firebaseSettings = await getFirebaseSettings();
+    } catch (error) {
+      console.error('Firebase settings fetch error:', error);
+    }
+    return res.render('settings', {
+      user: req.session.user,
+      shell: buildShell(req.session.user, req.path),
+      permissionLabels,
+      canManageCommissions,
+      isSuperAdmin: isSuperAdminUser(req.session.user),
+      maintenance,
+      databaseBackups,
+      error: req.query.error || null,
+      message: req.query.message || null,
+      settings: {
+        general: {
+          appName: 'Groxen Dashboard',
+          supportEmail: 'support@groceryapp.local',
+          timezone: 'Asia/Kolkata',
+          currency: 'INR',
+          maintenanceMode: false,
+          quotationSubmissionMinutes,
+        },
+        vendor: {
+          gstMandatory,
+        },
+        bidding: { settings: biddingSettings },
+        email: emailSettings,
+        social: socialSettings,
+        otp: otpSettings,
+        firebase: {
+          apiKey: firebaseSettings.apiKey || googleConfig.firebase.apiKey,
+          authDomain: firebaseSettings.authDomain || googleConfig.firebase.authDomain,
+          projectId: firebaseSettings.projectId || googleConfig.firebase.projectId,
+          storageBucket: firebaseSettings.storageBucket || googleConfig.firebase.storageBucket,
+          messagingSenderId: firebaseSettings.messagingSenderId || googleConfig.firebase.messagingSenderId,
+          appId: firebaseSettings.appId || googleConfig.firebase.appId,
+          measurementId: firebaseSettings.measurementId || googleConfig.firebase.measurementId,
+          googleWebClientId: firebaseSettings.googleWebClientId || googleConfig.webClientId,
+          adminConfigured: firebaseAdmin.configured,
+          adminProjectId: firebaseAdmin.projectId,
+          adminClientEmail: firebaseAdmin.clientEmail,
+          adminMessage: firebaseAdmin.message,
+          serverKey: firebaseSettings.serverKey || '',
+          pushNotifications: firebaseSettings.pushNotifications !== false,
+        },
+        maps: {
+          browserApiKey: maps.google_maps_browser_api_key || process.env.GOOGLE_MAPS_BROWSER_API_KEY || '',
+          androidApiKey: maps.google_maps_android_api_key || process.env.GOOGLE_MAPS_ANDROID_API_KEY || '',
+          distanceApiKey: maps.google_distance_api_key || process.env.GOOGLE_DISTANCE_API_KEY || '',
+          mapId: maps.google_maps_map_id || '',
+          defaultOrigin: maps.google_maps_default_origin || 'Jaipur, Rajasthan, India',
+          defaultDestination: maps.google_maps_default_destination || 'Mansarovar, Jaipur, Rajasthan, India',
+        },
+        security: {
+          jwtExpiry: '7 days',
+          minPasswordLength: 6,
+          loginAttempts: 5,
+          accountVerification: false,
+        },
+        locations: locationSettings,
+        invoice: invoiceSettings,
+      },
+    });
+  } catch (error) {
+    console.error('Error rendering /settings page:', error);
+    return res.status(500).send('Server Error loading settings page: ' + (error.message || 'Unknown error'));
   }
-  res.render('settings', {
-    user: req.session.user,
-    permissionLabels,
-    canManageCommissions,
-    isSuperAdmin: isSuperAdminUser(req.session.user),
-    maintenance: canRunMaintenance ? await getAdminMaintenanceStats() : null,
-    databaseBackups,
-    error: req.query.error || null,
-    message: req.query.message || null,
-    settings: {
-      general: {
-        appName: 'Groxen Dashboard',
-        supportEmail: 'support@groceryapp.local',
-        timezone: 'Asia/Kolkata',
-        currency: 'INR',
-        maintenanceMode: false,
-        quotationSubmissionMinutes,
-      },
-      vendor: {
-        gstMandatory: await appSettingsController.getGstMandatory(),
-      },
-      bidding: { settings: biddingSettings },
-      email: {
-        mailDriver: 'SMTP',
-        host: 'smtp.example.com',
-        port: 587,
-        fromEmail: 'noreply@groceryapp.local',
-        encryption: 'TLS',
-      },
-      firebase: {
-        apiKey: googleConfig.firebase.apiKey,
-        authDomain: googleConfig.firebase.authDomain,
-        projectId: googleConfig.firebase.projectId,
-        storageBucket: googleConfig.firebase.storageBucket,
-        messagingSenderId: googleConfig.firebase.messagingSenderId,
-        appId: googleConfig.firebase.appId,
-        measurementId: googleConfig.firebase.measurementId,
-        googleWebClientId: googleConfig.webClientId,
-        adminConfigured: firebaseAdmin.configured,
-        adminProjectId: firebaseAdmin.projectId,
-        adminClientEmail: firebaseAdmin.clientEmail,
-        adminMessage: firebaseAdmin.message,
-        pushNotifications: true,
-      },
-      maps: {
-        browserApiKey: maps.google_maps_browser_api_key || process.env.GOOGLE_MAPS_BROWSER_API_KEY || '',
-        androidApiKey: maps.google_maps_android_api_key || process.env.GOOGLE_MAPS_ANDROID_API_KEY || '',
-        distanceApiKey: maps.google_distance_api_key || process.env.GOOGLE_DISTANCE_API_KEY || '',
-        mapId: maps.google_maps_map_id || '',
-        defaultOrigin: maps.google_maps_default_origin || 'Jaipur, Rajasthan, India',
-        defaultDestination: maps.google_maps_default_destination || 'Mansarovar, Jaipur, Rajasthan, India',
-      },
-      security: {
-        jwtExpiry: '7 days',
-        minPasswordLength: 6,
-        loginAttempts: 5,
-        accountVerification: false,
-      },
-      locations: locationSettings,
-      invoice: invoiceSettings,
-    },
+});
+
+// Save Social Login Settings (Superadmin or settings.manage permission)
+app.post('/settings/social-login', requireAuth, async (req, res) => {
+  try {
+    const user = req.session.user || req.authUser;
+    if (!user || (!isSuperAdminUser(user) && !hasPermission(user, 'settings.manage'))) {
+      return res.status(403).json({ success: false, message: 'Access Denied: You do not have permission to manage Social Login settings.' });
+    }
+
+    const socialAuthService = require('./services/socialAuthService');
+    const updated = await socialAuthService.saveSocialSettings(req.body || {});
+    return res.json({ success: true, message: 'Social Login settings updated successfully', settings: updated });
+  } catch (error) {
+    console.error('Error saving social login settings:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to save social login settings' });
+  }
+});
+
+// Save Mobile OTP Login Settings (Superadmin or settings.manage permission)
+app.post('/settings/otp-login', requireAuth, async (req, res) => {
+  try {
+    const user = req.session.user || req.authUser;
+    if (!user || (!isSuperAdminUser(user) && !hasPermission(user, 'settings.manage'))) {
+      return res.status(403).json({ success: false, message: 'Access Denied: You do not have permission to manage Mobile OTP Login settings.' });
+    }
+
+    const otpAuthService = require('./services/otpAuthService');
+    const updated = await otpAuthService.saveOtpSettings(req.body || {});
+    return res.json({ success: true, message: 'Mobile OTP Login settings updated successfully', settings: updated });
+  } catch (error) {
+    console.error('Error saving OTP login settings:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to save OTP login settings' });
+  }
+});
+
+// Save Firebase Settings (Superadmin or settings.manage permission)
+app.post('/settings/firebase', requireAuth, async (req, res) => {
+  try {
+    const user = req.session.user || req.authUser;
+    if (!user || (!isSuperAdminUser(user) && !hasPermission(user, 'settings.manage'))) {
+      return res.status(403).json({ success: false, message: 'Access Denied: You do not have permission to manage Firebase settings.' });
+    }
+
+    const { saveFirebaseSettings } = require('./services/googleClientAuthService');
+    const updated = await saveFirebaseSettings(req.body || {});
+    return res.json({ success: true, message: 'Firebase settings updated successfully', settings: updated });
+  } catch (error) {
+    console.error('Error saving Firebase settings:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to save Firebase settings' });
+  }
+});
+// Upload Login Background Image (Superadmin Only)
+app.post('/settings/login-background/upload', requireAuth, (req, res, next) => {
+  const user = req.session.user || req.authUser;
+  if (!user || !isSuperAdminUser(user)) {
+    return res.status(403).json({ success: false, message: 'Access Denied: Only Superadmin users can upload login background images.' });
+  }
+  uploadLoginBg.single('image')(req, res, (err) => {
+    if (err) return res.status(400).json({ success: false, message: err.message });
+    if (!req.file) return res.status(400).json({ success: false, message: 'No image file uploaded' });
+
+    const imageUrl = `/uploads/login-bg/${req.file.filename}`;
+    res.json({ success: true, imageUrl });
   });
+});
+
+// Save Login Background Settings (Superadmin Only)
+app.put('/settings/login-background', requireAuth, async (req, res) => {
+  try {
+    const user = req.session.user || req.authUser;
+    if (!user || !isSuperAdminUser(user)) {
+      return res.status(403).json({ success: false, message: 'Access Denied: Only Superadmin users can modify Login Background settings.' });
+    }
+
+    const { loginBgImage, loginBgColor } = req.body;
+    const settings = await loginThemeService.saveLoginBgSettings({ loginBgImage, loginBgColor });
+    res.json({ success: true, message: 'Login background settings saved successfully', settings });
+  } catch (error) {
+    console.error('Error saving login background settings:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to save login background settings' });
+  }
 });
 
 app.get('/settings/vendor', requireAuth, requirePermission('settings.manage'), async (req, res) => {
@@ -7180,6 +8743,379 @@ app.put('/settings/vendor', requireAuth, requirePermission('settings.manage'), a
   } catch (error) {
     console.error('Vendor settings save error:', error);
     res.status(500).json({ success: false, message: 'Unable to save vendor settings' });
+  }
+});
+
+app.put('/settings/email', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const updatedSettings = await emailService.saveEmailSettings({
+      status: body.status,
+      mailDriver: body.mailDriver,
+      host: body.host,
+      port: body.port,
+      encryption: body.encryption,
+      username: body.username,
+      password: body.password,
+      fromEmail: body.fromEmail,
+      fromName: body.fromName,
+      triggers: body.triggers || {},
+    });
+    res.json({ success: true, message: 'Email & SMTP settings updated successfully', settings: updatedSettings });
+  } catch (error) {
+    console.error('Error saving email settings:', error);
+    res.status(500).json({ success: false, message: 'Failed to save email settings: ' + error.message });
+  }
+});
+
+app.post('/settings/email/test', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { recipientEmail, subject, customBody, config } = req.body;
+    const result = await emailService.sendTestEmail({
+      recipientEmail,
+      subject,
+      customBody,
+      config,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Error sending test email:', error);
+    res.status(400).json({ success: false, message: error.message || 'Failed to send test email' });
+  }
+});
+app.get('/api/admin/notifications/stream', (req, res) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache, no-transform');
+  res.setHeader('Connection', 'keep-alive');
+  res.setHeader('X-Accel-Buffering', 'no');
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
+
+  const unsubscribe = adminNotificationService.subscribeAdmin(res);
+  req.on('close', unsubscribe);
+});
+
+app.get('/api/admin/notifications/poll', (req, res) => {
+  const events = adminNotificationService.getRecentEvents(req.query.since);
+  res.json({ success: true, events });
+});
+
+app.get('/message-settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const messageSettings = await messageService.getMessageSettings();
+    const emailSettings = await emailService.getEmailSettings();
+    const whatsappSettings = await messageService.getWhatsAppSettings();
+    const msg91Settings = await messageService.getMsg91Settings();
+    const pushNotifications = await pushNotificationService.getPushNotifications(50);
+    const fbAdminStatus = firebaseAdminStatus();
+    
+    // Fetch Template Collections
+    const emailTemplates = await notificationTemplateService.getAllTemplates('email');
+    const whatsappTemplates = await notificationTemplateService.getAllTemplates('whatsapp');
+    const smsTemplates = await notificationTemplateService.getAllTemplates('sms');
+    const allTemplates = await notificationTemplateService.getAllTemplates();
+
+    res.render('message-settings', {
+      title: 'Message, Email, WhatsApp & Push Notifications Hub - Groxen',
+      user: req.session.user,
+      shell: buildShell(req.session.user, req.path),
+      messageSettings,
+      emailSettings,
+      whatsappSettings,
+      msg91Settings,
+      pushNotifications,
+      fbAdminStatus,
+      emailTemplates,
+      whatsappTemplates,
+      smsTemplates,
+      allTemplates,
+      message: req.query.msg || null,
+      error: req.query.err || null,
+    });
+  } catch (error) {
+    console.error('Error rendering message settings:', error);
+    res.status(500).send('Unable to load Message Settings page: ' + error.message);
+  }
+});
+
+// Notification Template Management API Routes
+app.post('/message-settings/templates', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const saved = await notificationTemplateService.saveTemplate(req.body);
+    const tabHash = saved.channel === 'email' ? '#email' : (saved.channel === 'whatsapp' ? '#whatsapp-msg91' : '#sms');
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.json({ success: true, message: 'Template saved successfully', template: saved });
+    }
+    return res.redirect('/message-settings?msg=' + encodeURIComponent('Template ' + saved.name + ' saved successfully') + tabHash);
+  } catch (error) {
+    console.error('Error saving template:', error);
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    return res.redirect('/message-settings?err=' + encodeURIComponent(error.message));
+  }
+});
+
+app.post('/message-settings/templates/:id/toggle', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const user = req.session.user || req.authUser;
+    const templateId = req.params.id;
+    const { status } = req.body;
+
+    const existingTpl = await notificationTemplateService.getTemplateById(templateId);
+    if (!existingTpl) {
+      return res.status(404).json({ success: false, message: 'Template not found' });
+    }
+
+    const updated = await notificationTemplateService.toggleTemplateStatus(templateId, status);
+
+    const UserAuditLog = require('./models/UserAuditLog');
+    await UserAuditLog.record({
+      actorId: user?.id || null,
+      action: 'NOTIFICATION_TEMPLATE_TOGGLE',
+      details: {
+        templateId,
+        templateKey: existingTpl.template_key,
+        channel: existingTpl.channel,
+        previousStatus: existingTpl.status,
+        newStatus: updated.status,
+        userName: user?.name || user?.email || 'Superadmin',
+        timestamp: new Date().toISOString(),
+      },
+      ipAddress: req.ip,
+      userAgent: req.get('user-agent'),
+    });
+
+    return res.json({
+      success: true,
+      message: `Template '${existingTpl.name}' is now ${updated.status === 'active' ? 'ENABLED (ON)' : 'DISABLED (OFF)'}`,
+      template: updated,
+    });
+  } catch (error) {
+    console.error('Error toggling template status:', error);
+    return res.status(400).json({ success: false, message: error.message || 'Failed to toggle template status' });
+  }
+});
+
+app.post('/message-settings/templates/:id/delete', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const result = await notificationTemplateService.deleteTemplate(req.params.id);
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.json(result);
+    }
+    return res.redirect('/message-settings?msg=' + encodeURIComponent(result.message));
+  } catch (error) {
+    console.error('Error deleting template:', error);
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    return res.redirect('/message-settings?err=' + encodeURIComponent(error.message));
+  }
+});
+
+app.post('/message-settings/templates/reset', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { channel, templateKey } = req.body;
+    const resetTpl = await notificationTemplateService.resetTemplateToDefault(channel, templateKey);
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.json({ success: true, message: 'Template reset to factory default', template: resetTpl });
+    }
+    return res.redirect('/message-settings?msg=Template+reset+to+factory+default');
+  } catch (error) {
+    console.error('Error resetting template:', error);
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    return res.redirect('/message-settings?err=' + encodeURIComponent(error.message));
+  }
+});
+
+app.post('/message-settings/templates/preview', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { channel, templateKey, sampleData } = req.body;
+    const rendered = await notificationTemplateService.renderTemplate(channel, templateKey, sampleData || {
+      userName: 'Rahul Sharma',
+      userEmail: 'rahul@example.com',
+      orderId: '1094',
+      orderDate: '29/07/2026',
+      itemsTotal: '450.00',
+      deliveryFee: '40.00',
+      totalAmount: '490.00',
+      deliveryAddress: 'Flat 402, Sunshine Heights, Malviya Nagar, Jaipur',
+      deliveryStatus: 'Out for Delivery',
+      otpCode: '5829',
+      riderName: 'Vikram Singh',
+      riderPhone: '+91 9876543210',
+      storeName: 'Groxen Central',
+      supportEmail: 'support@groxen.in',
+      discountPercent: '20',
+      couponCode: 'FRESH20',
+      otpExpiry: '5'
+    });
+    return res.json({ success: true, rendered });
+  } catch (error) {
+    console.error('Error generating template preview:', error);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/settings/whatsapp', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const updated = await messageService.saveWhatsAppSettings(req.body);
+    res.json({ success: true, message: 'WhatsApp API settings saved successfully', settings: updated });
+  } catch (error) {
+    console.error('Error saving WhatsApp settings:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/settings/whatsapp/test', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { phone, messageText, templateName } = req.body;
+    const result = await messageService.sendTestWhatsAppMessage({ phone, messageText, templateName });
+    res.json(result);
+  } catch (error) {
+    console.error('Error sending test WhatsApp message:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/settings/msg91', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const updated = await messageService.saveMsg91Settings(req.body);
+    res.json({ success: true, message: 'MSG91 API settings saved successfully', settings: updated });
+  } catch (error) {
+    console.error('Error saving MSG91 settings:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/settings/msg91/test', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { phone, messageText, templateId } = req.body;
+    const result = await messageService.sendTestMsg91Message({ phone, messageText, templateId });
+    res.json(result);
+  } catch (error) {
+    console.error('Error sending test MSG91 message:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/settings/email', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const updated = await emailService.saveEmailSettings(req.body);
+    res.json({ success: true, message: 'Email & SMTP settings saved successfully', settings: updated });
+  } catch (error) {
+    console.error('Error saving email settings:', error);
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/settings/email/test', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { recipientEmail, subject, customBody, config } = req.body;
+    const result = await emailService.sendTestEmail({ recipientEmail, subject, customBody, config });
+    res.json(result);
+  } catch (error) {
+    console.error('Error sending test email:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/message-settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const updatedSettings = await messageService.saveMessageSettings({
+      otpEnabled: body.otpEnabled,
+      otpProvider: body.otpProvider,
+      otpApiKey: body.otpApiKey,
+      otpSenderId: body.otpSenderId,
+      otpLength: body.otpLength,
+      otpExpiryMinutes: body.otpExpiryMinutes,
+      triggers: {
+        registration: body.trigger_registration === 'true' || body.trigger_registration === 'on',
+        login: body.trigger_login === 'true' || body.trigger_login === 'on',
+        delivery: body.trigger_delivery === 'true' || body.trigger_delivery === 'on',
+        vendorAcceptance: body.trigger_vendor_acceptance === 'true' || body.trigger_vendor_acceptance === 'on',
+        passwordReset: body.trigger_password_reset === 'true' || body.trigger_password_reset === 'on',
+        walletWithdrawal: body.trigger_wallet_withdrawal === 'true' || body.trigger_wallet_withdrawal === 'on',
+        orderStatusUpdates: body.trigger_order_status_updates === 'true' || body.trigger_order_status_updates === 'on',
+      },
+    });
+
+    if (req.accepts('html')) {
+      return res.redirect('/message-settings?msg=Message+and+OTP+settings+saved+successfully');
+    }
+    return res.json({ success: true, message: 'Message and OTP settings saved successfully', settings: updatedSettings });
+  } catch (error) {
+    console.error('Error saving message settings:', error);
+    if (req.accepts('html')) {
+      return res.redirect('/message-settings?err=' + encodeURIComponent(error.message));
+    }
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/message-settings/notifications', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { title, message, imageUrl, actionUrl, targetAudience, sendNow, scheduledAt } = req.body;
+    const isNow = sendNow === 'true' || sendNow === true || sendNow === '1';
+    const notification = await pushNotificationService.createPushNotification({
+      title,
+      message,
+      imageUrl,
+      actionUrl,
+      targetAudience: targetAudience || 'all',
+      sendNow: isNow,
+      scheduledAt: isNow ? null : scheduledAt,
+      createdBy: req.session.user?.name || req.session.user?.email || 'Admin',
+    });
+
+    if (req.accepts('html')) {
+      const msgText = isNow ? 'Push+notification+broadcasted+successfully' : 'Push+notification+scheduled+successfully';
+      return res.redirect('/message-settings?msg=' + msgText + '#push');
+    }
+    res.json({ success: true, message: isNow ? 'Push notification broadcasted successfully' : 'Push notification scheduled successfully', notification });
+  } catch (error) {
+    console.error('Error creating push notification:', error);
+    if (req.accepts('html')) {
+      return res.redirect('/message-settings?err=' + encodeURIComponent(error.message) + '#push');
+    }
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/message-settings/notifications/:id/send', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const result = await pushNotificationService.dispatchNotification(req.params.id);
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('Error triggering push notification dispatch:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/message-settings/notifications/:id/cancel', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const result = await pushNotificationService.cancelNotification(req.params.id);
+    res.json({ success: true, result });
+  } catch (error) {
+    console.error('Error canceling scheduled push notification:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/message-settings/test-sms', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { phone, eventType, customMessage } = req.body;
+    const result = await messageService.sendSmsOtp({
+      phone,
+      eventType,
+      customMessage,
+    });
+    res.json(result);
+  } catch (error) {
+    console.error('Error sending test SMS OTP:', error);
+    res.status(400).json({ success: false, message: error.message || 'Failed to dispatch test OTP' });
   }
 });
 
@@ -8222,17 +10158,31 @@ app.use((req, res) => {
 
 console.log(`Database config: ${JSON.stringify(pgPool.describeConfig())}`);
 
-initDatabase()
-  .then(() => {
-    if (process.argv.includes('--sync-schema-only')) {
-      console.log('Database schema sync completed.');
-      return pgPool.end();
+// Global uncaught exception and unhandled rejection guards to prevent 503 process crashes
+process.on('uncaughtException', (err) => {
+  console.error('[Uncaught Exception Guard]:', err);
+});
+
+process.on('unhandledRejection', (reason, promise) => {
+  console.error('[Unhandled Rejection Guard]:', reason);
+});
+
+let server = null;
+if (!process.argv.includes('--sync-schema-only')) {
+  server = app.listen(port, () => {
+    console.log(`Server [PID ${process.pid}] running at http://localhost:${port}`);
+  });
+
+  server.on('error', (error) => {
+    if (error.code === 'EADDRINUSE') {
+      console.warn(`Port/Socket ${port} in use. Server instance continuing under active listener.`);
+    } else {
+      console.error('Server startup notice:', error);
     }
+  });
 
-    const server = app.listen(port, () => {
-      console.log(`Server is running at http://localhost:${port}`);
-    });
-
+  // Worker-Safe Background Scheduler
+  if (process.env.IS_PRIMARY_PROCESS !== 'false') {
     const deliveryOfferTimer = setInterval(() => {
       Order.processExpiredDeliveryOffers().catch((error) => {
         console.error('Delivery offer handoff error:', error);
@@ -8248,24 +10198,46 @@ initDatabase()
       });
     }, 15000);
     quotationExpiryTimer.unref();
+  }
 
-    server.on('error', (error) => {
-      if (error.code === 'EADDRINUSE') {
-        console.error(`Port ${port} is already in use. Stop the existing server or start this app with a different PORT.`);
-        process.exit(1);
-      }
+  // Graceful Shutdown Handler
+  const handleShutdown = (signal) => {
+    console.log(`[PID ${process.pid}] ${signal} received. Closing HTTP server...`);
+    try {
+      if (server) server.close();
+    } catch (e) {}
+    pgPool.end().finally(() => {
+      process.exit(0);
+    });
+  };
 
-      console.error('Server failed to start:', error);
+  process.on('SIGINT', () => handleShutdown('SIGINT'));
+  process.on('SIGTERM', () => handleShutdown('SIGTERM'));
+
+  // Immediate non-blocking boot (0 delay for Passenger/cPanel)
+  setImmediate(() => {
+    initDatabase()
+      .then(() => {
+        console.log('Database background initialization completed.');
+      })
+      .catch((error) => {
+        console.warn(`Database background init notice: ${pgPool.formatError(error)}`);
+      });
+  });
+} else {
+  initDatabase()
+    .then(() => {
+      console.log('Database schema sync completed.');
+      return pgPool.end();
+    })
+    .then(() => process.exit(0))
+    .catch((err) => {
+      console.error('Schema sync failed:', err);
       process.exit(1);
     });
-  })
-  .catch((error) => {
-    console.error(`Failed to initialize database: ${pgPool.formatError(error)}`);
-    if (error && error.stack) {
-      console.error(error.stack);
-    }
-    process.exit(1);
-  });
+}
+
+module.exports = app;
 
 
 

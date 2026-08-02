@@ -25,23 +25,42 @@ async function webOrJwtAuth(req, res, next) {
   try {
     const authHeader = req.headers.authorization || '';
     const [scheme, headerToken] = authHeader.split(' ');
-    const queryToken = typeof req.query.access_token === 'string' ? req.query.access_token : '';
-    const token = headerToken || queryToken;
+    const queryToken = typeof req.query.access_token === 'string'
+      ? req.query.access_token
+      : (typeof req.query.token === 'string' ? req.query.token : '');
+    const cookieToken = (req.cookies && (req.cookies.token || req.cookies.jwt)) || '';
+    const token = headerToken || queryToken || cookieToken;
 
-    if ((!queryToken && scheme !== 'Bearer') || !token || isTokenRevoked(token)) {
+    if ((!queryToken && !cookieToken && scheme !== 'Bearer') || !token || isTokenRevoked(token)) {
       return res.status(401).json({ success: false, message: 'Authentication token required' });
     }
 
     const payload = verify(token);
     const user = await User.findById(payload.id);
 
-    if (!user || user.status !== 'active') {
+    if (!user || user.status === 'inactive' || user.status === 'suspended' || user.status === 'blocked' || user.status === 'deleted' || user.is_deleted === 1) {
       return res.status(401).json({ success: false, message: 'User is not active or no longer exists' });
     }
 
     req.token = token;
     req.authUser = user;
     req.authType = 'jwt';
+    if (req.session && !req.session.user) {
+      const fallbackPermissions = user.role === 'Client'
+        ? ['dashboard.view', 'wallets.view', 'coupons.apply']
+        : ['dashboard.view', 'wallets.view'];
+      req.session.user = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        phone: user.phone,
+        themeMode: user.theme_mode || 'light',
+        role: user.role,
+        roleName: user.role,
+        roles: [{ id: null, name: user.role, slug: user.role, level: 99, permissions: user.permissions || fallbackPermissions }],
+        permissions: user.permissions || fallbackPermissions,
+      };
+    }
     next();
   } catch (error) {
     return res.status(401).json({ success: false, message: error.message || 'Invalid token' });
@@ -152,9 +171,38 @@ function requireAuthRole(roleName) {
   };
 }
 
+async function requireApprovedUser(req, res, next) {
+  const user = req.authUser || (req.session && req.session.user) || req.user;
+  if (!user) {
+    return res.status(401).json({ success: false, message: 'Authentication required' });
+  }
+
+  const isSuperAdminOrAdmin = ['superadmin', 'admin'].includes(String(user.role || '').toLowerCase());
+  if (isSuperAdminOrAdmin) {
+    return next();
+  }
+
+  const { getProfileCompletionStatus } = require('../services/profileCompletionService');
+  const statusCheck = await getProfileCompletionStatus(user.id);
+  if (statusCheck.isApproved) {
+    return next();
+  }
+
+  return res.status(403).json({
+    success: false,
+    isApproved: false,
+    isProfileComplete: statusCheck.isComplete,
+    approvalStatus: statusCheck.approvalStatus,
+    message: statusCheck.statusMessage,
+    bannerMessage: statusCheck.bannerMessage,
+    missingFields: statusCheck.missingFields,
+  });
+}
+
 module.exports = {
   webOrJwtAuth,
   requireAuthRole,
+  requireApprovedUser,
   requireUserManagement,
   requireClientManagement,
   requireVendorManagement,

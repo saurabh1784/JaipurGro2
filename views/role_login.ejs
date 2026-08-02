@@ -6,7 +6,12 @@
   <title><%= roleLabel %> Login</title>
   <link rel="stylesheet" href="/styles.css" />
 </head>
-<body class="role-login-page <%= roleSlug === 'Vendor' ? 'vendor-login-page' : 'client-login-page' %>">
+<%
+  const loginBgStyle = (typeof loginBg !== 'undefined' && loginBg && loginBg.activeStyle)
+    ? loginBg.activeStyle
+    : 'background-color: #4a0e17; background-image: linear-gradient(135deg, #4a0e17 0%, #28050b 100%);';
+%>
+<body class="role-login-page <%= roleSlug === 'Vendor' ? 'vendor-login-page' : 'client-login-page' %>" style="<%= loginBgStyle %>">
   <main class="role-login-shell">
     <section class="role-login-card">
       <a class="role-login-logo" href="/">
@@ -20,7 +25,7 @@
         <span><%= roleLabel %> Portal</span>
         <h1><%= roleLabel %> <%= roleSlug === 'Vendor' ? 'Portal' : 'Login' %></h1>
         <p><%= roleSlug === 'Vendor' ? 'Manage products, stock, prices, and orders.' : 'View products, orders, wallet, and profile.' %></p>
-        <p style="font-size: 0.8rem; opacity: 0.85; margin-top: 4px; font-weight: 600;">A product of Shining Universal Organisation Private Limited</p>
+        <p style="font-size: 0.8rem; opacity: 0.85; margin-top: 4px; font-weight: 600;">A product by Shining Universal Organisation Private Limited</p>
       </div>
 
       <% if (roleSlug === 'Vendor') { %>
@@ -34,12 +39,12 @@
         <div class="error"><%= error %></div>
       <% } %>
 
-      <form method="POST" action="<%= loginPath %>">
+      <form method="POST" action="<%= loginPath %>" autocomplete="off">
         <label for="identifier">Email or Username</label>
-        <input id="identifier" type="text" name="identifier" placeholder="Enter email or phone" required autofocus />
+        <input id="identifier" type="text" name="identifier" placeholder="Enter email or phone" value="" autocomplete="off" required autofocus />
 
         <label for="password">Password</label>
-        <input id="password" type="password" name="password" placeholder="Enter password" required />
+        <input id="password" type="password" name="password" placeholder="Enter password" value="" autocomplete="new-password" required />
 
         <button type="submit"><%= roleLabel %> Sign In</button>
       </form>
@@ -63,8 +68,25 @@
             <label for="regPassword">Password *</label>
             <input id="regPassword" type="password" name="password" placeholder="Create password (min 6 chars)" required minlength="6" />
 
-            <label for="regCity">City *</label>
-            <input id="regCity" type="text" name="city" placeholder="Enter city (e.g. Jaipur)" required />
+            <label for="regCity">Working City *</label>
+            <select id="regCity" name="city" required onchange="onVendorRegCityChange(this.value)" style="box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #d4dee8; border-radius: 9px; padding: 9px 10px; margin-bottom: 12px;">
+              <option value="">Loading Cities...</option>
+            </select>
+
+            <div id="customCityContainer" style="display: none; margin-bottom: 12px;">
+              <label for="customCityInput">Custom City Name *</label>
+              <input id="customCityInput" type="text" placeholder="e.g. Jaipur" style="box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #d4dee8; border-radius: 9px; padding: 9px 10px;" />
+            </div>
+
+            <label for="regArea">Operational Area *</label>
+            <select id="regArea" name="area" required onchange="onVendorRegAreaChange(this.value)" style="box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #d4dee8; border-radius: 9px; padding: 9px 10px; margin-bottom: 12px;">
+              <option value="*">All Areas (*)</option>
+            </select>
+
+            <div id="customAreaContainer" style="display: none; margin-bottom: 12px;">
+              <label for="customAreaInput">Custom Area Name *</label>
+              <input id="customAreaInput" type="text" placeholder="e.g. Mansarovar" style="box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #d4dee8; border-radius: 9px; padding: 9px 10px;" />
+            </div>
 
             <% const gstMandatory = Boolean(typeof isGstMandatory !== 'undefined' ? isGstMandatory : false); %>
 
@@ -165,6 +187,66 @@
         }
       }
 
+      let vendorRegLocationData = { cities: [], areas: [] };
+
+      async function loadVendorRegLocations() {
+        try {
+          const res = await fetch('/api/area-definitions/options');
+          const data = await res.json();
+          if (data.success) {
+            vendorRegLocationData = data;
+            const citySelect = document.getElementById('regCity');
+            if (citySelect) {
+              const cities = data.cities || [];
+              citySelect.innerHTML = '<option value="">Select Working City</option>' +
+                cities.map(c => `<option value="${c}">${c}</option>`).join('') +
+                '<option value="__custom__">+ Enter Custom City</option>';
+            }
+          }
+        } catch (e) {
+          console.error('Error loading location options for vendor registration:', e);
+        }
+      }
+
+      function onVendorRegCityChange(cityVal) {
+        const areaSelect = document.getElementById('regArea');
+        const customCityDiv = document.getElementById('customCityContainer');
+        const customAreaDiv = document.getElementById('customAreaContainer');
+
+        if (cityVal === '__custom__') {
+          if (customCityDiv) customCityDiv.style.display = 'block';
+          if (areaSelect) areaSelect.innerHTML = '<option value="*">All Areas (*)</option><option value="__custom__">+ Enter Custom Area</option>';
+          return;
+        }
+
+        if (customCityDiv) customCityDiv.style.display = 'none';
+        if (customAreaDiv) customAreaDiv.style.display = 'none';
+
+        if (!areaSelect) return;
+        const matching = (vendorRegLocationData.areas || []).filter(
+          a => String(a.city).trim().toLowerCase() === String(cityVal).trim().toLowerCase()
+        );
+        let opts = '<option value="*">All Areas (*)</option>';
+        if (matching.length > 0) {
+          opts += matching.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+        }
+        opts += '<option value="__custom__">+ Enter Custom Area</option>';
+        areaSelect.innerHTML = opts;
+      }
+
+      function onVendorRegAreaChange(areaVal) {
+        const customAreaDiv = document.getElementById('customAreaContainer');
+        if (customAreaDiv) {
+          customAreaDiv.style.display = areaVal === '__custom__' ? 'block' : 'none';
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadVendorRegLocations);
+      } else {
+        loadVendorRegLocations();
+      }
+
       async function handleVendorRegister(event) {
         event.preventDefault();
         const alertBox = document.getElementById('registerAlert');
@@ -191,6 +273,23 @@
           return;
         }
 
+        const citySelectVal = document.getElementById('regCity')?.value || '';
+        const cityVal = citySelectVal === '__custom__'
+          ? (document.getElementById('customCityInput')?.value?.trim() || '')
+          : citySelectVal;
+
+        const areaSelectVal = document.getElementById('regArea')?.value || '';
+        const areaVal = areaSelectVal === '__custom__'
+          ? (document.getElementById('customAreaInput')?.value?.trim() || '*')
+          : (areaSelectVal || '*');
+
+        if (!cityVal) {
+          showAlert('City is required.', false);
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Register Vendor Account';
+          return;
+        }
+
         const payload = {
           role: 'Vendor',
           name: document.getElementById('regName').value.trim(),
@@ -198,7 +297,8 @@
           email: document.getElementById('regEmail').value.trim(),
           phone: document.getElementById('regPhone').value.trim(),
           password: document.getElementById('regPassword').value,
-          city: document.getElementById('regCity').value.trim(),
+          city: cityVal,
+          area: areaVal,
           gst_number: gstValue,
           gst_not_applicable: notApplicable,
         };
@@ -236,6 +336,13 @@
         alertBox.textContent = msg;
       }
     </script>
-  <% } %>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const idEl = document.getElementById('identifier');
+      const passEl = document.getElementById('password');
+      if (idEl) idEl.value = '';
+      if (passEl) passEl.value = '';
+    });
+  </script>
 </body>
 </html>

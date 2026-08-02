@@ -5,6 +5,8 @@ const router = express.Router();
 
 router.get('/', clientController.index);
 router.post('/', clientController.create);
+router.get('/:id/full-details', clientController.fullDetails);
+router.post('/:id/complaints/:ticketId/resolve', clientController.updateComplaint);
 router.get('/:id', clientController.show);
 router.put('/:id', clientController.update);
 router.delete('/:id', clientController.destroy);

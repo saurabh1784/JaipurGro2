@@ -1,7 +1,10 @@
 const pool = require('../db');
 
 async function createEmpty(userId, connection = pool) {
-  await connection.query('INSERT INTO admin_profiles (user_id) VALUES ($1) ON CONFLICT (user_id) DO NOTHING', [userId]);
+  const { rows } = await connection.query('SELECT id FROM admin_profiles WHERE user_id = $1 LIMIT 1', [userId]);
+  if (!rows || rows.length === 0) {
+    await connection.query('INSERT INTO admin_profiles (user_id) VALUES ($1)', [userId]);
+  }
 }
 
 async function findByUserId(userId) {

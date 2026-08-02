@@ -5,6 +5,272 @@
   <meta name="viewport" content="width=device-width,initial-scale=1">
   <title><%= person.name %> - Delivery Profile</title>
   <link rel="stylesheet" href="/styles.css">
+  <style>
+    .vendor-view-btn {
+      padding: 5px 12px;
+      border-radius: 6px;
+      border: 1px solid #3b82f6;
+      background: rgba(59, 130, 246, 0.1);
+      color: #2563eb;
+      font-weight: 600;
+      font-size: 0.8rem;
+      cursor: pointer;
+      transition: all 0.2s ease;
+    }
+    .vendor-view-btn:hover {
+      background: #2563eb;
+      color: #ffffff;
+    }
+
+    /* Top Clickable Summary Grid (8 Cards) */
+    .dp-summary-grid-8 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 14px;
+      margin-bottom: 20px;
+    }
+    @media (max-width: 1024px) {
+      .dp-summary-grid-8 { grid-template-columns: repeat(2, 1fr); }
+    }
+    @media (max-width: 600px) {
+      .dp-summary-grid-8 { grid-template-columns: repeat(1, 1fr); }
+    }
+    .dp-summary-card {
+      padding: 16px;
+      border-radius: 14px;
+      background: var(--surface, #ffffff);
+      border: 1.5px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.03);
+    }
+    .system-theme.theme-dark .dp-summary-card,
+    body.dark .dp-summary-card {
+      background: #0f172a;
+      border-color: #334155;
+    }
+    .dp-summary-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 10px 20px -5px rgba(0, 0, 0, 0.1);
+      border-color: #3b82f6;
+    }
+    .dp-summary-card.card-total { border-left: 4px solid #3b82f6; }
+    .dp-summary-card.card-completed { border-left: 4px solid #10b981; }
+    .dp-summary-card.card-cancelled { border-left: 4px solid #ef4444; }
+    .dp-summary-card.card-rejected { border-left: 4px solid #f59e0b; }
+    .dp-summary-card.card-active { border-left: 4px solid #8b5cf6; }
+    .dp-summary-card.card-complaints { border-left: 4px solid #ec4899; }
+    .dp-summary-card.card-earnings { border-left: 4px solid #059669; }
+    .dp-summary-card.card-rating { border-left: 4px solid #eab308; }
+
+    .dp-card-icon {
+      font-size: 24px;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: rgba(241, 245, 249, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .dp-card-info {
+      display: flex;
+      flex-direction: column;
+    }
+    .dp-card-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #64748b;
+    }
+    .dp-card-value {
+      font-size: 19px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-top: 2px;
+    }
+    .system-theme.theme-dark .dp-card-value,
+    body.dark .dp-card-value { color: #f8fafc; }
+
+    /* Working & Online Status Badges */
+    .status-badge-container {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .badge-working {
+      padding: 4px 12px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .badge-working.Free { background: #dcfce7; color: #15803d; }
+    .badge-working.Assigned { background: #dbeafe; color: #1d4ed8; }
+    .badge-working.On-Pickup { background: #fef3c7; color: #b45309; }
+    .badge-working.On-Delivery { background: #f3e8ff; color: #6b21a8; }
+    .badge-working.Offline { background: #f1f5f9; color: #64748b; }
+
+    /* Navigation Tabs */
+    .dp-view-tabs {
+      display: flex;
+      background: #f1f5f9;
+      border-radius: 12px;
+      padding: 4px;
+      gap: 4px;
+      overflow-x: auto;
+      margin-bottom: 20px;
+      border: 1px solid #e2e8f0;
+    }
+    .system-theme.theme-dark .dp-view-tabs,
+    body.dark .dp-view-tabs {
+      background: #1e293b;
+      border-color: #334155;
+    }
+    .dp-view-tab-btn {
+      background: transparent;
+      border: none;
+      padding: 10px 16px;
+      font-size: 13px;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      border-radius: 8px;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .dp-view-tab-btn.active {
+      color: #059669;
+      background: #ffffff;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.08);
+    }
+    .system-theme.theme-dark .dp-view-tab-btn.active,
+    body.dark .dp-view-tab-btn.active {
+      color: #34d399;
+      background: #0f172a;
+    }
+
+    /* Overview Grids */
+    .dp-overview-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 768px) {
+      .dp-overview-grid { grid-template-columns: repeat(1, 1fr); }
+    }
+    .dp-info-cell {
+      background: #f8fafc;
+      padding: 14px;
+      border-radius: 10px;
+      border: 1px solid #e2e8f0;
+    }
+    .system-theme.theme-dark .dp-info-cell,
+    body.dark .dp-info-cell {
+      background: #182233;
+      border-color: #334155;
+    }
+    .dp-info-label {
+      font-size: 11px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      color: #64748b;
+      display: block;
+      margin-bottom: 4px;
+    }
+    .dp-info-val {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .system-theme.theme-dark .dp-info-val,
+    body.dark .dp-info-val { color: #f8fafc; }
+
+    /* Tables */
+    .dp-tab-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+    }
+    .dp-tab-table th,
+    .dp-tab-table td {
+      padding: 12px 14px;
+      text-align: left;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .system-theme.theme-dark .dp-tab-table th,
+    .system-theme.theme-dark .dp-tab-table td,
+    body.dark .dp-tab-table th,
+    body.dark .dp-tab-table td {
+      border-color: #334155;
+    }
+    .dp-tab-table th {
+      background: #f8fafc;
+      font-weight: 700;
+      color: #475569;
+    }
+    .system-theme.theme-dark .dp-tab-table th,
+    body.dark .dp-tab-table th {
+      background: #1e293b;
+      color: #cbd5e1;
+    }
+
+    /* Sub-modals */
+    .dp-modal-overlay {
+      position: fixed;
+      top: 0;
+      left: 0;
+      right: 0;
+      bottom: 0;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(6px);
+      z-index: 1300;
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+    .dp-modal-overlay.active { display: flex; }
+    .dp-sub-modal-card {
+      background: #ffffff;
+      width: 100%;
+      max-width: 640px;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25);
+    }
+    .system-theme.theme-dark .dp-sub-modal-card,
+    body.dark .dp-sub-modal-card {
+      background: #0f172a;
+      color: #f8fafc;
+    }
+
+    .tab-controls-bar {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 16px;
+      flex-wrap: wrap;
+    }
+    .tab-controls-bar input,
+    .tab-controls-bar select {
+      padding: 8px 12px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      font-size: 13px;
+    }
+  </style>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -18,104 +284,851 @@
     </header>
 
     <section class="delivery-profile-shell">
-      <div class="delivery-profile-hero">
-        <div class="delivery-avatar large"><%= person.name.charAt(0).toUpperCase() %></div>
-        <div>
-          <h2><%= person.name %></h2>
-          <p>#DP-<%= person.id %> · <%= person.login_id %> · <%= person.phone %></p>
+      <!-- Hero Banner -->
+      <div class="delivery-profile-hero" style="margin-bottom: 20px;">
+        <div class="delivery-avatar large" id="dpAvatarHeader"><%= person.name.charAt(0).toUpperCase() %></div>
+        <div style="flex:1;">
+          <h2 style="margin:0 0 6px 0;" id="dpHeaderName"><%= person.name %></h2>
+          <p style="margin:0; color:#64748b;" id="dpHeaderSub">#DP-<%= person.id %> · <%= person.email || person.login_id %> · <%= person.phone %></p>
         </div>
-        <b class="delivery-status <%= person.status %>"><%= person.status %></b>
+        <div class="status-badge-container">
+          <span class="user-status-pill <%= person.status === 'active' ? 'active' : 'inactive' %>" id="dpHeaderAccountStatus"><%= person.status %></span>
+          <span class="user-status-pill <%= person.is_available ? 'active' : 'inactive' %>" id="dpHeaderOnlineStatus"><%= person.is_available ? 'Online' : 'Offline' %></span>
+          <span class="badge-working Free" id="dpHeaderWorkingStatus">Free</span>
+        </div>
       </div>
 
-      <div class="delivery-summary-grid">
-        <article><span>Delivered</span><strong><%= person.total_orders_delivered %></strong></article>
-        <article><span>Accepted</span><strong><%= person.total_accepted_orders %></strong></article>
-        <article><span>Rejected / Unaccepted</span><strong><%= person.total_rejected_orders + person.total_unaccepted_orders %></strong></article>
-        <article><span>OTP conflicts / Failed</span><strong><%= person.otp_conflict_count + person.failed_delivery_attempts %></strong></article>
-        <article><span>Wallet</span><strong>₹<%= person.wallet_balance.toFixed(2) %></strong></article>
-        <article><span>Customer Rating</span><strong>★ <%= Number(person.rating_summary.average_rating || 0).toFixed(1) %> (<%= person.rating_summary.review_count %>)</strong></article>
+      <!-- 8 Top Clickable Summary Cards -->
+      <div class="dp-summary-grid-8">
+        <div class="dp-summary-card card-total" onclick="switchDpTab('all-deliveries')">
+          <div class="dp-card-icon">📦</div>
+          <div class="dp-card-info">
+            <span class="dp-card-label">Total Deliveries</span>
+            <span class="dp-card-value" id="statDpTotalDeliveries">0</span>
+          </div>
+        </div>
+
+        <div class="dp-summary-card card-completed" onclick="switchDpTab('completed-deliveries')">
+          <div class="dp-card-icon">✅</div>
+          <div class="dp-card-info">
+            <span class="dp-card-label">Completed</span>
+            <span class="dp-card-value" id="statDpCompletedDeliveries">0</span>
+          </div>
+        </div>
+
+        <div class="dp-summary-card card-cancelled" onclick="switchDpTab('cancelled-deliveries')">
+          <div class="dp-card-icon">🚫</div>
+          <div class="dp-card-info">
+            <span class="dp-card-label">Cancelled / Failed</span>
+            <span class="dp-card-value" id="statDpCancelledDeliveries">0</span>
+          </div>
+        </div>
+
+        <div class="dp-summary-card card-rejected" onclick="switchDpTab('rejected-requests')">
+          <div class="dp-card-icon">❌</div>
+          <div class="dp-card-info">
+            <span class="dp-card-label">Rejected Requests</span>
+            <span class="dp-card-value" id="statDpRejectedRequests">0</span>
+          </div>
+        </div>
+
+        <div class="dp-summary-card card-active" onclick="switchDpTab('all-deliveries')">
+          <div class="dp-card-icon">🛵</div>
+          <div class="dp-card-info">
+            <span class="dp-card-label">Active Deliveries</span>
+            <span class="dp-card-value" id="statDpActiveDeliveries">0</span>
+          </div>
+        </div>
+
+        <div class="dp-summary-card card-complaints" onclick="switchDpTab('complaints')">
+          <div class="dp-card-icon">💬</div>
+          <div class="dp-card-info">
+            <span class="dp-card-label">Complaints</span>
+            <span class="dp-card-value" id="statDpComplaints">0</span>
+          </div>
+        </div>
+
+        <div class="dp-summary-card card-earnings" onclick="switchDpTab('earnings')">
+          <div class="dp-card-icon">💰</div>
+          <div class="dp-card-info">
+            <span class="dp-card-label">Total Earnings</span>
+            <span class="dp-card-value" id="statDpTotalEarnings">₹0.00</span>
+          </div>
+        </div>
+
+        <div class="dp-summary-card card-rating" onclick="switchDpTab('ratings')">
+          <div class="dp-card-icon">⭐</div>
+          <div class="dp-card-info">
+            <span class="dp-card-label">Average Rating</span>
+            <span class="dp-card-value" id="statDpAvgRating">★ 0.0</span>
+          </div>
+        </div>
       </div>
 
-      <div class="delivery-detail-grid">
-        <article>
-          <h3>Complete Information</h3>
-          <dl>
-            <div><dt>City</dt><dd><%= person.city || '-' %></dd></div>
-            <div><dt>Area</dt><dd><%= person.area || '*' %></dd></div>
-            <div><dt>Availability</dt><dd><%= person.is_available ? 'Available' : 'Unavailable' %></dd></div>
-            <div><dt>Address</dt><dd><%= person.address || '-' %></dd></div>
-            <div><dt>Address proof</dt><dd><%= [person.address_proof_type, person.address_proof_id].filter(Boolean).join(' · ') || '-' %></dd></div>
-            <div><dt>Vehicle</dt><dd><%= [person.vehicle_type, person.vehicle_number].filter(Boolean).join(' · ') || '-' %></dd></div>
-            <div><dt>Document notes</dt><dd><%= person.document_notes || '-' %></dd></div>
-            <% for (const category of person.rating_summary.categories || []) { %>
-              <div><dt><%= category.label %></dt><dd>★ <%= Number(category.average_rating || 0).toFixed(1) %></dd></div>
-            <% } %>
-          </dl>
-        </article>
-        <article>
-          <h3>Delivery Statistics</h3>
-          <div id="fullStats"></div>
-        </article>
+      <!-- 9 Navigation Tabs -->
+      <nav class="dp-view-tabs">
+        <button type="button" class="dp-view-tab-btn active" data-dp-tab="overview" onclick="switchDpTab('overview')">
+          👤 Overview
+        </button>
+        <button type="button" class="dp-view-tab-btn" data-dp-tab="all-deliveries" onclick="switchDpTab('all-deliveries')">
+          📦 All Deliveries
+        </button>
+        <button type="button" class="dp-view-tab-btn" data-dp-tab="completed-deliveries" onclick="switchDpTab('completed-deliveries')">
+          ✅ Completed Deliveries
+        </button>
+        <button type="button" class="dp-view-tab-btn" data-dp-tab="cancelled-deliveries" onclick="switchDpTab('cancelled-deliveries')">
+          🚫 Cancelled & Failed
+        </button>
+        <button type="button" class="dp-view-tab-btn" data-dp-tab="rejected-requests" onclick="switchDpTab('rejected-requests')">
+          ❌ Rejected Requests
+        </button>
+        <button type="button" class="dp-view-tab-btn" data-dp-tab="complaints" onclick="switchDpTab('complaints')">
+          💬 Complaints
+        </button>
+        <button type="button" class="dp-view-tab-btn" data-dp-tab="earnings" onclick="switchDpTab('earnings')">
+          💰 Earnings
+        </button>
+        <button type="button" class="dp-view-tab-btn" data-dp-tab="wallet" onclick="switchDpTab('wallet')">
+          💳 Wallet Transactions
+        </button>
+        <button type="button" class="dp-view-tab-btn" data-dp-tab="ratings" onclick="switchDpTab('ratings')">
+          ⭐ Ratings & Feedback
+        </button>
+      </nav>
+
+      <!-- TAB BODY CONTENT -->
+      <div id="dpLoading" style="display:none; text-align:center; padding:40px;">
+        <p>Loading delivery partner profile...</p>
       </div>
 
-      <div class="delivery-tabs">
-        <button class="active" data-tab="orders">Order History</button>
-        <button data-tab="offers">Accepted / Rejected</button>
-        <button data-tab="wallet">Wallet History</button>
-        <button data-tab="activity">OTP Conflicts & Logs</button>
+      <!-- TAB 1: OVERVIEW -->
+      <div class="dp-tab-content active" id="tabOverview">
+        <div class="dp-overview-grid">
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Delivery Person Name</span>
+            <span class="dp-info-val" id="ovName">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Phone Number</span>
+            <span class="dp-info-val" id="ovPhone">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Email Address</span>
+            <span class="dp-info-val" id="ovEmail">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Registration Date</span>
+            <span class="dp-info-val" id="ovRegDate">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Assigned City & Area</span>
+            <span class="dp-info-val" id="ovLocation">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Vehicle Type & Number</span>
+            <span class="dp-info-val" id="ovVehicle">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Account Status</span>
+            <span class="dp-info-val" id="ovAccountStatus">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Online / Offline</span>
+            <span class="dp-info-val" id="ovOnlineStatus">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Current Working Status</span>
+            <span class="dp-info-val" id="ovWorkingStatus">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Wallet Balance</span>
+            <span class="dp-info-val" id="ovWalletBalance" style="color:#059669; font-weight:800;">₹0.00</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Average Delivery Time</span>
+            <span class="dp-info-val" id="ovAvgDeliveryTime">-</span>
+          </div>
+          <div class="dp-info-cell">
+            <span class="dp-info-label">Average Customer Rating</span>
+            <span class="dp-info-val" id="ovAvgRating" style="color:#eab308; font-weight:800;">★ 0.0</span>
+          </div>
+        </div>
       </div>
-      <div class="users-table-card" id="tabContent"><p>Loading history…</p></div>
+
+      <!-- TAB 2: ALL DELIVERIES -->
+      <div class="dp-tab-content" id="tabAllDeliveries" style="display:none;">
+        <div class="tab-controls-bar">
+          <input type="text" id="dpDeliveriesSearch" placeholder="Search order ID, client, vendor..." oninput="onDpDeliverySearchChange()" />
+          <select id="dpDeliveriesStatus" onchange="onDpDeliveryFilterChange()">
+            <option value="">All Statuses</option>
+            <option value="assigned">Assigned</option>
+            <option value="ready_for_pickup">Ready for Pickup</option>
+            <option value="out_for_delivery">Out for Delivery</option>
+            <option value="delivered">Delivered / Completed</option>
+            <option value="cancelled">Cancelled</option>
+          </select>
+          <select id="dpDeliveriesSort" onchange="onDpDeliveryFilterChange()">
+            <option value="date_desc">Newest First</option>
+            <option value="date_asc">Oldest First</option>
+            <option value="amount_desc">Amount High -> Low</option>
+            <option value="amount_asc">Amount Low -> High</option>
+          </select>
+        </div>
+
+        <table class="dp-tab-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Client Name</th>
+              <th>Vendor Name</th>
+              <th>Pickup Address</th>
+              <th>Delivery Address</th>
+              <th>Delivery Charge</th>
+              <th>Date</th>
+              <th>Status</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="dpAllDeliveriesTbody">
+            <tr><td colspan="9">No deliveries found</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TAB 3: COMPLETED DELIVERIES -->
+      <div class="dp-tab-content" id="tabCompletedDeliveries" style="display:none;">
+        <table class="dp-tab-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Pickup Time</th>
+              <th>Delivery Time</th>
+              <th>Distance</th>
+              <th>Delivery Charge</th>
+              <th>DP Earning</th>
+              <th>Payment Method</th>
+              <th>Completion Date</th>
+            </tr>
+          </thead>
+          <tbody id="dpCompletedDeliveriesTbody">
+            <tr><td colspan="8">No completed deliveries</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TAB 4: CANCELLED & FAILED DELIVERIES -->
+      <div class="dp-tab-content" id="tabCancelledDeliveries" style="display:none;">
+        <table class="dp-tab-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Cancellation Reason</th>
+              <th>Cancelled By</th>
+              <th>Date & Time</th>
+              <th>Penalty Applied</th>
+            </tr>
+          </thead>
+          <tbody id="dpCancelledDeliveriesTbody">
+            <tr><td colspan="5">No cancelled or failed deliveries</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TAB 5: REJECTED REQUESTS -->
+      <div class="dp-tab-content" id="tabRejectedRequests" style="display:none;">
+        <div style="display:flex; justify-content:space-between; align-items:center; background:#fff1f2; border:1px solid #fecdd3; padding:14px; border-radius:12px; margin-bottom:16px;">
+          <div>
+            <h4 style="margin:0; color:#9f1239;">⚠️ 7-Day Rejection Alert Counter</h4>
+            <p style="margin:4px 0 0 0; font-size:13px; color:#be123c;">
+              This delivery person has rejected/ignored <strong id="dpRejectionLast7Days">0</strong> delivery requests in the last 7 days.
+            </p>
+          </div>
+          <button type="button" id="dpBlockToggleBtn" onclick="toggleDpBlockAccount()" style="padding:8px 16px; border-radius:8px; font-weight:700; border:none; background:#e11d48; color:#fff; cursor:pointer;">
+            Block Account
+          </button>
+        </div>
+
+        <table class="dp-tab-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Request Time</th>
+              <th>Response Time</th>
+              <th>Rejection Reason</th>
+              <th>Assigned Area</th>
+            </tr>
+          </thead>
+          <tbody id="dpRejectedRequestsTbody">
+            <tr><td colspan="5">No rejected requests</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TAB 6: COMPLAINTS -->
+      <div class="dp-tab-content" id="tabComplaints" style="display:none;">
+        <table class="dp-tab-table">
+          <thead>
+            <tr>
+              <th>Complaint ID</th>
+              <th>Order ID</th>
+              <th>Client Name</th>
+              <th>Category</th>
+              <th>Description</th>
+              <th>Complaint Date</th>
+              <th>Assigned Staff</th>
+              <th>Status</th>
+              <th>Resolution</th>
+              <th>Action</th>
+            </tr>
+          </thead>
+          <tbody id="dpComplaintsTbody">
+            <tr><td colspan="10">No complaints raised against this delivery person</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TAB 7: EARNINGS -->
+      <div class="dp-tab-content" id="tabEarnings" style="display:none;">
+        <div style="display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:20px;">
+          <div style="background:#f8fafc; padding:14px; border-radius:10px; border:1px solid #e2e8f0; text-align:center;">
+            <div style="font-size:11px; font-weight:700; color:#64748b;">TODAY'S EARNINGS</div>
+            <div style="font-size:20px; font-weight:800; color:#059669; margin-top:4px;" id="earnToday">₹0.00</div>
+          </div>
+          <div style="background:#f8fafc; padding:14px; border-radius:10px; border:1px solid #e2e8f0; text-align:center;">
+            <div style="font-size:11px; font-weight:700; color:#64748b;">WEEKLY EARNINGS</div>
+            <div style="font-size:20px; font-weight:800; color:#059669; margin-top:4px;" id="earnWeekly">₹0.00</div>
+          </div>
+          <div style="background:#f8fafc; padding:14px; border-radius:10px; border:1px solid #e2e8f0; text-align:center;">
+            <div style="font-size:11px; font-weight:700; color:#64748b;">MONTHLY EARNINGS</div>
+            <div style="font-size:20px; font-weight:800; color:#059669; margin-top:4px;" id="earnMonthly">₹0.00</div>
+          </div>
+          <div style="background:#f8fafc; padding:14px; border-radius:10px; border:1px solid #e2e8f0; text-align:center;">
+            <div style="font-size:11px; font-weight:700; color:#64748b;">YEARLY EARNINGS</div>
+            <div style="font-size:20px; font-weight:800; color:#059669; margin-top:4px;" id="earnYearly">₹0.00</div>
+          </div>
+        </div>
+
+        <h4 style="margin:0 0 12px 0;">Earning Breakdown & Transactions</h4>
+        <table class="dp-tab-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Delivery Date</th>
+              <th>Delivery Charge</th>
+              <th>Admin Commission</th>
+              <th>Deductions</th>
+              <th>Penalties</th>
+              <th>Final DP Earning</th>
+            </tr>
+          </thead>
+          <tbody id="dpEarningsTbody">
+            <tr><td colspan="7">No earning transactions</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TAB 8: WALLET TRANSACTIONS -->
+      <div class="dp-tab-content" id="tabWallet" style="display:none;">
+        <div class="tab-controls-bar">
+          <select id="dpWalletFilter" onchange="renderDpWalletTab()">
+            <option value="">All Types</option>
+            <option value="credit">Credit</option>
+            <option value="debit">Debit</option>
+            <option value="incentive">Incentive</option>
+            <option value="penalty">Penalty</option>
+            <option value="withdrawal">Withdrawal</option>
+            <option value="adjustment">Adjustment</option>
+          </select>
+        </div>
+
+        <table class="dp-tab-table">
+          <thead>
+            <tr>
+              <th>Txn ID</th>
+              <th>Type</th>
+              <th>Amount</th>
+              <th>Before</th>
+              <th>After</th>
+              <th>Reference / Note</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="dpWalletTbody">
+            <tr><td colspan="7">No wallet transactions</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- TAB 9: RATINGS AND FEEDBACK -->
+      <div class="dp-tab-content" id="tabRatings" style="display:none;">
+        <div style="background:#fefce8; border:1px solid #fef08a; padding:14px; border-radius:12px; margin-bottom:16px; display:flex; align-items:center; gap:16px;">
+          <div style="font-size:32px; font-weight:800; color:#ca8a04;" id="dpRatingLargeVal">★ 5.0</div>
+          <div>
+            <h4 style="margin:0; color:#854d0e;">Customer Feedback Overview</h4>
+            <p style="margin:2px 0 0 0; font-size:13px; color:#a16207;" id="dpRatingSubText">Overall average rating from completed deliveries</p>
+          </div>
+        </div>
+
+        <table class="dp-tab-table">
+          <thead>
+            <tr>
+              <th>Order ID</th>
+              <th>Client Name</th>
+              <th>Rating</th>
+              <th>Feedback</th>
+              <th>Date</th>
+            </tr>
+          </thead>
+          <tbody id="dpRatingsTbody">
+            <tr><td colspan="5">No ratings submitted yet</td></tr>
+          </tbody>
+        </table>
+      </div>
     </section>
   </main>
 
+  <!-- Order Detail Sub-Modal -->
+  <div class="dp-modal-overlay" id="dpOrderDetailModal" aria-hidden="true">
+    <div class="dp-sub-modal-card">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 id="dpOrderModalTitle" style="margin:0; font-size:18px;">Order Details</h3>
+        <button type="button" onclick="closeDpOrderDetailModal()" style="border:none; background:transparent; font-size:22px; cursor:pointer;">&times;</button>
+      </div>
+      <div id="dpOrderModalBody" style="max-height:60vh; overflow-y:auto; font-size:13.5px;">
+        <p>Loading details...</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Complaint Resolve Sub-Modal -->
+  <div class="dp-modal-overlay" id="dpComplaintResolveModal" aria-hidden="true">
+    <div class="dp-sub-modal-card" style="max-width:500px;">
+      <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:16px;">
+        <h3 style="margin:0; font-size:18px;">Update Complaint & Resolution</h3>
+        <button type="button" onclick="closeDpComplaintResolveModal()" style="border:none; background:transparent; font-size:22px; cursor:pointer;">&times;</button>
+      </div>
+      <form id="dpComplaintResolveForm" onsubmit="submitDpComplaintResolution(event)" style="display:flex; flex-direction:column; gap:14px;">
+        <input type="hidden" id="dpResolveComplaintId" />
+        <label style="font-weight:600; font-size:13px;">
+          Complaint Status
+          <select id="dpResolveStatus" required style="width:100%; padding:8px; border-radius:8px; border:1px solid #cbd5e1; margin-top:4px;">
+            <option value="Open">Open</option>
+            <option value="In Progress">In Progress</option>
+            <option value="Resolved">Resolved</option>
+            <option value="Closed">Closed</option>
+          </select>
+        </label>
+        <label style="font-weight:600; font-size:13px;">
+          Resolution Notes
+          <textarea id="dpResolveNotes" rows="4" placeholder="Enter resolution notes..." required style="width:100%; padding:8px; border-radius:8px; border:1px solid #cbd5e1; margin-top:4px;"></textarea>
+        </label>
+        <div style="display:flex; justify-content:flex-end; gap:10px; margin-top:10px;">
+          <button type="button" onclick="closeDpComplaintResolveModal()" style="padding:8px 16px; border-radius:8px; border:1px solid #cbd5e1; background:transparent; cursor:pointer;">Cancel</button>
+          <button type="submit" style="padding:8px 16px; border-radius:8px; border:none; background:#10b981; color:#fff; font-weight:700; cursor:pointer;">Save Resolution</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
   <script>
-    const id = <%= person.id %>;
-    let data;
+    const personId = <%= person.id %>;
+    let dpFullData = null;
     const esc = v => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
-    const dt = v => v ? new Date(v).toLocaleString() : '-';
-    const inr = v => `₹${Number(v || 0).toFixed(2)}`;
+    const dt = v => v ? new Date(v).toLocaleString('en-IN', { day:'2-digit', month:'short', year:'numeric', hour:'2-digit', minute:'2-digit' }) : '-';
+    const inr = v => `₹${Number(v || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    async function load() {
-      const r = await fetch(`/delivery-persons/${id}`, { headers: { Accept: 'application/json' } });
-      data = await r.json();
-      if (!data.success) {
-        document.getElementById('tabContent').textContent = data.message;
-        return;
-      }
-      document.getElementById('fullStats').innerHTML = `<dl>
-        <div><dt>Total accepted</dt><dd>${data.person.total_accepted_orders}</dd></div>
-        <div><dt>Total rejected</dt><dd>${data.person.total_rejected_orders}</dd></div>
-        <div><dt>Total unaccepted</dt><dd>${data.person.total_unaccepted_orders}</dd></div>
-        <div><dt>OTP conflicts</dt><dd>${data.person.otp_conflict_count}</dd></div>
-        <div><dt>Failed attempts</dt><dd>${data.person.failed_delivery_attempts}</dd></div>
-      </dl>`;
-      render('orders');
+    function statusBadge(val) {
+      const s = String(val || '').toLowerCase();
+      let colorClass = 'inactive';
+      if (['active', 'approved', 'delivered', 'completed', 'paid', 'resolved'].includes(s)) colorClass = 'active';
+      if (['pending', 'confirmed', 'processing', 'ready_for_pickup', 'out_for_delivery', 'in progress', 'open', 'assigned'].includes(s)) colorClass = 'pending';
+      return `<span class="user-status-pill ${colorClass}">${esc(val)}</span>`;
     }
 
-    function table(headers, rows) {
-      return `<table class="users-table"><thead><tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr></thead><tbody>${rows || `<tr><td colspan="${headers.length}">No history found</td></tr>`}</tbody></table>`;
+    async function loadDpProfile() {
+      document.getElementById('dpLoading').style.display = 'block';
+      try {
+        const r = await fetch(`/delivery-persons/${personId}/full-details`, { headers: { Accept: 'application/json' } });
+        const res = await r.json();
+        document.getElementById('dpLoading').style.display = 'none';
+
+        if (!res.success || !res.person) {
+          alert(res.message || 'Unable to load profile details');
+          return;
+        }
+
+        dpFullData = res.person;
+        populateDpProfile();
+      } catch (err) {
+        console.error('Error fetching DP details:', err);
+        document.getElementById('dpLoading').style.display = 'none';
+        alert('Server connection error');
+      }
     }
 
-    function render(tab) {
-      document.querySelectorAll('[data-tab]').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
-      let html = '';
-      if (tab === 'orders') {
-        html = table(['Order','Client','Amount','Order Status','Delivery Status','Assigned','Delivered'], data.orders.map(o => `<tr><td>#${esc(o.order_number || o.id)}</td><td>${esc(o.client_name)}</td><td>${inr(o.total_amount)}</td><td>${esc(o.status)}</td><td>${esc(o.delivery_status)}</td><td>${dt(o.assigned_at)}</td><td>${dt(o.delivered_at)}</td></tr>`).join(''));
-      }
-      if (tab === 'offers') {
-        html = table(['Order','Pickup','Delivery','Decision','Response','Date'], (data.offers || []).map(o => `<tr><td>#${esc(o.order_number || o.order_id)}</td><td>${esc(o.pickup_area || '-')}</td><td>${esc(o.delivery_area || o.shipping_area || '-')}</td><td>${esc(o.status)}</td><td>${esc(o.response_note || '-')}</td><td>${dt(o.responded_at || o.created_at)}</td></tr>`).join(''));
-      }
-      if (tab === 'wallet') {
-        html = table(['Type','Amount','Before','After','Reference','Date'], data.walletTransactions.map(t => `<tr><td>${esc(t.type)}</td><td>${inr(t.amount)}</td><td>${inr(t.balance_before)}</td><td>${inr(t.balance_after)}</td><td>${esc(t.reference || t.note || '-')}</td><td>${dt(t.transaction_at || t.created_at)}</td></tr>`).join(''));
-      }
-      if (tab === 'activity') {
-        html = table(['Action','Details','Performed by','Date'], data.activity.map(a => `<tr><td>${esc(a.action).replaceAll('_',' ')}</td><td>${esc(a.description)}</td><td>${esc(a.actor_name || 'System')}</td><td>${dt(a.created_at)}</td></tr>`).join(''));
-      }
-      document.getElementById('tabContent').innerHTML = html;
+    function populateDpProfile() {
+      if (!dpFullData) return;
+      const { profile, stats, earnings, orders, completed_deliveries, cancelled_deliveries, rejected_requests, complaints, wallet_transactions, ratings } = dpFullData;
+
+      // Header Banner
+      document.getElementById('dpHeaderName').textContent = profile.name;
+      document.getElementById('dpHeaderSub').textContent = `#DP-${profile.id} · ${profile.email || profile.login_id} · ${profile.phone}`;
+      document.getElementById('dpHeaderAccountStatus').textContent = profile.status;
+      document.getElementById('dpHeaderAccountStatus').className = `user-status-pill ${profile.status === 'active' ? 'active' : 'inactive'}`;
+      document.getElementById('dpHeaderOnlineStatus').textContent = profile.online_status;
+      document.getElementById('dpHeaderOnlineStatus').className = `user-status-pill ${profile.online_status === 'Online' ? 'active' : 'inactive'}`;
+      
+      const workEl = document.getElementById('dpHeaderWorkingStatus');
+      const ws = profile.working_status || 'Free';
+      workEl.textContent = ws;
+      workEl.className = `badge-working ${ws.replace(/\s+/g, '-')}`;
+
+      document.getElementById('dpBlockToggleBtn').textContent = profile.status === 'active' ? 'Block Account' : 'Unblock Account';
+      document.getElementById('dpBlockToggleBtn').style.background = profile.status === 'active' ? '#e11d48' : '#10b981';
+
+      // 8 Summary Cards
+      document.getElementById('statDpTotalDeliveries').textContent = stats.total_deliveries;
+      document.getElementById('statDpCompletedDeliveries').textContent = stats.completed_deliveries;
+      document.getElementById('statDpCancelledDeliveries').textContent = stats.cancelled_deliveries;
+      document.getElementById('statDpRejectedRequests').textContent = stats.rejected_requests;
+      document.getElementById('statDpActiveDeliveries').textContent = stats.active_deliveries;
+      document.getElementById('statDpComplaints').textContent = stats.total_complaints;
+      document.getElementById('statDpTotalEarnings').textContent = inr(stats.total_earnings);
+      document.getElementById('statDpAvgRating').textContent = `★ ${stats.avg_rating}`;
+
+      // Overview Tab
+      document.getElementById('ovName').textContent = profile.name || '-';
+      document.getElementById('ovPhone').textContent = profile.phone || '-';
+      document.getElementById('ovEmail').textContent = profile.email || profile.login_id || '-';
+      document.getElementById('ovRegDate').textContent = dt(profile.created_at);
+      document.getElementById('ovLocation').textContent = `${profile.city || '-'} / ${profile.area || '*'}`;
+      document.getElementById('ovVehicle').textContent = [profile.vehicle_type, profile.vehicle_number].filter(Boolean).join(' · ') || '-';
+      document.getElementById('ovAccountStatus').textContent = profile.status;
+      document.getElementById('ovOnlineStatus').textContent = profile.online_status;
+      document.getElementById('ovWorkingStatus').textContent = profile.working_status;
+      document.getElementById('ovWalletBalance').textContent = inr(profile.wallet_balance);
+      document.getElementById('ovAvgDeliveryTime').textContent = `${stats.avg_delivery_time_min} min`;
+      document.getElementById('ovAvgRating').textContent = `★ ${stats.avg_rating}`;
+
+      // Tab Renders
+      renderDpAllDeliveriesTab();
+      renderDpCompletedDeliveriesTab();
+      renderDpCancelledDeliveriesTab();
+      renderDpRejectedRequestsTab();
+      renderDpComplaintsTab();
+      renderDpEarningsTab();
+      renderDpWalletTab();
+      renderDpRatingsTab();
     }
 
-    document.querySelectorAll('[data-tab]').forEach(b => b.onclick = () => render(b.dataset.tab));
-    load();
+    function switchDpTab(tabName) {
+      document.querySelectorAll('.dp-view-tab-btn').forEach(btn => {
+        btn.classList.toggle('active', btn.getAttribute('data-dp-tab') === tabName);
+      });
+      document.querySelectorAll('.dp-tab-content').forEach(content => {
+        content.style.display = 'none';
+      });
+
+      const tabMap = {
+        'overview': 'tabOverview',
+        'all-deliveries': 'tabAllDeliveries',
+        'completed-deliveries': 'tabCompletedDeliveries',
+        'cancelled-deliveries': 'tabCancelledDeliveries',
+        'rejected-requests': 'tabRejectedRequests',
+        'complaints': 'tabComplaints',
+        'earnings': 'tabEarnings',
+        'wallet': 'tabWallet',
+        'ratings': 'tabRatings',
+      };
+      const el = document.getElementById(tabMap[tabName] || 'tabOverview');
+      if (el) el.style.display = 'block';
+    }
+
+    function renderDpAllDeliveriesTab() {
+      if (!dpFullData) return;
+      const raw = dpFullData.orders || [];
+      const search = document.getElementById('dpDeliveriesSearch').value.trim().toLowerCase();
+      const status = document.getElementById('dpDeliveriesStatus').value;
+      const sort = document.getElementById('dpDeliveriesSort').value;
+
+      let filtered = raw.filter(o => {
+        const matchSearch = !search || String(o.id).includes(search) || esc(o.order_number).toLowerCase().includes(search) || esc(o.client_name).toLowerCase().includes(search) || esc(o.vendor_name).toLowerCase().includes(search);
+        const matchStatus = !status || String(o.status).toLowerCase() === status.toLowerCase();
+        return matchSearch && matchStatus;
+      });
+
+      if (sort === 'date_desc') filtered.sort((a,b) => new Date(b.assigned_at) - new Date(a.assigned_at));
+      if (sort === 'date_asc') filtered.sort((a,b) => new Date(a.assigned_at) - new Date(b.assigned_at));
+      if (sort === 'amount_desc') filtered.sort((a,b) => b.total_amount - a.total_amount);
+      if (sort === 'amount_asc') filtered.sort((a,b) => a.total_amount - b.total_amount);
+
+      const tbody = document.getElementById('dpAllDeliveriesTbody');
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="9">No deliveries match criteria</td></tr>';
+      } else {
+        tbody.innerHTML = filtered.map(o => `
+          <tr>
+            <td><strong>${esc(o.order_number || `#${o.id}`)}</strong></td>
+            <td>${esc(o.client_name)}</td>
+            <td>${esc(o.vendor_name)}</td>
+            <td>${esc(o.pickup_address)}</td>
+            <td>${esc(o.delivery_address)}</td>
+            <td>${inr(o.delivery_charge)}</td>
+            <td>${dt(o.assigned_at)}</td>
+            <td>${statusBadge(o.status)}</td>
+            <td><button type="button" class="vendor-view-btn" onclick="openDpOrderDetailModal(${o.id})">Details</button></td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function onDpDeliverySearchChange() { renderDpAllDeliveriesTab(); }
+    function onDpDeliveryFilterChange() { renderDpAllDeliveriesTab(); }
+
+    function renderDpCompletedDeliveriesTab() {
+      if (!dpFullData) return;
+      const completed = dpFullData.completed_deliveries || [];
+      const tbody = document.getElementById('dpCompletedDeliveriesTbody');
+      if (!completed.length) {
+        tbody.innerHTML = '<tr><td colspan="8">No completed deliveries</td></tr>';
+      } else {
+        tbody.innerHTML = completed.map(o => `
+          <tr>
+            <td><strong>${esc(o.order_number || `#${o.id}`)}</strong></td>
+            <td>${dt(o.assigned_at)}</td>
+            <td>${dt(o.delivered_at)}</td>
+            <td>${o.distance_km} km</td>
+            <td>${inr(o.delivery_charge)}</td>
+            <td><strong style="color:#059669;">${inr(o.delivery_earning)}</strong></td>
+            <td>${esc(o.payment_method)} (${esc(o.payment_status)})</td>
+            <td>${dt(o.delivered_at)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function renderDpCancelledDeliveriesTab() {
+      if (!dpFullData) return;
+      const cancelled = dpFullData.cancelled_deliveries || [];
+      const tbody = document.getElementById('dpCancelledDeliveriesTbody');
+      if (!cancelled.length) {
+        tbody.innerHTML = '<tr><td colspan="5">No cancelled or failed deliveries</td></tr>';
+      } else {
+        tbody.innerHTML = cancelled.map(o => `
+          <tr>
+            <td><strong>${esc(o.order_number || `#${o.id}`)}</strong></td>
+            <td>${esc(o.cancellation_reason || 'Order cancelled')}</td>
+            <td><span class="user-status-pill pending">${esc(o.cancelled_by || 'Delivery Person')}</span></td>
+            <td>${dt(o.cancelled_at || o.assigned_at)}</td>
+            <td>${o.penalty_applied ? `<span style="color:#e11d48; font-weight:700;">Yes (${inr(o.penalty_amount)})</span>` : 'No'}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function renderDpRejectedRequestsTab() {
+      if (!dpFullData) return;
+      const rejected = dpFullData.rejected_requests || [];
+      document.getElementById('dpRejectionLast7Days').textContent = dpFullData.stats.rejected_last_7_days;
+
+      const tbody = document.getElementById('dpRejectedRequestsTbody');
+      if (!rejected.length) {
+        tbody.innerHTML = '<tr><td colspan="5">No rejected or ignored requests</td></tr>';
+      } else {
+        tbody.innerHTML = rejected.map(r => `
+          <tr>
+            <td><strong>${esc(r.order_number)}</strong></td>
+            <td>${dt(r.request_time)}</td>
+            <td>${dt(r.response_time)}</td>
+            <td>${esc(r.rejection_reason)}</td>
+            <td>${esc(r.assigned_area)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    async function toggleDpBlockAccount() {
+      if (!dpFullData) return;
+      const currentStatus = dpFullData.profile.status;
+      const newStatus = currentStatus === 'active' ? 'blocked' : 'active';
+      if (!confirm(`Are you sure you want to ${newStatus === 'blocked' ? 'block' : 'unblock'} this delivery partner?`)) return;
+
+      try {
+        const r = await fetch(`/delivery-persons/${personId}/status`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ status: newStatus }),
+        });
+        const res = await r.json();
+        alert(res.message);
+        await loadDpProfile();
+      } catch (e) {
+        alert('Action failed');
+      }
+    }
+
+    function renderDpComplaintsTab() {
+      if (!dpFullData) return;
+      const complaints = dpFullData.complaints || [];
+      const tbody = document.getElementById('dpComplaintsTbody');
+      if (!complaints.length) {
+        tbody.innerHTML = '<tr><td colspan="10">No complaints raised against this delivery person</td></tr>';
+      } else {
+        tbody.innerHTML = complaints.map(c => `
+          <tr>
+            <td>#${c.id}</td>
+            <td>${c.order_id ? `#${c.order_id}` : '-'}</td>
+            <td>${esc(c.client_name)}</td>
+            <td>${esc(c.category)}</td>
+            <td>${esc(c.description)}</td>
+            <td>${dt(c.created_at)}</td>
+            <td>${esc(c.assigned_staff_name)}</td>
+            <td>${statusBadge(c.status)}</td>
+            <td>${esc(c.resolution || 'No notes added')}</td>
+            <td><button type="button" class="vendor-view-btn" onclick="openDpComplaintResolveModal(${c.id})">Update</button></td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function renderDpEarningsTab() {
+      if (!dpFullData) return;
+      const { earnings, completed_deliveries } = dpFullData;
+      document.getElementById('earnToday').textContent = inr(earnings.today_earnings);
+      document.getElementById('earnWeekly').textContent = inr(earnings.weekly_earnings);
+      document.getElementById('earnMonthly').textContent = inr(earnings.monthly_earnings);
+      document.getElementById('earnYearly').textContent = inr(earnings.yearly_earnings);
+
+      const tbody = document.getElementById('dpEarningsTbody');
+      if (!completed_deliveries.length) {
+        tbody.innerHTML = '<tr><td colspan="7">No earning transactions</td></tr>';
+      } else {
+        tbody.innerHTML = completed_deliveries.map(o => `
+          <tr style="cursor:pointer;" onclick="openDpOrderDetailModal(${o.id})">
+            <td><strong>${esc(o.order_number || `#${o.id}`)}</strong></td>
+            <td>${dt(o.delivered_at)}</td>
+            <td>${inr(o.delivery_charge)}</td>
+            <td>${inr(o.delivery_charge - o.delivery_earning)}</td>
+            <td>${inr(o.penalty_amount)}</td>
+            <td>${inr(o.penalty_amount)}</td>
+            <td><strong style="color:#059669;">${inr(o.delivery_earning)}</strong></td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function renderDpWalletTab() {
+      if (!dpFullData) return;
+      const rawTxns = dpFullData.wallet_transactions || [];
+      const typeFilter = document.getElementById('dpWalletFilter').value;
+
+      const filtered = rawTxns.filter(t => !typeFilter || String(t.type).toLowerCase() === typeFilter.toLowerCase());
+      const tbody = document.getElementById('dpWalletTbody');
+      if (!filtered.length) {
+        tbody.innerHTML = '<tr><td colspan="7">No wallet transactions</td></tr>';
+      } else {
+        tbody.innerHTML = filtered.map(t => `
+          <tr>
+            <td>#${t.id}</td>
+            <td><span class="user-status-pill ${t.type === 'credit' ? 'active' : 'inactive'}">${esc(t.type)}</span></td>
+            <td><strong>${inr(t.amount)}</strong></td>
+            <td>${inr(t.balance_before)}</td>
+            <td>${inr(t.balance_after)}</td>
+            <td>${esc(t.reference || t.note || '-')}</td>
+            <td>${dt(t.transaction_at || t.created_at)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function renderDpRatingsTab() {
+      if (!dpFullData) return;
+      const ratings = dpFullData.ratings || [];
+      const stats = dpFullData.stats;
+      document.getElementById('dpRatingLargeVal').textContent = `★ ${stats.avg_rating}`;
+      document.getElementById('dpRatingSubText').textContent = `Overall average rating from ${ratings.length} client feedback reviews`;
+
+      const tbody = document.getElementById('dpRatingsTbody');
+      if (!ratings.length) {
+        tbody.innerHTML = '<tr><td colspan="5">No client feedback submitted yet</td></tr>';
+      } else {
+        tbody.innerHTML = ratings.map(r => `
+          <tr>
+            <td>${r.order_id ? `#${r.order_id}` : '-'}</td>
+            <td>${esc(r.client_name)}</td>
+            <td><strong style="color:#eab308;">★ ${r.rating}.0</strong></td>
+            <td>${esc(r.feedback)}</td>
+            <td>${dt(r.created_at)}</td>
+          </tr>
+        `).join('');
+      }
+    }
+
+    function openDpOrderDetailModal(orderId) {
+      if (!dpFullData || !dpFullData.orders) return;
+      const order = dpFullData.orders.find(o => Number(o.id) === Number(orderId));
+      if (!order) return;
+
+      document.getElementById('dpOrderModalTitle').textContent = `Order Details: ${order.order_number || `#${order.id}`}`;
+      document.getElementById('dpOrderModalBody').innerHTML = `
+        <div style="display:grid; grid-template-columns:1fr 1fr; gap:12px; background:#f8fafc; padding:12px; border-radius:10px; margin-bottom:12px;">
+          <div><strong>Client:</strong> ${esc(order.client_name)} (${esc(order.client_phone)})</div>
+          <div><strong>Vendor:</strong> ${esc(order.vendor_name)}</div>
+          <div><strong>Pickup Address:</strong> ${esc(order.pickup_address)}</div>
+          <div><strong>Delivery Address:</strong> ${esc(order.delivery_address)}</div>
+          <div><strong>Delivery Fee:</strong> ${inr(order.delivery_charge)}</div>
+          <div><strong>DP Earning:</strong> <span style="font-weight:800; color:#059669;">${inr(order.delivery_earning)}</span></div>
+          <div><strong>Payment Method:</strong> ${esc(order.payment_method)} (${esc(order.payment_status)})</div>
+          <div><strong>Status:</strong> ${order.status}</div>
+        </div>
+      `;
+      document.getElementById('dpOrderDetailModal').classList.add('active');
+    }
+
+    function closeDpOrderDetailModal() {
+      document.getElementById('dpOrderDetailModal').classList.remove('active');
+    }
+
+    function openDpComplaintResolveModal(complaintId) {
+      if (!dpFullData || !dpFullData.complaints) return;
+      const complaint = dpFullData.complaints.find(c => Number(c.id) === Number(complaintId));
+      if (!complaint) return;
+
+      document.getElementById('dpResolveComplaintId').value = complaint.id;
+      document.getElementById('dpResolveStatus').value = ['Open', 'In Progress', 'Resolved', 'Closed'].includes(complaint.status) ? complaint.status : 'Resolved';
+      document.getElementById('dpResolveNotes').value = complaint.resolution || '';
+      document.getElementById('dpComplaintResolveModal').classList.add('active');
+    }
+
+    function closeDpComplaintResolveModal() {
+      document.getElementById('dpComplaintResolveModal').classList.remove('active');
+    }
+
+    async function submitDpComplaintResolution(event) {
+      event.preventDefault();
+      const complaintId = document.getElementById('dpResolveComplaintId').value;
+      const status = document.getElementById('dpResolveStatus').value;
+      const resolution = document.getElementById('dpResolveNotes').value;
+
+      try {
+        const r = await fetch(`/delivery-persons/${personId}/complaints/${complaintId}/resolve`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({ status, resolution }),
+        });
+        const res = await r.json();
+        if (!res.success) {
+          alert(res.message || 'Unable to update complaint');
+          return;
+        }
+        closeDpComplaintResolveModal();
+        await loadDpProfile();
+      } catch (err) {
+        alert('Server error');
+      }
+    }
+
+    loadDpProfile();
   </script>
 </body>
 </html>

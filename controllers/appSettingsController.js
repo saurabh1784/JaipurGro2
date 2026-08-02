@@ -25,15 +25,14 @@ async function saveSetting(key, value) {
   );
 }
 
+const urlService = require('../services/urlService');
+
 function resolveFullUrl(req, relativeOrAbsoluteUrl) {
   if (!relativeOrAbsoluteUrl) return '';
   if (relativeOrAbsoluteUrl.startsWith('http://') || relativeOrAbsoluteUrl.startsWith('https://')) {
     return relativeOrAbsoluteUrl;
   }
-  const protocol = req.protocol || 'http';
-  const host = req.get('host') || 'localhost:3000';
-  const cleanPath = relativeOrAbsoluteUrl.startsWith('/') ? relativeOrAbsoluteUrl : `/${relativeOrAbsoluteUrl}`;
-  return `${protocol}://${host}${cleanPath}`;
+  return urlService.getAbsoluteUrl(relativeOrAbsoluteUrl, req);
 }
 
 function fallbackShell(user, activePath = '/app-settings') {
@@ -297,9 +296,13 @@ const getPublicAppLogos = async (req, res) => {
     const deliveryPlayStore = await settingValue('delivery_app_playstore_url', '');
     const deliveryAppStore = await settingValue('delivery_app_appstore_url', '');
 
+    const isGstMandatory = await getGstMandatory();
+
     return res.json({
       success: true,
       appName,
+      isGstMandatory,
+      is_gst_required: isGstMandatory,
       logos: {
         clientAppLogo: clientLogoRel ? resolveFullUrl(req, clientLogoRel) : '',
         vendorAppLogo: vendorLogoRel ? resolveFullUrl(req, vendorLogoRel) : '',
@@ -488,10 +491,25 @@ async function setGstMandatory(isMandatory) {
   await saveSetting('gst_mandatory', isMandatory ? 'true' : 'false');
 }
 
+async function getPublicRegistrationConfig(req, res) {
+  try {
+    const isMandatory = await getGstMandatory();
+    return res.json({
+      success: true,
+      isGstMandatory: isMandatory,
+      is_gst_required: isMandatory,
+    });
+  } catch (error) {
+    console.error('Error fetching registration config:', error);
+    return res.status(500).json({ success: false, isGstMandatory: false, is_gst_required: false });
+  }
+}
+
 module.exports = {
   renderAppSettings,
   updateAppLogos,
   getPublicAppLogos,
+  getPublicRegistrationConfig,
   getAppUpdateConfig,
   saveSocialProfile,
   updateSocialProfile,

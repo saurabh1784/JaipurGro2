@@ -205,19 +205,23 @@ async function seedProducts() {
   }
 }
 
-seedProducts()
-  .then((summary) => {
-    console.log('Seeded real Indian products.');
-    console.log(`Removed generated demo products: ${summary.demoProductsRemoved}`);
-    console.log(`Created products: ${summary.createdProducts}`);
-    console.log(`Updated products: ${summary.updatedProducts}`);
-    console.log(`Vendor inventory rows added: ${summary.vendorInventoryRows}`);
-    if (summary.skippedProducts.length) {
-      console.log(`Skipped missing catalog relations: ${summary.skippedProducts.join(', ')}`);
-    }
-  })
-  .catch((error) => {
-    console.error(`Unable to seed products: ${pool.formatError(error)}`);
-    process.exitCode = 1;
-  })
-  .finally(() => pool.end());
+if (require.main === module) {
+  seedProducts()
+    .then((summary) => {
+      console.log('Seeded real Indian products.');
+      console.log(`Removed generated demo products: ${summary.demoProductsRemoved}`);
+      console.log(`Created products: ${summary.createdProducts}`);
+      console.log(`Updated products: ${summary.updatedProducts}`);
+      console.log(`Vendor inventory rows added: ${summary.vendorInventoryRows}`);
+      if (summary.skippedProducts.length) {
+        console.log(`Skipped missing catalog relations: ${summary.skippedProducts.join(', ')}`);
+      }
+    })
+    .catch((error) => {
+      console.error(`Unable to seed products: ${pool.formatError(error)}`);
+      process.exitCode = 1;
+    })
+    .finally(() => pool.end());
+}
+
+module.exports = { seedProducts };

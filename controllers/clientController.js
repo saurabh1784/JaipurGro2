@@ -67,6 +67,7 @@ async function index(req, res) {
       user: req.session.user,
       isSuperAdmin: isSuper,
       adminCity,
+      canViewClientDetails: canViewClientDetails(currentUser),
       locationOptions: await flattenLocationOptionsFromDb(),
     });
   }
@@ -201,12 +202,177 @@ async function destroy(req, res) {
   return res.json({ success: true, message: 'Client deleted' });
 }
 
+function canViewClientDetails(user) {
+  if (!user) return false;
+  const role = String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '');
+  if (['superadmin', 'admin', 'staff', 'staffl1', 'staffl2', 'staffl3', 'supportstaff', 'manager'].includes(role)) return true;
+  if (isSuperAdminUser(user)) return true;
+  if (Array.isArray(user.roles)) {
+    return user.roles.some((r) => ['superadmin', 'admin', 'staff', 'staffl1', 'staffl2', 'staffl3', 'supportstaff', 'manager'].includes(String(r.slug || r.name || '').toLowerCase().replace(/[\s_-]+/g, '')));
+  }
+  return false;
+}
+
+function vprof_name(row) {
+  return row.vendor_business_name || row.vendor_name || 'Vendor';
+}
+
+function tryParseJson(value, fallback = []) {
+  if (!value) return fallback;
+  if (typeof value === 'object') return value;
+  try {
+    return JSON.parse(value);
+  } catch (e) {
+    return fallback;
+  }
+}
+
+async function fullDetails(req, res) {
+  const id = Number(req.params.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid client ID is required' });
+  }
+
+  const currentUser = req.authUser || (req.session && req.session.user);
+  if (!canViewClientDetails(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Access denied. Authorized admin or staff role required.' });
+  }
+
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+
+  const client = await Client.findById(id);
+  if (!client) {
+    return res.status(404).json({ success: false, message: 'Client not found' });
+  }
+
+  if (!isSuper && adminCity && client.city && client.city.toLowerCase() !== adminCity.toLowerCase()) {
+    return res.status(403).json({ success: false, message: `Admins can only view clients in their assigned city (${adminCity}).` });
+  }
+
+  try {
+    const pool = require('../db');
+    const Wallet = require('../models/Wallet');
+    const SupportTicket = require('../models/SupportTicket');
+
+    // Wallet Balance
+    const wallet = await Wallet.findByUserId(id).catch(() => null);
+
+    // Fetch Client Orders
+    const [orderRows] = await pool.query(
+      `SELECT o.*,
+              v.name AS vendor_name,
+              vprof.business_name AS vendor_business_name,
+              dp.name AS delivery_partner_name,
+              dp.phone AS delivery_partner_phone
+       FROM client_orders o
+       LEFT JOIN users v ON v.id = o.vendor_id
+       LEFT JOIN vendor_profiles vprof ON vprof.user_id = o.vendor_id
+       LEFT JOIN users dp ON dp.id = o.delivery_partner_id
+       WHERE o.client_id = ?
+       ORDER BY o.created_at DESC`,
+      [id]
+    );
+
+    const orders = orderRows.map((o) => ({
+      id: o.id,
+      order_number: o.order_number || `#${o.id}`,
+      created_at: o.created_at,
+      status_updated_at: o.status_updated_at,
+      delivered_at: o.delivered_at,
+      vendor_id: o.vendor_id,
+      vendor_name: vprof_name(o),
+      delivery_partner_id: o.delivery_partner_id,
+      delivery_partner_name: o.delivery_partner_name || 'Unassigned',
+      delivery_partner_phone: o.delivery_partner_phone || '',
+      total_amount: Number(o.total_amount || 0),
+      payment_method: o.payment_method || 'wallet',
+      payment_status: o.payment_status || (['delivered', 'completed'].includes(String(o.status || '').toLowerCase()) ? 'paid' : 'pending'),
+      status: o.status || 'pending',
+      delivery_status: o.delivery_status || '',
+      cancelled_by: o.cancelled_by || (String(o.status || '').toLowerCase() === 'cancelled' ? 'Client' : null),
+      cancellation_reason: o.cancellation_reason || (String(o.status || '').toLowerCase() === 'cancelled' ? 'Cancelled by client' : null),
+      cancelled_at: o.cancelled_at || (String(o.status || '').toLowerCase() === 'cancelled' ? o.updated_at : null),
+      items: tryParseJson(o.items, []),
+    }));
+
+    const completedOrders = orders.filter((o) => ['delivered', 'completed'].includes(String(o.status || '').toLowerCase()));
+    const cancelledOrders = orders.filter((o) => ['cancelled', 'rejected'].includes(String(o.status || '').toLowerCase()));
+    const activePendingOrders = orders.filter((o) => ['pending', 'confirmed', 'processing', 'ready_for_pickup', 'out_for_delivery'].includes(String(o.status || '').toLowerCase()));
+    const returnedRefundedOrders = orders.filter((o) => ['returned', 'refunded'].includes(String(o.status || '').toLowerCase()));
+
+    // Fetch Complaints
+    const complaints = await SupportTicket.list({ requesterId: id, requesterRole: 'Client' }).catch(() => []);
+
+    const stats = {
+      total_orders: orders.length,
+      completed_orders: completedOrders.length,
+      cancelled_orders: cancelledOrders.length,
+      active_pending_orders: activePendingOrders.length,
+      returned_refunded_orders: returnedRefundedOrders.length,
+      total_complaints: complaints.length,
+    };
+
+    const fullClientDetails = {
+      profile: {
+        ...client,
+        wallet_balance: Number(wallet?.balance || 0),
+      },
+      stats,
+      orders,
+      completed_orders: completedOrders,
+      cancelled_orders: cancelledOrders,
+      active_pending_orders: activePendingOrders,
+      returned_refunded_orders: returnedRefundedOrders,
+      complaints,
+    };
+
+    return res.json({ success: true, client: fullClientDetails });
+  } catch (error) {
+    console.error('Full client details error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch client full details' });
+  }
+}
+
+async function updateComplaint(req, res) {
+  const clientId = Number(req.params.id);
+  const ticketId = Number(req.params.ticketId);
+
+  if (!clientId || !ticketId) {
+    return res.status(422).json({ success: false, message: 'Client ID and Complaint ID are required' });
+  }
+
+  const currentUser = req.authUser || (req.session && req.session.user);
+  if (!canViewClientDetails(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Access denied. Authorized admin or staff role required.' });
+  }
+
+  try {
+    const SupportTicket = require('../models/SupportTicket');
+    const { status, resolution, assigned_staff_id } = req.body;
+    const ticket = await SupportTicket.updateResolution({
+      ticketId,
+      status: status || 'Resolved',
+      resolution: resolution || '',
+      assignedStaffId: assigned_staff_id ? Number(assigned_staff_id) : currentUser.id,
+    });
+
+    return res.json({ success: true, message: 'Complaint updated successfully', ticket });
+  } catch (error) {
+    console.error('Update complaint error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Unable to update complaint' });
+  }
+}
+
 module.exports = {
   index,
   show,
   create,
   update,
   destroy,
+  fullDetails,
+  updateComplaint,
+  canViewClientDetails,
 };
 
 

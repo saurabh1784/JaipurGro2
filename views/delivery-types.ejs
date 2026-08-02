@@ -249,7 +249,7 @@
     function decoded(value) {
       try {
         return decodeURIComponent(value || '');
-      } catch {
+      } catch (err) {
         return value || '';
       }
     }

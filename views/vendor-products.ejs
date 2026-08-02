@@ -229,21 +229,38 @@
           </div>
         </div>
 
-        <div style="display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
-          <label style="font-weight: 600; color: #334155;">Select Master Product</label>
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem;">
+          <label style="font-weight: 700; color: #0f172a;">Select Master Product</label>
           <input type="hidden" id="productId" required />
           <div class="searchable-product-picker">
-            <input
-              type="text"
-              id="productSearchInput"
-              class="product-picker-search-input"
-              placeholder="🔍 Search approved products by name, brand..."
-              oninput="filterApprovedProducts(this.value)"
-              onfocus="showApprovedProductsDropdown()"
-              autocomplete="off"
-            />
-            <div id="productSelectedBadge" class="product-selected-badge" style="display:none;">
-              <span id="productSelectedName"></span>
+            <div style="display:flex; gap:8px; margin-bottom:8px;">
+              <select id="modalCategoryFilter" class="picker-filter-select" onchange="onModalCategoryChange(this.value)" style="flex:1; padding:7px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; background:#f8fafc;">
+                <option value="">All Categories</option>
+                <% (categories || []).forEach(function(cat) { %>
+                  <option value="<%= cat.id %>"><%= cat.name %></option>
+                <% }); %>
+              </select>
+              <select id="modalSubcategoryFilter" class="picker-filter-select" onchange="onModalSubcategoryChange(this.value)" style="flex:1; padding:7px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; background:#f8fafc;">
+                <option value="">All Subcategories</option>
+              </select>
+            </div>
+            <div style="position:relative;">
+              <input
+                type="text"
+                id="productSearchInput"
+                class="product-picker-search-input"
+                placeholder="🔍 Type product name, category, or brand to search..."
+                oninput="filterApprovedProducts(this.value)"
+                onfocus="showApprovedProductsDropdown()"
+                autocomplete="off"
+              />
+            </div>
+            <div id="productSelectedBadge" class="product-selected-badge" style="display:none; margin-top:6px;">
+              <img id="productSelectedImg" class="product-selected-img" src="/default.png" alt="Selected Product" />
+              <div class="product-selected-info">
+                <span id="productSelectedName" class="product-selected-title"></span>
+                <span id="productSelectedMeta" class="product-selected-meta"></span>
+              </div>
               <button type="button" class="btn-clear-product" onclick="clearSelectedProduct()">Change</button>
             </div>
             <div id="productPickerDropdown" class="product-picker-dropdown" style="display:none;"></div>
@@ -1187,7 +1204,34 @@
     let vendorProducts = <%- JSON.stringify(products || []) %>;
     let allVendorProducts = <%- JSON.stringify(products || []) %>;
     let selectedProductIds = new Set();
-    const approvedProductsList = <%- JSON.stringify(approvedProducts || []) %>;
+    let approvedProductsList = <%- JSON.stringify(approvedProducts || []) %>;
+    let approvedCatalogLoading = false;
+    let approvedCatalogError = false;
+
+    async function loadApprovedCatalogFast() {
+      if (approvedProductsList.length > 0 && !approvedCatalogError) return;
+      approvedCatalogLoading = true;
+      approvedCatalogError = false;
+      renderApprovedProductsPicker(document.getElementById('productSearchInput')?.value || '');
+      try {
+        const res = await fetch('/api/vendor-products/approved-catalog');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.products)) {
+          approvedProductsList = data.products;
+        } else {
+          approvedCatalogError = true;
+        }
+      } catch (err) {
+        console.error('Failed to fetch catalog:', err);
+        if (!approvedProductsList.length) {
+          approvedCatalogError = true;
+        }
+      } finally {
+        approvedCatalogLoading = false;
+        renderApprovedProductsPicker(document.getElementById('productSearchInput')?.value || '');
+      }
+    }
+
     const catalog = {
       subcategories: <%- JSON.stringify(subcategories || []) %>,
       brands: <%- JSON.stringify(brands || []) %>,
@@ -1409,6 +1453,22 @@
       const selectedCat = catSelect ? String(catSelect.value || '').trim() : '';
       const selectedSub = subSelect ? String(subSelect.value || '').trim() : '';
 
+      if (approvedCatalogLoading) {
+        dropdown.innerHTML = '<div style="padding:16px; color:#0d9488; font-size:0.85rem; text-align:center; font-weight:600;">⏳ Loading master products catalog...</div>';
+        dropdown.style.display = 'block';
+        return;
+      }
+
+      if (approvedCatalogError) {
+        dropdown.innerHTML = `
+          <div style="padding:16px; color:#ef4444; font-size:0.85rem; text-align:center;">
+            ⚠️ Unable to load products catalog.<br/>
+            <button type="button" onclick="loadApprovedCatalogFast()" style="margin-top:8px; padding:5px 14px; border-radius:8px; background:#0f766e; color:#fff; border:none; font-weight:700; cursor:pointer;">Retry Loading</button>
+          </div>`;
+        dropdown.style.display = 'block';
+        return;
+      }
+
       const filtered = approvedProductsList.filter((p) => {
         if (selectedCat && String(p.category_id || '') !== selectedCat) {
           return false;
@@ -1417,19 +1477,25 @@
           return false;
         }
         if (!q) return true;
-        const name = String(p.name || '').toLowerCase();
-        const category = String(p.category_name || '').toLowerCase();
-        const subcategory = String(p.sub_category_name || '').toLowerCase();
-        const brand = String(p.brand_name || '').toLowerCase();
-        return name.includes(q) || category.includes(q) || subcategory.includes(q) || brand.includes(q);
+
+        const idStr = String(p.id || p.product_id || '').toLowerCase();
+        const nameStr = String(p.name || p.product_name || '').toLowerCase();
+        const categoryStr = String(p.category_name || '').toLowerCase();
+        const subcategoryStr = String(p.sub_category_name || p.subcategory_name || '').toLowerCase();
+        const brandStr = String(p.brand_name || '').toLowerCase();
+
+        return idStr.includes(q) || nameStr.includes(q) || categoryStr.includes(q) || subcategoryStr.includes(q) || brandStr.includes(q);
       });
 
       if (!filtered.length) {
-        dropdown.innerHTML = '<div style="padding:12px; color:#64748b; font-size:0.85rem; text-align:center;">No matching approved products found</div>';
+        dropdown.innerHTML = '<div style="padding:16px; color:#64748b; font-size:0.85rem; text-align:center;">📦 No matching approved products found. Try changing filters or search terms.</div>';
+        dropdown.style.display = 'block';
         return;
       }
 
-      dropdown.innerHTML = filtered.map((p) => `
+      const countHeader = `<div style="padding:8px 12px; background:#f8fafc; font-size:0.75rem; font-weight:700; color:#0f766e; border-bottom:1px solid #e2e8f0; position:sticky; top:0; z-index:2;">Showing ${filtered.length} master products</div>`;
+
+      dropdown.innerHTML = countHeader + filtered.map((p) => `
         <div class="product-picker-option" onclick="onSelectApprovedProduct(${p.id})">
           <img
             class="product-picker-option-thumb"
@@ -1437,16 +1503,23 @@
             data-product-name="${escapeHtml(p.name)}"
             src="${escapeHtml(p.image_url || '/default.png')}"
             alt="${escapeHtml(p.name)}"
-            onerror="if(window.productImageFallback)window.productImageFallback(this)"
+            onerror="this.onerror=null;this.src='/default.png';"
             loading="lazy"
           />
           <div class="product-picker-option-details">
-            <div class="product-picker-option-title">${escapeHtml(p.name)}</div>
-            <div class="product-picker-option-meta">${escapeHtml(p.category_name || '')} &bull; ${escapeHtml(p.sub_category_name || '')} &bull; ${escapeHtml(p.brand_name || '')}</div>
+            <div class="product-picker-option-title">${escapeHtml(p.name)} <span style="font-size:0.75rem; color:#64748b; font-weight:400;">(#${p.id})</span></div>
+            <div class="product-picker-option-meta">
+              <span style="font-weight:700; color:#0f766e;">${escapeHtml(p.category_name || 'General')}</span>
+              ${p.sub_category_name ? ` &bull; ${escapeHtml(p.sub_category_name)}` : ''}
+              ${p.brand_name ? ` &bull; ${escapeHtml(p.brand_name)}` : ''}
+              ${p.weight_value ? ` &bull; ${p.weight_value} ${p.weight_unit || ''}` : ''}
+            </div>
           </div>
           <div class="product-picker-option-price">₹${Number(p.price || 0).toFixed(2)}</div>
         </div>
       `).join('');
+
+      dropdown.style.display = 'block';
     }
 
     function updateModalSubcategoryOptions(selectedCatId) {
@@ -1489,7 +1562,11 @@
       const p = approvedProductsList.find((item) => Number(item.id) === Number(id));
       if (!p) return;
       document.getElementById('productId').value = p.id;
-      document.getElementById('productSelectedName').textContent = `${p.name} (${p.category_name || ''} - ${p.brand_name || ''})`;
+      document.getElementById('productSelectedName').textContent = p.name;
+      const meta = [p.category_name, p.sub_category_name, p.brand_name, p.weight_value ? `${p.weight_value} ${p.weight_unit || ''}` : ''].filter(Boolean).join(' • ');
+      document.getElementById('productSelectedMeta').textContent = meta;
+      const selectedImg = document.getElementById('productSelectedImg');
+      if (selectedImg) selectedImg.src = p.image_url || '/default.png';
       document.getElementById('productSelectedBadge').style.display = 'flex';
       document.getElementById('productSearchInput').style.display = 'none';
       document.getElementById('productPickerDropdown').style.display = 'none';
@@ -1645,9 +1722,11 @@
           searchInput.style.display = 'block';
           searchInput.value = '';
         }
-        const dropdown = document.getElementById('productPickerDropdown');
-        if (dropdown) dropdown.style.display = 'none';
         document.getElementById('productModalTitle').textContent = 'Add Product';
+      }
+      showApprovedProductsDropdown();
+      if (!approvedProductsList || !approvedProductsList.length) {
+        loadApprovedCatalogFast();
       }
     }
 

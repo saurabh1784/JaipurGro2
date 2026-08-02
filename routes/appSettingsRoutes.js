@@ -19,5 +19,7 @@ router.get('/api/app-settings/update-check', appSettingsController.getAppUpdateC
 router.get('/api/app-update-check', appSettingsController.getAppUpdateConfig);
 router.get('/api/app-settings/social-profiles', appSettingsController.getPublicSocialProfiles);
 router.get('/api/social-profiles', appSettingsController.getPublicSocialProfiles);
+router.get('/api/app-settings/registration-config', appSettingsController.getPublicRegistrationConfig);
+router.get('/api/registration-config', appSettingsController.getPublicRegistrationConfig);
 
 module.exports = router;

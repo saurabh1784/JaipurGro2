@@ -55,6 +55,7 @@ function calculateAmount(setting, amount) {
 }
 
 async function ensureDefaults(connection = pool) {
+  await connection.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_commission_settings_role_tx ON commission_settings (role_slug, transaction_type)').catch(() => {});
   for (const kind of Object.values(commissionKinds)) {
     await connection.query(
       `INSERT INTO commission_settings

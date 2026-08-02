@@ -1338,9 +1338,10 @@ svg {
 .side-caret {
   margin-left: auto;
   color: inherit;
-  font-size: 0.72rem;
-  font-weight: 900;
-  transition: transform 0.18s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.22s cubic-bezier(0.4, 0, 0.2, 1);
 }
 
 .side-group[open] .side-caret {
@@ -1349,10 +1350,10 @@ svg {
 
 .side-subnav {
   display: grid;
-  gap: 2px;
-  margin: -2px 0 4px 30px;
-  padding-left: 10px;
-  border-left: 1px solid rgba(215, 222, 226, 0.18);
+  gap: 3px;
+  margin: 2px 0 6px 18px;
+  padding-left: 12px;
+  border-left: 2px solid rgba(255, 255, 255, 0.14);
 }
 
 .side-sublink {

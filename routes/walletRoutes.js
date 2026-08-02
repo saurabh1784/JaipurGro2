@@ -9,4 +9,7 @@ router.get('/:userId', walletController.show);
 router.post('/:userId/adjust', walletController.adjust);
 router.put('/:userId/status', walletController.updateStatus);
 
+router.post('/razorpay/create-order', walletController.createRazorpayOrder);
+router.post('/razorpay/verify', walletController.verifyRazorpayTopup);
+
 module.exports = router;

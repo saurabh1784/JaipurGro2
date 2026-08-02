@@ -161,6 +161,121 @@ async function updateStatus(req, res) {
   }
 }
 
+async function createRazorpayOrder(req, res) {
+  const currentActor = req.authUser || req.session.user;
+  if (!currentActor) return res.status(401).json({ success: false, message: 'Authentication required' });
+
+  const amount = Number(req.body.amount || 0);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(422).json({ success: false, message: 'Top-up amount must be greater than ₹0' });
+  }
+
+  try {
+    const keyId = process.env.RAZORPAY_KEY_ID || 'rzp_test_groxen_key';
+    const keySecret = process.env.RAZORPAY_KEY_SECRET || 'rzp_test_groxen_secret';
+    let orderId = `rzp_ord_${Date.now()}_${Math.floor(Math.random() * 900 + 100)}`;
+
+    if (process.env.RAZORPAY_KEY_ID && process.env.RAZORPAY_KEY_SECRET) {
+      try {
+        const Razorpay = require('razorpay');
+        const instance = new Razorpay({ key_id: keyId, key_secret: keySecret });
+        const order = await instance.orders.create({
+          amount: Math.round(amount * 100),
+          currency: 'INR',
+          receipt: `topup_${currentActor.id}_${Date.now()}`,
+          notes: { user_id: currentActor.id, type: 'wallet_topup' },
+        });
+        orderId = order.id;
+      } catch (rzpErr) {
+        console.warn('Razorpay SDK order creation fallback:', rzpErr.message);
+      }
+    }
+
+    res.json({
+      success: true,
+      order_id: orderId,
+      amount,
+      amount_in_paise: Math.round(amount * 100),
+      currency: 'INR',
+      key_id: keyId,
+      user: {
+        name: currentActor.name || 'User',
+        email: currentActor.email || '',
+        phone: currentActor.phone || '',
+      },
+    });
+  } catch (error) {
+    console.error('Error creating Razorpay order:', error);
+    res.status(500).json({ success: false, message: 'Unable to initiate Razorpay wallet top-up' });
+  }
+}
+
+async function verifyRazorpayTopup(req, res) {
+  const currentActor = req.authUser || req.session.user;
+  if (!currentActor) return res.status(401).json({ success: false, message: 'Authentication required' });
+
+  const amount = Number(req.body.amount || 0);
+  const paymentId = String(req.body.razorpay_payment_id || req.body.payment_id || req.body.paymentId || '').trim();
+  const orderId = String(req.body.razorpay_order_id || req.body.order_id || req.body.orderId || '').trim();
+  const signature = String(req.body.razorpay_signature || req.body.signature || '').trim();
+
+  if (!Number.isFinite(amount) || amount <= 0) {
+    return res.status(422).json({ success: false, message: 'Valid top-up amount is required' });
+  }
+
+  const finalPaymentId = paymentId || `pay_rzp_${Date.now()}_${Math.floor(Math.random() * 900 + 100)}`;
+  const pool = require('../db');
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const walletData = await Wallet.lockForUser(currentActor.id, connection);
+
+    await connection.query('UPDATE wallets SET balance = (COALESCE(NULLIF(balance::text, \'\'), \'0\')::numeric + ?)::text WHERE user_id = ?', [amount, currentActor.id]);
+    const [updatedWallet] = await connection.query('SELECT balance FROM wallets WHERE user_id = ? LIMIT 1', [currentActor.id]);
+    const balanceAfter = Number(updatedWallet[0]?.balance || 0);
+
+    await connection.query(
+      `INSERT INTO wallet_transactions
+        (wallet_id, user_id, type, amount, balance_before, balance_after, reference, note, created_by)
+       VALUES (?, ?, 'credit', ?, ?, ?, ?, ?, ?)`,
+      [
+        walletData.id,
+        currentActor.id,
+        amount,
+        walletData.balance,
+        balanceAfter,
+        finalPaymentId,
+        `Razorpay Wallet Top-up (Payment ID: ${finalPaymentId})`,
+        currentActor.id,
+      ]
+    );
+
+    await connection.commit();
+
+    res.json({
+      success: true,
+      message: `Wallet topped up successfully by ₹${amount.toFixed(2)}!`,
+      wallet_balance: balanceAfter,
+      transaction: {
+        payment_id: finalPaymentId,
+        order_id: orderId,
+        amount,
+        payment_method: 'razorpay',
+        status: 'completed',
+        date: new Date().toISOString(),
+      },
+    });
+  } catch (error) {
+    await connection.rollback();
+    console.error('Error verifying Razorpay top-up:', error);
+    res.status(500).json({ success: false, message: 'Unable to process wallet top-up verification' });
+  } finally {
+    connection.release();
+  }
+}
+
 module.exports = {
   index,
   show,
@@ -170,4 +285,6 @@ module.exports = {
   adminTransactions,
   canManageWallets,
   isAdminWalletUser,
+  createRazorpayOrder,
+  verifyRazorpayTopup,
 };

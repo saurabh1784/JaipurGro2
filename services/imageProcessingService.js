@@ -1,7 +1,5 @@
 const fs = require('fs');
 const path = require('path');
-const sharp = require('sharp');
-
 const publicRoot = path.join(__dirname, '..', 'public');
 
 const presets = {
@@ -37,33 +35,16 @@ async function processImageBuffer(buffer, type, baseName) {
   const uploadDir = path.join(publicRoot, 'uploads', preset.folder);
   fs.mkdirSync(uploadDir, { recursive: true });
 
-  const metadata = await sharp(buffer, { failOn: 'error' }).metadata();
-  if (!metadata.width || !metadata.height || !metadata.format) {
-    const error = new Error('File is not a valid image');
-    error.invalidImage = true;
-    throw error;
-  }
-
-  const fileName = `${safeFileBase(baseName)}-${Date.now()}.webp`;
+  const ext = 'png';
+  const fileName = `${safeFileBase(baseName)}-${Date.now()}.${ext}`;
   const outputPath = path.join(uploadDir, fileName);
-  await sharp(buffer, { failOn: 'error' })
-    .rotate()
-    .resize({
-      width: preset.width,
-      height: preset.height,
-      fit: preset.fit || 'cover',
-      position: 'centre',
-      background: preset.background || { r: 255, g: 255, b: 255, alpha: 1 },
-      withoutEnlargement: false,
-    })
-    .webp({ quality: preset.quality || 86, effort: 5 })
-    .toFile(outputPath);
+  await fs.promises.writeFile(outputPath, buffer);
 
   return {
     path: publicPathFor(outputPath),
     width: preset.width,
     height: preset.height,
-    format: 'webp',
+    format: ext,
   };
 }
 

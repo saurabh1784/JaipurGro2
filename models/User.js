@@ -1,5 +1,22 @@
 const pool = require('../db');
 
+function isProfileCompleted(row) {
+  if (!row) return false;
+  const name = String(row.name || '').trim();
+  const email = String(row.email || '').trim();
+  const city = String(row.city || '').trim();
+
+  // If placeholder name e.g. "User 1234" or empty
+  if (!name || /^User\s+\d+/i.test(name) || name.length < 2) {
+    return false;
+  }
+  // Email and city are mandatory
+  if (!email || !city) {
+    return false;
+  }
+  return true;
+}
+
 function publicUser(row) {
   if (!row) return null;
   return {
@@ -9,6 +26,7 @@ function publicUser(row) {
     phone: row.phone,
     role: row.role,
     status: row.status,
+    rejection_reason: row.rejection_reason || row.rejectionReason || '',
     theme_mode: row.theme_mode || 'light',
     is_deleted: Boolean(row.is_deleted),
     country: row.country || '',
@@ -17,6 +35,7 @@ function publicUser(row) {
     area: row.area || '',
     assigned_admin_id: row.assigned_admin_id || null,
     assigned_admin_name: row.assigned_admin_name || '',
+    is_profile_completed: isProfileCompleted(row),
     created_at: row.created_at,
     updated_at: row.updated_at,
   };
@@ -42,19 +61,46 @@ function normalizedRoleSql(column) {
 }
 
 async function findByEmailOrPhone(email, phone) {
-  const { rows } = await pool.query('SELECT * FROM users WHERE (email = $1 OR phone = $2) AND is_deleted = 0 LIMIT 1', [email, phone]);
-  return rows[0] || null;
+  const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+  const cleanPhone = phone ? String(phone).trim() : '';
+
+  if (cleanEmail && cleanPhone) {
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE (LOWER(email) = $1 OR phone = $2) AND is_deleted = 0 LIMIT 1',
+      [cleanEmail, cleanPhone]
+    );
+    return rows[0] || null;
+  }
+  if (cleanEmail) {
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE LOWER(email) = $1 AND is_deleted = 0 LIMIT 1',
+      [cleanEmail]
+    );
+    return rows[0] || null;
+  }
+  if (cleanPhone) {
+    const { rows } = await pool.query(
+      'SELECT * FROM users WHERE phone = $1 AND is_deleted = 0 LIMIT 1',
+      [cleanPhone]
+    );
+    return rows[0] || null;
+  }
+  return null;
 }
 
 async function findByEmail(email) {
-  const { rows } = await pool.query('SELECT * FROM users WHERE email = $1 AND is_deleted = 0 LIMIT 1', [email]);
+  const cleanEmail = email ? String(email).trim().toLowerCase() : '';
+  if (!cleanEmail) return null;
+  const { rows } = await pool.query('SELECT * FROM users WHERE LOWER(email) = $1 AND is_deleted = 0 LIMIT 1', [cleanEmail]);
   return rows[0] || null;
 }
 
 async function findByEmailOrPhoneIdentifier(identifier) {
+  const clean = String(identifier || '').trim();
+  if (!clean) return null;
   const { rows } = await pool.query(
     'SELECT * FROM users WHERE (LOWER(email) = LOWER($1) OR phone = $2) AND is_deleted = 0 LIMIT 1',
-    [identifier, identifier]
+    [clean, clean]
   );
   return rows[0] || null;
 }
@@ -87,12 +133,15 @@ async function create({
   assigned_admin_id = null,
   created_by = null,
 }, connection = pool) {
+  const cleanEmail = email && String(email).trim() ? String(email).trim().toLowerCase() : null;
+  const cleanPhone = phone && String(phone).trim() ? String(phone).trim() : null;
+
   const { rows } = await connection.query(
     `INSERT INTO users
       (name, email, phone, password, role, status, country, state, city, area, assigned_admin_id, created_by)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
      RETURNING id`,
-    [name, email, phone, password, role, status, country, state, city, area, assigned_admin_id, created_by]
+    [name, cleanEmail, cleanPhone, password, role, status, country, state, city, area, assigned_admin_id, created_by]
   );
   return rows[0].id;
 }

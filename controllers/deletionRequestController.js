@@ -191,7 +191,7 @@ async function renderDeletionRequests(req, res) {
     const shell = req.shell || { roleTitle: 'Admin', navItems: [] };
 
     res.render('deletion-requests', {
-      title: 'Account Deletion Requests - JaipurGro',
+      title: 'Account Deletion Requests - Groxen',
       shell,
       requests: requests || [],
       superAdmin,

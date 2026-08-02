@@ -179,6 +179,42 @@ function formatParamValue(val) {
   return val;
 }
 
+function formatParamValueForColumn(val, dataType) {
+  if (val === null || val === undefined) {
+    return null;
+  }
+  if (typeof val === 'object' && !(val instanceof Date) && !Buffer.isBuffer(val)) {
+    return JSON.stringify(val);
+  }
+  const type = String(dataType || '').toLowerCase();
+  if (['integer', 'smallint', 'bigint', 'user-defined'].includes(type) || type.includes('int')) {
+    if (typeof val === 'string' && val.trim() !== '') {
+      const num = Number(val);
+      return Number.isNaN(num) ? null : Math.round(num);
+    }
+  }
+  if (type === 'boolean') {
+    if (val === '0' || val === 0 || val === 'false' || val === false) return false;
+    if (val === '1' || val === 1 || val === 'true' || val === true) return true;
+  }
+  return val;
+}
+
+async function tableColumnTypes(client, table) {
+  const result = await client.query(
+    `SELECT column_name, data_type
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = $1`,
+    [table]
+  );
+  const types = {};
+  for (const row of result.rows) {
+    types[row.column_name] = row.data_type.toLowerCase();
+  }
+  return types;
+}
+
 async function restoreSnapshot(db, snapshotFile, options = {}) {
   const resolvedFile = path.resolve(snapshotFile);
   const snapshot = JSON.parse(fs.readFileSync(resolvedFile, 'utf8'));
@@ -213,13 +249,14 @@ async function restoreSnapshot(db, snapshotFile, options = {}) {
       for (const table of snapshotTables) {
         if (!existingSnapshotTables.includes(table.name) || !table.rows.length) continue;
 
+        const colTypes = await tableColumnTypes(client, table.name);
         const columns = table.columns;
         const columnSql = columns.map(quoteIdent).join(', ');
         const valueSql = columns.map((_, index) => `$${index + 1}`).join(', ');
         const insertSql = `INSERT INTO ${quoteIdent(table.name)} (${columnSql}) VALUES (${valueSql})`;
 
         for (const row of table.rows) {
-          const paramValues = columns.map((column) => formatParamValue(row[column]));
+          const paramValues = columns.map((column) => formatParamValueForColumn(row[column], colTypes[column]));
           await client.query(insertSql, paramValues);
         }
       }

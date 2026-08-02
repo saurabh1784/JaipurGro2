@@ -77,6 +77,9 @@
           </label>
           <button class="product-secondary-button" type="button" id="clearFilters">Clear</button>
           <button class="settings-save" type="button" id="refreshBtn">Refresh</button>
+          <button class="live-status-btn" type="button" onclick="openAmountDistributionModal()" style="border-color: #6366f1; color: #6366f1; background: rgba(99, 102, 241, 0.12); padding: 8px 16px; border-radius: 8px; font-weight: 700; font-size: 0.85rem; cursor: pointer; display: inline-flex; align-items: center; gap: 6px;">
+            📊 Amount Distribution
+          </button>
         </div>
       </div>
 
@@ -364,12 +367,13 @@
           <td><span class="badge ${escapeHtml(o.delivery_status)}">${escapeHtml(statusLabel(o.delivery_status))}</span></td>
           <td>${escapeHtml(o.delivery_partner_name || 'Not assigned')}</td>
           <td>${escapeHtml(o.delivery_otp || '-')}</td>
-          <td>
+          <td style="white-space: nowrap;">
             <button class="settings-save" style="padding: 4px 8px; font-size: 12px;" onclick="openAssignModal(${Number(o.id)})" ${canAssign ? '' : 'disabled'}>${assignLabel}</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="markReady(${o.id})" ${o.delivery_status !== 'assigned' ? 'disabled' : ''}>Ready</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="updateOrderStatus(${o.id}, 'delivered')" ${o.status === 'delivered' ? 'disabled' : ''}>Delivered</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="viewDetails(${o.id})">View</button>
             <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px;" onclick="openInvoice(${o.id})">Invoice</button>
+            <button class="product-secondary-button" style="padding: 4px 8px; font-size: 12px; border-color: #6366f1; color: #4f46e5; background: #eef2ff;" onclick="openAmountDistributionModal(${o.id})" title="View Amount Distribution for Order #${o.id}">📊 Distribution</button>
           </td>
         </tr>
       `;
@@ -1201,5 +1205,438 @@
     .invoice-toolbar { display: flex; justify-content: flex-end; gap: 10px; margin-bottom: 12px; }
     .invoice-frame { flex: 1; width: 100%; min-height: 520px; border: 1px solid #d8dee6; border-radius: 6px; background: #fff; }
   </style>
+  <!-- AMOUNT DISTRIBUTION MODAL -->
+  <div class="live-fullscreen-modal" id="amountDistributionModal" aria-hidden="true">
+    <div class="live-modal-header">
+      <div class="live-modal-title-group" id="adModalTitleGroup">
+        <span class="live-pulse-dot" style="background: #6366f1;"></span>
+        <h2>Order Payment Amount & GST Distribution Report</h2>
+      </div>
+      <div class="live-header-actions">
+        <div class="live-meta-info">
+          <span>Report Generated: <strong id="adLastUpdated">-</strong></span>
+        </div>
+        <button class="live-refresh-btn" type="button" onclick="fetchAmountDistribution()" style="color: #6366f1; border-color: #6366f1;">↻ Refresh Report</button>
+        <button class="live-refresh-btn" type="button" onclick="downloadAmountDistributionCSV()" style="color: #10b981; border-color: #10b981;">📥 Download CSV</button>
+        <button class="live-refresh-btn" type="button" onclick="printAmountDistributionReport()" style="color: #fbbf24; border-color: #fbbf24;">🖨️ Print Report</button>
+        <button class="live-close-btn" type="button" onclick="closeAmountDistributionModal()" aria-label="Close Distribution Modal">×</button>
+      </div>
+    </div>
+
+    <div class="live-modal-body">
+      <!-- Filter Bar -->
+      <div class="live-filter-bar" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 14px; background: #0f172a; padding: 14px 20px; border-radius: 12px; border: 1px solid #1e293b;">
+        <!-- City Pills / Options -->
+        <div style="display: flex; align-items: center; gap: 10px;" id="adCityPillsContainer">
+          <span style="font-size: 0.82rem; font-weight: 700; color: #94a3b8;">City Filter:</span>
+        </div>
+
+        <!-- Date Range Pills -->
+        <div class="live-filter-pills" id="adDatePillsGroup">
+          <button class="live-pill active" type="button" data-range="today" onclick="setAmountDistributionDateRange('today')">Today</button>
+          <button class="live-pill" type="button" data-range="week" onclick="setAmountDistributionDateRange('week')">This Week</button>
+          <button class="live-pill" type="button" data-range="month" onclick="setAmountDistributionDateRange('month')">This Month</button>
+          <button class="live-pill" type="button" data-range="custom" onclick="setAmountDistributionDateRange('custom')">Custom Range</button>
+        </div>
+
+        <!-- Custom Date Inputs -->
+        <div class="live-custom-dates" id="adCustomDatesGroup" style="display: none; align-items: center; gap: 8px;">
+          <label style="color: #cbd5e1; font-size: 0.82rem;">From: <input type="date" id="adFromDate" onchange="fetchAmountDistribution()" style="background: #1e293b; color: #ffffff; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px;" /></label>
+          <label style="color: #cbd5e1; font-size: 0.82rem;">To: <input type="date" id="adToDate" onchange="fetchAmountDistribution()" style="background: #1e293b; color: #ffffff; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px;" /></label>
+        </div>
+
+        <!-- Area & Status Dropdowns -->
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <label style="color: #cbd5e1; font-size: 0.82rem; font-weight: 700;">Area:
+            <select id="adAreaSelect" style="padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #f8fafc; font-weight: 600; font-size: 0.85rem;" onchange="fetchAmountDistribution()">
+              <option value="all">All Areas</option>
+            </select>
+          </label>
+          <label style="color: #cbd5e1; font-size: 0.82rem; font-weight: 700;">Status:
+            <select id="adStatusSelect" style="padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #f8fafc; font-weight: 600; font-size: 0.85rem;" onchange="fetchAmountDistribution()">
+              <option value="all">All Statuses</option>
+              <option value="delivered">Delivered / Completed</option>
+              <option value="accepted">Accepted / Processing</option>
+              <option value="pending">Pending</option>
+              <option value="cancelled">Cancelled</option>
+            </select>
+          </label>
+        </div>
+      </div>
+
+      <!-- Summary Overview Grid -->
+      <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(170px, 1fr)); gap: 14px; margin-top: 10px;">
+        <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Total Order Received</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #34d399; margin-top: 4px;" id="adTotalReceived">₹0.00</strong>
+        </div>
+        <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Total Vendor Amount</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #60a5fa; margin-top: 4px;" id="adTotalVendor">₹0.00</strong>
+        </div>
+        <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Delivery Partner Amount</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #fbbf24; margin-top: 4px;" id="adTotalDp">₹0.00</strong>
+        </div>
+        <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Total Admin Commission</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #c084fc; margin-top: 4px;" id="adTotalAdminComm">₹0.00</strong>
+        </div>
+        <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Platform Fee</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #38bdf8; margin-top: 4px;" id="adTotalPlatform">₹0.00</strong>
+        </div>
+        <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Delivery Commission</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #a7f3d0; margin-top: 4px;" id="adTotalDeliveryComm">₹0.00</strong>
+        </div>
+        <div style="background: #0f172a; border: 1px solid #ef4444; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #f87171; text-transform: uppercase;">GST on Admin (18%)</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #f87171; margin-top: 4px;" id="adTotalGst">₹0.00</strong>
+        </div>
+        <div style="background: #0f172a; border: 1px solid #10b981; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #34d399; text-transform: uppercase;">Final Admin Earning</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #34d399; margin-top: 4px;" id="adFinalAdminEarning">₹0.00</strong>
+        </div>
+        <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 12px; padding: 16px;">
+          <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Total Amount Distributed</span>
+          <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #f8fafc; margin-top: 4px;" id="adTotalDistributed">₹0.00</strong>
+        </div>
+      </div>
+
+      <!-- Distribution Report Table -->
+      <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 14px; overflow: hidden; margin-top: 14px;" id="adPrintSection">
+        <div style="padding: 14px 20px; background: #1e293b; border-bottom: 1px solid #334155; display: flex; justify-content: space-between; align-items: center;">
+          <h3 style="margin: 0; font-size: 1.05rem; font-weight: 800; color: #f8fafc;">Order Distribution Breakdown Table</h3>
+          <span style="font-size: 0.8rem; color: #94a3b8;" id="adRecordCount">0 Orders</span>
+        </div>
+        <div style="overflow-x: auto; max-height: 480px;">
+          <table style="width: 100%; border-collapse: collapse; font-size: 0.8rem; text-align: left; color: #f8fafc;">
+            <thead style="background: #0f172a; color: #94a3b8; position: sticky; top: 0; z-index: 10;">
+              <tr>
+                <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">Order ID</th>
+                <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">Date</th>
+                <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">City</th>
+                <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">Area</th>
+                <th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #334155;">Total Amount</th>
+                <th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #334155;">Vendor Amount</th>
+                <th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #334155;">DP Amount</th>
+                <th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #334155;">Platform Fee</th>
+                <th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #334155;">Delivery Comm</th>
+                <th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #334155;">Total Admin Comm</th>
+                <th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #334155;">GST (18%)</th>
+                <th style="padding: 10px 12px; text-align: right; border-bottom: 1px solid #334155;">Final Admin Earning</th>
+                <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">Payment Status</th>
+                <th style="padding: 10px 12px; border-bottom: 1px solid #334155;">Distribution</th>
+              </tr>
+            </thead>
+            <tbody id="adTableBody">
+              <tr><td colspan="14" style="padding: 20px; text-align: center; color: #94a3b8;">Loading report...</td></tr>
+            </tbody>
+            <tfoot id="adTableFoot" style="background: #1e293b; font-weight: 800; color: #f8fafc; position: sticky; bottom: 0; z-index: 10; border-top: 2px solid #38bdf8;">
+              <!-- Grand totals row -->
+            </tfoot>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let adSelectedRange = 'today';
+    let adSelectedCity = 'all_assigned';
+    let adCurrentOrders = [];
+    let adSingleOrderId = null;
+    let adSystemLocationData = null;
+
+    async function initAmountDistributionLocations() {
+      try {
+        const response = await fetch('/api/dashboard/cities-areas', {
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        if (!data.success) return;
+        adSystemLocationData = data;
+
+        const pillsContainer = document.getElementById('adCityPillsContainer');
+        if (pillsContainer) {
+          const cities = data.displayCities || [];
+          let html = '<span style="font-size: 0.82rem; font-weight: 700; color: #94a3b8;">City Filter:</span>';
+          if (cities.length > 1 || data.isSuper) {
+            html += `<button class="live-pill ${adSelectedCity === 'all_assigned' || adSelectedCity === 'all' ? 'active' : ''}" type="button" onclick="setAmountDistributionCity('${data.isSuper ? 'all' : 'all_assigned'}')">${data.isSuper ? 'All Cities' : 'All Assigned Cities'}</button>`;
+          }
+          cities.forEach((c) => {
+            const isActive = adSelectedCity.toLowerCase() === c.toLowerCase();
+            html += `<button class="live-pill ${isActive ? 'active' : ''}" type="button" onclick="setAmountDistributionCity('${c}')">${c}</button>`;
+          });
+          pillsContainer.innerHTML = html;
+        }
+
+        onAmountDistributionCityChange();
+      } catch (err) {
+        console.error('Error initializing distribution locations:', err);
+      }
+    }
+
+    function setAmountDistributionCity(city) {
+      adSelectedCity = city;
+      const pillsContainer = document.getElementById('adCityPillsContainer');
+      if (pillsContainer) {
+        pillsContainer.querySelectorAll('.live-pill').forEach((btn) => {
+          const txt = btn.textContent.trim().toLowerCase();
+          const target = city.toLowerCase();
+          const isAll = (target === 'all_assigned' || target === 'all') && (txt === 'all cities' || txt === 'all assigned cities');
+          btn.classList.toggle('active', isAll || txt === target);
+        });
+      }
+      onAmountDistributionCityChange();
+    }
+
+    function onAmountDistributionCityChange() {
+      const areaSelect = document.getElementById('adAreaSelect');
+      if (!areaSelect) return;
+
+      const cityAreasMap = (adSystemLocationData && adSystemLocationData.cityAreasMap) || {};
+      let areas = [];
+      if (adSelectedCity && adSelectedCity !== 'all_assigned' && adSelectedCity !== 'all') {
+        const matchKey = Object.keys(cityAreasMap).find((k) => k.toLowerCase() === adSelectedCity.toLowerCase());
+        if (matchKey) areas = cityAreasMap[matchKey];
+      }
+
+      let areaHtml = '<option value="all">All Areas</option>';
+      areas.forEach((a) => {
+        areaHtml += `<option value="${a}">${a}</option>`;
+      });
+      areaSelect.innerHTML = areaHtml;
+      fetchAmountDistribution();
+    }
+
+    function setAmountDistributionDateRange(range) {
+      adSelectedRange = range;
+      document.querySelectorAll('#adDatePillsGroup .live-pill').forEach((btn) => {
+        btn.classList.toggle('active', btn.getAttribute('data-range') === range);
+      });
+      const customGroup = document.getElementById('adCustomDatesGroup');
+      if (customGroup) customGroup.style.display = range === 'custom' ? 'flex' : 'none';
+
+      if (range !== 'custom') {
+        fetchAmountDistribution();
+      }
+    }
+
+    function updateModalTitle() {
+      const titleGroup = document.getElementById('adModalTitleGroup');
+      if (titleGroup) {
+        if (adSingleOrderId) {
+          titleGroup.innerHTML = `
+            <span class="live-pulse-dot" style="background: #6366f1;"></span>
+            <h2>Order Payment Amount & GST Distribution Report <span style="color: #818cf8; font-size: 0.9em; margin-left: 8px;">(Order #${adSingleOrderId})</span></h2>
+            <button type="button" onclick="clearSingleOrderDistributionFilter()" style="margin-left: 12px; padding: 4px 10px; font-size: 0.78rem; font-weight: 700; border-radius: 6px; background: rgba(99, 102, 241, 0.2); color: #a5b4fc; border: 1px solid #6366f1; cursor: pointer;">Show All Orders</button>
+          `;
+        } else {
+          titleGroup.innerHTML = `
+            <span class="live-pulse-dot" style="background: #6366f1;"></span>
+            <h2>Order Payment Amount & GST Distribution Report</h2>
+          `;
+        }
+      }
+    }
+
+    function clearSingleOrderDistributionFilter() {
+      adSingleOrderId = null;
+      updateModalTitle();
+      fetchAmountDistribution();
+    }
+
+    function openAmountDistributionModal(orderId = null) {
+      adSingleOrderId = orderId ? Number(orderId) : null;
+      updateModalTitle();
+      const modal = document.getElementById('amountDistributionModal');
+      modal.classList.add('active');
+      document.body.style.overflow = 'hidden';
+      initAmountDistributionLocations();
+      fetchAmountDistribution();
+    }
+
+    function closeAmountDistributionModal() {
+      adSingleOrderId = null;
+      const modal = document.getElementById('amountDistributionModal');
+      modal.classList.remove('active');
+      document.body.style.overflow = '';
+    }
+
+    function formatMoneyINR(val) {
+      return `₹${Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    }
+
+    async function fetchAmountDistribution() {
+      const areaSelect = document.getElementById('adAreaSelect');
+      const statusSelect = document.getElementById('adStatusSelect');
+
+      const city = adSelectedCity;
+      const area = areaSelect ? areaSelect.value : 'all';
+      const status = statusSelect ? statusSelect.value : 'all';
+      const fromDate = document.getElementById('adFromDate')?.value || '';
+      const toDate = document.getElementById('adToDate')?.value || '';
+
+      const params = new URLSearchParams({
+        range: adSelectedRange,
+        city,
+        area,
+        status,
+      });
+
+      if (adSingleOrderId) {
+        params.append('order_id', adSingleOrderId);
+      }
+
+      if (adSelectedRange === 'custom') {
+        params.append('fromDate', fromDate);
+        params.append('toDate', toDate);
+      }
+
+      try {
+        const response = await fetch(`/api/orders/amount-distribution?${params.toString()}`, {
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        if (!data.success) return;
+
+        adCurrentOrders = data.orders || [];
+
+        // Meta last updated
+        document.getElementById('adLastUpdated').textContent = new Date().toLocaleTimeString();
+        document.getElementById('adRecordCount').textContent = `${adCurrentOrders.length} Orders`;
+
+        // Summary Cards
+        const s = data.summary || {};
+        document.getElementById('adTotalReceived').textContent = formatMoneyINR(s.totalOrderAmountReceived);
+        document.getElementById('adTotalVendor').textContent = formatMoneyINR(s.totalVendorAmount);
+        document.getElementById('adTotalDp').textContent = formatMoneyINR(s.totalDeliveryPartnerAmount);
+        document.getElementById('adTotalAdminComm').textContent = formatMoneyINR(s.totalAdminCommission);
+        document.getElementById('adTotalPlatform').textContent = formatMoneyINR(s.totalPlatformFee);
+        document.getElementById('adTotalDeliveryComm').textContent = formatMoneyINR(s.totalDeliveryCommission);
+        document.getElementById('adTotalGst').textContent = formatMoneyINR(s.totalGstOnAdminCommission);
+        document.getElementById('adFinalAdminEarning').textContent = formatMoneyINR(s.totalFinalAdminEarning);
+        document.getElementById('adTotalDistributed').textContent = formatMoneyINR(s.totalAmountDistributed);
+
+        // Render Table Rows
+        const tbody = document.getElementById('adTableBody');
+        if (!adCurrentOrders.length) {
+          tbody.innerHTML = '<tr><td colspan="14" style="padding: 20px; text-align: center; color: #94a3b8;">No distribution records found for this filter criteria</td></tr>';
+          document.getElementById('adTableFoot').innerHTML = '';
+          return;
+        }
+
+        tbody.innerHTML = adCurrentOrders.map((o) => `
+          <tr style="border-bottom: 1px solid #334155;">
+            <td style="padding: 10px 12px;"><strong style="color: #38bdf8;">#${o.orderId}</strong></td>
+            <td style="padding: 10px 12px; color: #cbd5e1;">${new Date(o.orderDate).toLocaleDateString()}</td>
+            <td style="padding: 10px 12px; color: #f8fafc;">${o.city}</td>
+            <td style="padding: 10px 12px; color: #94a3b8;">${o.area}</td>
+            <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #34d399;">${formatMoneyINR(o.totalOrderAmount)}</td>
+            <td style="padding: 10px 12px; text-align: right; color: #60a5fa;">${formatMoneyINR(o.vendorAmount)}</td>
+            <td style="padding: 10px 12px; text-align: right; color: #fbbf24;">${formatMoneyINR(o.deliveryPartnerAmount)}</td>
+            <td style="padding: 10px 12px; text-align: right; color: #38bdf8;">${formatMoneyINR(o.platformFee)}</td>
+            <td style="padding: 10px 12px; text-align: right; color: #a7f3d0;">${formatMoneyINR(o.deliveryCommission)}</td>
+            <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #c084fc;">${formatMoneyINR(o.totalAdminCommission)}</td>
+            <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #f87171;">${formatMoneyINR(o.gstAmount)}</td>
+            <td style="padding: 10px 12px; text-align: right; font-weight: 800; color: #34d399;">${formatMoneyINR(o.finalAdminEarning)}</td>
+            <td style="padding: 10px 12px;"><span style="padding: 3px 8px; border-radius: 6px; background: rgba(52, 211, 153, 0.15); color: #34d399; font-weight: 700; font-size: 0.75rem;">${o.paymentStatus}</span></td>
+            <td style="padding: 10px 12px;"><span style="padding: 3px 8px; border-radius: 6px; background: rgba(99, 102, 241, 0.15); color: #818cf8; font-weight: 700; font-size: 0.75rem;">${o.distributionStatus}</span></td>
+          </tr>
+        `).join('');
+
+        // Render Grand Totals Footer Row
+        document.getElementById('adTableFoot').innerHTML = `
+          <tr>
+            <td colspan="4" style="padding: 12px; text-align: left; text-transform: uppercase;">GRAND TOTALS (${adCurrentOrders.length} ORDERS)</td>
+            <td style="padding: 12px; text-align: right; color: #34d399;">${formatMoneyINR(s.totalOrderAmountReceived)}</td>
+            <td style="padding: 12px; text-align: right; color: #60a5fa;">${formatMoneyINR(s.totalVendorAmount)}</td>
+            <td style="padding: 12px; text-align: right; color: #fbbf24;">${formatMoneyINR(s.totalDeliveryPartnerAmount)}</td>
+            <td style="padding: 12px; text-align: right; color: #38bdf8;">${formatMoneyINR(s.totalPlatformFee)}</td>
+            <td style="padding: 12px; text-align: right; color: #a7f3d0;">${formatMoneyINR(s.totalDeliveryCommission)}</td>
+            <td style="padding: 12px; text-align: right; color: #c084fc;">${formatMoneyINR(s.totalAdminCommission)}</td>
+            <td style="padding: 12px; text-align: right; color: #f87171;">${formatMoneyINR(s.totalGstOnAdminCommission)}</td>
+            <td style="padding: 12px; text-align: right; color: #34d399;">${formatMoneyINR(s.totalFinalAdminEarning)}</td>
+            <td colspan="2"></td>
+          </tr>
+        `;
+      } catch (err) {
+        console.error('Error loading amount distribution report:', err);
+      }
+    }
+
+    function downloadAmountDistributionCSV() {
+      if (!adCurrentOrders || !adCurrentOrders.length) {
+        alert('No distribution records to export');
+        return;
+      }
+
+      const headers = [
+        'Order ID',
+        'Order Date',
+        'City',
+        'Area',
+        'Total Order Amount (INR)',
+        'Vendor Amount (INR)',
+        'Delivery Partner Amount (INR)',
+        'Platform Fee (INR)',
+        'Delivery Commission (INR)',
+        'Total Admin Commission (INR)',
+        'GST on Admin Commission 18% (INR)',
+        'Final Admin Earning (INR)',
+        'Payment Status',
+        'Distribution Status'
+      ];
+
+      const csvRows = [headers.join(',')];
+
+      adCurrentOrders.forEach((o) => {
+        const row = [
+          `"${o.orderId}"`,
+          `"${new Date(o.orderDate).toLocaleDateString()}"`,
+          `"${o.city}"`,
+          `"${o.area}"`,
+          o.totalOrderAmount.toFixed(2),
+          o.vendorAmount.toFixed(2),
+          o.deliveryPartnerAmount.toFixed(2),
+          o.platformFee.toFixed(2),
+          o.deliveryCommission.toFixed(2),
+          o.totalAdminCommission.toFixed(2),
+          o.gstAmount.toFixed(2),
+          o.finalAdminEarning.toFixed(2),
+          `"${o.paymentStatus}"`,
+          `"${o.distributionStatus}"`
+        ];
+        csvRows.push(row.join(','));
+      });
+
+      const csvString = csvRows.join('\n');
+      const blob = new Blob([csvString], { type: 'text/csv;charset=utf-8;' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.setAttribute('href', url);
+      link.setAttribute('download', `amount_distribution_report_${new Date().toISOString().slice(0, 10)}.csv`);
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+    }
+
+    function printAmountDistributionReport() {
+      const section = document.getElementById('adPrintSection');
+      if (!section) return;
+      const win = window.open('', '', 'height=700,width=1000');
+      win.document.write('<html><head><title>Order Amount Distribution Report</title>');
+      win.document.write('<style>body{font-family:sans-serif;padding:20px;color:#000;} table{width:100%;border-collapse:collapse;} th,td{border:1px solid #ccc;padding:8px;font-size:12px;} th{background:#f1f5f9;}</style>');
+      win.document.write('</head><body>');
+      win.document.write('<h2>Order Payment Amount & GST Distribution Report</h2>');
+      win.document.write(section.innerHTML);
+      win.document.write('</body></html>');
+      win.document.close();
+      win.focus();
+      setTimeout(() => win.print(), 500);
+    }
+  </script>
 </body>
 </html>

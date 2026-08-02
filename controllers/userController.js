@@ -186,9 +186,16 @@ async function getAssignedUserLocation(user) {
   };
 }
 
+const { getAdminAssignedCities } = require('../services/locationFilterService');
+
 async function getAssignedUserCity(user) {
   const location = await getAssignedUserLocation(user);
-  return location.city || null;
+  if (location.city) return location.city;
+  const access = await getAdminAssignedCities(user);
+  if (access.assignedCities && access.assignedCities.length > 0) {
+    return access.assignedCities[0];
+  }
+  return null;
 }
 
 function wantsJson(req) {
@@ -649,4 +656,5 @@ module.exports = {
   isSuperAdminUser,
   getAssignedUserCity,
   getAssignedUserLocation,
+  getAdminAssignedCities,
 };

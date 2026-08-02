@@ -1,4 +1,4 @@
-const rolesAllowedForSignup = ['Vendor', 'Client', 'staff', 'deliveryPerson'];
+const rolesAllowedForSignup = ['Vendor', 'Client', 'staff', 'deliveryPerson', 'deliveryperson', 'delivery_partner'];
 const allApiRoles = ['Admin', 'Vendor', 'Client'];
 const editableUserRoles = ['Admin', 'Vendor', 'Client', 'superadmin', 'admin', 'manager', 'staff', 'deliveryPerson', 'staff-l1', 'staff-l2', 'staff-l3', 'support-staff', 'accountant'];
 const statuses = ['pending', 'approved', 'active', 'inactive'];
@@ -19,7 +19,12 @@ function validateSignup(body) {
   if (!email || !isEmail(email)) errors.push('Valid email is required');
   if (!phone || !isPhone(phone)) errors.push('Valid phone is required');
   if (!password || String(password).length < 6) errors.push('Password must be at least 6 characters');
-  if (!rolesAllowedForSignup.includes(role)) errors.push('Signup role must be Vendor, Client, staff, or deliveryPerson');
+  
+  const roleLower = String(role || '').trim().toLowerCase();
+  const validLower = rolesAllowedForSignup.map((r) => r.toLowerCase());
+  if (!role || !validLower.includes(roleLower)) {
+    errors.push('Signup role must be Vendor, Client, staff, or deliveryPerson');
+  }
 
   return errors;
 }

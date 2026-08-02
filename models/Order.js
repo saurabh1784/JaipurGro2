@@ -289,16 +289,16 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
     params.push(deliveryStatus);
   }
   if (vendorId) {
-    where.push('o.vendor_id = ?');
-    params.push(vendorId);
+    where.push('o.vendor_id::text = ?::text');
+    params.push(String(vendorId));
   }
   if (clientId) {
-    where.push('o.user_id = ?');
-    params.push(clientId);
+    where.push('o.user_id::text = ?::text');
+    params.push(String(clientId));
   }
   if (deliveryPartnerId) {
-    where.push('o.delivery_partner_id = ?');
-    params.push(deliveryPartnerId);
+    where.push('o.delivery_partner_id::text = ?::text');
+    params.push(String(deliveryPartnerId));
   }
   if (orderType) {
     where.push('o.order_type = ?');
@@ -318,7 +318,7 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
 
   const [rows] = await pool.query(
     `SELECT o.*,
-            COALESCE(o.vendor_id, item_vendor.vendor_id) AS vendor_id,
+            COALESCE(o.vendor_id::text, item_vendor.vendor_id::text) AS vendor_id,
             v.name AS vendor_name,
             v.email AS vendor_email,
             v.phone AS vendor_phone,
@@ -338,14 +338,14 @@ async function listAll({ page = 1, limit = 10, search = '', status = '', deliver
      LEFT JOIN (
        SELECT coi.order_id, MIN(vpi.vendor_id) AS vendor_id
        FROM client_order_items coi
-       INNER JOIN vendor_products vpi ON vpi.id = coi.vendor_product_id
+       INNER JOIN vendor_products vpi ON vpi.id::text = coi.vendor_product_id::text
        GROUP BY coi.order_id
-     ) item_vendor ON item_vendor.order_id = o.id
-     LEFT JOIN users v ON v.id = COALESCE(o.vendor_id, item_vendor.vendor_id)
-     LEFT JOIN vendor_profiles vp ON vp.user_id = COALESCE(o.vendor_id, item_vendor.vendor_id)
-     LEFT JOIN client_profiles cp ON cp.user_id = o.user_id
-     LEFT JOIN users dp ON dp.id = o.delivery_partner_id
-     LEFT JOIN users otp_user ON otp_user.id = o.otp_set_by
+     ) item_vendor ON item_vendor.order_id::text = o.id::text
+     LEFT JOIN users v ON v.id::text = COALESCE(o.vendor_id::text, item_vendor.vendor_id::text)
+     LEFT JOIN vendor_profiles vp ON vp.user_id::text = COALESCE(o.vendor_id::text, item_vendor.vendor_id::text)
+     LEFT JOIN client_profiles cp ON cp.user_id::text = o.user_id::text
+     LEFT JOIN users dp ON dp.id::text = o.delivery_partner_id::text
+     LEFT JOIN users otp_user ON otp_user.id::text = o.otp_set_by::text
      ${whereSql}
      ORDER BY o.created_at DESC, o.id DESC
      LIMIT ? OFFSET ?`,
@@ -441,17 +441,17 @@ async function listByClient(clientId) {
      LEFT JOIN (
        SELECT coi.order_id, MIN(vpi.vendor_id) AS vendor_id
        FROM client_order_items coi
-       INNER JOIN vendor_products vpi ON vpi.id = coi.vendor_product_id
+       INNER JOIN vendor_products vpi ON vpi.id::text = coi.vendor_product_id::text
        GROUP BY coi.order_id
-     ) item_vendor ON item_vendor.order_id = o.id
-     LEFT JOIN users v ON v.id = COALESCE(o.vendor_id, item_vendor.vendor_id)
-     LEFT JOIN vendor_profiles vp ON vp.user_id = COALESCE(o.vendor_id, item_vendor.vendor_id)
-     LEFT JOIN client_profiles cp ON cp.user_id = o.user_id
-     LEFT JOIN users dp ON dp.id = o.delivery_partner_id
-     LEFT JOIN users otp_user ON otp_user.id = o.otp_set_by
-     WHERE o.user_id = ?
+     ) item_vendor ON item_vendor.order_id::text = o.id::text
+     LEFT JOIN users v ON v.id::text = COALESCE(o.vendor_id::text, item_vendor.vendor_id::text)
+     LEFT JOIN vendor_profiles vp ON vp.user_id::text = COALESCE(o.vendor_id::text, item_vendor.vendor_id::text)
+     LEFT JOIN client_profiles cp ON cp.user_id::text = o.user_id::text
+     LEFT JOIN users dp ON dp.id::text = o.delivery_partner_id::text
+     LEFT JOIN users otp_user ON otp_user.id::text = o.otp_set_by::text
+     WHERE o.user_id::text = ?::text
      ORDER BY o.created_at DESC, o.id DESC`,
-    [clientId]
+    [String(clientId)]
   );
 
   return rows.map(normalizeOrder);
@@ -480,17 +480,17 @@ async function findById(orderId) {
      LEFT JOIN (
        SELECT coi.order_id, MIN(vpi.vendor_id) AS vendor_id
        FROM client_order_items coi
-       INNER JOIN vendor_products vpi ON vpi.id = coi.vendor_product_id
+       INNER JOIN vendor_products vpi ON vpi.id::text = coi.vendor_product_id::text
        GROUP BY coi.order_id
-     ) item_vendor ON item_vendor.order_id = o.id
-     LEFT JOIN users v ON v.id = COALESCE(o.vendor_id, item_vendor.vendor_id)
-     LEFT JOIN vendor_profiles vp ON vp.user_id = COALESCE(o.vendor_id, item_vendor.vendor_id)
-     LEFT JOIN client_profiles cp ON cp.user_id = o.user_id
-     LEFT JOIN users dp ON dp.id = o.delivery_partner_id
-     LEFT JOIN users otp_user ON otp_user.id = o.otp_set_by
-     WHERE o.id = ?
+     ) item_vendor ON item_vendor.order_id::text = o.id::text
+     LEFT JOIN users v ON v.id::text = COALESCE(o.vendor_id::text, item_vendor.vendor_id::text)
+     LEFT JOIN vendor_profiles vp ON vp.user_id::text = COALESCE(o.vendor_id::text, item_vendor.vendor_id::text)
+     LEFT JOIN client_profiles cp ON cp.user_id::text = o.user_id::text
+     LEFT JOIN users dp ON dp.id::text = o.delivery_partner_id::text
+     LEFT JOIN users otp_user ON otp_user.id::text = o.otp_set_by::text
+     WHERE o.id::text = ?::text
      LIMIT 1`,
-    [orderId]
+    [String(orderId)]
   );
 
   return normalizeOrder(rows[0]);
@@ -740,15 +740,27 @@ async function updateStatus({ orderId, actorUser, newStatus, note = '' }) {
       [targetStatus, deliveryStatus, targetStatus, targetStatus, orderId]
     );
 
+    if (String(actorRole).toLowerCase() === 'vendor' && ['cancelled', 'rejected'].includes(targetStatus)) {
+      const VendorProfile = require('./VendorProfile');
+      await VendorProfile.deductAccountHealth(Number(order.vendor_id || actorUser.id), 50, 'order_rejected', connection).catch(() => {});
+    }
+
     if (deliveryStatus === 'out_for_delivery' && String(order.delivery_status || '').toLowerCase() !== 'out_for_delivery') {
+      const newDeliveryOtp = generateOtp();
       await connection.query(
         `UPDATE client_orders
          SET delivery_otp = ?, delivery_otp_attempts = 0,
              delivery_otp_locked_at = NULL, delivery_otp_verified_at = NULL,
              otp_set_by = ?, otp_set_at = CURRENT_TIMESTAMP
          WHERE id = ?`,
-        [generateOtp(), actorUser ? actorUser.id : null, orderId]
+        [newDeliveryOtp, actorUser ? actorUser.id : null, orderId]
       );
+      try {
+        const { dispatchDeliveryOtp } = require('../services/notificationDispatcher');
+        dispatchDeliveryOtp({ orderId, otpCode: newDeliveryOtp }).catch((err) => console.error('Error dispatching Delivery OTP:', err));
+      } catch (err) {
+        console.error('Error triggering Delivery OTP dispatch:', err);
+      }
     }
     if (deliveryStatus === 'delivered' || targetStatus === 'delivered') {
       const referralController = require('../controllers/referralController');
@@ -1730,20 +1742,20 @@ async function ensureWaitingOfferForPerson(deliveryPersonId) {
               o.client_name, o.client_phone, o.client_address, o.delivery_charge, o.delivery_commission_amount, o.total_amount,
               o.shipping_city, o.shipping_area, o.shipping_pincode, o.shipping_latitude, o.shipping_longitude,
               o.shipping_name, o.shipping_phone, o.shipping_address,
-              COALESCE(o.delivery_otp, '') AS delivery_otp, COALESCE(o.pickup_otp, '') AS pickup_otp,
+              COALESCE(o.delivery_otp::text, '') AS delivery_otp, COALESCE(o.pickup_otp::text, '') AS pickup_otp,
               v.name AS vendor_name, v.phone AS vendor_phone,
               vprof.business_name AS vendor_business_name, vprof.address AS vendor_address,
               vprof.city AS vendor_city, vprof.area AS vendor_area,
               COALESCE((
-                SELECT SUM(COALESCE(coi.quantity, 0) * COALESCE(p.weight_kg, 0))
+                SELECT SUM(COALESCE(coi.quantity::numeric, 0) * COALESCE(p.weight_kg::numeric, 0))
                 FROM client_order_items coi
-                INNER JOIN vendor_products vp ON vp.id = coi.vendor_product_id
-                INNER JOIN products p ON p.id = vp.product_id
-                WHERE coi.order_id = o.id
-              ), 0) AS approx_total_weight_kg
+                INNER JOIN vendor_products vp ON vp.id::text = coi.vendor_product_id::text
+                INNER JOIN products p ON p.id::text = vp.product_id::text
+                WHERE coi.order_id::text = o.id::text
+              ), 0::numeric) AS approx_total_weight_kg
        FROM client_orders o
-       LEFT JOIN users v ON v.id = o.vendor_id
-       LEFT JOIN vendor_profiles vprof ON vprof.user_id = o.vendor_id
+       LEFT JOIN users v ON v.id::text = o.vendor_id::text
+       LEFT JOIN vendor_profiles vprof ON vprof.user_id::text = o.vendor_id::text
        WHERE o.delivery_partner_id IS NULL
          AND (
            o.delivery_status = 'offer_pending'
@@ -2344,6 +2356,7 @@ async function verifyPickupOTP(orderId, otp, actorUser = null) {
     if (!order.delivery_partner_id) throw new Error('No delivery partner assigned');
     if (String(order.pickup_otp || '') !== String(otp || '').trim()) throw new Error('Invalid pickup OTP');
 
+    const newDeliveryOtp = generateOtp();
     await connection.query(
       `UPDATE client_orders
        SET status = 'picked_up',
@@ -2356,8 +2369,14 @@ async function verifyPickupOTP(orderId, otp, actorUser = null) {
            status_updated_at = CURRENT_TIMESTAMP,
            updated_at = CURRENT_TIMESTAMP
        WHERE id = ?`,
-      [generateOtp(), orderId]
+      [newDeliveryOtp, orderId]
     );
+    try {
+      const { dispatchDeliveryOtp } = require('../services/notificationDispatcher');
+      dispatchDeliveryOtp({ orderId, otpCode: newDeliveryOtp }).catch((err) => console.error('Error dispatching Delivery OTP:', err));
+    } catch (err) {
+      console.error('Error triggering Delivery OTP dispatch:', err);
+    }
     await connection.query(
       `INSERT INTO order_status_history (order_id, old_status, new_status, changed_by, changed_by_role, note)
        VALUES (?, ?, 'picked_up', ?, ?, ?)`,

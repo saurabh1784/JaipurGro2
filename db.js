@@ -33,167 +33,72 @@ function envValue(name, fallback) {
 
 loadLocalEnv();
 
-const renderFallbackConfig = {
-  DB_HOST: 'dpg-d9itb4j7uimc73c4psug-a',
-  DB_PORT: '5432',
-  DB_USER: 'jaipurgro_user',
-  DB_PASSWORD: '0eSR7H1fg47UrgED1zFPiD94S3pDGT7R',
-  DB_NAME: 'jaipurgro',
-};
-
-let fallbackConfigApplied = false;
-
-function hasAnyDatabaseConfig() {
-  return Boolean(
-    process.env.DATABASE_URL
-      || process.env.RENDER_DATABASE_URL
-      || process.env.TARGET_DATABASE_URL
-      || process.env.DATABASE_URL_EXTERNAL
-      || process.env.DB_HOST
-      || process.env.DB_NAME
-      || process.env.DB_USER
-      || process.env.DB_PASSWORD
-  );
-}
-
-function applyRenderFallbackConfig() {
-  if (hasAnyDatabaseConfig()) {
-    return;
-  }
-
-  const isRenderOrProduction = process.env.RENDER === 'true' || process.env.NODE_ENV === 'production';
-  if (!isRenderOrProduction) {
-    return;
-  }
-
-  for (const [name, value] of Object.entries(renderFallbackConfig)) {
-    process.env[name] = value;
-  }
-  fallbackConfigApplied = true;
-}
-
-applyRenderFallbackConfig();
-
-if (!process.env.DATABASE_URL) {
-  process.env.DATABASE_URL = process.env.RENDER_DATABASE_URL
-    || process.env.TARGET_DATABASE_URL
-    || process.env.DATABASE_URL_EXTERNAL
-    || '';
-}
-
-function isLocalHost(host) {
-  return ['localhost', '127.0.0.1', '::1'].includes(String(host || '').toLowerCase());
-}
-
-function shouldUseSsl(host) {
-  const sslValue = String(process.env.DB_SSL || '').toLowerCase();
-  if (['true', '1', 'yes', 'require'].includes(sslValue)) {
-    return true;
-  }
-  if (['false', '0', 'no', 'disable'].includes(sslValue)) {
-    return false;
-  }
-  return !isLocalHost(host);
-}
-
-function envFlag(name) {
-  const value = String(process.env[name] || '').toLowerCase();
-  if (['true', '1', 'yes', 'on'].includes(value)) {
-    return true;
-  }
-  if (['false', '0', 'no', 'off'].includes(value)) {
-    return false;
-  }
-  return null;
-}
-
 function createConnectionStringForDatabase(database) {
   if (!process.env.DATABASE_URL) {
     return null;
   }
-
   const url = new URL(process.env.DATABASE_URL);
   url.pathname = `/${database}`;
   return url.toString();
 }
 
-function createDbConfig(databaseOverride) {
-  const connectionString = databaseOverride ? createConnectionStringForDatabase(databaseOverride) : process.env.DATABASE_URL;
-  if (connectionString) {
-    const url = new URL(connectionString);
+function createDbConfig() {
+  if (process.env.DATABASE_URL) {
+    const url = new URL(process.env.DATABASE_URL);
     return {
-      connectionString,
+      connectionString: process.env.DATABASE_URL,
       database: url.pathname.replace(/^\//, ''),
       max: Number(envValue('DB_POOL_MAX', 10)),
       idleTimeoutMillis: 30000,
       connectionTimeoutMillis: 5000,
       query_timeout: Number(envValue('DB_QUERY_TIMEOUT_MS', 30000)),
       statement_timeout: Number(envValue('DB_STATEMENT_TIMEOUT_MS', 30000)),
-      ssl: shouldUseSsl(url.hostname) ? { rejectUnauthorized: false } : false,
+      ssl: envValue('DB_SSL', 'false') === 'true' ? { rejectUnauthorized: false } : false,
     };
   }
 
   return {
     host: envValue('DB_HOST', 'localhost'),
     port: Number(envValue('DB_PORT', 5432)),
-    user: envValue('DB_USER', 'postgres'),
-    password: envValue('DB_PASSWORD', ''),
-    database: envValue('DB_NAME', 'jaipur_db_node'),
+    user: envValue('DB_USER', 'groxenin_saurabh'),
+    password: envValue('DB_PASSWORD', 'saurabh@17842006'),
+    database: envValue('DB_NAME', 'groxenin_jaipurgro'),
     max: Number(envValue('DB_POOL_MAX', 10)),
     idleTimeoutMillis: 30000,
     connectionTimeoutMillis: 5000,
     query_timeout: Number(envValue('DB_QUERY_TIMEOUT_MS', 30000)),
     statement_timeout: Number(envValue('DB_STATEMENT_TIMEOUT_MS', 30000)),
-    ssl: shouldUseSsl(envValue('DB_HOST', 'localhost')) ? { rejectUnauthorized: false } : false,
+    ssl: envValue('DB_SSL', 'false') === 'true' ? { rejectUnauthorized: false } : false,
   };
 }
 
 const dbConfig = createDbConfig();
-const pgPool = new Pool(dbConfig);
+let activePool = null;
 
-function hasExplicitDatabaseConfig() {
-  return hasAnyDatabaseConfig() || fallbackConfigApplied;
-}
-
-function connectionSource() {
-  if (fallbackConfigApplied) {
-    return 'built-in Render fallback';
+async function getActivePool() {
+  if (!activePool) {
+    activePool = new Pool(dbConfig);
+    activePool.on('error', (err) => {
+      console.error('[DB Pool Error]', err.message);
+    });
   }
-  if (process.env.DATABASE_URL) {
-    if (process.env.RENDER_DATABASE_URL && process.env.DATABASE_URL === process.env.RENDER_DATABASE_URL) {
-      return 'RENDER_DATABASE_URL';
-    }
-    if (process.env.TARGET_DATABASE_URL && process.env.DATABASE_URL === process.env.TARGET_DATABASE_URL) {
-      return 'TARGET_DATABASE_URL';
-    }
-    return process.env.DATABASE_URL_EXTERNAL && process.env.DATABASE_URL === process.env.DATABASE_URL_EXTERNAL
-      ? 'DATABASE_URL_EXTERNAL'
-      : 'DATABASE_URL';
-  }
-  return 'DB_HOST/DB_PORT/DB_USER/DB_NAME';
+  return activePool;
 }
 
 function describeConfig() {
-  const url = dbConfig.connectionString ? new URL(dbConfig.connectionString) : null;
   return {
-    source: connectionSource(),
-    host: url ? url.hostname : dbConfig.host,
-    port: url ? (url.port || 5432) : dbConfig.port,
-    database: dbConfig.database,
-    user: url ? decodeURIComponent(url.username || '') : dbConfig.user,
+    source: '.env Environment Configuration',
+    host: dbConfig.host || 'localhost',
+    port: dbConfig.port || 5432,
+    database: dbConfig.database || 'groxenin_jaipurgro',
+    user: dbConfig.user || 'groxenin_saurabh',
     ssl: Boolean(dbConfig.ssl),
-    ensureDatabase: shouldEnsureDatabase(),
   };
 }
 
 function formatError(error) {
-  if (!error) {
-    return 'Unknown error';
-  }
-
-  if (typeof error === 'string') {
-    return error || 'Unknown error';
-  }
+  if (!error) return 'Unknown error';
+  if (typeof error === 'string') return error;
 
   const parts = [];
   const primary = error.message || error.name || String(error);
@@ -207,86 +112,21 @@ function formatError(error) {
     }
   }
 
-  if (Array.isArray(error.errors) && error.errors.length > 0) {
-    const nested = error.errors
-      .map((nestedError) => formatError(nestedError))
-      .filter(Boolean)
-      .join(' | ');
-    if (nested) {
-      parts.push(`nested=[${nested}]`);
-    }
-  }
-
   return parts.length ? parts.join('; ') : JSON.stringify(error);
 }
 
 function enhanceConnectionError(error) {
   const message = formatError(error);
-  if (/password authentication failed/i.test(message)) {
-    const user = dbConfig.user || (dbConfig.connectionString ? new URL(dbConfig.connectionString).username : 'configured user');
-    error.message = `${message}. Update DB_PASSWORD in Render environment variables to match the PostgreSQL password for user "${user}", or set a valid DATABASE_URL.`;
-  }
-  if (/client password must be a string|sasl/i.test(message) && !dbConfig.password && !dbConfig.connectionString) {
-    error.message = 'PostgreSQL DB_PASSWORD is missing. Set DB_PASSWORD in Render environment variables, or set DATABASE_URL.';
-  }
   if (!error.message) {
     error.message = message;
   }
   return error;
 }
 
-function quoteIdentifier(value) {
-  return `"${String(value).replace(/"/g, '""')}"`;
-}
-
-function getConfiguredHost() {
-  if (dbConfig.connectionString) {
-    return new URL(dbConfig.connectionString).hostname;
-  }
-  return dbConfig.host;
-}
-
-function shouldEnsureDatabase() {
-  const explicit = envFlag('DB_ENSURE_DATABASE');
-  if (explicit !== null) {
-    return explicit;
-  }
-
-  return isLocalHost(getConfiguredHost());
-}
-
-async function ensureDatabase() {
-  if (process.env.NODE_ENV === 'production' && !hasExplicitDatabaseConfig()) {
-    throw new Error('PostgreSQL configuration is missing. Set DATABASE_URL in Render environment variables, or set DB_HOST, DB_PORT, DB_USER, DB_PASSWORD, and DB_NAME.');
-  }
-
-  if (!shouldEnsureDatabase()) {
-    return false;
-  }
-
-  const adminDatabase = process.env.DB_ADMIN_DATABASE || 'postgres';
-  const adminClient = new Client(createDbConfig(adminDatabase));
-
-  await adminClient.connect().catch((error) => {
-    throw enhanceConnectionError(error);
-  });
-  try {
-    const result = await adminClient.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbConfig.database]);
-    if (result.rowCount === 0) {
-      await adminClient.query(`CREATE DATABASE ${quoteIdentifier(dbConfig.database)}`);
-    }
-  } finally {
-    await adminClient.end();
-  }
-
-  return true;
-}
-
 function convertPlaceholders(sql) {
   if (/\$\d+/.test(sql) || !sql.includes('?')) {
     return sql;
   }
-
   let index = 0;
   return sql.replace(/\?/g, () => `$${++index}`);
 }
@@ -352,19 +192,23 @@ function formatResult(result, sql) {
 }
 
 async function runQuery(executor, sql, params) {
+  const pool = await getActivePool();
+  const exec = executor === dbConfig ? pool : executor;
   const normalizedSql = normalizeSql(sql);
-  const result = await executor.query(normalizedSql, params).catch((error) => {
+  const result = await exec.query(normalizedSql, params).catch((error) => {
     throw enhanceConnectionError(error);
   });
   return formatResult(result, normalizedSql);
 }
 
 async function query(sql, params = []) {
-  return runQuery(pgPool, sql, params);
+  const pool = await getActivePool();
+  return runQuery(pool, sql, params);
 }
 
 async function getConnection() {
-  const client = await pgPool.connect().catch((error) => {
+  const pool = await getActivePool();
+  const client = await pool.connect().catch((error) => {
     throw enhanceConnectionError(error);
   });
 
@@ -377,14 +221,60 @@ async function getConnection() {
   };
 }
 
+async function ensureDatabase() {
+  return true;
+}
+
+async function addEssentialIndexes() {
+  const uniqueIndexes = [
+    { table: 'delivery_person_profiles', name: 'uniq_dpp_user_id', columns: 'user_id' },
+    { table: 'vendor_profiles', name: 'uniq_vp_user_id', columns: 'user_id' },
+    { table: 'client_profiles', name: 'uniq_cp_user_id', columns: 'user_id' },
+  ];
+
+  for (const { table, name, columns } of uniqueIndexes) {
+    try {
+      await query(`CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${table} (${columns})`);
+    } catch (e) {
+      // Ignore
+    }
+  }
+
+  const indexDefinitions = [
+    { table: 'client_orders', name: 'idx_co_client_status', columns: 'client_id, status' },
+    { table: 'client_orders', name: 'idx_co_vendor_status', columns: 'vendor_id, status' },
+    { table: 'client_orders', name: 'idx_co_dp_status', columns: 'delivery_partner_id, status' },
+    { table: 'client_orders', name: 'idx_co_created', columns: 'created_at' },
+    { table: 'vendor_profiles', name: 'idx_vp_user', columns: 'user_id' },
+    { table: 'vendor_profiles', name: 'idx_vp_city_area', columns: 'city, area' },
+    { table: 'support_tickets', name: 'idx_st_dp', columns: 'delivery_partner_id' },
+    { table: 'support_tickets', name: 'idx_st_order', columns: 'order_id' },
+    { table: 'wallet_transactions', name: 'idx_wt_user_type', columns: 'user_id, type' },
+    { table: 'ratings', name: 'idx_ratings_target', columns: 'target_id, rating_type' },
+  ];
+
+  for (const { table, name, columns } of indexDefinitions) {
+    try {
+      await query(`CREATE INDEX IF NOT EXISTS ${name} ON ${table} (${columns})`);
+    } catch (e) {
+      // Ignore
+    }
+  }
+}
+
 module.exports = {
-  ...pgPool,
   query,
   getConnection,
   ensureDatabase,
   describeConfig,
   formatError,
-  end: () => pgPool.end(),
-  connect: () => pgPool.connect(),
+  addEssentialIndexes,
+  end: async () => {
+    if (activePool) await activePool.end();
+  },
+  connect: async () => {
+    const pool = await getActivePool();
+    return pool.connect();
+  },
   config: dbConfig,
 };

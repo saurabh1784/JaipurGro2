@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Delivery Partner Withdrawals Management - Groxen</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .withdrawal-filter-bar {
+      display: flex; flex-wrap: wrap; gap: 12px; align-items: center; margin-bottom: 20px;
+    }
+    .withdrawal-filter-bar input, .withdrawal-filter-bar select {
+      padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem;
+    }
+    .withdrawal-badge {
+      padding: 4px 10px; border-radius: 12px; font-size: 0.75rem; font-weight: 700; text-transform: uppercase;
+    }
+    .withdrawal-badge.pending { background: #fef3c7; color: #92400e; }
+    .withdrawal-badge.approved { background: #dcfce7; color: #166534; }
+    .withdrawal-badge.rejected { background: #fee2e2; color: #991b1b; }
+    .bank-card-box {
+      font-size: 0.85rem; background: #f8fafc; padding: 8px 10px; border-radius: 6px; border: 1px dashed #cbd5e1;
+    }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell: locals.shell || (typeof shell !== 'undefined' ? shell : {}) }) %>
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Finance / Delivery Withdrawals</p>
+        <h1>Delivery Partner Cash Withdrawals</h1>
+      </div>
+    </header>
+
+    <section class="wallet-shell" style="padding: 24px;">
+      <div class="withdrawal-filter-bar">
+        <input id="search" type="search" placeholder="Search rider name or request ID" style="min-width: 250px;" />
+        <input id="cityFilter" placeholder="Filter City" />
+        <select id="statusFilter">
+          <option value="">All Statuses</option>
+          <option value="pending">Pending</option>
+          <option value="approved">Approved</option>
+          <option value="rejected">Rejected</option>
+        </select>
+        <button class="product-secondary-button" id="clearFilters">Clear</button>
+      </div>
+
+      <div class="users-table-card">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Delivery Partner</th>
+              <th>City</th>
+              <th>Requested Amount</th>
+              <th>Bank Account Details</th>
+              <th>Status</th>
+              <th>Date</th>
+              <th>Processed By / Remarks</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="9">Loading withdrawal requests...</td></tr>
+          </tbody>
+        </table>
+
+        <div class="users-pagination" style="margin-top: 16px;">
+          <button id="prevBtn">Previous</button>
+          <span id="pageInfo">Page 1</span>
+          <button id="nextBtn">Next</button>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Process Modal -->
+  <div class="user-modal" id="processModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2 id="modalTitle">Process Withdrawal Request</h2>
+        <button type="button" onclick="closeModal('processModal')">Close</button>
+      </div>
+      <form id="processForm" class="user-modal-grid">
+        <input type="hidden" id="modalRequestId" />
+        <input type="hidden" id="modalAction" />
+
+        <div class="settings-wide">
+          <p id="modalDescription" style="font-size: 0.95rem; font-weight: 600; color: #334155; margin-bottom: 12px;"></p>
+        </div>
+
+        <label class="settings-wide">
+          Admin Remark / Note
+          <textarea id="adminRemark" rows="3" placeholder="Enter processing remarks for the delivery partner..."></textarea>
+        </label>
+
+        <button class="settings-save" id="submitProcessBtn" type="submit">Submit</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const isSuperAdmin = <%= Boolean(locals.isSuperAdmin) %>;
+    const adminCity = <%- JSON.stringify(locals.adminCity || '') %>;
+    let page = 1, totalPages = 1, requests = [];
+
+    const el = (id) => document.getElementById(id);
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+    const money = (v) => `₹${Number(v || 0).toFixed(2)}`;
+
+    function openModal(id) { el(id).classList.add('active'); }
+    function closeModal(id) { el(id).classList.remove('active'); }
+
+    async function load(newPage = 1) {
+      page = newPage;
+      const cityVal = (!isSuperAdmin && adminCity) ? adminCity : el('cityFilter').value.trim();
+      const q = new URLSearchParams({
+        format: 'json',
+        page: newPage,
+        limit: 15,
+        search: el('search').value.trim(),
+        city: cityVal,
+        status: el('statusFilter').value,
+      });
+
+      try {
+        const res = await fetch(`/api/admin/delivery-withdrawals?${q}`);
+        const d = await res.json();
+        if (!res.ok || !d.success) throw new Error(d.message || 'Failed to load requests');
+
+        requests = d.requests || [];
+        totalPages = d.pagination.totalPages || 1;
+        render();
+      } catch (e) {
+        el('tableBody').innerHTML = `<tr><td colspan="9" style="color: #ef4444; font-weight: 600;">${esc(e.message)}</td></tr>`;
+      }
+    }
+
+    function render() {
+      if (!isSuperAdmin && adminCity) {
+        el('cityFilter').value = adminCity;
+        el('cityFilter').disabled = true;
+      }
+
+      if (!requests.length) {
+        el('tableBody').innerHTML = '<tr><td colspan="9">No delivery partner withdrawal requests found.</td></tr>';
+        el('pageInfo').textContent = `Page ${page} of ${totalPages}`;
+        el('prevBtn').disabled = true;
+        el('nextBtn').disabled = true;
+        return;
+      }
+
+      el('tableBody').innerHTML = requests.map(r => {
+        const b = r.bank_details || {};
+        const method = b.payout_method || (b.pay_to_phone ? 'mobile' : (b.upi_id && !b.account_number ? 'upi' : 'bank'));
+        let methodBadge = '<span class="withdrawal-badge pending" style="background:#e0f2fe; color:#0369a1; display:inline-block; margin-bottom:4px; font-size:0.75rem;">Bank Transfer</span>';
+        if (method === 'mobile') {
+          methodBadge = '<span class="withdrawal-badge pending" style="background:#dcfce7; color:#15803d; display:inline-block; margin-bottom:4px; font-size:0.75rem;">Pay on Mobile</span>';
+        } else if (method === 'upi') {
+          methodBadge = '<span class="withdrawal-badge pending" style="background:#fef3c7; color:#b45309; display:inline-block; margin-bottom:4px; font-size:0.75rem;">UPI Payment</span>';
+        }
+
+        let detailsContent = '';
+        if (method === 'mobile') {
+          detailsContent = `<div><b>Phone:</b> ${esc(b.pay_to_phone || '-')}</div><div style="font-size:0.78rem; color:#64748b;">UPI / PhonePe / GPay on Phone</div>`;
+        } else if (method === 'upi') {
+          detailsContent = `<div><b>UPI ID:</b> ${esc(b.upi_id || '-')}</div>`;
+        } else {
+          detailsContent = `<div><b>${esc(b.account_holder_name || r.delivery_person_name)}</b></div>
+                            <div>A/c: ${esc(b.account_number || '-')}</div>
+                            <div>IFSC: ${esc(b.ifsc_code || '-')} · Bank: ${esc(b.bank_name || '-')}</div>
+                            ${b.upi_id ? `<div>UPI: ${esc(b.upi_id)}</div>` : ''}`;
+        }
+        const bankStr = `${methodBadge}${detailsContent}`;
+
+        const isPending = r.status === 'pending';
+        return `<tr>
+          <td>#DEL-REQ-${r.id}</td>
+          <td><strong>${esc(r.delivery_person_name)}</strong><br/><small style="color: #64748b;">(#Rider-${r.delivery_person_id})</small></td>
+          <td><span class="user-status-pill active">${esc(r.city)}</span></td>
+          <td><strong style="color: #0f766e; font-size: 1.05rem;">${money(r.amount)}</strong></td>
+          <td><div class="bank-card-box">${bankStr}</div></td>
+          <td><span class="withdrawal-badge ${r.status}">${esc(r.status)}</span></td>
+          <td><small>${new Date(r.created_at).toLocaleString('en-IN')}</small></td>
+          <td>
+            ${r.processed_by_name ? `<div><small>By: <b>${esc(r.processed_by_name)}</b></small></div>` : ''}
+            ${r.admin_remark ? `<div><small style="color: #475569;">Note: ${esc(r.admin_remark)}</small></div>` : '-'}
+          </td>
+          <td>
+            ${isPending ? `
+              <div style="display: flex; gap: 6px;">
+                <button class="settings-save" style="padding: 5px 10px; font-size: 0.8rem;" onclick="openProcess(${r.id}, 'approve')">Approve</button>
+                <button class="product-secondary-button" style="padding: 5px 10px; font-size: 0.8rem; background: #fee2e2; color: #991b1b;" onclick="openProcess(${r.id}, 'reject')">Reject</button>
+              </div>
+            ` : `<span style="color: #94a3b8; font-size: 0.85rem;">Processed</span>`}
+          </td>
+        </tr>`;
+      }).join('');
+
+      el('pageInfo').textContent = `Page ${page} of ${totalPages}`;
+      el('prevBtn').disabled = page <= 1;
+      el('nextBtn').disabled = page >= totalPages;
+    }
+
+    function openProcess(id, action) {
+      const r = requests.find(x => x.id === id);
+      if (!r) return;
+      el('modalRequestId').value = id;
+      el('modalAction').value = action;
+      el('adminRemark').value = '';
+
+      if (action === 'approve') {
+        el('modalTitle').textContent = `Approve Withdrawal #${id}`;
+        el('modalDescription').textContent = `Approving this request will automatically deduct ${money(r.amount)} from ${r.delivery_person_name}'s wallet balance.`;
+        el('submitProcessBtn').style.background = '#0f766e';
+        el('submitProcessBtn').textContent = 'Confirm & Approve Withdrawal';
+      } else {
+        el('modalTitle').textContent = `Reject Withdrawal #${id}`;
+        el('modalDescription').textContent = `Are you sure you want to reject this withdrawal request of ${money(r.amount)} from ${r.delivery_person_name}?`;
+        el('submitProcessBtn').style.background = '#ef4444';
+        el('submitProcessBtn').textContent = 'Reject Request';
+      }
+
+      openModal('processModal');
+    }
+
+    el('processForm').onsubmit = async (e) => {
+      e.preventDefault();
+      const id = el('modalRequestId').value;
+      const action = el('modalAction').value;
+      const remark = el('adminRemark').value.trim();
+
+      try {
+        const res = await fetch(`/api/admin/delivery-withdrawals/${id}/${action}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ admin_remark: remark }),
+        });
+        const d = await res.json();
+        if (!res.ok || !d.success) throw new Error(d.message || 'Failed to process request');
+
+        alert(d.message);
+        closeModal('processModal');
+        load(page);
+      } catch (err) {
+        alert(err.message);
+      }
+    };
+
+    el('prevBtn').onclick = () => load(page - 1);
+    el('nextBtn').onclick = () => load(page + 1);
+    el('clearFilters').onclick = () => {
+      el('search').value = '';
+      if (isSuperAdmin) el('cityFilter').value = '';
+      el('statusFilter').value = '';
+      load(1);
+    };
+
+    ['search', 'cityFilter'].forEach(id => el(id).addEventListener('input', () => load(1)));
+    el('statusFilter').onchange = () => load(1);
+
+    load();
+  </script>
+</body>
+</html>

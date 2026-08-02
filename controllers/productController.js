@@ -90,6 +90,7 @@ function validateProductPayload(body) {
   const brand_id = normalizeId(body.brand_id);
   const taxName = body.tax_name === undefined ? '' : String(body.tax_name || '').trim();
   const taxPercentage = body.tax_percentage === undefined || body.tax_percentage === '' ? null : toNumber(body.tax_percentage);
+  const hsnCode = body.hsn_code !== undefined ? String(body.hsn_code || '').trim() : (body.hsc_code !== undefined ? String(body.hsc_code || '').trim() : (body.hsn !== undefined ? String(body.hsn || '').trim() : (body.hsc !== undefined ? String(body.hsc || '').trim() : '')));
 
   if (!name || name.length < 2) errors.push('Name must be at least 2 characters');
   if (!Number.isFinite(price) || price < 0) errors.push('Price must be a valid non-negative number');
@@ -106,6 +107,7 @@ function validateProductPayload(body) {
     data: {
       name,
       description: body.description ? String(body.description).trim() : '',
+      hsn_code: hsnCode,
       price,
       weight_value: weightValue,
       weight_unit: weightUnit,
@@ -522,6 +524,7 @@ async function normalizeSmartBulkRow({ row, rowNumber, category, subcategoryMap,
   const product = {
     name: String(getCell(row, ['name', 'product name'])).trim(),
     description: String(getCell(row, ['description', 'desc'])).trim(),
+    hsn_code: String(getCell(row, ['hsn_code', 'hsn code', 'hsn', 'hsc_code', 'hsc code', 'hsc']) || '').trim(),
     price: getCell(row, ['price']),
     weight_value: getCell(row, ['weight_value', 'weight value', 'weight', 'weight_kg', 'weight kg', 'kg']),
     weight_unit: getCell(row, ['weight_unit', 'weight unit', 'unit']),

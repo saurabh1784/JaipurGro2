@@ -1,25 +1,29 @@
 {
   "name": "groxen-server",
   "version": "1.0.0",
-  "description": "Default Node.js project with superadmin login and MySQL UI.",
+  "description": "Default Node.js project with superadmin login and PostgreSQL DB.",
   "main": "app.js",
+  "engines": {
+    "node": ">=24.18.0"
+  },
   "scripts": {
     "start": "node app.js",
     "dev": "nodemon app.js",
     "migrate": "node scripts/run-migrations.js",
-    "migrate:fresh": "node scripts/fresh-seed.js",
-    "db:fresh": "node scripts/fresh-seed.js",
-    "db:seed": "node scripts/fresh-seed.js",
-    "schema:sync": "node app.js --sync-schema-only",
-    "db:dump:local": "node scripts/full-db-migration.js dump",
-    "db:replace:target": "node scripts/full-db-migration.js replace",
+    "migrate:schema": "node newdata.js",
+    "migrate:data": "node scripts/migrate-db-data.js",
+    "seed": "node scripts/fresh-seed.js",
+    "seed:delivery": "node scripts/seed-delivery-persons.js",
+    "deliveryperson:seed": "node scripts/seed-delivery-persons.js",
+    "db:dump": "node scripts/full-db-migration.js dump",
+    "saurabh": "node scripts/safe-schema-update.js",
     "db:snapshot:export": "node scripts/db-snapshot.js export",
     "db:snapshot:restore": "node scripts/db-snapshot.js restore"
   },
   "keywords": [
     "node",
     "express",
-    "mysql",
+    "postgres",
     "login",
     "superadmin"
   ],
@@ -27,17 +31,18 @@
   "license": "MIT",
   "dependencies": {
     "bcryptjs": "^3.0.3",
+    "connect-pg-simple": "^10.0.0",
     "ejs": "^3.1.9",
     "express": "^4.18.2",
     "express-session": "^1.17.4",
     "firebase-admin": "^13.6.0",
     "google-auth-library": "^10.5.0",
     "multer": "^2.1.1",
+    "nodemailer": "^9.0.3",
     "pg": "^8.20.0",
     "pg-hstore": "^2.3.4",
     "qrcode": "^1.5.4",
     "sequelize": "^6.32.1",
-    "sharp": "^0.35.3",
     "xlsx": "^0.18.5"
   }
 }

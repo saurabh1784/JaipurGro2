@@ -1,6 +1,18 @@
 const bcrypt = require('bcryptjs');
 const pool = require('../db');
 const { runMigrations } = require('../migrationRunner');
+const { ensureAllSchemaTables } = require('../services/schemaSyncService');
+const LocationOption = require('../models/LocationOption');
+const DeliveryPricing = require('../services/deliveryPricingService');
+const BiddingSetting = require('../models/BiddingSetting');
+const LocationCommissionSetting = require('../models/LocationCommissionSetting');
+const DeliveryType = require('../models/DeliveryType');
+const ContentPage = require('../models/ContentPage');
+const ProductVariant = require('../models/ProductVariant');
+const VendorInventory = require('../models/VendorInventory');
+const { seedCatalog } = require('./seed-grocery-stationery-subcategories');
+const { seedProducts } = require('./seed-seven-products-per-category');
+const { seedVendorServices } = require('./seed-vendor-services');
 
 const DEFAULT_USERS = [
   // 1 Super Admin
@@ -29,12 +41,12 @@ const DEFAULT_USERS = [
 ];
 
 async function resetDatabase() {
-  console.log('🔄 Resetting database: Truncating all tables and restarting auto-increment IDs at 1...');
+  console.log('🔄 Resetting database: Building base schema & truncating tables...');
 
-  if (typeof pool.ensureDatabase === 'function') {
-    await pool.ensureDatabase();
-  }
+  // Step 1: Base Schema Tables Verification
+  await ensureAllSchemaTables(pool);
 
+  // Step 2: Clean Truncation of All Public Tables
   const [tables] = await pool.query(`
     SELECT table_name
     FROM information_schema.tables
@@ -63,12 +75,15 @@ async function resetDatabase() {
     }
   }
 
+  // Step 3: Database Migrations
   try {
     await runMigrations(pool);
+    console.log('✅ Applied database migrations.');
   } catch (err) {
     console.log('Migrations up to date or already applied.');
   }
 
+  // Step 4: System Roles Seeding
   const rolesToSeed = [
     { name: 'Super Admin', slug: 'superadmin', description: 'Full system access', level: 0, permissions: ['*'] },
     { name: 'Admin', slug: 'admin', description: 'Administrator access', level: 1, permissions: ['dashboard.view', 'users.manage', 'roles.manage', 'clients.manage', 'vendors.manage', 'products.manage'] },
@@ -85,7 +100,8 @@ async function resetDatabase() {
     );
   }
 
-  console.log('🌱 Seeding default 12 accounts (1 Super Admin, 1 Admin, 5 Clients, 5 Vendors) with password: password ...');
+  // Step 5: Seed Default Accounts
+  console.log('🌱 Seeding default 12 system accounts with password: password ...');
 
   for (const user of DEFAULT_USERS) {
     const userPhone = user.phone ? String(user.phone).trim() : null;
@@ -144,14 +160,55 @@ async function resetDatabase() {
     }
   }
 
-  console.log('✨ Database fresh reset & seeding complete!');
-  console.log('📊 Verification Summary:');
-  console.log('  - Users created: 12');
-  console.log('  - Main Categories: 0');
-  console.log('  - Subcategories: 0');
-  console.log('  - Brands: 0');
-  console.log('  - Products: 0');
-  console.log('  - Default password for all users: password');
+  // Step 6: Initialize System Models & Settings
+  console.log('⚙️ Initializing location tree, delivery pricing, bidding rules & content pages...');
+  try { await LocationOption.seedDefaultsIfEmpty(pool); } catch (e) {}
+  try { await DeliveryPricing.initSchema(pool); } catch (e) {}
+  try { await BiddingSetting.initSchema(pool); } catch (e) {}
+  try { await LocationCommissionSetting.initSchema(pool); } catch (e) {}
+  try { await DeliveryType.initSchema(pool); } catch (e) {}
+  try { await ContentPage.seedDemoPages(); } catch (e) {}
+  try { await ProductVariant.initProductVariantsSystem(); } catch (e) {}
+  try { await VendorInventory.initVendorInventorySystem(); } catch (e) {}
+
+  // Step 7: Seed Categories, Subcategories, Brands Catalog
+  console.log('📦 Seeding Indian main categories, sub-categories, and brands catalog...');
+  try { await seedCatalog(); } catch (e) { console.error('Catalog seed note:', e.message); }
+
+  // Step 8: Seed Real Approved Products
+  console.log('🛒 Seeding approved products with tax, weight, HSN codes, and images...');
+  try { await seedProducts(); } catch (e) { console.error('Products seed note:', e.message); }
+
+  // Step 9: Seed Vendor Services & Vendor Product Linkages
+  console.log('🏪 Linking vendor profiles, categories, and store products...');
+  try { await seedVendorServices(); } catch (e) { console.error('Vendor services seed note:', e.message); }
+
+  // Step 10: Final Verification & Count Summary
+  const getCount = async (sql) => {
+    try {
+      const [rows] = await pool.query(sql);
+      return Number(rows[0]?.count || 0);
+    } catch {
+      return 0;
+    }
+  };
+
+  const usersCount = await getCount('SELECT COUNT(*) AS count FROM users');
+  const categoriesCount = await getCount('SELECT COUNT(*) AS count FROM categories WHERE is_deleted = 0');
+  const subCategoriesCount = await getCount('SELECT COUNT(*) AS count FROM sub_categories WHERE is_deleted = 0');
+  const brandsCount = await getCount('SELECT COUNT(*) AS count FROM brands WHERE is_deleted = 0');
+  const productsCount = await getCount('SELECT COUNT(*) AS count FROM products WHERE is_deleted = 0');
+  const vendorProductsCount = await getCount('SELECT COUNT(*) AS count FROM vendor_products');
+
+  console.log('\n✨ Database fresh reset & complete seeding finished successfully!');
+  console.log('📊 Complete Verification Summary:');
+  console.log(`  - Users created: ${usersCount}`);
+  console.log(`  - Main Categories: ${categoriesCount}`);
+  console.log(`  - Subcategories: ${subCategoriesCount}`);
+  console.log(`  - Brands: ${brandsCount}`);
+  console.log(`  - Products: ${productsCount}`);
+  console.log(`  - Vendor Store Products: ${vendorProductsCount}`);
+  console.log('  - Default password for all accounts: password\n');
 }
 
 if (require.main === module) {

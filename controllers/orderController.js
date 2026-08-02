@@ -10,12 +10,14 @@ const DeliveryType = require('../models/DeliveryType');
 const Rating = require('../models/Rating');
 const { isSuperAdminUser, getAssignedUserCity } = require('./userController');
 
+const urlService = require('../services/urlService');
+
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
 }
 
 function invoiceLinks(req, order) {
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = urlService.getAppUrl(req);
   const basePath = `${origin}${req.baseUrl}/${order.id}/invoice`;
   const accessToken = req.token ? `&access_token=${encodeURIComponent(req.token)}` : '';
   const publicInvoiceUrl = publicInvoiceLink(req, order);
@@ -65,7 +67,7 @@ function isValidPublicInvoiceToken(order, token) {
 }
 
 function publicInvoiceLink(req, order) {
-  const origin = `${req.protocol}://${req.get('host')}`;
+  const origin = urlService.getAppUrl(req);
   return `${origin}/public/invoices/${order.id}/${encodeURIComponent(invoicePublicToken(order))}`;
 }
 
@@ -483,6 +485,9 @@ async function deliveryHeartbeat(req, res) {
   if (!isDeliveryPartnerUser(currentUser)) {
     return res.status(403).json({ success: false, message: 'Delivery partner access required' });
   }
+  if (!(await activeDeliveryPerson(currentUser))) {
+    return res.status(403).json({ success: false, message: 'Profile completed. Waiting for admin approval.' });
+  }
   const latitude = Number(req.body.latitude);
   const longitude = Number(req.body.longitude);
   const hasCoordinates = Number.isFinite(latitude) && Number.isFinite(longitude)
@@ -511,6 +516,9 @@ async function updateDeliveryAvailability(req, res) {
   const currentUser = req.authUser || req.session.user;
   if (!isDeliveryPartnerUser(currentUser)) {
     return res.status(403).json({ success: false, message: 'Delivery partner access required' });
+  }
+  if (!(await activeDeliveryPerson(currentUser))) {
+    return res.status(403).json({ success: false, message: 'Profile completed. Waiting for admin approval.' });
   }
 
   const value = req.body.is_available ?? req.body.available ?? req.body.availability_status;
@@ -563,13 +571,30 @@ async function deliveryProfile(req, res) {
        LIMIT 1`,
       [currentUser.id]
     );
-    const [areas] = await pool.query(
+    let [areas] = await pool.query(
       `SELECT city, COALESCE(NULLIF(TRIM(area), ''), '*') AS area, is_active
        FROM delivery_partner_settings
-       WHERE user_id = ? AND is_active = 1
+       WHERE user_id = ?
        ORDER BY city, area`,
       [currentUser.id]
     );
+
+    const profileData = profileRows[0] || {};
+    const city = String(profileData.city || currentUser.city || '').trim();
+    const area = String(profileData.area || currentUser.area || currentUser.zone || '*').trim() || '*';
+
+    if (areas.length === 0) {
+      areas = [{
+        city: city || 'Jaipur',
+        area: area || '*',
+        is_active: 1,
+      }];
+      await pool.query(
+        'INSERT INTO delivery_partner_settings (user_id, city, area, is_active) VALUES (?, ?, ?, 1) ON CONFLICT DO NOTHING',
+        [currentUser.id, city || 'Jaipur', area || '*']
+      ).catch(() => {});
+    }
+
     const walletData = await Wallet.transactionsByUserId(currentUser.id, { limit: 50 });
     return res.json({
       success: true,
@@ -630,6 +655,8 @@ async function updateDeliveryProfile(req, res) {
   const address = String(req.body.address || '').trim();
   const addressProofType = String(req.body.address_proof_type || '').trim();
   const addressProofId = String(req.body.address_proof_id || '').trim();
+  const vehicleType = req.body.vehicle_type ? String(req.body.vehicle_type).trim() : null;
+  const vehicleNumber = req.body.vehicle_number ? String(req.body.vehicle_number).trim() : null;
   const documentNotes = String(req.body.document_notes || '').trim();
   const availability = String(req.body.availability_status || '').trim().toLowerCase();
   const isAvailable = availability === 'unavailable' || availability === 'false' ? 0 : 1;
@@ -644,40 +671,61 @@ async function updateDeliveryProfile(req, res) {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
-    await connection.query('UPDATE users SET name = ? WHERE id = ? AND LOWER(role) = ?', [name, currentUser.id, 'deliveryperson']);
+
+    const [existingRows] = await connection.query(
+      'SELECT city FROM delivery_person_profiles WHERE user_id = ? LIMIT 1',
+      [currentUser.id]
+    );
+    const oldCity = existingRows.length && existingRows[0].city ? String(existingRows[0].city).trim().toLowerCase() : '';
+    const cityChanged = oldCity && oldCity !== city.toLowerCase();
+    const activeAvailability = cityChanged ? 0 : isAvailable;
+
+    await connection.query(
+      "UPDATE users SET name = ?, status = CASE WHEN ? = 1 THEN 'pending' ELSE status END WHERE id = ? AND LOWER(role) IN ('deliveryperson', 'delivery', 'delivery_partner')",
+      [name, cityChanged ? 1 : 0, currentUser.id]
+    );
+
     await connection.query(
       `INSERT INTO delivery_person_profiles
-        (user_id, city, area, address, address_proof_id, address_proof_type, document_notes, is_available)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        (user_id, city, area, address, address_proof_id, address_proof_type, vehicle_type, vehicle_number, document_notes, is_available)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
        ON CONFLICT (user_id) DO UPDATE SET
          city = EXCLUDED.city,
          area = EXCLUDED.area,
          address = EXCLUDED.address,
          address_proof_id = EXCLUDED.address_proof_id,
          address_proof_type = EXCLUDED.address_proof_type,
+         vehicle_type = COALESCE(EXCLUDED.vehicle_type, delivery_person_profiles.vehicle_type),
+         vehicle_number = COALESCE(EXCLUDED.vehicle_number, delivery_person_profiles.vehicle_number),
          document_notes = EXCLUDED.document_notes,
          is_available = EXCLUDED.is_available,
          updated_at = CURRENT_TIMESTAMP`,
-      [currentUser.id, city, area, address || null, addressProofId || null, addressProofType || null, documentNotes || null, isAvailable]
+      [currentUser.id, city, area, address || null, addressProofId || null, addressProofType || null, vehicleType || null, vehicleNumber || null, documentNotes || null, activeAvailability]
     );
     await connection.query('DELETE FROM delivery_partner_settings WHERE user_id = ?', [currentUser.id]);
     await connection.query(
       'INSERT INTO delivery_partner_settings (user_id, city, area, is_active) VALUES (?, ?, ?, ?)',
-      [currentUser.id, city, area, isAvailable]
+      [currentUser.id, city, area, activeAvailability]
     );
     await DeliveryPerson.log({
       deliveryPersonId: currentUser.id,
       actorId: currentUser.id,
-      action: 'profile_self_updated',
-      description: 'Delivery partner updated profile from app',
+      action: cityChanged ? 'city_changed_verification_pending' : 'profile_self_updated',
+      description: cityChanged
+        ? `Delivery partner changed working city from ${existingRows[0].city} to ${city}. Account set to pending verification for new city admin.`
+        : 'Delivery partner updated profile from app',
     }, connection).catch(() => {});
     await connection.commit();
 
     const updatedUser = await User.findById(currentUser.id);
     return res.json({
       success: true,
-      message: 'Profile updated successfully',
-      user: User.publicUser(updatedUser),
+      message: cityChanged
+        ? `Working city changed to ${city}. Your account status is now pending verification for ${city} City Admin approval.`
+        : 'Profile updated successfully',
+      cityChanged,
+      status: cityChanged ? 'pending' : (updatedUser ? updatedUser.status : 'active'),
+      profile: updatedUser ? User.publicUser(updatedUser) : null,
     });
   } catch (error) {
     await connection.rollback();

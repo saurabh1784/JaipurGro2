@@ -212,14 +212,23 @@ async function applyLedgerEntry({
 }
 
 async function ensureForUser(userId, connection = pool) {
-  await connection.query(
-    `INSERT INTO wallets (user_id, balance, currency, status)
-     VALUES (?, 0.00, 'INR', 'active')
-     ON CONFLICT (user_id) DO UPDATE SET user_id = EXCLUDED.user_id`,
+  const { rows: existingRows } = await connection.query(
+    'SELECT * FROM wallets WHERE user_id = $1 LIMIT 1',
     [userId]
   );
 
-  const [rows] = await connection.query('SELECT * FROM wallets WHERE user_id = ? LIMIT 1', [userId]);
+  if (!existingRows || existingRows.length === 0) {
+    await connection.query(
+      `INSERT INTO wallets (user_id, balance, currency, status)
+       VALUES ($1, 0.00, 'INR', 'active')`,
+      [userId]
+    );
+  }
+
+  const { rows } = await connection.query(
+    'SELECT * FROM wallets WHERE user_id = $1 LIMIT 1',
+    [userId]
+  );
   return normalizeWallet(rows[0]);
 }
 

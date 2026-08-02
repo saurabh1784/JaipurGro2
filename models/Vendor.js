@@ -52,6 +52,9 @@ async function assignedCategories(vendorIds, connection = pool) {
 function publicVendor(row) {
   if (!row) return null;
   const categories = Array.isArray(row.categories) ? row.categories : [];
+  const health = Number(row.account_health !== undefined && row.account_health !== null ? row.account_health : 500);
+  const hasWarning = health < 250;
+  const isOnHold = health < 180 || String(row.status || '').toLowerCase() === 'on_hold';
   return {
     id: row.id,
     user_id: row.user_id || row.id,
@@ -69,6 +72,12 @@ function publicVendor(row) {
     services: normalizeServices(row.services),
     is_premium_vendor: Boolean(Number(row.is_premium_vendor || 0)),
     premium_commission_percent: Number(row.premium_commission_percent || 0),
+    account_health: health,
+    has_health_warning: hasWarning,
+    health_warning_message: hasWarning
+      ? `Account Health Warning: Your account health is low (${health}/500). Please fulfill orders and bid promptly to avoid account suspension.`
+      : null,
+    is_on_hold: isOnHold,
     categories,
     category_ids: categories.map((category) => Number(category.id)).filter(Boolean),
     created_at: row.created_at,
@@ -124,7 +133,8 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
   );
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services, vp.is_premium_vendor, vp.premium_commission_percent
+            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services, vp.is_premium_vendor, vp.premium_commission_percent,
+            COALESCE(vp.account_health, 500) AS account_health
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE ${whereSql}
@@ -148,7 +158,8 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
 async function findById(id) {
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
-            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services, vp.is_premium_vendor, vp.premium_commission_percent
+            vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services, vp.is_premium_vendor, vp.premium_commission_percent,
+            COALESCE(vp.account_health, 500) AS account_health
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE u.id = ? AND u.role = 'Vendor' AND u.is_deleted = 0
@@ -289,6 +300,26 @@ async function setCategories(vendorId, categoryIds, connection = pool) {
 
 async function updateStatus(id, status) {
   await pool.query("UPDATE users SET status = ? WHERE id = ? AND role = 'Vendor' AND is_deleted = 0", [status, id]);
+  if (['active', 'approved'].includes(String(status).toLowerCase())) {
+    try {
+      const { notifyVendorEvent } = require('../services/notificationDispatcher');
+      const [vRows] = await pool.query('SELECT name, email, phone FROM users WHERE id = ? LIMIT 1', [id]);
+      if (vRows && vRows[0]) {
+        notifyVendorEvent({
+          vendorEmail: vRows[0].email,
+          vendorPhone: vRows[0].phone,
+          vendorName: vRows[0].name || 'Vendor Partner',
+          eventType: 'approval',
+          data: {
+            storeName: 'JaipurGro',
+            loginUrl: 'https://jaipurgro.com/vendor/login',
+          },
+        }).catch((err) => console.error('[Vendor Model] Error dispatching Vendor approval notification:', err));
+      }
+    } catch (err) {
+      console.error('[Vendor Model] Error triggering Vendor approval notification:', err);
+    }
+  }
 }
 
 async function softDelete(id) {

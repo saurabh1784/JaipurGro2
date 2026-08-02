@@ -285,6 +285,10 @@
   function bindInputs(root = document) {
     root.querySelectorAll('input[type="file"][accept*="image"]:not([data-image-editor-bound])').forEach((input) => {
       if (input.multiple) return;
+      if (input.dataset.skipEditor === 'true' || input.dataset.noImageEditor === 'true' || input.id === 'loginBgImageFile') {
+        input.dataset.imageEditorBound = 'bypass';
+        return;
+      }
       input.dataset.imageEditorBound = 'true';
       input.addEventListener('change', () => {
         const file = input.files && input.files[0];

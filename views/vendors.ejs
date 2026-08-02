@@ -5,6 +5,470 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Vendor Management</title>
   <link rel="stylesheet" href="/styles.css" />
+  <style>
+    /* Vendor View Centered Modal Styles */
+    .vendor-view-modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.75);
+      backdrop-filter: blur(6px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 1050;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.25s ease;
+      padding: 20px;
+    }
+    .vendor-view-modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .vendor-view-card {
+      background: #ffffff;
+      width: 920px;
+      max-width: 95vw;
+      max-height: 90vh;
+      border-radius: 16px;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.3);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+      transform: scale(0.95);
+      transition: transform 0.25s ease;
+    }
+    .vendor-view-modal-overlay.active .vendor-view-card {
+      transform: scale(1);
+    }
+    .system-theme.theme-dark .vendor-view-card,
+    body.dark .vendor-view-card {
+      background: #0f172a;
+      border-color: #1e293b;
+      color: #f8fafc;
+    }
+    .vendor-view-header {
+      padding: 20px 24px;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .vendor-view-profile-summary {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .vendor-avatar-wrapper {
+      width: 56px;
+      height: 56px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #3b82f6 0%, #1d4ed8 100%);
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 22px;
+      font-weight: 700;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(59, 130, 246, 0.3);
+      border: 2px solid #ffffff;
+      flex-shrink: 0;
+    }
+    .vendor-avatar-wrapper img {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+    }
+    .vendor-header-details h2 {
+      font-size: 20px;
+      font-weight: 700;
+      margin: 0 0 6px 0;
+      color: #ffffff;
+    }
+    .vendor-header-meta {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .vendor-view-biz-badge {
+      background: rgba(255, 255, 255, 0.15);
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .vendor-view-location-badge {
+      background: rgba(59, 130, 246, 0.3);
+      color: #93c5fd;
+      padding: 3px 10px;
+      border-radius: 12px;
+      font-size: 12px;
+      font-weight: 600;
+    }
+    .vendor-modal-close-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: #ffffff;
+      font-size: 24px;
+      width: 36px;
+      height: 36px;
+      border-radius: 50%;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s ease;
+    }
+    .vendor-modal-close-btn:hover {
+      background: rgba(239, 68, 68, 0.8);
+    }
+    .vendor-view-tabs {
+      display: flex;
+      background: #f1f5f9;
+      border-bottom: 1px solid #e2e8f0;
+      padding: 0 16px;
+      gap: 4px;
+      overflow-x: auto;
+    }
+    .system-theme.theme-dark .vendor-view-tabs,
+    body.dark .vendor-view-tabs {
+      background: #1e293b;
+      border-color: #334155;
+    }
+    .vendor-view-tab-btn {
+      background: transparent;
+      border: none;
+      padding: 14px 18px;
+      font-size: 14px;
+      font-weight: 600;
+      color: #64748b;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      border-bottom: 3px solid transparent;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .system-theme.theme-dark .vendor-view-tab-btn,
+    body.dark .vendor-view-tab-btn {
+      color: #94a3b8;
+    }
+    .vendor-view-tab-btn:hover {
+      color: #0f172a;
+    }
+    .system-theme.theme-dark .vendor-view-tab-btn:hover,
+    body.dark .vendor-view-tab-btn:hover {
+      color: #f8fafc;
+    }
+    .vendor-view-tab-btn.active {
+      color: #2563eb;
+      border-bottom-color: #2563eb;
+      background: #ffffff;
+    }
+    .system-theme.theme-dark .vendor-view-tab-btn.active,
+    body.dark .vendor-view-tab-btn.active {
+      color: #38bdf8;
+      border-bottom-color: #38bdf8;
+      background: #0f172a;
+    }
+    .vendor-view-body {
+      padding: 24px;
+      overflow-y: auto;
+      flex: 1;
+    }
+    .vendor-view-tab-content {
+      display: none;
+    }
+    .vendor-view-tab-content.active {
+      display: block;
+      animation: vendorFadeIn 0.2s ease-in-out;
+    }
+    @keyframes vendorFadeIn {
+      from { opacity: 0; transform: translateY(4px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+    /* Stat Cards */
+    .vendor-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+    @media (max-width: 768px) {
+      .vendor-stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+    .vendor-stat-card {
+      padding: 16px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .vendor-stat-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.05);
+    }
+    .system-theme.theme-dark .vendor-stat-card,
+    body.dark .vendor-stat-card {
+      background: #182233;
+      border-color: #334155;
+    }
+    .stat-served { border-left: 4px solid #10b981; }
+    .stat-earned { border-left: 4px solid #3b82f6; }
+    .stat-wallet { border-left: 4px solid #8b5cf6; }
+    .stat-bids { border-left: 4px solid #f59e0b; }
+    .stat-health { border-left: 4px solid #10b981; }
+    .stat-health.warning { border-left-color: #f59e0b; }
+    .stat-health.danger { border-left-color: #ef4444; }
+
+    .vendor-health-alert-box {
+      background: #fffbebf5;
+      border: 1.5px solid #f59e0b;
+      border-radius: 12px;
+      padding: 14px 18px;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      color: #92400e;
+    }
+    .vendor-health-alert-box.danger {
+      background: #fef2f2;
+      border-color: #ef4444;
+      color: #991b1b;
+    }
+    .system-theme.theme-dark .vendor-health-alert-box,
+    body.dark .vendor-health-alert-box {
+      background: #451a03;
+      border-color: #f59e0b;
+      color: #fef3c7;
+    }
+    .system-theme.theme-dark .vendor-health-alert-box.danger,
+    body.dark .vendor-health-alert-box.danger {
+      background: #450a0a;
+      border-color: #ef4444;
+      color: #fecdd3;
+    }
+    .health-alert-icon { font-size: 24px; }
+    .health-alert-text strong { display: block; font-size: 14px; margin-bottom: 2px; }
+    .health-alert-text p { margin: 0; font-size: 13px; line-height: 1.4; }
+    .stat-icon {
+      font-size: 24px;
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.9);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.05);
+      flex-shrink: 0;
+    }
+    .system-theme.theme-dark .stat-icon,
+    body.dark .stat-icon {
+      background: rgba(15, 23, 42, 0.6);
+    }
+    .stat-info {
+      display: flex;
+      flex-direction: column;
+    }
+    .stat-label {
+      font-size: 11px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      font-weight: 700;
+      color: #64748b;
+    }
+    .system-theme.theme-dark .stat-label,
+    body.dark .stat-label { color: #94a3b8; }
+    .stat-value {
+      font-size: 17px;
+      font-weight: 800;
+      color: #0f172a;
+      margin-top: 2px;
+    }
+    .system-theme.theme-dark .stat-value,
+    body.dark .stat-value { color: #f8fafc; }
+
+    /* Profile info grid */
+    .vendor-profile-info-grid {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 16px;
+      background: #f8fafc;
+      padding: 20px;
+      border-radius: 12px;
+      border: 1px solid #e2e8f0;
+    }
+    .system-theme.theme-dark .vendor-profile-info-grid,
+    body.dark .vendor-profile-info-grid {
+      background: #1e293b;
+      border-color: #334155;
+    }
+    @media (max-width: 768px) {
+      .vendor-profile-info-grid { grid-template-columns: 1fr; }
+    }
+    .info-group {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .info-group.full-width {
+      grid-column: 1 / -1;
+    }
+    .info-label {
+      font-size: 12px;
+      font-weight: 600;
+      color: #64748b;
+    }
+    .system-theme.theme-dark .info-label,
+    body.dark .info-label { color: #94a3b8; }
+    .info-val {
+      font-size: 14px;
+      font-weight: 600;
+      color: #0f172a;
+    }
+    .system-theme.theme-dark .info-val,
+    body.dark .info-val { color: #f8fafc; }
+
+    .categories-badge-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+      margin-top: 4px;
+    }
+    .cat-badge {
+      background: #e0f2fe;
+      color: #0369a1;
+      font-size: 12px;
+      font-weight: 600;
+      padding: 3px 10px;
+      border-radius: 12px;
+    }
+    .system-theme.theme-dark .cat-badge,
+    body.dark .cat-badge {
+      background: #075985;
+      color: #e0f2fe;
+    }
+
+    /* Spinner */
+    .vendor-view-spinner-box {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 40px;
+      gap: 12px;
+    }
+    .vendor-spinner {
+      width: 36px;
+      height: 36px;
+      border: 4px solid #e2e8f0;
+      border-top-color: #2563eb;
+      border-radius: 50%;
+      animation: spin 0.8s linear infinite;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Tax Container */
+    .vendor-tax-container {
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
+    }
+    .tax-header-card {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #ffffff;
+      padding: 20px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
+    .tax-card-main {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .tax-gst-badge {
+      background: rgba(255, 255, 255, 0.2);
+      width: 48px;
+      height: 48px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 800;
+      font-size: 16px;
+    }
+    .tax-gst-number {
+      margin: 4px 0 0 0;
+      font-size: 14px;
+    }
+    .tax-metrics-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 16px;
+    }
+    .tax-metric-item {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      padding: 16px;
+      border-radius: 12px;
+      display: flex;
+      flex-direction: column;
+    }
+    .system-theme.theme-dark .tax-metric-item,
+    body.dark .tax-metric-item {
+      background: #1e293b;
+      border-color: #334155;
+    }
+    .tax-metric-label {
+      font-size: 12px;
+      color: #64748b;
+      font-weight: 600;
+    }
+    .system-theme.theme-dark .tax-metric-label,
+    body.dark .tax-metric-label { color: #94a3b8; }
+    .tax-metric-val {
+      font-size: 20px;
+      font-weight: 800;
+      color: #0f172a;
+      margin: 4px 0;
+    }
+    .system-theme.theme-dark .tax-metric-val,
+    body.dark .tax-metric-val { color: #f8fafc; }
+    .tax-metric-sub {
+      font-size: 11px;
+      color: #94a3b8;
+    }
+    .vendor-view-btn {
+      background: #2563eb;
+      color: #ffffff;
+      border: none;
+      padding: 6px 12px;
+      border-radius: 6px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s ease;
+    }
+    .vendor-view-btn:hover {
+      background: #1d4ed8;
+    }
+    .tab-table-wrapper {
+      max-height: 400px;
+      overflow-y: auto;
+    }
+  </style>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -50,6 +514,7 @@
               <option value="approved">approved</option>
               <option value="active">active</option>
               <option value="inactive">inactive</option>
+              <option value="on_hold">on_hold</option>
             </select>
           </label>
           <button class="product-secondary-button" type="button" id="clearVendorFilters">Clear</button>
@@ -210,6 +675,250 @@
     </div>
   </div>
 
+  <!-- Centered Vendor Details Tabbed Modal -->
+  <div class="vendor-view-modal-overlay" id="vendorViewModal" aria-hidden="true">
+    <div class="vendor-view-card">
+      <div class="vendor-view-header">
+        <div class="vendor-view-profile-summary">
+          <div class="vendor-avatar-wrapper" id="vendorViewAvatar">
+            <span class="vendor-avatar-initials">V</span>
+          </div>
+          <div class="vendor-header-details">
+            <h2 id="vendorViewHeaderName">Vendor Details</h2>
+            <div class="vendor-header-meta">
+              <span id="vendorViewHeaderBusiness" class="vendor-view-biz-badge">Business Name</span>
+              <span id="vendorViewHeaderStatus" class="user-status-pill active">active</span>
+              <span id="vendorViewHeaderCity" class="vendor-view-location-badge">City</span>
+            </div>
+          </div>
+        </div>
+        <button type="button" class="vendor-modal-close-btn" onclick="closeVendorViewModal()" aria-label="Close modal">&times;</button>
+      </div>
+
+      <!-- Tab Navigation -->
+      <nav class="vendor-view-tabs" role="tablist">
+        <button type="button" class="vendor-view-tab-btn active" id="tabBtnProfile" onclick="switchVendorViewTab('profile')" role="tab">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="7" r="4"/><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/></svg>
+          Profile & Summary
+        </button>
+        <button type="button" class="vendor-view-tab-btn" id="tabBtnOrders" onclick="switchVendorViewTab('orders')" role="tab">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/><path d="M16 10a4 4 0 0 1-8 0"/></svg>
+          Order Detail
+        </button>
+        <button type="button" class="vendor-view-tab-btn" id="tabBtnQuotations" onclick="switchVendorViewTab('quotations')" role="tab">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+          Quotation Detail
+        </button>
+        <button type="button" class="vendor-view-tab-btn" id="tabBtnTax" onclick="switchVendorViewTab('tax')" role="tab">
+          <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="4" width="20" height="16" rx="2"/><line x1="6" y1="8" x2="18" y2="8"/><line x1="6" y1="12" x2="18" y2="12"/><line x1="6" y1="16" x2="12" y2="16"/></svg>
+          Tax Detail
+        </button>
+      </nav>
+
+      <!-- Tab Contents Area -->
+      <div class="vendor-view-body">
+        <div id="vendorViewLoading" class="vendor-view-spinner-box" style="display: none;">
+          <div class="vendor-spinner"></div>
+          <p>Loading vendor details...</p>
+        </div>
+
+        <!-- TAB 1: PROFILE & SUMMARY -->
+        <div class="vendor-view-tab-content active" id="vendorTabContentProfile">
+          <!-- Low Health Warning Alert Box -->
+          <div id="vendorHealthWarningBanner" class="vendor-health-alert-box" style="display: none;">
+            <div class="health-alert-icon" id="healthAlertIcon">⚠️</div>
+            <div class="health-alert-text">
+              <strong id="healthAlertTitle">Account Health Warning!</strong>
+              <p id="healthAlertBody">Your account health is low. Please fulfill orders and bid promptly to avoid account suspension.</p>
+            </div>
+          </div>
+
+          <!-- Stat Summary Small Cards -->
+          <div class="vendor-stats-grid">
+            <div class="vendor-stat-card stat-served">
+              <div class="stat-icon">📦</div>
+              <div class="stat-info">
+                <span class="stat-label">Total Orders Served</span>
+                <span class="stat-value" id="statOrdersServed">0</span>
+              </div>
+            </div>
+            <div class="vendor-stat-card stat-earned">
+              <div class="stat-icon">💰</div>
+              <div class="stat-info">
+                <span class="stat-label">Total Amount Earned</span>
+                <span class="stat-value" id="statAmountEarned">₹0.00</span>
+              </div>
+            </div>
+            <div class="vendor-stat-card stat-wallet">
+              <div class="stat-icon">👛</div>
+              <div class="stat-info">
+                <span class="stat-label">Wallet Balance</span>
+                <span class="stat-value" id="statWalletBalance">₹0.00</span>
+              </div>
+            </div>
+            <div class="vendor-stat-card stat-bids">
+              <div class="stat-icon">🏷️</div>
+              <div class="stat-info">
+                <span class="stat-label">Total Bids Assigned</span>
+                <span class="stat-value" id="statBidsAssigned">0</span>
+              </div>
+            </div>
+            <div class="vendor-stat-card stat-health" id="statHealthCard">
+              <div class="stat-icon" id="statHealthIcon">❤️</div>
+              <div class="stat-info">
+                <span class="stat-label">Account Health</span>
+                <span class="stat-value" id="statAccountHealth">500 / 500</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Vendor Full Profile Details -->
+          <div class="vendor-profile-info-grid">
+            <div class="info-group">
+              <span class="info-label">Vendor ID</span>
+              <span class="info-val" id="viewValId">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Full Name</span>
+              <span class="info-val" id="viewValName">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Business Name</span>
+              <span class="info-val" id="viewValBusiness">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Email Address</span>
+              <span class="info-val" id="viewValEmail">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Phone Number</span>
+              <span class="info-val" id="viewValPhone">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">GST Number</span>
+              <span class="info-val" id="viewValGst">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Location (City, State)</span>
+              <span class="info-val" id="viewValLocation">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Area</span>
+              <span class="info-val" id="viewValArea">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Country</span>
+              <span class="info-val" id="viewValCountry">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Account Status</span>
+              <span class="info-val" id="viewValStatus">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Premium Tier</span>
+              <span class="info-val" id="viewValPremium">-</span>
+            </div>
+            <div class="info-group">
+              <span class="info-label">Services Provided</span>
+              <span class="info-val" id="viewValServices">-</span>
+            </div>
+            <div class="info-group full-width">
+              <span class="info-label">Main Categories</span>
+              <div class="categories-badge-list" id="viewValCategories"></div>
+            </div>
+            <div class="info-group full-width">
+              <span class="info-label">Full Address</span>
+              <span class="info-val" id="viewValAddress">-</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- TAB 2: ORDER DETAIL -->
+        <div class="vendor-view-tab-content" id="vendorTabContentOrders">
+          <div class="tab-table-wrapper">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Order #</th>
+                  <th>Date & Time</th>
+                  <th>Client</th>
+                  <th>Phone</th>
+                  <th>Amount</th>
+                  <th>Payment</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="vendorViewOrdersTableBody">
+                <tr><td colspan="7" style="text-align:center; padding: 20px;">No orders found for this vendor.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 3: QUOTATION DETAIL -->
+        <div class="vendor-view-tab-content" id="vendorTabContentQuotations">
+          <div class="tab-table-wrapper">
+            <table class="users-table">
+              <thead>
+                <tr>
+                  <th>Quotation ID</th>
+                  <th>Request Date</th>
+                  <th>Client Location</th>
+                  <th>Items</th>
+                  <th>Expected Total</th>
+                  <th>Status</th>
+                  <th>Expires At</th>
+                </tr>
+              </thead>
+              <tbody id="vendorViewQuotationsTableBody">
+                <tr><td colspan="7" style="text-align:center; padding: 20px;">No quotation requests found for this vendor.</td></tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- TAB 4: TAX DETAIL -->
+        <div class="vendor-view-tab-content" id="vendorTabContentTax">
+          <div class="vendor-tax-container">
+            <div class="tax-header-card">
+              <div class="tax-card-main">
+                <div class="tax-gst-badge" id="taxGstBadge">GST</div>
+                <div>
+                  <h3 id="taxBusinessName">Business Name</h3>
+                  <p class="tax-gst-number">GSTIN: <strong id="taxGstNumber">Not Provided</strong></p>
+                </div>
+              </div>
+              <span class="user-status-pill active" id="taxGstStatus">Active</span>
+            </div>
+
+            <div class="tax-metrics-grid">
+              <div class="tax-metric-item">
+                <span class="tax-metric-label">Taxable Turnover</span>
+                <span class="tax-metric-val" id="taxTurnover">₹0.00</span>
+                <small class="tax-metric-sub">From served/delivered orders</small>
+              </div>
+              <div class="tax-metric-item">
+                <span class="tax-metric-label">Estimated GST Rate</span>
+                <span class="tax-metric-val" id="taxGstRate">5%</span>
+                <small class="tax-metric-sub">Standard grocery slab</small>
+              </div>
+              <div class="tax-metric-item">
+                <span class="tax-metric-label">Est. GST Liability</span>
+                <span class="tax-metric-val" id="taxEstGst">₹0.00</span>
+                <small class="tax-metric-sub">Estimated output tax</small>
+              </div>
+              <div class="tax-metric-item">
+                <span class="tax-metric-label">Platform Commission %</span>
+                <span class="tax-metric-val" id="taxCommission">0.00%</span>
+                <small class="tax-metric-sub">Vendor tier rate</small>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
   <script>
     const isSuperAdmin = <%= Boolean(locals.isSuperAdmin) %>;
     const adminCity = <%- JSON.stringify(locals.adminCity || '') %>;
@@ -217,6 +926,7 @@
     const availableCategories = <%- JSON.stringify((categories || []).filter((category) => category.status === 'active')) %>;
     const availableServices = ['Home Delivery', 'Counter Pickup', 'Wholesale Supply', 'Express Delivery'];
     const canManagePremiumVendors = <%= canManagePremiumVendors ? 'true' : 'false' %>;
+    const canViewVendorDetails = <%= Boolean(locals.canViewVendorDetails) %>;
     let areaOptions = [];
     let pendingVendorArea = '';
     let vendors = [];
@@ -482,6 +1192,7 @@
             <td><span class="user-status-pill ${['active', 'approved'].includes(vendor.status) ? 'active' : (vendor.status === 'pending' ? 'pending' : 'inactive')}">${escapeHtml(vendor.status)}</span></td>
             <td>
               <div class="user-actions">
+                ${canViewVendorDetails ? `<button type="button" class="vendor-view-btn" onclick="openVendorViewModal(${vendor.id})">View</button>` : ''}
                 ${vendor.status === 'pending'
                   ? `<button type="button" style="background:#0f766e; color:#fff; font-weight:700;" onclick="approveVendorAccount(${vendor.id})">Approve</button>`
                   : `<button type="button" onclick="toggleVendorStatus(${vendor.id})">${['active', 'approved'].includes(vendor.status) ? 'Deactivate' : 'Approve'}</button>`
@@ -685,6 +1396,179 @@
     });
     prevPage.addEventListener('click', () => loadVendors(currentPage - 1));
     nextPage.addEventListener('click', () => loadVendors(currentPage + 1));
+
+    function switchVendorViewTab(tabName) {
+      const tabs = ['profile', 'orders', 'quotations', 'tax'];
+      tabs.forEach((tab) => {
+        const btn = document.getElementById(`tabBtn${tab.charAt(0).toUpperCase() + tab.slice(1)}`);
+        const content = document.getElementById(`vendorTabContent${tab.charAt(0).toUpperCase() + tab.slice(1)}`);
+        if (btn && content) {
+          if (tab === tabName) {
+            btn.classList.add('active');
+            content.classList.add('active');
+          } else {
+            btn.classList.remove('active');
+            content.classList.remove('active');
+          }
+        }
+      });
+    }
+
+    function closeVendorViewModal() {
+      document.getElementById('vendorViewModal').classList.remove('active');
+    }
+
+    function formatCurrency(val) {
+      return '₹' + Number(val || 0).toLocaleString('en-IN', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    }
+
+    async function openVendorViewModal(id) {
+      const modal = document.getElementById('vendorViewModal');
+      const loading = document.getElementById('vendorViewLoading');
+      switchVendorViewTab('profile');
+      modal.classList.add('active');
+      loading.style.display = 'flex';
+
+      try {
+        const response = await fetch(`/vendors/${id}/full-details`, { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        loading.style.display = 'none';
+
+        if (!data.success || !data.vendor) {
+          alert(data.message || 'Unable to load vendor details');
+          closeVendorViewModal();
+          return;
+        }
+
+        const { profile, stats, orders, quotations, tax } = data.vendor;
+
+        // Header Summary
+        document.getElementById('vendorViewHeaderName').textContent = profile.name || 'Vendor Details';
+        document.getElementById('vendorViewHeaderBusiness').textContent = profile.business_name || '-';
+        document.getElementById('vendorViewHeaderCity').textContent = [profile.city, profile.state].filter(Boolean).join(', ') || 'India';
+
+        const statusPill = document.getElementById('vendorViewHeaderStatus');
+        statusPill.textContent = profile.status;
+        statusPill.className = `user-status-pill ${['active', 'approved'].includes(profile.status) ? 'active' : (profile.status === 'pending' ? 'pending' : 'inactive')}`;
+
+        // Avatar
+        const avatarWrapper = document.getElementById('vendorViewAvatar');
+        if (profile.logo_path || profile.storefront_image_path) {
+          avatarWrapper.innerHTML = `<img src="${escapeHtml(profile.logo_path || profile.storefront_image_path)}" alt="${escapeHtml(profile.name)}" />`;
+        } else {
+          const initial = (profile.name || 'V').charAt(0).toUpperCase();
+          avatarWrapper.innerHTML = `<span class="vendor-avatar-initials">${initial}</span>`;
+        }
+
+        // Stat Cards & Account Health
+        document.getElementById('statOrdersServed').textContent = stats.total_orders_served;
+        document.getElementById('statAmountEarned').textContent = formatCurrency(stats.total_amount_earned);
+        document.getElementById('statWalletBalance').textContent = formatCurrency(stats.wallet_balance);
+        document.getElementById('statBidsAssigned').textContent = stats.total_bids_assigned;
+
+        const health = Number(stats.account_health !== undefined ? stats.account_health : (profile.account_health ?? 500));
+        document.getElementById('statAccountHealth').textContent = `${health} / 500`;
+
+        const healthCard = document.getElementById('statHealthCard');
+        const warningBanner = document.getElementById('vendorHealthWarningBanner');
+        const alertTitle = document.getElementById('healthAlertTitle');
+        const alertBody = document.getElementById('healthAlertBody');
+        const alertIcon = document.getElementById('healthAlertIcon');
+
+        healthCard.className = 'vendor-stat-card stat-health';
+
+        if (health < 180 || profile.status === 'on_hold') {
+          healthCard.classList.add('danger');
+          warningBanner.className = 'vendor-health-alert-box danger';
+          warningBanner.style.display = 'flex';
+          alertIcon.textContent = '⛔';
+          alertTitle.textContent = 'ACCOUNT ON HOLD / SUSPENDED!';
+          alertBody.textContent = `Vendor account health has dropped to ${health}/500 (<180). Account is ON HOLD and will not receive any orders, quotations, or bids.`;
+        } else if (health < 250) {
+          healthCard.classList.add('warning');
+          warningBanner.className = 'vendor-health-alert-box';
+          warningBanner.style.display = 'flex';
+          alertIcon.textContent = '⚠️';
+          alertTitle.textContent = 'Account Health Warning!';
+          alertBody.textContent = `Account health is low (${health}/500). Please fulfill orders and bid promptly to avoid account suspension (<180).`;
+        } else {
+          warningBanner.style.display = 'none';
+        }
+
+        // Profile Tab Grid
+        document.getElementById('viewValId').textContent = `#${profile.id}`;
+        document.getElementById('viewValName').textContent = profile.name || '-';
+        document.getElementById('viewValBusiness').textContent = profile.business_name || '-';
+        document.getElementById('viewValEmail').textContent = profile.email || '-';
+        document.getElementById('viewValPhone').textContent = profile.phone || '-';
+        document.getElementById('viewValGst').textContent = profile.gst_number || 'Not Provided';
+        document.getElementById('viewValLocation').textContent = [profile.city, profile.state].filter(Boolean).join(', ') || '-';
+        document.getElementById('viewValArea').textContent = profile.area || '-';
+        document.getElementById('viewValCountry').textContent = profile.country || '-';
+        document.getElementById('viewValStatus').textContent = profile.status || '-';
+        document.getElementById('viewValPremium').textContent = profile.is_premium_vendor ? `Premium (${profile.premium_commission_percent}%)` : 'Standard';
+        document.getElementById('viewValServices').textContent = servicesText(profile.services) || '-';
+        document.getElementById('viewValAddress').textContent = profile.address || '-';
+
+        // Categories
+        const categoriesContainer = document.getElementById('viewValCategories');
+        if (Array.isArray(profile.categories) && profile.categories.length) {
+          categoriesContainer.innerHTML = profile.categories.map((c) => `<span class="cat-badge">${escapeHtml(c.name)}</span>`).join('');
+        } else {
+          categoriesContainer.innerHTML = '<span class="info-val">No assigned categories</span>';
+        }
+
+        // Orders Tab Table
+        const ordersBody = document.getElementById('vendorViewOrdersTableBody');
+        if (orders && orders.length) {
+          ordersBody.innerHTML = orders.map((o) => `
+            <tr>
+              <td><strong>${escapeHtml(o.order_number)}</strong></td>
+              <td>${escapeHtml(dateText(o.created_at))}</td>
+              <td>${escapeHtml(o.client_name)}</td>
+              <td>${escapeHtml(o.client_phone)}</td>
+              <td><strong>${formatCurrency(o.total_amount)}</strong></td>
+              <td>${escapeHtml(String(o.payment_method || '').toUpperCase())}</td>
+              <td><span class="user-status-pill ${o.status === 'delivered' || o.status === 'completed' ? 'active' : 'pending'}">${escapeHtml(o.status)}</span></td>
+            </tr>
+          `).join('');
+        } else {
+          ordersBody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">No orders found for this vendor.</td></tr>';
+        }
+
+        // Quotations Tab Table
+        const quotationsBody = document.getElementById('vendorViewQuotationsTableBody');
+        if (quotations && quotations.length) {
+          quotationsBody.innerHTML = quotations.map((q) => `
+            <tr>
+              <td>#${q.id}</td>
+              <td>${escapeHtml(dateText(q.created_at))}</td>
+              <td>${escapeHtml([q.client_area, q.client_city].filter(Boolean).join(', ') || '-')}</td>
+              <td>${q.item_count} items</td>
+              <td><strong>${formatCurrency(q.total_amount)}</strong></td>
+              <td><span class="user-status-pill ${['submitted', 'accepted'].includes(q.status) ? 'active' : 'pending'}">${escapeHtml(q.status)}</span></td>
+              <td>${escapeHtml(dateText(q.expires_at))}</td>
+            </tr>
+          `).join('');
+        } else {
+          quotationsBody.innerHTML = '<tr><td colspan="7" style="text-align:center; padding: 20px;">No quotation requests assigned to this vendor.</td></tr>';
+        }
+
+        // Tax Tab
+        document.getElementById('taxBusinessName').textContent = tax.business_name;
+        document.getElementById('taxGstNumber').textContent = tax.gst_number;
+        document.getElementById('taxGstStatus').textContent = tax.gst_status;
+        document.getElementById('taxTurnover').textContent = formatCurrency(tax.taxable_turnover);
+        document.getElementById('taxGstRate').textContent = tax.estimated_gst_rate;
+        document.getElementById('taxEstGst').textContent = formatCurrency(tax.estimated_gst_amount);
+        document.getElementById('taxCommission').textContent = `${tax.commission_percent.toFixed(2)}%`;
+
+      } catch (err) {
+        loading.style.display = 'none';
+        alert('Error fetching vendor details: ' + err.message);
+        closeVendorViewModal();
+      }
+    }
 
     renderLocationOptions();
     loadAreaOptions();

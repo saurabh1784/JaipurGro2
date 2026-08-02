@@ -236,4 +236,278 @@ async function adjustWallet(req, res) {
   } catch (error) { res.status(error.status || 500).json({ success: false, message: error.message || 'Unable to update wallet' }); }
 }
 
-module.exports = { index, showPage, show, create, update, setStatus, resetPassword, adjustWallet };
+async function fullDetails(req, res) {
+  try {
+    const currentActor = actor(req);
+    const isSuper = isSuperAdminUser(currentActor);
+    const adminCity = await getAssignedUserCity(currentActor);
+
+    const id = Number(req.params.id);
+    const person = await DeliveryPerson.findById(id);
+    if (!person) return res.status(404).json({ success: false, message: 'Delivery person not found' });
+
+    if (!isSuper && adminCity && person.city && person.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only view delivery partners in their assigned city (${adminCity}).` });
+    }
+
+    const SupportTicket = require('../models/SupportTicket');
+
+    // Rating summary & review list
+    const ratingSummary = await Rating.summary('delivery_person', id).catch(() => ({ average_rating: 0, review_count: 0 }));
+    const [ratingRows] = await pool.query(
+      `SELECT r.*, u.name AS client_name
+       FROM ratings r
+       INNER JOIN users u ON u.id = r.user_id
+       WHERE r.target_id = ? AND LOWER(r.rating_type) = 'delivery_person'
+       ORDER BY r.created_at DESC`,
+      [id]
+    ).catch(() => [[]]);
+
+    const ratingsList = (ratingRows || []).map((r) => ({
+      id: r.id,
+      order_id: r.order_id,
+      client_name: r.client_name || 'Client',
+      rating: Number(r.rating || 0),
+      feedback: r.comment || r.feedback || 'No feedback provided',
+      created_at: r.created_at,
+    }));
+
+    // Orders history with client and vendor info
+    const [orderRows] = await pool.query(
+      `SELECT o.*,
+              c.name AS client_name, c.phone AS client_phone,
+              v.name AS vendor_name, vprof.business_name AS vendor_business_name
+       FROM client_orders o
+       LEFT JOIN users c ON c.id = o.client_id
+       LEFT JOIN users v ON v.id = o.vendor_id
+       LEFT JOIN vendor_profiles vprof ON vprof.user_id = o.vendor_id
+       WHERE o.delivery_partner_id = ?
+       ORDER BY o.created_at DESC`,
+      [id]
+    ).catch(() => [[]]);
+
+    const orders = (orderRows || []).map((o) => {
+      const assignedAt = o.assigned_at || o.created_at;
+      const deliveredAt = o.delivered_at || o.status_updated_at;
+      let deliveryTimeMinutes = 0;
+      if (assignedAt && deliveredAt && ['delivered', 'completed'].includes(String(o.status).toLowerCase())) {
+        deliveryTimeMinutes = Math.max(1, Math.round((new Date(deliveredAt).getTime() - new Date(assignedAt).getTime()) / (1000 * 60)));
+      }
+      return {
+        id: o.id,
+        order_number: o.order_number || `#${o.id}`,
+        client_id: o.client_id,
+        client_name: o.client_name || o.shipping_name || 'Client',
+        client_phone: o.client_phone || o.shipping_phone || '-',
+        vendor_id: o.vendor_id,
+        vendor_name: o.vendor_business_name || o.vendor_name || 'Vendor',
+        pickup_address: [o.vendor_city, o.vendor_area].filter(Boolean).join(', ') || 'Vendor Store',
+        delivery_address: o.shipping_address || o.client_address || '-',
+        delivery_charge: Number(o.delivery_fee || o.shipping_fee || 0),
+        delivery_earning: Number(o.delivery_earning || (o.delivery_fee ? o.delivery_fee * 0.8 : 0)),
+        total_amount: Number(o.total_amount || 0),
+        payment_method: o.payment_method || 'wallet',
+        payment_status: o.payment_status || (['delivered', 'completed'].includes(String(o.status).toLowerCase()) ? 'paid' : 'pending'),
+        status: o.status || 'pending',
+        delivery_status: o.delivery_status || '',
+        assigned_at: assignedAt,
+        delivered_at: deliveredAt,
+        delivery_time_minutes: deliveryTimeMinutes,
+        distance_km: Number(o.distance_km || 2.5),
+        cancelled_by: o.cancelled_by || (String(o.status).toLowerCase() === 'cancelled' ? 'Delivery Person' : null),
+        cancellation_reason: o.cancellation_reason || (String(o.status).toLowerCase() === 'cancelled' ? 'Delivery cancelled' : null),
+        cancelled_at: o.cancelled_at || (String(o.status).toLowerCase() === 'cancelled' ? o.updated_at : null),
+        penalty_applied: Number(o.penalty_amount || 0) > 0,
+        penalty_amount: Number(o.penalty_amount || 0),
+        items: o.items ? (typeof o.items === 'string' ? JSON.parse(o.items) : o.items) : [],
+      };
+    });
+
+    // Offers & Rejections
+    const rawOffers = await DeliveryPerson.offers(id).catch(() => []);
+    const now = Date.now();
+    const sevenDaysAgo = now - (7 * 24 * 60 * 60 * 1000);
+
+    let rejectedLast7DaysCount = 0;
+    const offers = (rawOffers || []).map((off) => {
+      const isRejected = ['rejected', 'unaccepted'].includes(String(off.status || '').toLowerCase());
+      const resTime = off.responded_at || off.created_at;
+      if (isRejected && resTime && new Date(resTime).getTime() >= sevenDaysAgo) {
+        rejectedLast7DaysCount++;
+      }
+      return {
+        id: off.id,
+        order_id: off.order_id || off.id,
+        order_number: off.order_number || `#${off.order_id || off.id}`,
+        request_time: off.created_at,
+        response_time: resTime,
+        rejection_reason: off.response_note || 'Request expired / rejected by delivery person',
+        assigned_area: off.delivery_area || off.pickup_area || person.city || '-',
+        status: off.status,
+      };
+    });
+
+    // Wallet & Transactions
+    const walletData = await Wallet.transactionsByUserId(id, { limit: 200 }).catch(() => ({ wallet: { balance: 0 }, transactions: [] }));
+
+    // Complaints
+    const [complaintRows] = await pool.query(
+      `SELECT st.*, u.name AS requester_name, staff.name AS assigned_staff_name
+       FROM support_tickets st
+       INNER JOIN users u ON u.id = st.requester_id
+       LEFT JOIN users staff ON staff.id = st.assigned_staff_id
+       WHERE st.delivery_partner_id = ? OR (st.requester_id = ? AND st.requester_role = 'deliveryPerson')
+       ORDER BY st.created_at DESC`,
+      [id, id]
+    ).catch(() => [[]]);
+
+    const complaints = (complaintRows || []).map((c) => ({
+      id: c.id,
+      order_id: c.order_id || null,
+      client_name: c.requester_name || 'Client',
+      category: c.category || 'Delivery Issue',
+      description: c.description || c.subject || '',
+      created_at: c.created_at,
+      assigned_staff_id: c.assigned_staff_id || null,
+      assigned_staff_name: c.assigned_staff_name || 'Unassigned',
+      status: c.status || 'Open',
+      resolution: c.resolution || '',
+    }));
+
+    // Calculate Working Status: Free, Assigned, On Pickup, or On Delivery
+    let workingStatus = 'Free';
+    if (!person.is_available) {
+      workingStatus = 'Offline';
+    } else {
+      const activeOrders = orders.filter((o) => ['assigned', 'ready_for_pickup', 'out_for_delivery'].includes(String(o.status).toLowerCase()));
+      if (activeOrders.length > 0) {
+        const topOrder = activeOrders[0];
+        if (String(topOrder.status).toLowerCase() === 'out_for_delivery') workingStatus = 'On Delivery';
+        else if (String(topOrder.status).toLowerCase() === 'ready_for_pickup') workingStatus = 'On Pickup';
+        else workingStatus = 'Assigned';
+      }
+    }
+
+    // Sub-lists
+    const completedDeliveries = orders.filter((o) => ['delivered', 'completed'].includes(String(o.status).toLowerCase()));
+    const cancelledDeliveries = orders.filter((o) => ['cancelled', 'rejected'].includes(String(o.status).toLowerCase()));
+    const rejectedRequests = offers.filter((off) => ['rejected', 'unaccepted'].includes(String(off.status).toLowerCase()));
+    const activeDeliveries = orders.filter((o) => ['assigned', 'ready_for_pickup', 'out_for_delivery'].includes(String(o.status).toLowerCase()));
+    const failedDeliveriesCount = person.failed_delivery_attempts + person.otp_conflict_count;
+
+    // Delivery times
+    const deliveredTimes = completedDeliveries.map((o) => o.delivery_time_minutes).filter(Boolean);
+    const avgDeliveryTime = deliveredTimes.length ? Math.round(deliveredTimes.reduce((a, b) => a + b, 0) / deliveredTimes.length) : 25;
+
+    // Earnings calculations
+    const todayStart = new Date().setHours(0, 0, 0, 0);
+    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1).getTime();
+    const yearStart = new Date(new Date().getFullYear(), 0, 1).getTime();
+
+    let totalEarnings = 0;
+    let todayEarnings = 0;
+    let weeklyEarnings = 0;
+    let monthlyEarnings = 0;
+    let yearlyEarnings = 0;
+
+    for (const o of completedDeliveries) {
+      const earning = Number(o.delivery_earning || 0);
+      const time = new Date(o.delivered_at || o.created_at).getTime();
+      totalEarnings += earning;
+      if (time >= todayStart) todayEarnings += earning;
+      if (time >= sevenDaysAgo) weeklyEarnings += earning;
+      if (time >= monthStart) monthlyEarnings += earning;
+      if (time >= yearStart) yearlyEarnings += earning;
+    }
+
+    // Summary Metrics & Cards (8 Cards)
+    const stats = {
+      total_deliveries: orders.length,
+      completed_deliveries: completedDeliveries.length,
+      cancelled_deliveries: cancelledDeliveries.length,
+      rejected_requests: rejectedRequests.length,
+      rejected_last_7_days: rejectedLast7DaysCount,
+      active_deliveries: activeDeliveries.length,
+      failed_deliveries: failedDeliveriesCount,
+      total_complaints: complaints.length,
+      avg_delivery_time_min: avgDeliveryTime,
+      avg_rating: Number(ratingSummary.average_rating || 5.0).toFixed(1),
+      total_earnings: totalEarnings,
+    };
+
+    const earningsSummary = {
+      total_earnings: totalEarnings,
+      today_earnings: todayEarnings,
+      weekly_earnings: weeklyEarnings,
+      monthly_earnings: monthlyEarnings,
+      yearly_earnings: yearlyEarnings,
+      delivery_charge_sum: completedDeliveries.reduce((acc, o) => acc + o.delivery_charge, 0),
+      admin_commission_sum: completedDeliveries.reduce((acc, o) => acc + (o.delivery_charge - o.delivery_earning), 0),
+      deductions_sum: orders.reduce((acc, o) => acc + o.penalty_amount, 0),
+      incentives_sum: 0,
+      penalties_sum: orders.reduce((acc, o) => acc + o.penalty_amount, 0),
+      final_earnings_sum: totalEarnings,
+    };
+
+    const fullPersonDetails = {
+      profile: {
+        ...person,
+        working_status: workingStatus,
+        online_status: person.is_available ? 'Online' : 'Offline',
+        wallet_balance: Number(walletData.wallet?.balance || person.wallet_balance || 0),
+      },
+      stats,
+      earnings: earningsSummary,
+      orders,
+      completed_deliveries: completedDeliveries,
+      cancelled_deliveries: cancelledDeliveries,
+      rejected_requests: rejectedRequests,
+      active_deliveries: activeDeliveries,
+      complaints,
+      wallet_transactions: walletData.transactions || [],
+      ratings: ratingsList,
+    };
+
+    return res.json({ success: true, person: fullPersonDetails });
+  } catch (error) {
+    console.error('Full delivery person details error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to load delivery partner full details' });
+  }
+}
+
+async function updateComplaint(req, res) {
+  const personId = Number(req.params.id);
+  const ticketId = Number(req.params.ticketId);
+
+  if (!personId || !ticketId) {
+    return res.status(422).json({ success: false, message: 'Delivery Person ID and Complaint ID are required' });
+  }
+
+  const currentActor = actor(req);
+  const isSuper = isSuperAdminUser(currentActor);
+  const adminCity = await getAssignedUserCity(currentActor);
+
+  try {
+    const person = await DeliveryPerson.findById(personId);
+    if (!person) return res.status(404).json({ success: false, message: 'Delivery person not found' });
+    if (!isSuper && adminCity && person.city && person.city.toLowerCase() !== adminCity.toLowerCase()) {
+      return res.status(403).json({ success: false, message: `Admins can only manage complaints in their assigned city (${adminCity}).` });
+    }
+
+    const SupportTicket = require('../models/SupportTicket');
+    const { status, resolution, assigned_staff_id } = req.body;
+    const ticket = await SupportTicket.updateResolution({
+      ticketId,
+      status: status || 'Resolved',
+      resolution: resolution || '',
+      assignedStaffId: assigned_staff_id ? Number(assigned_staff_id) : currentActor.id,
+    });
+
+    return res.json({ success: true, message: 'Complaint updated successfully', ticket });
+  } catch (error) {
+    console.error('Update delivery partner complaint error:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Unable to update complaint' });
+  }
+}
+
+module.exports = { index, showPage, show, create, update, setStatus, resetPassword, adjustWallet, fullDetails, updateComplaint };

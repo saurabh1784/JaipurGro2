@@ -32,18 +32,22 @@ async function seedVendorServices() {
   return rows;
 }
 
-seedVendorServices()
-  .then((rows) => {
-    console.log('Updated vendor services.');
-    for (const row of rows) {
-      const services = Array.isArray(row.services)
-        ? row.services
-        : JSON.parse(row.services || '[]');
-      console.log(`${row.email}: ${services.join(', ')}`);
-    }
-  })
-  .catch((error) => {
-    console.error(`Unable to update vendor services: ${pool.formatError(error)}`);
-    process.exitCode = 1;
-  })
-  .finally(() => pool.end());
+if (require.main === module) {
+  seedVendorServices()
+    .then((rows) => {
+      console.log('Updated vendor services.');
+      for (const row of rows) {
+        const services = Array.isArray(row.services)
+          ? row.services
+          : JSON.parse(row.services || '[]');
+        console.log(`${row.email}: ${services.join(', ')}`);
+      }
+    })
+    .catch((error) => {
+      console.error(`Unable to update vendor services: ${pool.formatError(error)}`);
+      process.exitCode = 1;
+    })
+    .finally(() => pool.end());
+}
+
+module.exports = { seedVendorServices };

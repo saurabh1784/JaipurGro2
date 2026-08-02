@@ -9,8 +9,14 @@ function normalizeTicket(row) {
     id: row.id,
     requester_id: row.requester_id,
     requester_role: row.requester_role,
+    order_id: row.order_id || null,
+    category: row.category || 'General',
+    description: row.description || row.subject || '',
     subject: row.subject,
     status: row.status,
+    assigned_staff_id: row.assigned_staff_id || null,
+    assigned_staff_name: row.assigned_staff_name || 'Unassigned',
+    resolution: row.resolution || '',
     created_at: row.created_at,
     updated_at: row.updated_at,
     closed_at: row.closed_at,
@@ -43,13 +49,13 @@ function roleScope(role) {
 
 async function hasOpenTicket(userId, requesterRole, connection = pool) {
   const [rows] = await connection.query(
-    'SELECT id FROM support_tickets WHERE requester_id = ? AND requester_role = ? AND status = ? LIMIT 1',
-    [userId, requesterRole, OPEN]
+    'SELECT id FROM support_tickets WHERE requester_id = ? AND requester_role = ? AND status IN ("Open", "In Progress") LIMIT 1',
+    [userId, requesterRole]
   );
   return rows[0] || null;
 }
 
-async function create({ user, subject, message }) {
+async function create({ user, subject, message, orderId = null, category = 'General', description = null }) {
   const requesterRole = roleScope(user && user.role);
   if (!requesterRole) {
     const error = new Error('Only clients and vendors can create support tickets');
@@ -58,9 +64,9 @@ async function create({ user, subject, message }) {
   }
 
   const cleanSubject = String(subject || '').trim();
-  const cleanMessage = String(message || '').trim();
+  const cleanMessage = String(message || description || '').trim();
   if (!cleanSubject || !cleanMessage) {
-    const error = new Error('Subject and message are required');
+    const error = new Error('Subject and message description are required');
     error.status = 422;
     throw error;
   }
@@ -76,9 +82,9 @@ async function create({ user, subject, message }) {
     }
 
     const [result] = await connection.query(
-      `INSERT INTO support_tickets (requester_id, requester_role, subject, status)
-       VALUES (?, ?, ?, ?)`,
-      [user.id, requesterRole, cleanSubject, OPEN]
+      `INSERT INTO support_tickets (requester_id, requester_role, order_id, category, description, subject, status)
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [user.id, requesterRole, orderId || null, category || 'General', cleanMessage, cleanSubject, OPEN]
     );
     const ticketId = result.insertId;
     await connection.query(
@@ -98,50 +104,57 @@ async function create({ user, subject, message }) {
 }
 
 async function list({ requesterId, requesterRole, status, roleType } = {}) {
-  const where = [];
-  const params = [];
-  if (requesterId) {
-    where.push('st.requester_id = ?');
-    params.push(requesterId);
+  try {
+    const where = [];
+    const params = [];
+    if (requesterId) {
+      where.push('st.requester_id = ?');
+      params.push(requesterId);
+    }
+    if (requesterRole) {
+      where.push('st.requester_role = ?');
+      params.push(requesterRole);
+    }
+    if (roleType) {
+      where.push('st.requester_role = ?');
+      params.push(roleType);
+    }
+    if (status) {
+      where.push('st.status = ?');
+      params.push(status);
+    }
+    const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
+    const [rows] = await pool.query(
+      `SELECT st.*, u.name AS requester_name, u.email AS requester_email,
+              staff.name AS assigned_staff_name,
+              (SELECT COUNT(*) FROM support_ticket_messages stm WHERE stm.ticket_id = st.id) AS message_count,
+              (SELECT MAX(stm.created_at) FROM support_ticket_messages stm WHERE stm.ticket_id = st.id) AS last_message_at
+       FROM support_tickets st
+       INNER JOIN users u ON u.id = st.requester_id
+       LEFT JOIN users staff ON staff.id = st.assigned_staff_id
+       ${whereSql}
+       ORDER BY CASE st.status WHEN 'Open' THEN 0 WHEN 'In Progress' THEN 1 ELSE 2 END, st.created_at DESC, st.id DESC`,
+      params
+    );
+    return rows.map(normalizeTicket);
+  } catch (err) {
+    console.error('SupportTicket.list error:', err);
+    return [];
   }
-  if (requesterRole) {
-    where.push('st.requester_role = ?');
-    params.push(requesterRole);
-  }
-  if (roleType) {
-    where.push('st.requester_role = ?');
-    params.push(roleType);
-  }
-  if (status) {
-    where.push('st.status = ?');
-    params.push(status);
-  }
-  const whereSql = where.length ? `WHERE ${where.join(' AND ')}` : '';
-  const [rows] = await pool.query(
-    `SELECT st.*, u.name AS requester_name, u.email AS requester_email,
-            COUNT(stm.id) AS message_count,
-            MAX(stm.created_at) AS last_message_at
-     FROM support_tickets st
-     INNER JOIN users u ON u.id = st.requester_id
-     LEFT JOIN support_ticket_messages stm ON stm.ticket_id = st.id
-     ${whereSql}
-     GROUP BY st.id, u.name, u.email
-     ORDER BY CASE st.status WHEN 'Open' THEN 0 ELSE 1 END, COALESCE(MAX(stm.created_at), st.updated_at) DESC, st.id DESC`,
-    params
-  );
-  return rows.map(normalizeTicket);
 }
 
 async function findById(ticketId) {
   const [rows] = await pool.query(
     `SELECT st.*, u.name AS requester_name, u.email AS requester_email,
+            staff.name AS assigned_staff_name,
             COUNT(stm.id) AS message_count,
             MAX(stm.created_at) AS last_message_at
      FROM support_tickets st
      INNER JOIN users u ON u.id = st.requester_id
+     LEFT JOIN users staff ON staff.id = st.assigned_staff_id
      LEFT JOIN support_ticket_messages stm ON stm.ticket_id = st.id
      WHERE st.id = ?
-     GROUP BY st.id, u.name, u.email
+     GROUP BY st.id, u.name, u.email, staff.name
      LIMIT 1`,
     [ticketId]
   );
@@ -172,8 +185,8 @@ async function addMessage({ ticketId, user, message }) {
     error.status = 404;
     throw error;
   }
-  if (ticket.status !== OPEN) {
-    const error = new Error('Cannot reply to a closed ticket');
+  if (['Closed', 'Resolved'].includes(ticket.status)) {
+    const error = new Error('Cannot reply to a closed/resolved ticket');
     error.status = 422;
     throw error;
   }
@@ -187,17 +200,34 @@ async function addMessage({ ticketId, user, message }) {
 }
 
 async function updateStatus(ticketId, status) {
-  if (![OPEN, CLOSED].includes(status)) {
-    const error = new Error('Status must be Open or Closed');
+  const allowed = ['Open', 'In Progress', 'Resolved', 'Closed'];
+  if (!allowed.includes(status)) {
+    const error = new Error(`Status must be one of: ${allowed.join(', ')}`);
     error.status = 422;
     throw error;
   }
   await pool.query(
     `UPDATE support_tickets
-     SET status = ?, closed_at = CASE WHEN ? = 'Closed' THEN CURRENT_TIMESTAMP ELSE NULL END, updated_at = CURRENT_TIMESTAMP
+     SET status = ?, closed_at = CASE WHEN ? IN ('Closed', 'Resolved') THEN CURRENT_TIMESTAMP ELSE NULL END, updated_at = CURRENT_TIMESTAMP
      WHERE id = ?`,
     [status, status, ticketId]
   );
+}
+
+async function updateResolution({ ticketId, status, resolution, assignedStaffId }) {
+  const allowed = ['Open', 'In Progress', 'Resolved', 'Closed'];
+  const targetStatus = status && allowed.includes(status) ? status : 'Resolved';
+  await pool.query(
+    `UPDATE support_tickets
+     SET status = ?,
+         resolution = ?,
+         assigned_staff_id = COALESCE(?, assigned_staff_id),
+         closed_at = CASE WHEN ? IN ('Closed', 'Resolved') THEN CURRENT_TIMESTAMP ELSE closed_at END,
+         updated_at = CURRENT_TIMESTAMP
+     WHERE id = ?`,
+    [targetStatus, resolution || '', assignedStaffId || null, targetStatus, ticketId]
+  );
+  return findById(ticketId);
 }
 
 module.exports = {
@@ -209,5 +239,6 @@ module.exports = {
   messages,
   addMessage,
   updateStatus,
+  updateResolution,
   roleScope,
 };

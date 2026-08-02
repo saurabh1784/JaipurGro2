@@ -302,14 +302,18 @@
       return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
     }
 
-    async function loadRows() {
-      if (loadingRows) return;
+    async function loadRows(force = false) {
+      if (loadingRows && !force) return;
       loadingRows = true;
       try {
-        const response = await fetch('/api/advertisements', { cache: 'no-store' });
+        const response = await fetch(`/api/advertisements?_t=${Date.now()}`, { cache: 'no-store' });
         const data = await response.json();
-        rows = data.advertisements || [];
-        renderRows();
+        if (data && Array.isArray(data.advertisements)) {
+          rows = data.advertisements;
+          renderRows();
+        }
+      } catch (err) {
+        console.error('Failed to load advertisements:', err);
       } finally {
         loadingRows = false;
       }
@@ -359,6 +363,8 @@
             <div class="user-actions">
               ${canEdit ? `<button type="button" data-action="edit" data-id="${esc(row.id)}">Edit</button>` : ''}
               ${canEdit && row.status === 'active' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="paused">Deactivate</button>` : ''}
+              ${canEdit && (row.status === 'paused' || row.status === 'draft') ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="active">Activate</button>` : ''}
+              ${canEdit && row.status === 'blocked' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="active">Unblock</button>` : ''}
               ${canEdit && row.status !== 'blocked' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="blocked">Block</button>` : ''}
               ${canDelete ? `<button type="button" data-action="delete" data-id="${esc(row.id)}">Delete</button>` : ''}
             </div>
@@ -467,22 +473,40 @@
 
     document.getElementById('advertisementForm').addEventListener('submit', async (event) => {
       event.preventDefault();
-      const id = document.getElementById('advertisementId').value;
-      const payload = new FormData();
-      syncTargetCategoryName();
-      ['title', 'description', 'package_name', 'ad_type', 'start_at', 'end_at', 'countdown_seconds', 'priority', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'target_category_id', 'target_category_name', 'click_action_type', 'click_action_value', 'city_scope', 'city'].forEach((key) => {
-        payload.append(key, document.getElementById(key).value);
-      });
-      document.querySelectorAll('#targetPlatforms input:checked').forEach((input) => payload.append('target_platforms', input.value));
-      document.querySelectorAll('#targetPages input:checked').forEach((input) => payload.append('target_pages', input.value));
-      document.querySelectorAll('#areas input:checked').forEach((input) => payload.append('areas', input.value));
-      const image = document.getElementById('image').files[0];
-      if (image) payload.append('image', image);
-      const response = await fetch(`/api/advertisements${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body: payload });
-      const data = await response.json();
-      if (!data.success) return alert(data.message || 'Unable to save advertisement');
-      closeForm();
-      loadRows();
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const id = document.getElementById('advertisementId').value;
+        const payload = new FormData();
+        syncTargetCategoryName();
+        ['title', 'description', 'package_name', 'ad_type', 'start_at', 'end_at', 'countdown_seconds', 'priority', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'target_category_id', 'target_category_name', 'click_action_type', 'click_action_value', 'city_scope', 'city'].forEach((key) => {
+          payload.append(key, document.getElementById(key).value);
+        });
+        document.querySelectorAll('#targetPlatforms input:checked').forEach((input) => payload.append('target_platforms', input.value));
+        document.querySelectorAll('#targetPages input:checked').forEach((input) => payload.append('target_pages', input.value));
+        document.querySelectorAll('#areas input:checked').forEach((input) => payload.append('areas', input.value));
+        const image = document.getElementById('image').files[0];
+        if (image) payload.append('image', image);
+        const response = await fetch(`/api/advertisements${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body: payload });
+        const data = await response.json();
+        if (!data.success) {
+          alert(data.message || 'Unable to save advertisement');
+          return;
+        }
+        if (data.advertisement) {
+          const idx = rows.findIndex((row) => Number(row.id) === Number(data.advertisement.id));
+          if (idx >= 0) {
+            rows[idx] = data.advertisement;
+          } else {
+            rows.unshift(data.advertisement);
+          }
+          renderRows();
+        }
+        closeForm();
+        await loadRows(true);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
     });
 
     document.getElementById('advertisementBody').addEventListener('click', (event) => {
@@ -502,22 +526,33 @@
     });
 
     async function quickStatus(id, status) {
+      const target = rows.find((row) => Number(row.id) === Number(id));
+      if (target) {
+        target.status = status;
+        renderRows();
+      }
       const response = await fetch(`/api/advertisements/${id}/status`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       });
       const data = await response.json();
-      if (!data.success) return alert(data.message || 'Unable to update status');
-      loadRows();
+      if (!data.success) {
+        alert(data.message || 'Unable to update status');
+      }
+      loadRows(true);
     }
 
     async function deleteRow(id) {
       if (!confirm('Delete this advertisement?')) return;
+      rows = rows.filter((row) => Number(row.id) !== Number(id));
+      renderRows();
       const response = await fetch(`/api/advertisements/${id}`, { method: 'DELETE' });
       const data = await response.json();
-      if (!data.success) return alert(data.message || 'Unable to delete');
-      loadRows();
+      if (!data.success) {
+        alert(data.message || 'Unable to delete');
+      }
+      loadRows(true);
     }
 
     loadRows();

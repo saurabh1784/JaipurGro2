@@ -459,11 +459,11 @@ async function bulkSoftDelete(ids = []) {
              COALESCE(sp.is_sponsored, 0) AS is_sponsored,
              COALESCE(sp.priority_order, 0) AS sponsored_priority
       FROM products p
-      INNER JOIN categories c ON c.id = p.category_id
-      INNER JOIN sub_categories s ON s.id = p.sub_category_id
-      INNER JOIN brands b ON b.id = p.brand_id
-      LEFT JOIN sponsored_products sp ON sp.product_id = p.id
-      WHERE p.is_deleted = 0 AND p.approval_status = 'approved'${categorySql}
+      LEFT JOIN categories c ON c.id::text = p.category_id::text
+      LEFT JOIN sub_categories s ON s.id::text = p.sub_category_id::text
+      LEFT JOIN brands b ON b.id::text = p.brand_id::text
+      LEFT JOIN sponsored_products sp ON sp.product_id::text = p.id::text
+      WHERE p.is_deleted = 0 AND LOWER(p.approval_status) = 'approved'${categorySql}
       ORDER BY COALESCE(sp.is_sponsored, 0) DESC, COALESCE(sp.priority_order, 0) DESC, p.name ASC
       LIMIT ?`,
      [...ids, limit]

@@ -128,15 +128,19 @@ async function seedCatalog() {
   }
 }
 
-seedCatalog()
-  .then((summary) => {
-    console.log('Seeded Indian main categories, sub-categories, and brands.');
-    for (const [category, counts] of Object.entries(summary)) {
-      console.log(`${category}: ${counts.subcategoryCount} sub-categories, ${counts.brandCount} brands`);
-    }
-  })
-  .catch((error) => {
-    console.error(`Unable to seed catalog: ${pool.formatError(error)}`);
-    process.exitCode = 1;
-  })
-  .finally(() => pool.end());
+if (require.main === module) {
+  seedCatalog()
+    .then((summary) => {
+      console.log('Seeded Indian main categories, sub-categories, and brands.');
+      for (const [category, counts] of Object.entries(summary)) {
+        console.log(`${category}: ${counts.subcategoryCount} sub-categories, ${counts.brandCount} brands`);
+      }
+    })
+    .catch((error) => {
+      console.error(`Unable to seed catalog: ${pool.formatError(error)}`);
+      process.exitCode = 1;
+    })
+    .finally(() => pool.end());
+}
+
+module.exports = { seedCatalog };

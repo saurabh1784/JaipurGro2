@@ -67,9 +67,9 @@ async function initReferralTables() {
     if (msgCnt === 0) {
       await pool.query(`
         INSERT INTO referral_messages (category, message_title, message_text, status) VALUES
-        ('referral', 'Standard Referral Invite', 'Hey! Use my referral code {REFERRAL_CODE} when joining JaipurGro to get ₹{REWARD_AMOUNT} off your orders! Download here: {APP_LINK}', 'active'),
-        ('referral', 'Friendly Share', 'Shopping groceries on JaipurGro is super easy! Join with code {REFERRAL_CODE} and get a welcome reward of ₹{REWARD_AMOUNT}. {APP_LINK}', 'active'),
-        ('savings', 'Grocery Savings Share', 'I just saved ₹{SAVING_AMOUNT} on my grocery order with JaipurGro! Sign up using code {REFERRAL_CODE} to get special discounts: {APP_LINK}', 'active')
+        ('referral', 'Standard Referral Invite', 'Hey! Use my referral code {REFERRAL_CODE} when joining Groxen to get ₹{REWARD_AMOUNT} off your orders! Download here: {APP_LINK}', 'active'),
+        ('referral', 'Friendly Share', 'Shopping groceries on Groxen is super easy! Join with code {REFERRAL_CODE} and get a welcome reward of ₹{REWARD_AMOUNT}. {APP_LINK}', 'active'),
+        ('savings', 'Grocery Savings Share', 'I just saved ₹{SAVING_AMOUNT} on my grocery order with Groxen! Sign up using code {REFERRAL_CODE} to get special discounts: {APP_LINK}', 'active')
       `);
     }
 
@@ -622,7 +622,7 @@ const getUserReferralDashboard = async (req, res) => {
     const appLink = (appLinkRow.length && appLinkRow[0].setting_value) || 'https://jaipurgro.com';
 
     const [refMsgs] = await pool.query("SELECT message_text FROM referral_messages WHERE category = 'referral' AND status = 'active' ORDER BY RANDOM() LIMIT 1");
-    const rawRefMsg = refMsgs.length ? refMsgs[0].message_text : 'Join JaipurGro with code {REFERRAL_CODE} and get {REWARD_AMOUNT} off! {APP_LINK}';
+    const rawRefMsg = refMsgs.length ? refMsgs[0].message_text : 'Join Groxen with code {REFERRAL_CODE} and get {REWARD_AMOUNT} off! {APP_LINK}';
 
     const parsedShareMessage = parseMessagePlaceholders(rawRefMsg, {
       userName: fullUser.name,
@@ -679,7 +679,7 @@ const getShareMessage = async (req, res) => {
     const appLink = (appLinkRow.length && appLinkRow[0].setting_value) || 'https://jaipurgro.com';
 
     const [msgs] = await pool.query("SELECT message_text FROM referral_messages WHERE category = ? AND status = 'active' ORDER BY RANDOM() LIMIT 1", [category]);
-    const template = msgs.length ? msgs[0].message_text : (category === 'savings' ? 'I saved ₹{SAVING_AMOUNT} on JaipurGro! Use my code {REFERRAL_CODE}: {APP_LINK}' : 'Join JaipurGro with my referral code {REFERRAL_CODE}: {APP_LINK}');
+    const template = msgs.length ? msgs[0].message_text : (category === 'savings' ? 'I saved ₹{SAVING_AMOUNT} on Groxen! Use my code {REFERRAL_CODE}: {APP_LINK}' : 'Join Groxen with my referral code {REFERRAL_CODE}: {APP_LINK}');
 
     const parsed = parseMessagePlaceholders(template, {
       userName: fullUser.name,

@@ -697,8 +697,8 @@ function applyFuzzySearch(products, search) {
     .map(({ _fuzzy_search_score, ...product }) => product);
 }
 
-async function visibleForClient({ client_id, vendor_id, search, category_id, sub_category_id, brand_id, brand_name } = {}) {
-  const cacheKey = JSON.stringify({ client_id, vendor_id, search, category_id, sub_category_id, brand_id, brand_name });
+async function visibleForClient({ client_id, vendor_id, search, category_id, sub_category_id, brand_id, brand_name, city, area } = {}) {
+  const cacheKey = JSON.stringify({ client_id, vendor_id, search, category_id, sub_category_id, brand_id, brand_name, city, area });
   const cached = _visibleProductsCache.get(cacheKey);
   const now = Date.now();
   if (cached && (now - cached.time < VISIBLE_PRODUCTS_CACHE_TTL)) {
@@ -708,23 +708,28 @@ async function visibleForClient({ client_id, vendor_id, search, category_id, sub
   const where = [
     "p.approval_status = 'approved'",
     'p.is_deleted = 0',
-    "(vp.id IS NULL OR (vp.status = 'active' AND vp.quantity > 0 AND u.is_deleted = 0))",
+    'vp.id IS NOT NULL',
+    "vp.status = 'active'",
+    'CAST(COALESCE(vp.quantity, 0) AS NUMERIC) > 0',
+    'u.is_deleted = 0',
+    "LOWER(u.status) = 'active'",
   ];
   const params = [];
   const rawSearch = search ? String(search).trim() : '';
   const term = rawSearch ? `%${rawSearch}%` : null;
 
-  if (client_id) {
+  if (city && String(city).trim()) {
+    where.push('LOWER(TRIM(vprof.city)) = LOWER(TRIM(?))');
+    params.push(String(city).trim());
+    if (area && String(area).trim()) {
+      where.push("(vprof.area IS NULL OR TRIM(vprof.area) = '' OR LOWER(TRIM(vprof.area)) = LOWER(TRIM(?)))");
+      params.push(String(area).trim());
+    }
+  } else if (client_id) {
     where.push('cp.city IS NOT NULL');
     where.push("TRIM(cp.city) <> ''");
     where.push('LOWER(TRIM(vprof.city)) = LOWER(TRIM(cp.city))');
     where.push("(cp.area IS NULL OR TRIM(cp.area) = '' OR LOWER(TRIM(vprof.area)) = LOWER(TRIM(cp.area)))");
-    where.push(`EXISTS (
-      SELECT 1 FROM area_definitions ad
-      WHERE ad.is_active = 1 AND ad.delivery_enabled = 1
-        AND LOWER(TRIM(ad.city)) = LOWER(TRIM(cp.city))
-        AND LOWER(TRIM(ad.name)) = LOWER(TRIM(cp.area))
-    )`);
   }
   if (vendor_id) {
     where.push('vp.vendor_id = ?');

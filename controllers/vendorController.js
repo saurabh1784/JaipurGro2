@@ -1,9 +1,25 @@
 const bcrypt = require('bcryptjs');
+const pool = require('../db');
 const Vendor = require('../models/Vendor');
 const Catalog = require('../models/Catalog');
+const VendorProfile = require('../models/VendorProfile');
+const Wallet = require('../models/Wallet');
+const Order = require('../models/Order');
+const Quotation = require('../models/Quotation');
 const { validateStatus } = require('../middleware/validators');
 const { flattenLocationOptionsFromDb, isValidLocation, locationTree } = require('../utils/locationOptions');
 const { isSuperAdminUser, getAssignedUserCity } = require('./userController');
+
+function canViewVendorDetails(user) {
+  if (!user) return false;
+  const role = String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '');
+  if (['superadmin', 'admin', 'staff', 'staffl1', 'staffl2', 'staffl3', 'supportstaff', 'manager'].includes(role)) return true;
+  if (isSuperAdminUser(user)) return true;
+  if (Array.isArray(user.roles)) {
+    return user.roles.some((r) => ['superadmin', 'admin', 'staff', 'staffl1', 'staffl2', 'staffl3', 'supportstaff', 'manager'].includes(String(r.slug || r.name || '').toLowerCase().replace(/[\s_-]+/g, '')));
+  }
+  return false;
+}
 
 function wantsJson(req) {
   return req.baseUrl.startsWith('/api') || req.query.format === 'json' || req.accepts(['html', 'json']) === 'json';
@@ -97,6 +113,7 @@ async function index(req, res) {
       locationOptions: await flattenLocationOptionsFromDb(),
       categories: await Catalog.listCategories(),
       canManagePremiumVendors: canManagePremiumVendors(req),
+      canViewVendorDetails: canViewVendorDetails(currentUser),
     });
   }
 
@@ -272,9 +289,144 @@ async function destroy(req, res) {
   return res.json({ success: true, message: 'Vendor deleted' });
 }
 
+async function fullDetails(req, res) {
+  const currentUser = req.authUser || (req.session && req.session.user);
+  if (!canViewVendorDetails(currentUser)) {
+    return res.status(403).json({ success: false, message: 'Only Superadmin, Admin, and Staff are allowed to view vendor details' });
+  }
+
+  const id = Number(req.params.id);
+  if (!id) {
+    return res.status(422).json({ success: false, message: 'Valid vendor ID is required' });
+  }
+
+  const vendor = await Vendor.findById(id);
+  if (!vendor) {
+    return res.status(404).json({ success: false, message: 'Vendor not found' });
+  }
+
+  const isSuper = isSuperAdminUser(currentUser);
+  const adminCity = await getAssignedUserCity(currentUser);
+  if (!isSuper && adminCity && vendor.city && vendor.city.toLowerCase() !== adminCity.toLowerCase()) {
+    return res.status(403).json({ success: false, message: `Admins can only view vendors in their assigned city (${adminCity}).` });
+  }
+
+  try {
+    const profile = await VendorProfile.findByUserId(id).catch(() => null);
+    const wallet = await Wallet.findByUserId(id).catch(() => ({ balance: 0 }));
+
+    // Stat Totals
+    const [orderStatsRows] = await pool.query(
+      `SELECT COUNT(*) AS total_served,
+              COALESCE(SUM(o.total_amount), 0) AS total_earned
+       FROM orders o
+       LEFT JOIN (
+         SELECT DISTINCT order_id, vendor_id FROM order_items WHERE vendor_id IS NOT NULL
+       ) item_vendor ON item_vendor.order_id = o.id
+       WHERE COALESCE(o.vendor_id, item_vendor.vendor_id) = ?
+         AND LOWER(o.status) IN ('delivered', 'completed')`,
+      [id]
+    ).catch(() => [[{ total_served: 0, total_earned: 0 }]]);
+
+    const totalOrdersServed = Number(orderStatsRows[0]?.total_served || 0);
+    const totalAmountEarned = Number(orderStatsRows[0]?.total_earned || 0);
+
+    const [bidsRows] = await pool.query(
+      `SELECT COUNT(*) AS total_bids
+       FROM quotation_vendor_recipients
+       WHERE vendor_id = ?`,
+      [id]
+    ).catch(() => [[{ total_bids: 0 }]]);
+    const totalBidsAssigned = Number(bidsRows[0]?.total_bids || 0);
+
+    // Fetch Vendor Orders
+    const rawOrders = await Order.listByVendor(id).catch(() => []);
+    const orders = (rawOrders || []).map((o) => ({
+      id: o.id,
+      order_number: o.order_number || `#${o.id}`,
+      created_at: o.created_at,
+      client_name: o.client_name || o.shipping_name || 'Client',
+      client_phone: o.client_phone || o.shipping_phone || '-',
+      total_amount: Number(o.total_amount || 0),
+      payment_method: o.payment_method || 'wallet',
+      status: o.status || 'pending',
+    }));
+
+    // Fetch Vendor Quotations / Bids
+    const rawQuotations = await Quotation.listForVendor(id, { includeAll: true }).catch(() => []);
+    const quotations = (rawQuotations || []).map((q) => ({
+      id: q.id || q.quotation_request_id,
+      quotation_request_id: q.quotation_request_id || q.id,
+      created_at: q.created_at,
+      client_city: q.client_city || q.city || '-',
+      client_area: q.client_area || q.area || '-',
+      total_amount: Number(q.total_amount || q.expected_price || 0),
+      status: q.status || q.recipient_status || 'new',
+      expires_at: q.expires_at,
+      item_count: Array.isArray(q.items) ? q.items.length : 0,
+    }));
+
+    // Tax detail summary
+    const gstNumber = profile?.gst_number || vendor.gst_number || 'Not Provided';
+    const gstRate = 5;
+    const estimatedGstAmount = Number(((totalAmountEarned * gstRate) / 100).toFixed(2));
+
+    const accountHealth = Number(vendor.account_health !== undefined ? vendor.account_health : (profile?.account_health ?? 500));
+    const hasWarning = accountHealth < 250;
+    const isOnHold = accountHealth < 180 || String(vendor.status || '').toLowerCase() === 'on_hold';
+    const warningMessage = hasWarning
+      ? `Account Health Warning: Your account health is low (${accountHealth}/500). Please fulfill orders and bid promptly to avoid account suspension.`
+      : null;
+
+    const fullVendorDetails = {
+      profile: {
+        ...vendor,
+        account_health: accountHealth,
+        has_health_warning: hasWarning,
+        health_warning_message: warningMessage,
+        is_on_hold: isOnHold,
+        logo_path: profile?.logo_path || null,
+        storefront_image_path: profile?.storefront_image_path || null,
+        signature_path: profile?.signature_path || null,
+        pincode: profile?.pincode || null,
+        pickup_latitude: profile?.pickup_latitude || null,
+        pickup_longitude: profile?.pickup_longitude || null,
+      },
+      stats: {
+        total_orders_served: totalOrdersServed,
+        total_amount_earned: totalAmountEarned,
+        wallet_balance: Number(wallet?.balance || 0),
+        total_bids_assigned: totalBidsAssigned,
+        account_health: accountHealth,
+        has_health_warning: hasWarning,
+        health_warning_message: warningMessage,
+        is_on_hold: isOnHold,
+      },
+      orders,
+      quotations,
+      tax: {
+        gst_number: gstNumber,
+        business_name: vendor.business_name || profile?.business_name || vendor.name,
+        gst_status: gstNumber && gstNumber !== 'Not Provided' ? 'Active / Registered' : 'Not Registered',
+        taxable_turnover: totalAmountEarned,
+        estimated_gst_rate: `${gstRate}%`,
+        estimated_gst_amount: estimatedGstAmount,
+        commission_percent: Number(vendor.premium_commission_percent || 0),
+        is_premium: Boolean(vendor.is_premium_vendor),
+      },
+    };
+
+    return res.json({ success: true, vendor: fullVendorDetails });
+  } catch (error) {
+    console.error('Full vendor details error:', error);
+    return res.status(500).json({ success: false, message: 'Unable to fetch vendor full details' });
+  }
+}
+
 module.exports = {
   index,
   show,
+  fullDetails,
   create,
   update,
   destroy,

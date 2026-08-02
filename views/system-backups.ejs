@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Server System & Database Backups - Groxen</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .backup-banner {
+      background: linear-gradient(135deg, #0f172a, #1e293b);
+      color: #ffffff;
+      padding: 24px;
+      border-radius: 12px;
+      margin-bottom: 24px;
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+    }
+    .backup-banner h2 { margin: 0 0 6px 0; font-size: 1.3rem; color: #f8fafc; }
+    .backup-banner p { margin: 0; font-size: 0.9rem; color: #94a3b8; }
+    .backup-badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      text-transform: uppercase;
+    }
+    .backup-badge.automatic { background: #dbeafe; color: #1e40af; }
+    .backup-badge.manual { background: #fef3c7; color: #92400e; }
+    .type-badge.database { background: #dcfce7; color: #166534; }
+    .type-badge.system { background: #f3e8ff; color: #6b21a8; }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell: locals.shell || (typeof shell !== 'undefined' ? shell : {}) }) %>
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / System / Server Backups</p>
+        <h1>Server System & Database Backups</h1>
+      </div>
+    </header>
+
+    <section class="wallet-shell" style="padding: 24px;">
+      <div class="backup-banner">
+        <div>
+          <h2>Automated 24-Hour Midnight Backup System</h2>
+          <p>Full Database & File System Uploads backups are automatically created every night at <strong>12:00 AM (00:00 AM IST)</strong>.</p>
+        </div>
+        <button id="createBackupBtn" class="settings-save" style="padding: 12px 20px; font-size: 0.95rem; background: #10b981; border: none; cursor: pointer;">
+          ⚡ Create Full Backup Now
+        </button>
+      </div>
+
+      <div class="users-table-card">
+        <div style="display: flex; justify-content: space-between; align-items: center; padding: 16px 20px; border-bottom: 1px solid #e2e8f0;">
+          <h3 style="margin: 0; font-size: 1.1rem; color: #1e293b;">Available Server & DB Backups</h3>
+          <button class="product-secondary-button" id="refreshBtn">Refresh List</button>
+        </div>
+
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>File Name</th>
+              <th>Backup Type</th>
+              <th>Trigger Mode</th>
+              <th>File Size</th>
+              <th>Creation Date & Time</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="tableBody">
+            <tr><td colspan="6">Loading backups...</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const el = (id) => document.getElementById(id);
+    const esc = (v) => String(v ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
+
+    async function loadBackups() {
+      try {
+        const res = await fetch('/api/admin/backups?format=json');
+        const d = await res.json();
+        if (!res.ok || !d.success) throw new Error(d.message || 'Failed to load backups');
+        render(d.backups || []);
+      } catch (e) {
+        el('tableBody').innerHTML = `<tr><td colspan="6" style="color: #ef4444;">${esc(e.message)}</td></tr>`;
+      }
+    }
+
+    function render(backups) {
+      if (!backups.length) {
+        el('tableBody').innerHTML = '<tr><td colspan="6">No backup files found. Click "Create Full Backup Now" above to create one!</td></tr>';
+        return;
+      }
+
+      el('tableBody').innerHTML = backups.map(b => `
+        <tr>
+          <td><strong>${esc(b.filename)}</strong></td>
+          <td><span class="withdrawal-badge type-badge ${b.type}">${esc(b.type.toUpperCase())}</span></td>
+          <td><span class="backup-badge ${b.triggerType}">${esc(b.triggerType)}</span></td>
+          <td>${esc(b.sizeFormatted || (b.size + ' B'))}</td>
+          <td>${new Date(b.createdAt).toLocaleString('en-IN')}</td>
+          <td>
+            <div style="display: flex; gap: 8px;">
+              <a href="/api/admin/backups/download/${encodeURIComponent(b.filename)}" class="settings-save" style="padding: 5px 12px; text-decoration: none; font-size: 0.85rem;" download>Download</a>
+              <button class="product-secondary-button" style="padding: 5px 12px; background: #fee2e2; color: #991b1b; border: none; cursor: pointer; font-size: 0.85rem;" onclick="deleteFile('${esc(b.filename)}')">Delete</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    el('createBackupBtn').onclick = async () => {
+      const btn = el('createBackupBtn');
+      btn.disabled = true;
+      btn.textContent = '⏳ Creating Full Backup...';
+
+      try {
+        const res = await fetch('/api/admin/backups/create', { method: 'POST' });
+        const d = await res.json();
+        if (!res.ok || !d.success) throw new Error(d.message || 'Backup failed');
+        alert(d.message || 'Full backup created successfully!');
+        loadBackups();
+      } catch (e) {
+        alert('Backup Error: ' + e.message);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = '⚡ Create Full Backup Now';
+      }
+    };
+
+    async function deleteFile(filename) {
+      if (!confirm(`Are you sure you want to delete backup file "${filename}"?`)) return;
+      try {
+        const res = await fetch(`/api/admin/backups/${encodeURIComponent(filename)}`, { method: 'DELETE' });
+        const d = await res.json();
+        if (!res.ok || !d.success) throw new Error(d.message || 'Delete failed');
+        alert(d.message);
+        loadBackups();
+      } catch (e) {
+        alert(e.message);
+      }
+    }
+
+    el('refreshBtn').onclick = loadBackups;
+    loadBackups();
+  </script>
+</body>
+</html>
