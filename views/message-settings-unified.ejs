@@ -1,0 +1,1924 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --primary: #0f766e;
+      --primary-hover: #0d9488;
+      --primary-light: #f0fdf4;
+      --whatsapp: #25d366;
+      --whatsapp-dark: #128c7e;
+      --whatsapp-bg: rgba(37, 211, 102, 0.08);
+      --dark-bg: #0f172a;
+      --card-bg: #ffffff;
+      --card-border: #e2e8f0;
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --radius: 16px;
+      --shadow-sm: 0 2px 4px rgba(0,0,0,0.03);
+      --shadow-md: 0 10px 25px -5px rgba(15, 23, 42, 0.06), 0 8px 10px -6px rgba(15, 23, 42, 0.04);
+      --shadow-lg: 0 20px 30px -10px rgba(15, 23, 42, 0.1);
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+      background-color: #f8fafc;
+      color: var(--text-main);
+    }
+
+    .page {
+      padding: 28px;
+      max-width: 1480px;
+      margin: 0 auto;
+    }
+
+    /* Hero Header & Quick Stats */
+    .hero-banner {
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 50%, #0f766e 100%);
+      border-radius: var(--radius);
+      padding: 28px 32px;
+      color: #ffffff;
+      margin-bottom: 28px;
+      box-shadow: var(--shadow-md);
+      position: relative;
+      overflow: hidden;
+    }
+    .hero-banner::before {
+      content: '';
+      position: absolute;
+      top: -50px;
+      right: -50px;
+      width: 250px;
+      height: 250px;
+      background: radial-gradient(circle, rgba(37, 211, 102, 0.15) 0%, rgba(255,255,255,0) 70%);
+      border-radius: 50%;
+      pointer-events: none;
+    }
+    .hero-title-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+      margin-bottom: 20px;
+    }
+    .hero-title-row h1 {
+      font-size: 1.75rem;
+      font-weight: 800;
+      margin: 0 0 6px 0;
+      letter-spacing: -0.02em;
+    }
+    .hero-title-row p {
+      color: #94a3b8;
+      font-size: 0.95rem;
+      margin: 0;
+    }
+
+    /* Stat Pills */
+    .stat-pills {
+      display: flex;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    .stat-pill {
+      background: rgba(255, 255, 255, 0.08);
+      backdrop-filter: blur(8px);
+      border: 1px solid rgba(255, 255, 255, 0.12);
+      border-radius: 12px;
+      padding: 8px 16px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-size: 0.85rem;
+      font-weight: 600;
+    }
+    .stat-dot {
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #94a3b8;
+      box-shadow: 0 0 0 2px rgba(255,255,255,0.1);
+    }
+    .stat-dot.active {
+      background: #10b981;
+      box-shadow: 0 0 10px #10b981;
+    }
+    .stat-dot.whatsapp {
+      background: var(--whatsapp);
+      box-shadow: 0 0 10px var(--whatsapp);
+    }
+    .stat-dot.inactive {
+      background: #f43f5e;
+    }
+
+    /* WhatsApp Highlight Banner */
+    .whatsapp-card {
+      background: linear-gradient(135deg, rgba(37, 211, 102, 0.08) 0%, rgba(18, 140, 126, 0.04) 100%);
+      border: 1.5px solid rgba(37, 211, 102, 0.3);
+      border-radius: var(--radius);
+      padding: 20px 24px;
+      margin-bottom: 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 20px;
+      box-shadow: var(--shadow-sm);
+      transition: all 0.3s ease;
+    }
+    .whatsapp-card:hover {
+      border-color: rgba(37, 211, 102, 0.5);
+      box-shadow: 0 8px 20px rgba(37, 211, 102, 0.12);
+    }
+    .whatsapp-info {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .whatsapp-icon-bg {
+      width: 48px;
+      height: 48px;
+      border-radius: 14px;
+      background: var(--whatsapp);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 6px 16px rgba(37, 211, 102, 0.35);
+      flex-shrink: 0;
+    }
+    .whatsapp-icon-bg svg {
+      fill: #ffffff;
+      width: 28px;
+      height: 28px;
+    }
+    .whatsapp-text h3 {
+      margin: 0 0 4px 0;
+      font-size: 1.1rem;
+      font-weight: 700;
+      color: #064e3b;
+    }
+    .whatsapp-text p {
+      margin: 0;
+      font-size: 0.88rem;
+      color: #047857;
+    }
+
+    /* IOS Style Toggle Switch */
+    .toggle-control {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: #ffffff;
+      padding: 8px 16px;
+      border-radius: 50px;
+      border: 1px solid rgba(37, 211, 102, 0.25);
+      box-shadow: var(--shadow-sm);
+    }
+    .toggle-label {
+      font-weight: 700;
+      font-size: 0.9rem;
+      color: #0f172a;
+    }
+    .switch-toggle {
+      position: relative;
+      display: inline-block;
+      width: 52px;
+      height: 28px;
+    }
+    .switch-toggle input {
+      opacity: 0;
+      width: 0;
+      height: 0;
+    }
+    .slider {
+      position: absolute;
+      cursor: pointer;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background-color: #cbd5e1;
+      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 34px;
+    }
+    .slider:before {
+      position: absolute;
+      content: "";
+      height: 22px;
+      width: 22px;
+      left: 3px;
+      bottom: 3px;
+      background-color: white;
+      transition: .3s cubic-bezier(0.4, 0, 0.2, 1);
+      border-radius: 50%;
+      box-shadow: 0 2px 5px rgba(0,0,0,0.2);
+    }
+    input:checked + .slider {
+      background-color: var(--whatsapp);
+    }
+    input:focus + .slider {
+      box-shadow: 0 0 1px var(--whatsapp);
+    }
+    input:checked + .slider:before {
+      transform: translateX(24px);
+    }
+
+    /* Badge Pills */
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 4px 10px;
+      border-radius: 50px;
+      font-size: 0.78rem;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+    .badge-success { background: #dcfce7; color: #15803d; }
+    .badge-danger { background: #ffe4e6; color: #be123c; }
+    .badge-warning { background: #fef3c7; color: #b45309; }
+    .badge-info { background: #e0f2fe; color: #0369a1; }
+
+    /* Modern Navigation Tabs */
+    .tabs-container {
+      margin-bottom: 24px;
+    }
+    .tabs-nav {
+      display: flex;
+      gap: 8px;
+      background: #ffffff;
+      padding: 6px;
+      border-radius: 14px;
+      border: 1px solid var(--card-border);
+      box-shadow: var(--shadow-sm);
+      overflow-x: auto;
+    }
+    .tab-btn {
+      padding: 12px 20px;
+      font-family: inherit;
+      font-weight: 700;
+      font-size: 0.9rem;
+      background: transparent;
+      border: none;
+      border-radius: 10px;
+      color: var(--text-muted);
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      white-space: nowrap;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .tab-btn:hover {
+      color: var(--primary);
+      background: rgba(15, 118, 110, 0.05);
+    }
+    .tab-btn.active {
+      color: #ffffff;
+      background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+      box-shadow: 0 4px 12px rgba(15, 118, 110, 0.25);
+    }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; animation: fadeIn 0.3s ease-in-out; }
+
+    @keyframes fadeIn {
+      from { opacity: 0; transform: translateY(6px); }
+      to { opacity: 1; transform: translateY(0); }
+    }
+
+    /* Cards Layout */
+    .grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 24px; }
+    .full { grid-column: 1 / -1; }
+    
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: var(--radius);
+      padding: 26px;
+      box-shadow: var(--shadow-sm);
+      transition: box-shadow 0.2s ease;
+    }
+    .card:hover {
+      box-shadow: var(--shadow-md);
+    }
+    .card-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 20px;
+      padding-bottom: 14px;
+      border-bottom: 1px solid #f1f5f9;
+    }
+    .card-title-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .card-icon-badge {
+      width: 40px;
+      height: 40px;
+      border-radius: 10px;
+      background: var(--primary-light);
+      color: var(--primary);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .card h2 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: var(--text-main);
+    }
+    .help { color: var(--text-muted); font-size: 0.85rem; margin: 4px 0 0 0; }
+
+    /* Form Fields & Inputs */
+    .fields { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 22px 28px; width: 100%; box-sizing: border-box; }
+    .field { display: flex; flex-direction: column; gap: 8px; font-size: 0.88rem; font-weight: 700; color: #334155; width: 100%; box-sizing: border-box; }
+    .field input, .field select, .field textarea, .filters input, .filters select {
+      width: 100%;
+      min-height: 48px;
+      padding: 11px 16px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 0.95rem;
+      font-family: inherit;
+      color: #0f172a;
+      background: #ffffff;
+      box-sizing: border-box;
+      transition: border-color 0.2s ease, box-shadow 0.2s ease;
+    }
+    .field select, .filters select {
+      appearance: none;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%3C64748b' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6 9 12 15 18 9'%3E%3C/polyline%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: right 14px center;
+      padding-right: 40px;
+      cursor: pointer;
+    }
+    .field input:hover, .field select:hover, .field textarea:hover { border-color: #94a3b8; }
+    .field input:focus, .field select:focus, .field textarea:focus {
+      outline: none;
+      border-color: var(--primary, #0f766e);
+      box-shadow: 0 0 0 4px rgba(15, 118, 110, 0.15);
+    }
+    .field textarea { min-height: 110px; resize: vertical; line-height: 1.5; }
+
+    /* Custom Buttons */
+    .btn {
+      min-height: 48px;
+      padding: 12px 24px;
+      border: 0;
+      border-radius: 10px;
+      background: linear-gradient(135deg, #0f766e 0%, #0d9488 100%);
+      color: white;
+      font-family: inherit;
+      font-weight: 700;
+      font-size: 0.92rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 8px;
+      box-shadow: 0 4px 12px rgba(15, 118, 110, 0.2);
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(15, 118, 110, 0.3);
+    }
+    .btn:active { transform: translateY(0); }
+    .btn.alt {
+      background: #334155;
+      box-shadow: 0 4px 12px rgba(51, 65, 85, 0.2);
+    }
+    .btn.alt:hover {
+      background: #475569;
+      box-shadow: 0 6px 16px rgba(51, 65, 85, 0.3);
+    }
+    .btn.whatsapp-btn {
+      background: linear-gradient(135deg, #25d366 0%, #128c7e 100%);
+      box-shadow: 0 4px 12px rgba(37, 211, 102, 0.25);
+    }
+    .btn.whatsapp-btn:hover {
+      box-shadow: 0 6px 16px rgba(37, 211, 102, 0.4);
+    }
+
+    /* Secret and Webhook Rows - Fixed Input & Button Widths */
+    .secret-row, .webhook-row {
+      display: flex !important;
+      flex-direction: row !important;
+      align-items: center !important;
+      gap: 12px !important;
+      width: 100% !important;
+      box-sizing: border-box !important;
+    }
+    .secret-row input, .webhook-row input {
+      flex: 1 1 0% !important;
+      width: 0 !important;
+      min-width: 0 !important;
+      min-height: 48px !important;
+      padding: 11px 16px !important;
+      font-size: 0.95rem !important;
+    }
+    .secret-row .btn, .webhook-row .btn,
+    .secret-row button, .webhook-row button {
+      flex: 0 0 auto !important;
+      width: auto !important;
+      min-width: 130px !important;
+      max-width: 180px !important;
+      height: 48px !important;
+      padding: 0 20px !important;
+      font-size: 0.88rem !important;
+      font-weight: 700 !important;
+      border-radius: 10px !important;
+      white-space: nowrap !important;
+    }
+
+    .notice {
+      padding: 14px 18px;
+      background: #eff6ff;
+      color: #1e40af;
+      border: 1px solid #bfdbfe;
+      border-radius: 12px;
+      margin-bottom: 20px;
+      font-size: 0.9rem;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    /* Live Output Box */
+    .result {
+      display: none;
+      margin-top: 16px;
+      padding: 16px;
+      border-radius: 12px;
+      white-space: pre-wrap;
+      font-family: monospace;
+      font-size: 0.88rem;
+      line-height: 1.5;
+    }
+    .ok { display: block; background: #f0fdf4; color: #166534; border: 1.5px solid #86efac; }
+    .bad { display: block; background: #fff1f2; color: #9f1239; border: 1.5px solid #fecdd3; }
+
+    /* Toast */
+    .toast {
+      display: none;
+      position: fixed;
+      right: 28px;
+      top: 28px;
+      padding: 14px 24px;
+      background: #0f172a;
+      color: #ffffff;
+      border-radius: 12px;
+      z-index: 9999;
+      box-shadow: var(--shadow-lg);
+      font-weight: 600;
+      font-size: 0.9rem;
+      border: 1px solid rgba(255,255,255,0.1);
+      animation: slideIn 0.3s ease-out;
+    }
+    @keyframes slideIn {
+      from { transform: translateX(50px); opacity: 0; }
+      to { transform: translateX(0); opacity: 1; }
+    }
+
+    /* Table & Logs */
+    .scroll { overflow-x: auto; border-radius: 12px; border: 1px solid #e2e8f0; }
+    .logs { width: 100%; border-collapse: collapse; font-size: 0.85rem; background: white; }
+    .logs th { background: #f8fafc; color: #475569; font-weight: 700; text-transform: uppercase; font-size: 0.75rem; letter-spacing: 0.05em; padding: 12px 14px; border-bottom: 1px solid #e2e8f0; }
+    .logs td { padding: 12px 14px; border-bottom: 1px solid #f1f5f9; text-align: left; white-space: nowrap; }
+    .logs tr:hover { background: #f8fafc; }
+
+    .filters { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 18px; width: 100%; box-sizing: border-box; }
+    .filters select, .filters input { font-size: 0.88rem; padding: 10px 14px; min-height: 44px; }
+
+    .checkbox-label {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 0.88rem;
+      color: #334155;
+      padding: 8px 12px;
+      border-radius: 8px;
+      transition: background 0.15s;
+    }
+    .checkbox-label:hover { background: #f1f5f9; }
+    .checkbox-label input { width: 18px; height: 18px; accent-color: var(--primary); }
+
+    /* Responsive Mobile Adjustments */
+    @media (max-width: 768px) {
+      .page { padding: 16px 12px; }
+      .hero-banner { padding: 20px 18px; margin-bottom: 20px; }
+      .hero-title-row h1 { font-size: 1.35rem; }
+      .grid, .fields { grid-template-columns: 1fr !important; gap: 16px; }
+      .card { padding: 18px 16px; }
+      .secret-row, .webhook-row { flex-direction: column !important; align-items: stretch !important; gap: 8px !important; }
+      .secret-row input, .webhook-row input { width: 100% !important; }
+      .secret-row button, .webhook-row button { width: 100% !important; max-width: none !important; justify-content: center !important; }
+      .card > form > .btn, .card > .btn { width: 100%; justify-content: center; min-height: 48px; }
+      .filters { flex-direction: column; width: 100%; }
+      .filters select, .filters input, .filters button { width: 100%; min-height: 44px; }
+    }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  
+  <main class="system-main">
+    <div class="page">
+      <div id="toast" class="toast"></div>
+
+      <!-- Hero Banner & Overview -->
+      <div class="hero-banner">
+        <div class="hero-title-row">
+          <div>
+            <h1>Message, Email & WhatsApp Settings</h1>
+            <p>Unified communication settings, MSG91 integration, WhatsApp gateway toggles, SMTP mail & test suite</p>
+          </div>
+          <div class="stat-pills">
+            <div class="stat-pill">
+              <span class="stat-dot <%= config.enabled ? 'active' : 'inactive' %>"></span>
+              <span>MSG91: <strong><%= config.enabled ? 'ACTIVE' : 'DISABLED' %></strong></span>
+            </div>
+            <div class="stat-pill">
+              <span class="stat-dot <%= config.whatsappEnabled ? 'whatsapp' : 'inactive' %>"></span>
+              <span>WhatsApp: <strong id="heroWhatsappStatus"><%= config.whatsappEnabled ? 'ON' : 'OFF' %></strong></span>
+            </div>
+            <div class="stat-pill">
+              <span class="stat-dot <%= emailConfig.status === 'active' ? 'active' : 'inactive' %>"></span>
+              <span>SMTP Email: <strong><%= emailConfig.status === 'active' ? 'ACTIVE' : 'INACTIVE' %></strong></span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- WhatsApp Gateway Instant Toggle Card -->
+      <div class="whatsapp-card">
+        <div class="whatsapp-info">
+          <div class="whatsapp-icon-bg">
+            <svg viewBox="0 0 24 24">
+              <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-0.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z"/>
+            </svg>
+          </div>
+          <div class="whatsapp-text">
+            <h3>WhatsApp Messaging Gateway</h3>
+            <p>Master toggle for sending WhatsApp notifications and OTPs across Customer, Vendor & Delivery apps.</p>
+          </div>
+        </div>
+        
+        <div class="toggle-control">
+          <span class="badge <%= config.whatsappEnabled ? 'badge-success' : 'badge-danger' %>" id="whatsappBadge">
+            <%= config.whatsappEnabled ? 'ENABLED' : 'DISABLED' %>
+          </span>
+          <label class="switch-toggle" title="Click to toggle WhatsApp messaging ON/OFF">
+            <input type="checkbox" id="whatsappToggleSwitch" <%= config.whatsappEnabled ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>>
+            <span class="slider"></span>
+          </label>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <div class="tabs-container">
+        <nav class="tabs-nav" aria-label="Message & Email Settings Tabs">
+          <button type="button" class="tab-btn active" data-tab="tab-msg91">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>
+            MSG91 & WhatsApp Setup
+          </button>
+          <button type="button" class="tab-btn" data-tab="tab-inapp">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+            In-App Messages
+          </button>
+          <button type="button" class="tab-btn" data-tab="tab-email">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            Email (SMTP) Settings
+          </button>
+          <button type="button" class="tab-btn" data-tab="tab-testing">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+            Live Test Tools
+          </button>
+          <button type="button" class="tab-btn" data-tab="tab-logs">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            Message Logs
+          </button>
+        </nav>
+      </div>
+
+      <!-- TAB 1: MSG91 & WHATSAPP SETTINGS -->
+      <div id="tab-msg91" class="tab-content active">
+        <div class="grid">
+          <section class="card full">
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon-badge">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
+                </div>
+                <div>
+                  <h2>MSG91 Provider Configuration</h2>
+                  <p class="help">Configure credentials, Widget IDs, templates, and WhatsApp integrated numbers.</p>
+                </div>
+              </div>
+            </div>
+
+            <div style="margin-bottom: 20px;">
+              <label class="field">
+                MSG91 Delivery Webhook URL
+                <div class="webhook-row">
+                  <input id="webhookUrl" type="text" readonly value="<%= webhookUrl %>" style="background:#f8fafc;">
+                  <button id="copyWebhook" class="btn alt" type="button">Copy Webhook</button>
+                </div>
+                <small class="help">Add this URL in your MSG91 control panel. Header: <code>x-msg91-webhook-secret</code>. <% if(!config.webhookSecretConfigured){ %><span style="color:#e11d48;font-weight:700;">(MSG91_WEBHOOK_SECRET is not configured in .env)</span><% } %></small>
+              </label>
+            </div>
+
+            <% if(!isSuperAdmin){ %><div class="notice">Only Super Admin users can modify MSG91 API keys and credentials.</div><% } %>
+
+            <form id="settings">
+              <input type="hidden" name="whatsappEnabled" id="hiddenWhatsappEnabled" value="<%= config.whatsappEnabled ? 'true' : 'false' %>">
+              
+              <div class="fields">
+                <label class="field">MSG91 Auth Key (.env)
+                  <div class="secret-row">
+                    <input id="authKey" name="authKey" type="text" autocomplete="off" value="<%= config.authKey %>" placeholder="Enter Auth Key" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                    <button class="btn alt copy-key-btn" type="button" data-target="authKey">Copy Key</button>
+                  </div>
+                  <small class="help">Always displays full unmasked key from .env file</small>
+                </label>
+
+                <label class="field">MSG91 Widget Token (tokenAuth) (.env)
+                  <div class="secret-row">
+                    <input id="widgetToken" name="widgetToken" type="text" autocomplete="off" value="<%= config.widgetToken %>" placeholder="Enter Widget Token" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                    <button class="btn alt copy-key-btn" type="button" data-target="widgetToken">Copy Token</button>
+                  </div>
+                  <small class="help">Always displays full unmasked token from .env file</small>
+                </label>
+
+                <label class="field">MSG91 Widget ID
+                  <input name="widgetId" value="<%= config.widgetId %>" placeholder="e.g. 3361..." <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">WhatsApp Number (with country code)
+                  <input name="whatsappNumber" value="<%= config.whatsappNumber ? '+' + config.whatsappNumber : '' %>" placeholder="+919876543210" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">WhatsApp Template ID / Name
+                  <input name="whatsappTemplateId" value="<%= config.whatsappTemplateId %>" placeholder="e.g. otp_login_en" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">SMS Template ID
+                  <input name="smsTemplateId" value="<%= config.smsTemplateId %>" placeholder="e.g. 629f..." <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">SMS Sender ID
+                  <input name="senderId" value="<%= config.senderId %>" placeholder="e.g. GROXEN" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">OTP Delivery Channel Selection
+                  <select name="deliveryMethod" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                    <option value="whatsapp" <%= config.deliveryMethod === 'whatsapp' ? 'selected' : '' %>>WhatsApp OTP</option>
+                    <option value="sms" <%= config.deliveryMethod === 'sms' ? 'selected' : '' %>>SMS OTP</option>
+                  </select>
+                  <small class="help">Choose strictly ONE channel for all OTPs across Customer, Vendor, and Delivery apps.</small>
+                </label>
+
+                <label class="field">OTP Expiry Time (Minutes)
+                  <input name="otpExpiryMinutes" type="number" min="1" max="30" value="<%= config.otpExpiryMinutes %>" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">OTP Length (Digits)
+                  <input name="otpLength" type="number" min="4" max="8" value="<%= config.otpLength %>" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">Resend OTP Cooldown (Seconds)
+                  <input name="resendSeconds" type="number" min="15" max="600" value="<%= config.resendSeconds %>" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">Max Verification Attempts
+                  <input name="maximumAttempts" type="number" min="1" max="10" value="<%= config.maximumAttempts %>" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <div class="full" style="display: flex; gap: 20px; align-items: center; margin-top: 6px;">
+                  <label class="checkbox-label">
+                    <input name="enabled" type="checkbox" <%= config.enabled ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>>
+                    <span>Enable MSG91 Integration Master Switch</span>
+                  </label>
+                </div>
+              </div>
+
+              <% if(isSuperAdmin){ %>
+                <button class="btn" type="submit" style="margin-top: 24px;">
+                  <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg>
+                  Save MSG91 & WhatsApp Settings
+                </button>
+              <% } %>
+              <div id="settingsResult" class="result"></div>
+            </form>
+          </section>
+        </div>
+      </div>
+
+      <!-- TAB: IN-APP MESSAGES -->
+      <div id="tab-inapp" class="tab-content">
+        <div class="grid">
+          <section class="card full">
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon-badge" style="background: #e0f2fe; color: #0284c7;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+                </div>
+                <div>
+                  <h2>In-App Message Templates Management</h2>
+                  <p class="help">Manage in-house message templates displayed inside Customer, Vendor, and Delivery partner apps for key business events.</p>
+                </div>
+              </div>
+              <% if (isSuperAdmin) { %>
+                <button type="button" class="btn" style="background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);" onclick="openInAppModal()">
+                  ➕ Create In-App Message Template
+                </button>
+              <% } %>
+            </div>
+
+            <!-- Filters Bar -->
+            <div class="filters" style="margin-bottom: 20px;">
+              <select id="filterInAppApp" onchange="filterInAppCards()">
+                <option value="all">All Target Apps</option>
+                <option value="client">Customer App</option>
+                <option value="vendor">Vendor App</option>
+                <option value="delivery">Delivery Partner App</option>
+              </select>
+
+              <select id="filterInAppEvent" onchange="filterInAppCards()">
+                <option value="all">All Event Triggers</option>
+                <option value="registration">Registration</option>
+                <option value="order_update">Order Update</option>
+                <option value="payment">Payment</option>
+                <option value="approval">Approval</option>
+                <option value="rejection">Rejection</option>
+                <option value="wallet_update">Wallet Update</option>
+                <option value="delivery_status">Delivery Status / OTP</option>
+              </select>
+            </div>
+
+            <!-- Template Cards Container -->
+            <div class="inapp-grid" id="inAppCardsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px;">
+              <% if (!inAppTemplates || !inAppTemplates.length) { %>
+                <div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+                  No In-App Message Templates found. Click "Create In-App Message Template" to add one.
+                </div>
+              <% } else { %>
+                <% inAppTemplates.forEach(tpl => { %>
+                  <div class="card inapp-card" data-app="<%= tpl.target_app %>" data-event="<%= tpl.event_type %>" style="border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; background: #ffffff; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow-sm);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
+                      <div>
+                        <h3 style="margin: 0 0 4px 0; font-size: 1rem; font-weight: 700; color: #0f172a;"><%= tpl.name %></h3>
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+                          <span class="badge badge-info"><%= tpl.target_app === 'client' ? 'Customer App' : (tpl.target_app === 'vendor' ? 'Vendor App' : (tpl.target_app === 'delivery' ? 'Delivery App' : 'All Apps')) %></span>
+                          <span class="badge" style="background: #f1f5f9; color: #334155;"><%= tpl.event_type %></span>
+                          <% if (tpl.is_system) { %><span class="badge" style="background: #fef3c7; color: #b45309;">System Built-in</span><% } %>
+                        </div>
+                      </div>
+
+                      <label class="switch-toggle" title="Toggle Template Active Status">
+                        <input type="checkbox" onchange="toggleInAppTemplate(<%= tpl.id %>, this)" <%= tpl.status === 'active' ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>>
+                        <span class="slider"></span>
+                      </label>
+                    </div>
+
+                    <!-- Title & Content Snippet Box -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 0.85rem;">
+                      <div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">📌 Title: <%= tpl.title %></div>
+                      <div style="color: #475569; line-height: 1.4; white-space: pre-wrap;"><%= tpl.content %></div>
+                    </div>
+
+                    <!-- Variable Pills -->
+                    <% if (tpl.variables && tpl.variables.length) { %>
+                      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <% tpl.variables.forEach(v => { %>
+                          <span style="font-size: 0.72rem; background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; padding: 2px 8px; border-radius: 4px; font-weight: 700;">{{<%= v %>}}</span>
+                        <% }) %>
+                      </div>
+                    <% } %>
+
+                    <!-- Action Buttons -->
+                    <div style="display: flex; gap: 8px; margin-top: auto; padding-top: 8px; border-top: 1px solid #f1f5f9; flex-wrap: wrap;">
+                      <button type="button" class="btn alt" style="padding: 6px 12px; font-size: 0.8rem;" onclick="editInAppTemplateById(<%= tpl.id %>)">✏️ Edit</button>
+                      <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.8rem; background: #0284c7;" onclick="previewInAppModal(<%= tpl.id %>)">👁️ Preview</button>
+                      <% if (!tpl.is_system) { %>
+                        <button type="button" class="btn alt" style="padding: 6px 12px; font-size: 0.8rem; background: #dc2626;" onclick="deleteInAppTemplate(<%= tpl.id %>)">🗑️ Delete</button>
+                      <% } %>
+                    </div>
+                  </div>
+                <% }) %>
+              <% } %>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- TAB 2: EMAIL (SMTP) SETTINGS -->
+      <div id="tab-email" class="tab-content">
+        <div class="grid">
+          <section class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon-badge">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                </div>
+                <div>
+                  <h2>SMTP Mail Server Configuration</h2>
+                  <p class="help">Setup SMTP server, ports, credentials, and sender profile.</p>
+                </div>
+              </div>
+            </div>
+
+            <form id="emailSettingsForm">
+              <div class="fields" style="grid-template-columns: 1fr;">
+                <label class="field">Mail Driver
+                  <select name="mailDriver" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                    <option value="SMTP" <%= emailConfig.mailDriver === 'SMTP' ? 'selected' : '' %>>SMTP Server</option>
+                    <option value="Sendmail" <%= emailConfig.mailDriver === 'Sendmail' ? 'selected' : '' %>>Sendmail</option>
+                  </select>
+                </label>
+
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 12px;">
+                  <label class="field">SMTP Host
+                    <input name="host" value="<%= emailConfig.host %>" placeholder="e.g. smtp.gmail.com" required <%= !isSuperAdmin ? 'disabled' : '' %>>
+                  </label>
+                  <label class="field">SMTP Port
+                    <input name="port" type="number" value="<%= emailConfig.port %>" placeholder="587" required <%= !isSuperAdmin ? 'disabled' : '' %>>
+                  </label>
+                </div>
+
+                <label class="field">Encryption Protocol
+                  <select name="encryption" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                    <option value="TLS" <%= emailConfig.encryption === 'TLS' ? 'selected' : '' %>>TLS / STARTTLS (Port 587)</option>
+                    <option value="SSL" <%= emailConfig.encryption === 'SSL' ? 'selected' : '' %>>SSL (Port 465)</option>
+                    <option value="NONE" <%= emailConfig.encryption === 'NONE' ? 'selected' : '' %>>None (Port 25)</option>
+                  </select>
+                </label>
+
+                <label class="field">SMTP Username / Email
+                  <input name="username" value="<%= emailConfig.username %>" placeholder="e.g. your-email@gmail.com" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                </label>
+
+                <label class="field">SMTP Password / App Password
+                  <div class="secret-row">
+                    <input id="emailPassword" name="password" type="password" value="<%= emailConfig.password %>" placeholder="Enter SMTP password" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                    <button class="btn alt secret-toggle" type="button" data-target="emailPassword">View</button>
+                  </div>
+                </label>
+
+                <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+                  <label class="field">Sender Email (From)
+                    <input name="fromEmail" value="<%= emailConfig.fromEmail %>" placeholder="noreply@groxen.com" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                  </label>
+
+                  <label class="field">Sender Name
+                    <input name="fromName" value="<%= emailConfig.fromName || 'GROXEN' %>" placeholder="GROXEN" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                  </label>
+                </div>
+
+                <label class="field">Mail Service Status
+                  <select name="status" <%= !isSuperAdmin ? 'disabled' : '' %>>
+                    <option value="active" <%= emailConfig.status === 'active' ? 'selected' : '' %>>Active (Sending Enabled)</option>
+                    <option value="inactive" <%= emailConfig.status === 'inactive' ? 'selected' : '' %>>Inactive (Disabled)</option>
+                  </select>
+                </label>
+
+                <div style="margin-top: 10px; border-top: 1px solid #e2e8f0; padding-top: 14px;">
+                  <strong style="display: block; margin-bottom: 12px; font-size: 0.9rem; color: #0f172a;">Automatic Email Triggers:</strong>
+                  <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px;">
+                    <label class="checkbox-label"><input type="checkbox" name="triggerUserWelcome" <%= emailConfig.triggers.userWelcome ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>> User Welcome</label>
+                    <label class="checkbox-label"><input type="checkbox" name="triggerUserOrderInvoice" <%= emailConfig.triggers.userOrderInvoice ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>> Order Invoice</label>
+                    <label class="checkbox-label"><input type="checkbox" name="triggerUserDeliveryStatus" <%= emailConfig.triggers.userDeliveryStatus ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>> Delivery Status</label>
+                    <label class="checkbox-label"><input type="checkbox" name="triggerUserPasswordReset" <%= emailConfig.triggers.userPasswordReset ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>> Password Reset</label>
+                    <label class="checkbox-label"><input type="checkbox" name="triggerVendorNewOrder" <%= emailConfig.triggers.vendorNewOrder ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>> Vendor New Order</label>
+                    <label class="checkbox-label"><input type="checkbox" name="triggerDeliveryAssignment" <%= emailConfig.triggers.deliveryAssignment ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>> Partner Assignment</label>
+                  </div>
+                </div>
+              </div>
+
+              <% if(isSuperAdmin){ %>
+                <button type="submit" class="btn" style="margin-top: 20px;">Save Email Settings</button>
+              <% } %>
+              <div id="emailSettingsResult" class="result"></div>
+            </form>
+          </section>
+
+          <!-- Test Email Panel -->
+          <section class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon-badge" style="background: #e0f2fe; color: #0284c7;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                </div>
+                <div>
+                  <h2>Send Test Email</h2>
+                  <p class="help">Verify SMTP deliverability & credentials with default sender "GROXEN".</p>
+                </div>
+              </div>
+            </div>
+            
+            <form id="testEmailForm">
+              <div class="fields" style="grid-template-columns: 1fr;">
+                <label class="field">Recipient Email Address
+                  <input name="recipientEmail" type="email" placeholder="e.g. user@example.com" required>
+                </label>
+
+                <label class="field">Email Template to Test
+                  <select id="testEmailTemplateKey" name="templateKey">
+                    <option value="default_test">Standard System Test Mail (GROXEN)</option>
+                    <% if (emailTemplates && emailTemplates.length) { %>
+                      <% emailTemplates.forEach(t => { %>
+                        <option value="<%= t.template_key %>"><%= t.name %> (<%= t.template_key %>)</option>
+                      <% }) %>
+                    <% } %>
+                  </select>
+                </label>
+
+                <label class="field">Custom Subject (Optional)
+                  <input name="subject" placeholder="Leave empty to use template default subject">
+                </label>
+
+                <label class="field">Custom Email Content (Optional)
+                  <textarea name="customBody" placeholder="Leave empty to use active email template content"></textarea>
+                </label>
+              </div>
+
+              <button type="submit" class="btn" style="margin-top: 18px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="22" y1="2" x2="11" y2="13"/><polygon points="22 2 15 22 11 13 2 9 22 2"/></svg>
+                Send Test Email
+              </button>
+              <div id="testEmailResult" class="result"></div>
+            </form>
+          </section>
+
+          <!-- Email Templates Management Section -->
+          <section class="card full" style="grid-column: 1 / -1;">
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon-badge" style="background: #e0e7ff; color: #4338ca;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                </div>
+                <div>
+                  <h2>Email Message Templates System</h2>
+                  <p class="help">Manage outgoing HTML email templates sent to customers, vendors, and delivery drivers.</p>
+                </div>
+              </div>
+              <% if (isSuperAdmin) { %>
+                <button type="button" class="btn" style="background: linear-gradient(135deg, #4338ca 0%, #3730a3 100%);" onclick="openEmailModal()">
+                  ➕ Create Email Template
+                </button>
+              <% } %>
+            </div>
+
+            <!-- Template Grid -->
+            <div class="email-grid" id="emailCardsGrid" style="display: grid; grid-template-columns: repeat(auto-fill, minmax(340px, 1fr)); gap: 20px; margin-top: 10px;">
+              <% if (!emailTemplates || !emailTemplates.length) { %>
+                <div style="grid-column: 1 / -1; padding: 30px; text-align: center; color: var(--text-muted); font-size: 0.9rem;">
+                  No Email Templates found. Click "Create Email Template" to add one.
+                </div>
+              <% } else { %>
+                <% emailTemplates.forEach(tpl => { %>
+                  <div class="card email-card" style="border: 1px solid var(--card-border); border-radius: 12px; padding: 20px; background: #ffffff; display: flex; flex-direction: column; gap: 12px; box-shadow: var(--shadow-sm);">
+                    <div style="display: flex; justify-content: space-between; align-items: flex-start; gap: 10px;">
+                      <div>
+                        <h3 style="margin: 0 0 4px 0; font-size: 1rem; font-weight: 700; color: #0f172a;"><%= tpl.name %></h3>
+                        <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+                          <span class="badge badge-info"><code><%= tpl.template_key %></code></span>
+                          <% if (tpl.is_system) { %><span class="badge" style="background: #fef3c7; color: #b45309;">System Built-in</span><% } %>
+                        </div>
+                      </div>
+
+                      <label class="switch-toggle" title="Toggle Email Template Status">
+                        <input type="checkbox" onchange="toggleEmailTemplate(<%= tpl.id %>, this)" <%= tpl.status === 'active' ? 'checked' : '' %> <%= !isSuperAdmin ? 'disabled' : '' %>>
+                        <span class="slider"></span>
+                      </label>
+                    </div>
+
+                    <!-- Subject Preview Box -->
+                    <div style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 8px; padding: 12px; font-size: 0.85rem;">
+                      <div style="font-weight: 700; color: #0f172a; margin-bottom: 4px;">✉️ Subject: <%= tpl.subject %></div>
+                    </div>
+
+                    <!-- Variable Pills -->
+                    <% if (tpl.variables && (typeof tpl.variables === 'string' ? JSON.parse(tpl.variables) : tpl.variables).length) { %>
+                      <div style="display: flex; gap: 6px; flex-wrap: wrap;">
+                        <% (typeof tpl.variables === 'string' ? JSON.parse(tpl.variables) : tpl.variables).forEach(v => { %>
+                          <span style="font-size: 0.72rem; background: #e0e7ff; color: #3730a3; border: 1px solid #c7d2fe; padding: 2px 8px; border-radius: 4px; font-weight: 700;">{{<%= v %>}}</span>
+                        <% }) %>
+                      </div>
+                    <% } %>
+
+                    <!-- Action Buttons -->
+                    <div style="display: flex; gap: 8px; margin-top: auto; padding-top: 8px; border-top: 1px solid #f1f5f9; flex-wrap: wrap;">
+                      <button type="button" class="btn alt" style="padding: 6px 12px; font-size: 0.8rem;" onclick="editEmailTemplateById(<%= tpl.id %>)">✏️ Edit</button>
+                      <button type="button" class="btn" style="padding: 6px 12px; font-size: 0.8rem; background: #4338ca;" onclick="previewEmailModal(<%= tpl.id %>)">👁️ Preview HTML</button>
+                      <% if (!tpl.is_system) { %>
+                        <button type="button" class="btn alt" style="padding: 6px 12px; font-size: 0.8rem; background: #dc2626;" onclick="deleteEmailTemplate(<%= tpl.id %>)">🗑️ Delete</button>
+                      <% } %>
+                    </div>
+                  </div>
+                <% }) %>
+              <% } %>
+            </div>
+          </section>
+        </div>
+      </div>
+
+      <!-- TAB 3: LIVE TEST TOOLS -->
+      <div id="tab-testing" class="tab-content">
+        <div class="grid">
+          <!-- Test OTP Panel -->
+          <section class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon-badge" style="background: #fef3c7; color: #d97706;">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><rect x="5" y="2" width="14" height="20" rx="2" ry="2"/><line x1="12" y1="18" x2="12.01" y2="18"/></svg>
+                </div>
+                <div>
+                  <h2>Test MSG91 OTP Flow</h2>
+                  <p class="help">Send test OTP via WhatsApp or SMS and verify code.</p>
+                </div>
+              </div>
+            </div>
+
+            <form id="otpSend">
+              <div class="fields">
+                <label class="field">Mobile Number
+                  <input name="mobile" placeholder="+919876543210" required>
+                </label>
+                <label class="field">Delivery Channel
+                  <select name="channel">
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="sms">SMS</option>
+                  </select>
+                </label>
+              </div>
+              <button class="btn" style="margin-top: 14px;">Send Test OTP</button>
+            </form>
+
+            <form id="otpVerify" style="margin-top: 24px; padding-top: 18px; border-top: 1px dashed #cbd5e1;">
+              <div class="fields">
+                <label class="field">Received OTP
+                  <input name="otp" inputmode="numeric" placeholder="4 or 6 digit OTP" required>
+                </label>
+                <label class="field">Request ID
+                  <input id="reqId" name="reqId" type="text" placeholder="Auto-filled request ID" required>
+                </label>
+              </div>
+              <button class="btn alt" style="margin-top: 14px;">Verify Test OTP</button>
+            </form>
+            <div id="otpResult" class="result"></div>
+          </section>
+
+          <!-- Test Custom Message / WhatsApp Panel -->
+          <section class="card">
+            <div class="card-header">
+              <div class="card-title-group">
+                <div class="card-icon-badge" style="background: var(--whatsapp-bg); color: var(--whatsapp-dark);">
+                  <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8v.5z"/></svg>
+                </div>
+                <div>
+                  <h2>Test Message / WhatsApp</h2>
+                  <p class="help">Send template payload and check raw API response.</p>
+                </div>
+              </div>
+            </div>
+
+            <form id="testMessage">
+              <div class="fields">
+                <label class="field">Mobile Number
+                  <input name="mobile" placeholder="+919876543210" required>
+                </label>
+                <label class="field">Channel
+                  <select name="channel">
+                    <option value="whatsapp">WhatsApp</option>
+                    <option value="sms">SMS</option>
+                  </select>
+                </label>
+                <label class="field full">Template ID / Name
+                  <input name="templateName" value="<%= config.whatsappTemplateId %>" placeholder="Template name e.g. otp_login_en" required>
+                </label>
+                <label class="field full">Template Variables (JSON)
+                  <textarea name="variables" style="font-family: monospace;">{"code": "1234", "name": "Groxen User"}</textarea>
+                </label>
+              </div>
+              <button class="btn whatsapp-btn" style="margin-top: 14px;">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654z"/></svg>
+                Send Test Message
+              </button>
+            </form>
+            <div id="messageResult" class="result"></div>
+          </section>
+        </div>
+      </div>
+
+      <!-- TAB 4: MESSAGE LOGS -->
+      <div id="tab-logs" class="tab-content">
+        <% const logText = value => value && !String(value).includes(String.fromCharCode(226)) ? value : '-'; %>
+        <section class="card full">
+          <div class="card-header">
+            <div class="card-title-group">
+              <div class="card-icon-badge">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              </div>
+              <div>
+                <h2>Outbound Messaging Logs</h2>
+                <p class="help">Complete audit history of sent OTPs, WhatsApp messages, and SMS delivery statuses.</p>
+              </div>
+            </div>
+          </div>
+
+          <form class="filters">
+            <select name="channel">
+              <option value="">All Channels</option>
+              <option value="whatsapp">WhatsApp</option>
+              <option value="sms">SMS</option>
+            </select>
+            <select name="messageType">
+              <option value="">All Message Types</option>
+              <option value="OTP">OTP</option>
+              <option value="Message">Message</option>
+            </select>
+            <select name="status">
+              <option value="">All Delivery Statuses</option>
+              <% ['Pending','Queued','Sent','Delivered','Read','Failed','Rejected','Expired'].forEach(s => { %>
+                <option value="<%= s %>"><%= s %></option>
+              <% }) %>
+            </select>
+            <select name="appName">
+              <option value="">All Apps</option>
+              <option value="Customer App">Customer App</option>
+              <option value="Vendor App">Vendor App</option>
+              <option value="Delivery Partner App">Delivery Partner App</option>
+              <option value="Admin">Admin</option>
+            </select>
+            <input type="date" name="dateFrom" title="From Date">
+            <input type="date" name="dateTo" title="To Date">
+            <button class="btn alt" type="submit">Filter Logs</button>
+          </form>
+
+          <div class="scroll">
+            <table class="logs">
+              <thead>
+                <tr>
+                  <th>Mobile</th>
+                  <th>App & Role</th>
+                  <th>Type</th>
+                  <th>Channel</th>
+                  <th>Template</th>
+                  <th>Request ID</th>
+                  <th>Status</th>
+                  <th>Attempts</th>
+                  <th>Error / Reason</th>
+                  <th>Sent At</th>
+                  <th>Delivered At</th>
+                </tr>
+              </thead>
+              <tbody>
+                <% if(!logs || !logs.length){ %>
+                  <tr><td colspan="11" style="text-align: center; padding: 24px; color: #94a3b8;">No matching message log records found.</td></tr>
+                <% } else { logs.forEach(l => { %>
+                  <tr>
+                    <td><strong><%= l.mobile ? '+' + l.mobile : '-' %></strong></td>
+                    <td><%= (l.app_name || 'App') + ' (' + (l.user_role || 'User') + ')' %></td>
+                    <td><span class="badge badge-info"><%= l.message_type %></span></td>
+                    <td>
+                      <% if(l.channel === 'whatsapp'){ %>
+                        <span class="badge" style="background: rgba(37, 211, 102, 0.15); color: #047857;">WhatsApp</span>
+                      <% } else { %>
+                        <span class="badge badge-info">SMS</span>
+                      <% } %>
+                    </td>
+                    <td><code><%= logText(l.template_name) %></code></td>
+                    <td><code><%= logText(l.msg91_request_id) %></code></td>
+                    <td>
+                      <% if(['Delivered','Read','Sent'].includes(l.status)){ %>
+                        <span class="badge badge-success"><%= l.status %></span>
+                      <% } else if(['Failed','Rejected','Expired'].includes(l.status)){ %>
+                        <span class="badge badge-danger"><%= l.status %></span>
+                      <% } else { %>
+                        <span class="badge badge-warning"><%= l.status %></span>
+                      <% } %>
+                    </td>
+                    <td><%= l.attempts %></td>
+                    <td style="max-width: 250px; overflow: hidden; text-overflow: ellipsis;">
+                      <%= isSuperAdmin ? logText(l.error_message) : (l.error_message ? 'Failed' : '-') %>
+                    </td>
+                    <td><%= l.created_at ? new Date(l.created_at).toLocaleString() : '-' %></td>
+                    <td><%= l.delivered_at ? new Date(l.delivered_at).toLocaleString() : '-' %></td>
+                  </tr>
+                <% }) } %>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </div>
+
+    <!-- IN-APP TEMPLATE CREATE/EDIT MODAL -->
+    <div id="inAppModalBackdrop" class="tpl-modal-backdrop" style="display: none;">
+      <div class="tpl-modal-box">
+        <div class="tpl-modal-header">
+          <h3 id="inAppModalTitle">Create In-App Message Template</h3>
+          <button type="button" class="tpl-close-btn" onclick="closeInAppModal()">&times;</button>
+        </div>
+        <form id="inAppForm" onsubmit="event.preventDefault(); saveInAppTemplate();">
+          <input type="hidden" id="inAppId" name="id" value="">
+          <div class="fields" style="grid-template-columns: 1fr 1fr; gap: 16px;">
+            <label class="field">Template Name *
+              <input type="text" id="inAppName" name="name" required placeholder="e.g. Order Status Update Notification">
+            </label>
+            <label class="field">Template Identifier Key
+              <input type="text" id="inAppKey" name="template_key" placeholder="Auto-generated if left blank">
+            </label>
+            <label class="field">Target App *
+              <select id="inAppTargetApp" name="target_app" required>
+                <option value="client">Customer App (Client)</option>
+                <option value="vendor">Vendor App</option>
+                <option value="delivery">Delivery Partner App</option>
+                <option value="all">All Apps</option>
+              </select>
+            </label>
+            <label class="field">Event Trigger *
+              <select id="inAppEventType" name="event_type" required>
+                <option value="registration">User Registration Time</option>
+                <option value="order_update">Order Status Update</option>
+                <option value="payment">Payment Received / Invoice</option>
+                <option value="approval">Vendor / Account Approved</option>
+                <option value="rejection">Order / Request Rejected</option>
+                <option value="wallet_update">Wallet Balance Update</option>
+                <option value="delivery_status">Delivery Status & Verification OTP</option>
+              </select>
+            </label>
+
+            <label class="field full">Message Title *
+              <input type="text" id="inAppTitle" name="title" required placeholder="e.g. Order #{{orderId}} Status: {{status}}">
+              <small class="help">Title shown at top of the in-app notification</small>
+            </label>
+
+            <label class="field full">Message Content Body *
+              <textarea id="inAppContent" name="content" required style="min-height: 120px;" placeholder="e.g. Hello {{userName}}, your order #{{orderId}} status is now {{status}}. Amount: ₹{{amount}}."></textarea>
+            </label>
+
+            <!-- Quick Dynamic Variables Insert Chips -->
+            <div class="full" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px;">
+              <small style="display: block; font-weight: 700; color: #475569; margin-bottom: 8px;">Insert Dynamic Variable:</small>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="var-chip-btn" onclick="insertInAppVar('userName')">+ {{userName}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertInAppVar('orderId')">+ {{orderId}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertInAppVar('otp')">+ {{otp}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertInAppVar('amount')">+ {{amount}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertInAppVar('status')">+ {{status}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertInAppVar('storeName')">+ {{storeName}}</button>
+              </div>
+            </div>
+
+            <div class="full" style="display: flex; align-items: center; gap: 14px; margin-top: 6px;">
+              <label class="checkbox-label">
+                <input type="checkbox" id="inAppStatus" name="status" value="active" checked>
+                <span>Enable Template (Active)</span>
+              </label>
+            </div>
+          </div>
+
+          <div style="margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px;">
+            <button type="button" class="btn alt" onclick="closeInAppModal()">Cancel</button>
+            <button type="button" class="btn" style="background: #0284c7;" onclick="previewModalForm()">👁️ Test Preview</button>
+            <button type="submit" class="btn">💾 Save Template</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- IN-APP LIVE PREVIEW MODAL -->
+    <div id="inAppPreviewModalBackdrop" class="tpl-modal-backdrop" style="display: none;">
+      <div class="tpl-modal-box" style="max-width: 520px;">
+        <div class="tpl-modal-header">
+          <h3>In-App Message Live Preview</h3>
+          <button type="button" class="tpl-close-btn" onclick="closeInAppPreviewModal()">&times;</button>
+        </div>
+
+        <!-- Mobile / In-App Notification Card Mockup -->
+        <div style="background: #0f172a; border-radius: 16px; padding: 20px; color: #ffffff; box-shadow: 0 10px 25px rgba(0,0,0,0.3); margin-bottom: 20px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px solid rgba(255,255,255,0.1);">
+            <div style="display: flex; align-items: center; gap: 8px;">
+              <div style="width: 28px; height: 28px; border-radius: 8px; background: #0f766e; display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 0.8rem;">G</div>
+              <span style="font-size: 0.82rem; font-weight: 700; color: #94a3b8;" id="previewAppBadge">Groxen App</span>
+            </div>
+            <span style="font-size: 0.75rem; color: #64748b;">Just now</span>
+          </div>
+
+          <h4 style="margin: 0 0 8px 0; font-size: 1.05rem; font-weight: 800; color: #ffffff;" id="previewTitleText">Welcome Rahul!</h4>
+          <div style="font-size: 0.9rem; color: #cbd5e1; line-height: 1.5; white-space: pre-wrap;" id="previewContentText">Your order #1094 has been placed.</div>
+        </div>
+
+        <div style="text-align: right;">
+          <button type="button" class="btn alt" onclick="closeInAppPreviewModal()">Close Preview</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- EMAIL TEMPLATE CREATE/EDIT MODAL -->
+    <div id="emailModalBackdrop" class="tpl-modal-backdrop" style="display: none;">
+      <div class="tpl-modal-box" style="max-width: 720px;">
+        <div class="tpl-modal-header">
+          <h3 id="emailModalTitle">Create Email Template</h3>
+          <button type="button" class="tpl-close-btn" onclick="closeEmailModal()">&times;</button>
+        </div>
+        <form id="emailForm" onsubmit="event.preventDefault(); saveEmailTemplate();">
+          <input type="hidden" id="emailId" name="id" value="">
+          <div class="fields" style="grid-template-columns: 1fr 1fr; gap: 16px;">
+            <label class="field">Template Name *
+              <input type="text" id="emailName" name="name" required placeholder="e.g. Order Invoice Email">
+            </label>
+            <label class="field">Template Key *
+              <input type="text" id="emailKey" name="template_key" required placeholder="e.g. order_invoice">
+            </label>
+
+            <label class="field full">Subject Line *
+              <input type="text" id="emailSubject" name="subject" required placeholder="e.g. Order Confirmed #{{orderId}} - GROXEN">
+            </label>
+
+            <label class="field full">HTML Content Body *
+              <textarea id="emailContent" name="content" required style="min-height: 180px; font-family: monospace; font-size: 0.88rem;" placeholder="<div style='font-family: Arial...'>Hello {{userName}}...</div>"></textarea>
+            </label>
+
+            <!-- Quick Dynamic Variables Insert Chips -->
+            <div class="full" style="background: #f8fafc; border: 1px solid #e2e8f0; border-radius: 10px; padding: 12px;">
+              <small style="display: block; font-weight: 700; color: #475569; margin-bottom: 8px;">Insert Dynamic Variable:</small>
+              <div style="display: flex; gap: 8px; flex-wrap: wrap;">
+                <button type="button" class="var-chip-btn" onclick="insertEmailVar('userName')">+ {{userName}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertEmailVar('userEmail')">+ {{userEmail}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertEmailVar('orderId')">+ {{orderId}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertEmailVar('otpCode')">+ {{otpCode}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertEmailVar('totalAmount')">+ {{totalAmount}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertEmailVar('deliveryStatus')">+ {{deliveryStatus}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertEmailVar('storeName')">+ {{storeName}}</button>
+                <button type="button" class="var-chip-btn" onclick="insertEmailVar('supportEmail')">+ {{supportEmail}}</button>
+              </div>
+            </div>
+
+            <div class="full" style="display: flex; align-items: center; gap: 14px; margin-top: 6px;">
+              <label class="checkbox-label">
+                <input type="checkbox" id="emailStatus" name="status" value="active" checked>
+                <span>Enable Template (Active)</span>
+              </label>
+            </div>
+          </div>
+
+          <div style="margin-top: 24px; display: flex; justify-content: flex-end; gap: 12px;">
+            <button type="button" class="btn alt" onclick="closeEmailModal()">Cancel</button>
+            <button type="button" class="btn" style="background: #4338ca;" onclick="previewEmailModalForm()">👁️ Test Preview</button>
+            <button type="submit" class="btn">💾 Save Template</button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <!-- EMAIL LIVE HTML PREVIEW MODAL -->
+    <div id="emailPreviewModalBackdrop" class="tpl-modal-backdrop" style="display: none;">
+      <div class="tpl-modal-box" style="max-width: 680px; max-height: 85vh; overflow-y: auto;">
+        <div class="tpl-modal-header">
+          <h3 id="emailPreviewHeaderTitle">Email Live HTML Preview</h3>
+          <button type="button" class="tpl-close-btn" onclick="closeEmailPreviewModal()">&times;</button>
+        </div>
+
+        <div style="background: #f1f5f9; border-radius: 12px; padding: 16px; margin-bottom: 16px; font-size: 0.88rem; border: 1px solid #cbd5e1;">
+          <div style="color: #475569; font-weight: 600; margin-bottom: 4px;">From: GROXEN &lt;noreply@groxen.com&gt;</div>
+          <div style="font-weight: 700; color: #0f172a; font-size: 0.95rem;" id="emailPreviewSubject">Subject Line</div>
+        </div>
+
+        <!-- Rendered Email HTML Frame / Box -->
+        <div id="emailPreviewFrame" style="background: #ffffff; border-radius: 12px; border: 1px solid #cbd5e1; padding: 20px; min-height: 250px;"></div>
+
+        <div style="text-align: right; margin-top: 20px;">
+          <button type="button" class="btn alt" onclick="closeEmailPreviewModal()">Close Preview</button>
+        </div>
+      </div>
+    </div>
+  </main>
+
+  <script>
+    const $ = x => document.getElementById(x);
+    const vals = f => Object.fromEntries(new FormData(f));
+
+    // Tab Switcher
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+      btn.addEventListener('click', () => {
+        document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+        document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
+        
+        btn.classList.add('active');
+        const target = btn.dataset.tab;
+        $(target).classList.add('active');
+        window.location.hash = target.replace('tab-', '');
+      });
+    });
+
+    if (window.location.hash) {
+      const hash = window.location.hash.replace('#', '');
+      const matchedBtn = document.querySelector(`.tab-btn[data-tab="tab-${hash}"]`);
+      if (matchedBtn) matchedBtn.click();
+    }
+
+    // Instant WhatsApp Switch Handler
+    const whatsappSwitch = $('whatsappToggleSwitch');
+    if (whatsappSwitch) {
+      whatsappSwitch.addEventListener('change', async () => {
+        const isChecked = whatsappSwitch.checked;
+        try {
+          let res = await api('/api/message-settings/whatsapp-toggle', 'POST', { enabled: isChecked });
+          updateWhatsappUI(res.whatsappEnabled);
+          toast(res.message);
+        } catch(err) {
+          whatsappSwitch.checked = !isChecked; // revert on error
+          toast(err.message || 'Failed to update WhatsApp setting.');
+        }
+      });
+    }
+
+    function updateWhatsappUI(enabled) {
+      const badge = $('whatsappBadge');
+      const heroStatus = $('heroWhatsappStatus');
+      const hiddenInput = $('hiddenWhatsappEnabled');
+      if (badge) {
+        badge.className = 'badge ' + (enabled ? 'badge-success' : 'badge-danger');
+        badge.textContent = enabled ? 'ENABLED' : 'DISABLED';
+      }
+      if (heroStatus) heroStatus.textContent = enabled ? 'ON' : 'OFF';
+      if (hiddenInput) hiddenInput.value = enabled ? 'true' : 'false';
+      if (whatsappSwitch) whatsappSwitch.checked = enabled;
+    }
+
+    // Copy Webhook Link
+    $("copyWebhook").addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText($("webhookUrl").value);
+        toast("Webhook URL copied to clipboard");
+      } catch(e) {
+        $("webhookUrl").select();
+        document.execCommand("copy");
+        toast("Webhook URL copied to clipboard");
+      }
+    });
+
+    function result(id, ok, msg, data) {
+      let e = $(id);
+      e.className = 'result ' + (ok ? 'ok' : 'bad');
+      e.textContent = msg + (data ? '\n\n' + JSON.stringify(data, null, 2) : '');
+    }
+
+    function toast(m) {
+      let e = $('toast');
+      e.textContent = m;
+      e.style.display = 'block';
+      setTimeout(() => e.style.display = 'none', 4500);
+    }
+
+    async function api(u, m, b) {
+      let r = await fetch(u, {
+        method: m,
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify(b)
+      });
+      let d = await r.json().catch(() => ({ message: 'Unexpected server response.' }));
+      if (!r.ok || d.success === false) throw Error(d.message || 'Request failed.');
+      return d;
+    }
+
+    // Copy Key Handlers
+    document.querySelectorAll('.copy-key-btn').forEach(button => button.addEventListener('click', async () => {
+      const input = $(button.dataset.target);
+      if (input && input.value) {
+        try {
+          await navigator.clipboard.writeText(input.value);
+          toast("Key copied to clipboard");
+        } catch(e) {
+          input.select();
+          document.execCommand("copy");
+          toast("Key copied to clipboard");
+        }
+      }
+    }));
+
+    // Secret Toggles (for Password fields)
+    document.querySelectorAll('.secret-toggle').forEach(button => button.addEventListener('click', () => {
+      const input = $(button.dataset.target);
+      input.type = input.type === 'password' ? 'text' : 'password';
+      button.textContent = input.type === 'password' ? 'View' : 'Hide';
+    }));
+
+    // MSG91 Settings Form
+    let s = $('settings');
+    if (s) {
+      s.addEventListener('submit', async e => {
+        e.preventDefault();
+        let b = vals(s);
+        b.enabled = s.elements.enabled.checked;
+        b.whatsappEnabled = whatsappSwitch ? whatsappSwitch.checked : true;
+        try {
+          let d = await api('/api/message-settings/msg91', 'PUT', b);
+          result('settingsResult', 1, d.message);
+          toast(d.message);
+          if (d.config && typeof d.config.whatsappEnabled !== 'undefined') updateWhatsappUI(d.config.whatsappEnabled);
+          if (d.config && d.config.authKey) s.elements.authKey.value = d.config.authKey;
+          if (d.config && d.config.widgetToken) s.elements.widgetToken.value = d.config.widgetToken;
+        } catch(x) {
+          result('settingsResult', 0, x.message);
+        }
+      });
+    }
+
+    // Email Form
+    let emailForm = $('emailSettingsForm');
+    if (emailForm) {
+      emailForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        const payload = {
+          mailDriver: emailForm.elements.mailDriver.value,
+          host: emailForm.elements.host.value,
+          port: emailForm.elements.port.value,
+          encryption: emailForm.elements.encryption.value,
+          username: emailForm.elements.username.value,
+          password: emailForm.elements.password.value,
+          fromEmail: emailForm.elements.fromEmail.value,
+          fromName: emailForm.elements.fromName.value,
+          status: emailForm.elements.status.value,
+          triggers: {
+            userWelcome: emailForm.elements.triggerUserWelcome.checked,
+            userOrderInvoice: emailForm.elements.triggerUserOrderInvoice.checked,
+            userDeliveryStatus: emailForm.elements.triggerUserDeliveryStatus.checked,
+            userPasswordReset: emailForm.elements.triggerUserPasswordReset.checked,
+            vendorNewOrder: emailForm.elements.triggerVendorNewOrder.checked,
+            deliveryAssignment: emailForm.elements.triggerDeliveryAssignment.checked,
+          }
+        };
+
+        try {
+          let d = await api('/api/message-settings/email', 'PUT', payload);
+          result('emailSettingsResult', 1, d.message || 'Email settings saved successfully');
+          toast(d.message || 'Email settings saved successfully');
+        } catch (x) {
+          result('emailSettingsResult', 0, x.message);
+        }
+      });
+    }
+
+    // Test Email
+    let testEmailForm = $('testEmailForm');
+    if (testEmailForm) {
+      testEmailForm.addEventListener('submit', async e => {
+        e.preventDefault();
+        try {
+          let d = await api('/api/message-settings/test-email', 'POST', vals(e.target));
+          result('testEmailResult', 1, d.message || 'Test email sent successfully!', d);
+          toast('Test email sent successfully');
+        } catch (x) {
+          result('testEmailResult', 0, x.message);
+        }
+      });
+    }
+
+    // Test OTP & Messages
+    $('otpSend').addEventListener('submit', async e => {
+      e.preventDefault();
+      try {
+        let d = await api('/api/message-settings/test-otp/send', 'POST', vals(e.target));
+        if (d.reqId) $('reqId').value = d.reqId;
+        result('otpResult', 1, d.message, d);
+        toast(d.message);
+      } catch(x) {
+        result('otpResult', 0, x.message);
+      }
+    });
+
+    $('otpVerify').addEventListener('submit', async e => {
+      e.preventDefault();
+      try {
+        let d = await api('/api/message-settings/test-otp/verify', 'POST', vals(e.target));
+        result('otpResult', 1, d.message, d);
+        toast(d.message);
+      } catch(x) {
+        result('otpResult', 0, x.message);
+      }
+    });
+
+    $('testMessage').addEventListener('submit', async e => {
+      e.preventDefault();
+      try {
+        let d = await api('/api/message-settings/test-message', 'POST', vals(e.target));
+        result('messageResult', 1, d.message, d.providerResponse);
+        toast(d.message);
+      } catch(x) {
+        result('messageResult', 0, x.message);
+      }
+    });
+
+    // ===============================================
+    // IN-APP MESSAGE TEMPLATE SYSTEM JS
+    // ===============================================
+    const allInAppTemplates = <%- JSON.stringify(inAppTemplates || []) %>;
+    let focusedInAppField = 'inAppContent';
+
+    const titleField = $('inAppTitle');
+    const contentField = $('inAppContent');
+    if (titleField) titleField.addEventListener('focus', () => focusedInAppField = 'inAppTitle');
+    if (contentField) contentField.addEventListener('focus', () => focusedInAppField = 'inAppContent');
+
+    function filterInAppCards() {
+      const appFilter = $('filterInAppApp').value;
+      const eventFilter = $('filterInAppEvent').value;
+      const cards = document.querySelectorAll('.inapp-card');
+
+      cards.forEach(card => {
+        const app = card.dataset.app;
+        const evt = card.dataset.event;
+        const matchApp = (appFilter === 'all' || app === 'all' || app === appFilter);
+        const matchEvt = (eventFilter === 'all' || evt === eventFilter);
+        card.style.display = (matchApp && matchEvt) ? 'flex' : 'none';
+      });
+    }
+
+    function openInAppModal() {
+      $('inAppModalTitle').textContent = 'Create In-App Message Template';
+      $('inAppId').value = '';
+      $('inAppName').value = '';
+      $('inAppKey').value = '';
+      $('inAppTargetApp').value = 'client';
+      $('inAppEventType').value = 'registration';
+      $('inAppTitle').value = '';
+      $('inAppContent').value = '';
+      $('inAppStatus').checked = true;
+      $('inAppModalBackdrop').style.display = 'flex';
+    }
+
+    function editInAppTemplateById(id) {
+      const tpl = allInAppTemplates.find(t => String(t.id) === String(id));
+      if (!tpl) return toast('Template not found');
+      $('inAppModalTitle').textContent = 'Edit In-App Message Template';
+      $('inAppId').value = tpl.id;
+      $('inAppName').value = tpl.name || '';
+      $('inAppKey').value = tpl.template_key || '';
+      $('inAppTargetApp').value = tpl.target_app || 'client';
+      $('inAppEventType').value = tpl.event_type || 'order_update';
+      $('inAppTitle').value = tpl.title || '';
+      $('inAppContent').value = tpl.content || '';
+      $('inAppStatus').checked = tpl.status === 'active';
+      $('inAppModalBackdrop').style.display = 'flex';
+    }
+
+    function closeInAppModal() {
+      $('inAppModalBackdrop').style.display = 'none';
+    }
+
+    function insertInAppVar(varName) {
+      const targetInput = $(focusedInAppField) || $('inAppContent');
+      const textToInsert = `{{${varName}}}`;
+      const start = targetInput.selectionStart || targetInput.value.length;
+      const end = targetInput.selectionEnd || targetInput.value.length;
+      targetInput.value = targetInput.value.substring(0, start) + textToInsert + targetInput.value.substring(end);
+      targetInput.focus();
+      targetInput.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
+    }
+
+    async function saveInAppTemplate() {
+      const id = $('inAppId').value;
+      const payload = {
+        id: id || undefined,
+        name: $('inAppName').value.trim(),
+        template_key: $('inAppKey').value.trim(),
+        target_app: $('inAppTargetApp').value,
+        event_type: $('inAppEventType').value,
+        title: $('inAppTitle').value.trim(),
+        content: $('inAppContent').value.trim(),
+        status: $('inAppStatus').checked ? 'active' : 'inactive',
+      };
+
+      try {
+        const res = await api('/api/inapp-templates', 'POST', payload);
+        toast(res.message || 'In-App Template saved successfully!');
+        closeInAppModal();
+        setTimeout(() => window.location.reload(), 800);
+      } catch (err) {
+        toast(err.message || 'Failed to save In-App Template');
+      }
+    }
+
+    async function toggleInAppTemplate(id, checkboxElem) {
+      const isChecked = checkboxElem.checked;
+      try {
+        const res = await api(`/api/inapp-templates/${id}/toggle`, 'POST', { status: isChecked ? 'active' : 'inactive' });
+        toast(res.message);
+      } catch (err) {
+        checkboxElem.checked = !isChecked;
+        toast(err.message || 'Failed to toggle status');
+      }
+    }
+
+    async function deleteInAppTemplate(id) {
+      if (!confirm('Are you sure you want to delete this in-app message template?')) return;
+      try {
+        const res = await api(`/api/inapp-templates/${id}`, 'DELETE');
+        toast(res.message);
+        setTimeout(() => window.location.reload(), 800);
+      } catch (err) {
+        toast(err.message || 'Failed to delete template');
+      }
+    }
+
+    async function previewInAppModal(id) {
+      const tpl = allInAppTemplates.find(t => String(t.id) === String(id));
+      if (!tpl) return toast('Template not found');
+      try {
+        const res = await api('/api/inapp-templates/preview', 'POST', {
+          title: tpl.title,
+          content: tpl.content,
+        });
+        $('previewAppBadge').textContent = tpl.target_app === 'client' ? 'Customer App' : (tpl.target_app === 'vendor' ? 'Vendor App' : (tpl.target_app === 'delivery' ? 'Delivery App' : 'Groxen App'));
+        $('previewTitleText').textContent = res.title;
+        $('previewContentText').textContent = res.content;
+        $('inAppPreviewModalBackdrop').style.display = 'flex';
+      } catch (err) {
+        toast(err.message || 'Failed to generate preview');
+      }
+    }
+
+    async function previewModalForm() {
+      try {
+        const res = await api('/api/inapp-templates/preview', 'POST', {
+          title: $('inAppTitle').value,
+          content: $('inAppContent').value,
+        });
+        $('previewAppBadge').textContent = $('inAppTargetApp').options[$('inAppTargetApp').selectedIndex].text;
+        $('previewTitleText').textContent = res.title;
+        $('previewContentText').textContent = res.content;
+        $('inAppPreviewModalBackdrop').style.display = 'flex';
+      } catch (err) {
+        toast(err.message || 'Failed to generate preview');
+      }
+    }
+
+    function closeInAppPreviewModal() {
+      $('inAppPreviewModalBackdrop').style.display = 'none';
+    }
+
+    // ===============================================
+    // EMAIL TEMPLATE SYSTEM JS
+    // ===============================================
+    const allEmailTemplates = <%- JSON.stringify(emailTemplates || []) %>;
+    let focusedEmailField = 'emailContent';
+
+    const emailSubjectEl = $('emailSubject');
+    const emailContentEl = $('emailContent');
+    if (emailSubjectEl) emailSubjectEl.addEventListener('focus', () => focusedEmailField = 'emailSubject');
+    if (emailContentEl) emailContentEl.addEventListener('focus', () => focusedEmailField = 'emailContent');
+
+    function openEmailModal() {
+      $('emailModalTitle').textContent = 'Create Email Template';
+      $('emailId').value = '';
+      $('emailName').value = '';
+      $('emailKey').value = '';
+      $('emailSubject').value = '';
+      $('emailContent').value = '';
+      $('emailStatus').checked = true;
+      $('emailModalBackdrop').style.display = 'flex';
+    }
+
+    function editEmailTemplateById(id) {
+      const tpl = allEmailTemplates.find(t => String(t.id) === String(id));
+      if (!tpl) return toast('Template not found');
+      $('emailModalTitle').textContent = 'Edit Email Template';
+      $('emailId').value = tpl.id;
+      $('emailName').value = tpl.name || '';
+      $('emailKey').value = tpl.template_key || '';
+      $('emailSubject').value = tpl.subject || '';
+      $('emailContent').value = tpl.content || '';
+      $('emailStatus').checked = tpl.status === 'active';
+      $('emailModalBackdrop').style.display = 'flex';
+    }
+
+    function closeEmailModal() {
+      $('emailModalBackdrop').style.display = 'none';
+    }
+
+    function insertEmailVar(varName) {
+      const targetInput = $(focusedEmailField) || $('emailContent');
+      const textToInsert = `{{${varName}}}`;
+      const start = targetInput.selectionStart || targetInput.value.length;
+      const end = targetInput.selectionEnd || targetInput.value.length;
+      targetInput.value = targetInput.value.substring(0, start) + textToInsert + targetInput.value.substring(end);
+      targetInput.focus();
+      targetInput.setSelectionRange(start + textToInsert.length, start + textToInsert.length);
+    }
+
+    async function saveEmailTemplate() {
+      const id = $('emailId').value;
+      const payload = {
+        id: id || undefined,
+        channel: 'email',
+        template_key: $('emailKey').value.trim(),
+        name: $('emailName').value.trim(),
+        subject: $('emailSubject').value.trim(),
+        content: $('emailContent').value.trim(),
+        status: $('emailStatus').checked ? 'active' : 'inactive',
+      };
+
+      try {
+        const res = await api('/message-settings/templates', 'POST', payload);
+        toast(res.message || 'Email Template saved successfully!');
+        closeEmailModal();
+        setTimeout(() => window.location.reload(), 800);
+      } catch (err) {
+        toast(err.message || 'Failed to save Email Template');
+      }
+    }
+
+    async function toggleEmailTemplate(id, checkboxElem) {
+      const isChecked = checkboxElem.checked;
+      try {
+        const res = await api(`/message-settings/templates/${id}/toggle`, 'POST', { status: isChecked ? 'active' : 'inactive' });
+        toast(res.message);
+      } catch (err) {
+        checkboxElem.checked = !isChecked;
+        toast(err.message || 'Failed to toggle status');
+      }
+    }
+
+    async function deleteEmailTemplate(id) {
+      if (!confirm('Are you sure you want to delete this email template?')) return;
+      try {
+        const res = await api(`/message-settings/templates/${id}/delete`, 'POST');
+        toast(res.message);
+        setTimeout(() => window.location.reload(), 800);
+      } catch (err) {
+        toast(err.message || 'Failed to delete email template');
+      }
+    }
+
+    async function previewEmailModal(id) {
+      const tpl = allEmailTemplates.find(t => String(t.id) === String(id));
+      if (!tpl) return toast('Template not found');
+      try {
+        const res = await api('/message-settings/templates/preview', 'POST', {
+          channel: 'email',
+          templateKey: tpl.template_key
+        });
+        $('emailPreviewSubject').textContent = res.rendered.subject || tpl.subject;
+        $('emailPreviewFrame').innerHTML = res.rendered.content || tpl.content;
+        $('emailPreviewModalBackdrop').style.display = 'flex';
+      } catch (err) {
+        toast(err.message || 'Failed to generate preview');
+      }
+    }
+
+    async function previewEmailModalForm() {
+      try {
+        const sample = {
+          userName: 'Rahul Sharma',
+          userEmail: 'rahul@example.com',
+          orderId: '1094',
+          orderDate: '29/07/2026',
+          itemsTotal: '450.00',
+          deliveryFee: '40.00',
+          totalAmount: '490.00',
+          deliveryAddress: 'Flat 402, Sunshine Heights, Malviya Nagar, Jaipur',
+          deliveryStatus: 'Out for Delivery',
+          otpCode: '5829',
+          riderName: 'Vikram Singh',
+          riderPhone: '+91 9876543210',
+          storeName: 'GROXEN',
+          supportEmail: 'support@groxen.in'
+        };
+        let subj = $('emailSubject').value;
+        let body = $('emailContent').value;
+        for (let k in sample) {
+          const reg = new RegExp('\\{\\{\\s*' + k + '\\s*\\}\\}', 'g');
+          subj = subj.replace(reg, sample[k]);
+          body = body.replace(reg, sample[k]);
+        }
+        $('emailPreviewSubject').textContent = subj;
+        $('emailPreviewFrame').innerHTML = body;
+        $('emailPreviewModalBackdrop').style.display = 'flex';
+      } catch (err) {
+        toast(err.message || 'Failed to generate preview');
+      }
+    }
+
+    function closeEmailPreviewModal() {
+      $('emailPreviewModalBackdrop').style.display = 'none';
+    }
+  </script>
+</body>
+</html>

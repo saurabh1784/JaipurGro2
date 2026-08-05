@@ -37,84 +37,22 @@ async function dispatchDeliveryOtp({ orderId, phone, email, otpCode, customerNam
   const results = { sms: null, whatsapp: null, msg91: null, email: null, standaloneInternalOtp: true };
   let thirdPartySentCount = 0;
 
-  // 1. WhatsApp Channel Check & Dispatch
-  try {
-    const waSettings = await messageService.getWhatsAppSettings();
-    if (waSettings.enabled && phone && phone.trim()) {
-      const renderedWa = await notificationTemplateService.renderTemplate('whatsapp', 'order_status_wa', {
-        userName: customerName,
-        orderId,
-        orderStatus: 'Out for Delivery',
-        otpCode,
-        riderName: 'Delivery Rider',
-        riderPhone: 'Support',
+  // Single Selected Channel OTP Dispatch via msg91UnifiedService
+  if (phone && phone.trim()) {
+    try {
+      const msg91UnifiedService = require('./msg91UnifiedService');
+      const otpRes = await msg91UnifiedService.sendPlatformOtp({
+        mobile: phone.trim(),
+        otp: otpCode,
+        appName: 'Customer App',
+        userRole: 'Customer',
       });
-      if (renderedWa && renderedWa.isEnabled === false) {
-        console.log(`[Notification Engine] Skipping disabled WhatsApp template 'order_status_wa' for Order #${orderId}`);
-      } else {
-        results.whatsapp = await messageService.sendTestWhatsAppMessage({
-          phone: phone.trim(),
-          messageText: renderedWa.content || msgText,
-          templateName: waSettings.templateOtp || 'auth_otp_code',
-        });
-        thirdPartySentCount++;
-        console.log(`[Notification Engine] WhatsApp Delivery OTP Dispatched for Order #${orderId}`);
-      }
+      results.otp = otpRes;
+      thirdPartySentCount++;
+      console.log(`[Notification Engine] Delivery OTP Dispatched via single selected channel (${otpRes.channel}) for Order #${orderId}`);
+    } catch (err) {
+      console.error('[Notification Engine] Delivery OTP dispatch error:', err.message);
     }
-  } catch (err) {
-    console.error('[Notification Engine] WhatsApp Delivery OTP dispatch error:', err);
-  }
-
-  // 2. MSG91 DLT Channel Check & Dispatch
-  try {
-    const msg91Settings = await messageService.getMsg91Settings();
-    if (msg91Settings.enabled && phone && phone.trim()) {
-      const renderedSms = await notificationTemplateService.renderTemplate('sms', 'delivery_otp_sms', {
-        orderId,
-        otpCode,
-        riderName: 'Delivery Rider',
-        totalAmount: '0.00',
-      });
-      if (renderedSms && renderedSms.isEnabled === false) {
-        console.log(`[Notification Engine] Skipping disabled SMS/MSG91 template 'delivery_otp_sms' for Order #${orderId}`);
-      } else {
-        results.msg91 = await messageService.sendTestMsg91Message({
-          phone: phone.trim(),
-          messageText: renderedSms.content || msgText,
-          templateId: msg91Settings.templateOtp,
-        });
-        thirdPartySentCount++;
-        console.log(`[Notification Engine] MSG91 Delivery OTP Dispatched for Order #${orderId}`);
-      }
-    }
-  } catch (err) {
-    console.error('[Notification Engine] MSG91 Delivery OTP dispatch error:', err);
-  }
-
-  // 3. SMS / Gateway Channel Check & Dispatch
-  try {
-    const smsSettings = await messageService.getMessageSettings();
-    if (smsSettings.otpEnabled && smsSettings.triggers.delivery && phone && phone.trim()) {
-      const renderedSms = await notificationTemplateService.renderTemplate('sms', 'delivery_otp_sms', {
-        orderId,
-        otpCode,
-        riderName: 'Delivery Rider',
-        totalAmount: '0.00',
-      });
-      if (renderedSms && renderedSms.isEnabled === false) {
-        console.log(`[Notification Engine] Skipping disabled SMS template 'delivery_otp_sms' for Order #${orderId}`);
-      } else {
-        results.sms = await messageService.sendSmsOtp({
-          phone: phone.trim(),
-          eventType: 'delivery',
-          customMessage: renderedSms.content || msgText,
-        });
-        thirdPartySentCount++;
-        console.log(`[Notification Engine] SMS Delivery OTP Dispatched for Order #${orderId}`);
-      }
-    }
-  } catch (err) {
-    console.error('[Notification Engine] SMS Delivery OTP dispatch error:', err);
   }
 
   // 4. Email Notification
@@ -215,79 +153,42 @@ async function notifyUserEvent({ phone, email, name = 'Customer', eventType, dat
   }
 
   if (phone && phone.trim()) {
-    try {
-      const smsTriggerMap = {
-        registration: 'registration',
-        login: 'login',
-        delivery_otp: 'delivery',
-        password_reset: 'passwordReset',
-        order_status: 'orderStatusUpdates',
-      };
-      const smsKeyMap = {
-        registration: 'registration_otp_sms',
-        login: 'login_otp_sms',
-        delivery_otp: 'delivery_otp_sms',
-        password_reset: 'password_reset_sms',
-        order_status: 'order_update_sms',
-      };
-
-      const triggerType = smsTriggerMap[eventType] || 'order_status';
-      const tplKey = smsKeyMap[eventType] || 'order_update_sms';
-
-      const renderedSms = await notificationTemplateService.renderTemplate('sms', tplKey, {
-        otpCode: data.otpCode || '',
-        otpExpiry: '5',
-        orderId: data.orderId || '',
-        orderStatus: data.status || 'Updated',
-        riderName: data.riderName || 'Delivery Rider',
-        totalAmount: data.totalAmount || '0.00',
-        amount: data.amount || '0.00',
-      });
-
-      if (renderedSms && renderedSms.isEnabled === false) {
-        console.log(`[Notification Engine] Skipping disabled SMS template '${tplKey}' for event ${eventType}`);
-      } else {
-        results.sms = await messageService.sendSmsOtp({
-          phone: phone.trim(),
-          eventType: triggerType,
-          customMessage: renderedSms.content || data.customMessage || `Groxen Update: ${eventType} notification.`,
+    // If event contains an OTP code, route via single selected channel in msg91UnifiedService
+    if (data.otpCode || ['delivery_otp', 'password_reset', 'registration', 'login', 'otp_verification'].includes(eventType)) {
+      try {
+        const msg91UnifiedService = require('./msg91UnifiedService');
+        const otpRes = await msg91UnifiedService.sendPlatformOtp({
+          mobile: phone.trim(),
+          otp: data.otpCode || '0000',
+          appName: 'Customer App',
+          userRole: 'Customer',
         });
+        results.otp = otpRes;
+        console.log(`[Notification Engine] User OTP dispatched via single selected channel (${otpRes.channel}) for event '${eventType}'`);
+      } catch (err) {
+        console.error('[Notification Engine] User OTP dispatch error:', err.message);
       }
-    } catch (err) {
-      console.error('[Notification Engine] User SMS dispatch error:', err);
-    }
-
-    try {
-      const waSettings = await messageService.getWhatsAppSettings();
-      if (waSettings.enabled) {
-        const waKeyMap = {
-          welcome: 'user_welcome_wa',
-          order_status: 'order_status_wa',
-          delivery_otp: 'auth_otp_wa',
-          password_reset: 'auth_otp_wa',
-        };
-        const tplKey = waKeyMap[eventType] || 'order_status_wa';
-
-        const renderedWa = await notificationTemplateService.renderTemplate('whatsapp', tplKey, {
-          userName: name,
+    } else {
+      // Non-OTP Notifications (status updates, alerts)
+      try {
+        const smsKeyMap = { order_status: 'order_update_sms', welcome: 'user_welcome' };
+        const tplKey = smsKeyMap[eventType] || 'order_update_sms';
+        const renderedSms = await notificationTemplateService.renderTemplate('sms', tplKey, {
           orderId: data.orderId || '',
-          orderStatus: data.status || 'Processing',
+          orderStatus: data.status || 'Updated',
+          riderName: data.riderName || 'Delivery Rider',
           totalAmount: data.totalAmount || '0.00',
-          riderName: data.riderName || 'Delivery Partner',
-          riderPhone: data.riderPhone || '',
-          otpCode: data.otpCode || '',
-          otpExpiry: '5',
-          storeName: 'Groxen',
         });
-
-        results.whatsapp = await messageService.sendTestWhatsAppMessage({
-          phone: phone.trim(),
-          messageText: renderedWa.content || data.customMessage || `Groxen Alert: ${eventType} for Order #${data.orderId || ''}`,
-          templateName: eventType === 'delivery_otp' ? waSettings.templateOtp : waSettings.templateOrder,
-        });
+        if (renderedSms && renderedSms.isEnabled !== false) {
+          results.sms = await messageService.sendSmsOtp({
+            phone: phone.trim(),
+            eventType: 'order_status',
+            customMessage: renderedSms.content || data.customMessage || `Groxen Update: ${eventType} notification.`,
+          });
+        }
+      } catch (err) {
+        console.error('[Notification Engine] User SMS dispatch error:', err.message);
       }
-    } catch (err) {
-      console.error('[Notification Engine] User WhatsApp dispatch error:', err);
     }
   }
 

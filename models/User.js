@@ -60,6 +60,15 @@ function normalizedRoleSql(column) {
   return `LOWER(REPLACE(REPLACE(REPLACE(${column}, ' ', ''), '_', ''), '-', ''))`;
 }
 
+function canonicalRoleSql(column) {
+  const normalized = normalizedRoleSql(column);
+  return `CASE
+    WHEN ${normalized} IN ('client', 'customer') THEN 'client'
+    WHEN ${normalized} = 'vendor' THEN 'vendor'
+    WHEN ${normalized} IN ('deliveryperson', 'deliverypartner', 'delivery', 'rider') THEN 'deliveryperson'
+    ELSE ${normalized}
+  END`;
+}
 async function findByEmailOrPhone(email, phone) {
   const cleanEmail = email ? String(email).trim().toLowerCase() : '';
   const cleanPhone = phone ? String(phone).trim() : '';
@@ -99,12 +108,33 @@ async function findByEmailOrPhoneIdentifier(identifier) {
   const clean = String(identifier || '').trim();
   if (!clean) return null;
   const { rows } = await pool.query(
-    'SELECT * FROM users WHERE (LOWER(email) = LOWER($1) OR phone = $2) AND is_deleted = 0 LIMIT 1',
+    'SELECT * FROM users WHERE (LOWER(email) = LOWER($1) OR phone = $2 OR LOWER(name) = LOWER($1)) AND is_deleted = 0 ORDER BY id ASC LIMIT 1',
     [clean, clean]
   );
   return rows[0] || null;
 }
 
+function canonicalRoleForApp(appType) {
+  const app = String(appType || 'customer').trim().toLowerCase().replace(/[\s_-]+/g, '');
+  if (app === 'vendor') return 'vendor';
+  if (['delivery', 'deliveryperson', 'deliverypartner', 'rider'].includes(app)) return 'deliveryperson';
+  return 'client';
+}
+
+async function findByEmailOrPhoneIdentifierForApp(identifier, appType) {
+  const clean = String(identifier || '').trim();
+  if (!clean) return null;
+  const role = canonicalRoleForApp(appType);
+  const { rows } = await pool.query(
+    `SELECT * FROM users
+     WHERE (LOWER(email) = LOWER($1) OR phone = $2 OR LOWER(name) = LOWER($1))
+       AND is_deleted = 0
+       AND ${canonicalRoleSql('role')} = $3
+     ORDER BY id ASC LIMIT 1`,
+    [clean, clean, role]
+  );
+  return rows[0] || null;
+}
 async function findById(id) {
   const { rows } = await pool.query(
     `SELECT u.id, u.name, u.email, u.phone, u.role, u.status, u.theme_mode, u.is_deleted,
@@ -295,6 +325,7 @@ module.exports = {
   findByEmailOrPhone,
   findByEmail,
   findByEmailOrPhoneIdentifier,
+  findByEmailOrPhoneIdentifierForApp,
   findById,
   create,
   updateBasic,

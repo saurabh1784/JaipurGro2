@@ -1,4 +1,4 @@
-const pool = require('../db');
+﻿const pool = require('../db');
 
 async function settingValue(key, fallback = '') {
   try {
@@ -122,6 +122,9 @@ const renderAppSettings = async (req, res) => {
     const deliveryUpdateTitle = await settingValue('delivery_update_title', 'Update Available');
     const deliveryUpdateMessage = await settingValue('delivery_update_message', 'A new version of the Delivery App is available. Please update to continue using the app.');
 
+    let tutorialVideos = [];
+    try { const [videoRows] = await pool.query('SELECT * FROM tutorial_videos ORDER BY app_type, display_order, id'); tutorialVideos = videoRows || []; } catch (_) {}
+
     // Social Profiles list
     let socialProfiles = [];
     try {
@@ -168,6 +171,7 @@ const renderAppSettings = async (req, res) => {
         deliveryUpdateMessage,
       },
       socialProfiles,
+      tutorialVideos,
       message: req.query.msg || null,
       error: req.query.err || null,
     });
@@ -522,3 +526,5 @@ module.exports = {
   settingValue,
   saveSetting,
 };
+
+

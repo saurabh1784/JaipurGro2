@@ -26,7 +26,9 @@ const summarySelect = `
          COALESCE(p.city, (SELECT dps.city FROM delivery_partner_settings dps WHERE dps.user_id = u.id LIMIT 1), 'Unassigned') AS city,
          COALESCE(p.area, (SELECT dps.area FROM delivery_partner_settings dps WHERE dps.user_id = u.id LIMIT 1), '*') AS area,
          p.address, p.address_proof_id, p.address_proof_type, p.profile_image_path, p.vehicle_type,
-         p.vehicle_number, p.document_notes, COALESCE(p.is_available, 1) AS is_available,
+         p.vehicle_number, p.bike_rc_path, p.pan_card_path, p.aadhaar_card_path, p.driving_license_path,
+         p.cancelled_cheque_path, p.live_selfie_path, COALESCE(p.kyc_status, 'pending_documents') AS kyc_status,
+         p.kyc_submitted_at, p.kyc_rejection_reason, p.document_notes, COALESCE(p.is_available, 1) AS is_available,
          p.current_latitude, p.current_longitude, COALESCE(NULLIF(w.balance::text, ''), '0')::numeric AS wallet_balance,
          COALESCE((
            SELECT JSON_AGG(JSON_BUILD_OBJECT('city', dps.city, 'area', dps.area) ORDER BY dps.city, dps.area)::text

@@ -1,4 +1,4 @@
-<!DOCTYPE html>
+﻿<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8" />
@@ -197,11 +197,11 @@
     </header>
 
     <% if (typeof message !== 'undefined' && message) { %>
-      <div class="system-alert-success">✓ <%= message %></div>
+      <div class="system-alert-success">âœ“ <%= message %></div>
     <% } %>
 
     <% if (typeof error !== 'undefined' && error) { %>
-      <div class="system-alert-danger">⚠ <%= error %></div>
+      <div class="system-alert-danger">âš  <%= error %></div>
     <% } %>
 
     <form action="/app-settings/logos" method="POST" enctype="multipart/form-data">
@@ -241,17 +241,17 @@
             <input type="text" id="client_app_logo_url" name="client_app_logo_url" class="url-fallback-input" placeholder="/uploads/app_settings/client_logo.png" value="<%= settings.clientAppLogo %>" />
           </div>
 
-          <div class="form-section-title">📱 App Share & Store Links</div>
+          <div class="form-section-title">ðŸ“± App Share & Store Links</div>
           <div class="file-input-wrapper">
-            <label for="client_app_playstore_url">🤖 Google Play Store Link</label>
+            <label for="client_app_playstore_url">ðŸ¤– Google Play Store Link</label>
             <input type="url" id="client_app_playstore_url" name="client_app_playstore_url" class="url-fallback-input" placeholder="https://play.google.com/store/apps/details?id=com.jaipurgro.client" value="<%= settings.clientPlayStore %>" />
           </div>
           <div class="file-input-wrapper">
-            <label for="client_app_appstore_url">🍏 Apple App Store Link</label>
+            <label for="client_app_appstore_url">ðŸ Apple App Store Link</label>
             <input type="url" id="client_app_appstore_url" name="client_app_appstore_url" class="url-fallback-input" placeholder="https://apps.apple.com/app/jaipurgro-client/id123456789" value="<%= settings.clientAppStore %>" />
           </div>
 
-          <div class="form-section-title">🔄 App Update Settings</div>
+          <div class="form-section-title">ðŸ”„ App Update Settings</div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="file-input-wrapper">
               <label for="client_latest_version">Latest App Version</label>
@@ -313,17 +313,17 @@
             <input type="text" id="vendor_app_logo_url" name="vendor_app_logo_url" class="url-fallback-input" placeholder="/uploads/app_settings/vendor_logo.png" value="<%= settings.vendorAppLogo %>" />
           </div>
 
-          <div class="form-section-title">📱 App Share & Store Links</div>
+          <div class="form-section-title">ðŸ“± App Share & Store Links</div>
           <div class="file-input-wrapper">
-            <label for="vendor_app_playstore_url">🤖 Google Play Store Link</label>
+            <label for="vendor_app_playstore_url">ðŸ¤– Google Play Store Link</label>
             <input type="url" id="vendor_app_playstore_url" name="vendor_app_playstore_url" class="url-fallback-input" placeholder="https://play.google.com/store/apps/details?id=com.jaipurgro.vendor" value="<%= settings.vendorPlayStore %>" />
           </div>
           <div class="file-input-wrapper">
-            <label for="vendor_app_appstore_url">🍏 Apple App Store Link</label>
+            <label for="vendor_app_appstore_url">ðŸ Apple App Store Link</label>
             <input type="url" id="vendor_app_appstore_url" name="vendor_app_appstore_url" class="url-fallback-input" placeholder="https://apps.apple.com/app/jaipurgro-vendor/id123456789" value="<%= settings.vendorAppStore %>" />
           </div>
 
-          <div class="form-section-title">🔄 App Update Settings</div>
+          <div class="form-section-title">ðŸ”„ App Update Settings</div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="file-input-wrapper">
               <label for="vendor_latest_version">Latest App Version</label>
@@ -385,17 +385,17 @@
             <input type="text" id="delivery_app_logo_url" name="delivery_app_logo_url" class="url-fallback-input" placeholder="/uploads/app_settings/delivery_logo.png" value="<%= settings.deliveryAppLogo %>" />
           </div>
 
-          <div class="form-section-title">📱 App Share & Store Links</div>
+          <div class="form-section-title">ðŸ“± App Share & Store Links</div>
           <div class="file-input-wrapper">
-            <label for="delivery_app_playstore_url">🤖 Google Play Store Link</label>
+            <label for="delivery_app_playstore_url">ðŸ¤– Google Play Store Link</label>
             <input type="url" id="delivery_app_playstore_url" name="delivery_app_playstore_url" class="url-fallback-input" placeholder="https://play.google.com/store/apps/details?id=com.jaipurgro.delivery" value="<%= settings.deliveryPlayStore %>" />
           </div>
           <div class="file-input-wrapper">
-            <label for="delivery_app_appstore_url">🍏 Apple App Store Link</label>
+            <label for="delivery_app_appstore_url">ðŸ Apple App Store Link</label>
             <input type="url" id="delivery_app_appstore_url" name="delivery_app_appstore_url" class="url-fallback-input" placeholder="https://apps.apple.com/app/jaipurgro-delivery/id123456789" value="<%= settings.deliveryAppStore %>" />
           </div>
 
-          <div class="form-section-title">🔄 App Update Settings</div>
+          <div class="form-section-title">ðŸ”„ App Update Settings</div>
           <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
             <div class="file-input-wrapper">
               <label for="delivery_latest_version">Latest App Version</label>
@@ -438,7 +438,7 @@
     <div style="background:#ffffff; border:1px solid #e2e8f0; border-radius:16px; padding:24px; margin-top:32px; box-shadow:0 4px 20px rgba(0,0,0,0.04);">
       <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:20px; padding-bottom:14px; border-bottom:1px solid #f1f5f9;">
         <div>
-          <h3 style="margin:0; font-size:18px; font-weight:700; color:#1e293b;">🌐 Social Profile Settings</h3>
+          <h3 style="margin:0; font-size:18px; font-weight:700; color:#1e293b;">ðŸŒ Social Profile Settings</h3>
           <span style="font-size:13px; color:#64748b;">Manage social media channels, profiles & links shown in Client, Vendor, and Delivery apps</span>
         </div>
       </div>
@@ -536,7 +536,7 @@
                   <button type="button" 
                           onclick="openEditSocialModal('<%= sp.id %>', '<%= (sp.platform_name || '').replace(/'/g, "\\'") %>', '<%= sp.icon_name || '' %>', '<%= (sp.profile_link || '').replace(/'/g, "\\'") %>', '<%= sp.display_order %>', '<%= sp.is_active %>')" 
                           style="background:#e0e7ff; color:#3730a3; border:1px solid #c7d2fe; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600; margin-right:4px;">
-                    ✏️ Edit
+                    âœï¸ Edit
                   </button>
                   <form action="/app-settings/social-profiles/toggle/<%= sp.id %>" method="POST" style="display:inline;">
                     <button type="submit" style="background:#f1f5f9; color:#475569; border:1px solid #cbd5e1; padding:4px 10px; border-radius:6px; cursor:pointer; font-size:12px; font-weight:600;">
@@ -560,8 +560,8 @@
     <div id="editSocialModal" style="display:none; position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(15,23,42,0.6); backdrop-filter:blur(4px); z-index:9999; align-items:center; justify-content:center;">
       <div style="background:#ffffff; border-radius:16px; width:90%; max-width:540px; padding:24px; box-shadow:0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04); position:relative;">
         <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:18px; padding-bottom:12px; border-bottom:1px solid #e2e8f0;">
-          <h3 style="margin:0; font-size:17px; font-weight:700; color:#1e293b;">✏️ Edit Social Profile</h3>
-          <button type="button" onclick="closeEditSocialModal()" style="background:none; border:none; font-size:20px; color:#64748b; cursor:pointer;">✕</button>
+          <h3 style="margin:0; font-size:17px; font-weight:700; color:#1e293b;">âœï¸ Edit Social Profile</h3>
+          <button type="button" onclick="closeEditSocialModal()" style="background:none; border:none; font-size:20px; color:#64748b; cursor:pointer;">âœ•</button>
         </div>
 
         <form id="editSocialForm" action="" method="POST" enctype="multipart/form-data">
@@ -618,7 +618,36 @@
         </form>
       </div>
     </div>
-  </main>
+      <section style="margin-top:28px;background:#fff;border:1px solid #e2e8f0;border-radius:16px;padding:22px;">
+      <h2 style="margin:0 0 6px;">App Tutorial Videos</h2>
+      <p style="color:#64748b;margin:0 0 20px;">Upload a video file or add a YouTube link separately for Customer, Vendor, and Delivery Partner apps.</p>
+      <form action="/app-settings/tutorial-videos" method="POST" enctype="multipart/form-data" style="display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;background:#f8fafc;padding:16px;border-radius:12px;">
+        <select name="app_type" required><option value="">Select app</option><option value="customer">Customer App</option><option value="vendor">Vendor App</option><option value="delivery">Delivery Partner App</option></select>
+        <input name="title" placeholder="Video title" required />
+        <input name="description" placeholder="Description" />
+        <input name="display_order" type="number" value="0" placeholder="Display order" />
+        <input name="video" type="file" accept="video/mp4,video/webm,video/quicktime,.m4v" title="Upload a file, or enter a YouTube URL" />
+        <input name="youtube_url" type="url" placeholder="YouTube URL (youtube.com or youtu.be)" />
+        <label><input name="is_active" type="checkbox" checked /> Active</label>
+        <button class="submit-btn" type="submit">Upload Tutorial</button>
+      </form>
+      <div style="margin-top:18px;display:grid;gap:12px;">
+        <% for (const video of (tutorialVideos || [])) { %>
+          <form action="/app-settings/tutorial-videos/<%= video.id %>" method="POST" enctype="multipart/form-data" style="border:1px solid #e2e8f0;border-radius:12px;padding:14px;display:grid;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));gap:10px;align-items:center;">
+            <select name="app_type"><option value="customer" <%= video.app_type === 'customer' ? 'selected' : '' %>>Customer</option><option value="vendor" <%= video.app_type === 'vendor' ? 'selected' : '' %>>Vendor</option><option value="delivery" <%= video.app_type === 'delivery' ? 'selected' : '' %>>Delivery Partner</option></select>
+            <input name="title" value="<%= video.title %>" required />
+            <input name="description" value="<%= video.description || '' %>" />
+            <input name="display_order" type="number" value="<%= video.display_order %>" />
+            <input name="video" type="file" accept="video/*" title="Choose to replace with an uploaded video" />
+            <input name="youtube_url" type="url" value="<%= video.youtube_url || '' %>" placeholder="YouTube URL" />
+            <label><input name="is_active" type="checkbox" <%= video.is_active ? 'checked' : '' %> /> Active</label>
+            <% if (video.youtube_url) { %><a href="<%= video.youtube_url %>" target="_blank" rel="noopener">Open YouTube video</a><% } else { %><video controls preload="metadata" style="width:180px;max-height:100px;border-radius:8px;"><source src="<%= video.video_path %>?v=<%= video.file_version %>"></video><% } %>
+            <div><button type="submit">Save / Replace</button></div>
+          </form>
+          <form action="/app-settings/tutorial-videos/<%= video.id %>/delete" method="POST" onsubmit="return confirm('Delete this tutorial video?')" style="margin-top:-8px;"><button type="submit" style="color:#b91c1c;">Delete <%= video.title %></button></form>
+        <% } %>
+      </div>
+    </section></main>
 
   <script>
     function handleLogoError(imgEl, placeholderId) {
@@ -669,3 +698,4 @@
   </script>
 </body>
 </html>
+

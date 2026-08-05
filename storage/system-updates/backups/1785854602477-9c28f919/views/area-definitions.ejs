@@ -1,0 +1,1250 @@
+﻿<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Area Definition</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Area Definition</p>
+        <h1>Area Definition</h1>
+      </div>
+      <div class="topbar-actions">
+        <button class="product-secondary-button" type="button" id="resetArea">Reset</button>
+        <button class="settings-save" type="button" id="saveArea">Save Area</button>
+      </div>
+    </header>
+
+    <section class="area-definition-shell">
+      <aside class="area-definition-panel">
+        <div class="area-panel-heading"><span class="area-panel-icon">&#8982;</span><div><p>Service coverage</p><h2>Configure area boundary</h2><small>Select an existing location area and manage its delivery setup.</small></div></div>
+        <form id="areaForm" class="settings-grid">
+          <input id="areaId" type="hidden" />
+          <label>
+            Area Name
+            <select id="areaName" required><option value="">Select an area</option></select>
+          </label>
+          <label>
+            City
+            <input id="areaCity" type="text" value="" placeholder="Selected automatically" readonly />
+          </label>
+          <label class="settings-wide area-toggle-row">
+            <input id="ownDeliveryActive" type="checkbox" />
+            <span>Own Delivery active for this area</span>
+          </label>
+          <label class="settings-wide area-toggle-row">
+            <input id="codEnabled" type="checkbox" />
+            <span>Cash on Delivery enabled for this area</span>
+          </label>
+          <label>
+            Platform Fee
+            <input id="areaPlatformFee" type="number" min="0" step="0.01" value="0" />
+          </label>
+          <label>
+            Delivery Charge
+            <input id="areaDeliveryCharge" type="number" min="0" step="0.01" value="0" />
+          </label>
+          <label>
+            Order Commission (%)
+            <input id="areaOrderCommission" type="number" min="0" max="100" step="0.01" value="0" />
+          </label>
+          <label>
+            Delivery Commission (%)
+            <input id="areaDeliveryCommission" type="number" min="0" max="100" step="0.01" value="0" />
+          </label>
+          <label class="settings-wide area-toggle-row">
+            <input id="areaActive" type="checkbox" checked />
+            <span>Area active</span>
+          </label>
+          <div class="settings-wide area-map-actions">
+            <button class="settings-save" type="button" id="toggleMarking">Mark Points: Off</button>
+            <button class="product-secondary-button" type="button" id="undoPoint">Undo Point</button>
+            <button class="product-secondary-button" type="button" id="clearPolygon">Clear Polygon</button>
+          </div>
+        </form>
+
+        <div class="area-help-card">
+          <h2>How to mark an area</h2>
+          <ol>
+            <li>Select an existing area. Its city and saved settings load automatically.</li>
+            <li>Click Mark Points, then click on the map to add boundary points. You can also hold Ctrl and click.</li>
+            <li>Add at least three points. The green shape shows the selected area.</li>
+            <li>Drag any point on the shape to adjust the boundary.</li>
+            <li>Use Undo Point or Clear Polygon if the boundary needs correction.</li>
+            <li>Review availability and fees, then click Save Area.</li>
+          </ol>
+        </div>
+
+        <div class="area-definition-status" id="areaStatus">Click Mark Points, then click on the map to mark the area boundary.</div>
+        <div class="area-point-list" id="areaPointList">No points marked yet.</div>
+
+        <section class="area-list-card">
+          <div class="area-list-heading">
+            <div><p>Saved coverage</p><h2>Created polygons</h2></div>
+            <span id="areaListCount" class="area-list-count">0 areas</span>
+          </div>
+          <div id="areasBody" class="area-card-list">
+            <div class="area-list-empty">Loading areas...</div>
+          </div>
+        </section>
+      </aside>
+
+      <section class="area-map-card">
+        <div id="areaMap" class="area-map"></div>
+        <div id="areaMarkerLayer" class="area-marker-layer" aria-hidden="true"></div>
+      </section>
+    </section>
+  </main>
+
+  <datalist id="cityOptions">
+    <% (cityOptions || []).forEach((city) => { %>
+      <option value="<%= city %>"></option>
+    <% }) %>
+  </datalist>
+
+  <script>
+    const mapsConfig = <%- JSON.stringify(maps || {}) %>;
+    let map = null;
+    let polygon = null;
+    let markers = [];
+    let areas = [];
+    let selectedPath = [];
+    let googleMapsLoadedKey = '';
+    let manualMarkingMode = false;
+    let lastPlacedAt = 0;
+    let mapProjectionOverlay = null;
+    let markerUiBound = false;
+    let markerRenderFrame = 0;
+    let didChooseInitialAreaCity = false;
+    let fallbackMapMode = false;
+    const fallbackMapState = {
+      zoom: 12,
+      center: { lat: 26.9124, lng: 75.7873 },
+      dragging: false,
+      dragStart: null,
+      dragCenter: null,
+    };
+
+    function escapeHtml(value) {
+      return String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+    }
+
+    function money(value) {
+      return Number(value || 0).toFixed(2);
+    }
+
+    function setStatus(message, isError = false) {
+      const status = document.getElementById('areaStatus');
+      status.textContent = message;
+      status.classList.toggle('error', isError);
+    }
+
+    function ensureMapScript() {
+      const apiKey = mapsConfig.browserApiKey || '';
+      if (!apiKey) {
+        initFallbackMap('Google Maps browser key is missing. Using local fallback map for area marking.');
+        return;
+      }
+      if (window.google && window.google.maps && googleMapsLoadedKey === apiKey) {
+        initMap();
+        return;
+      }
+      window.handleAreaMapsLoaded = initMap;
+      window.gm_authFailure = () => initFallbackMap('Google Maps authentication failed. Using local fallback map for area marking.');
+      const script = document.createElement('script');
+      script.id = 'areaGoogleMapsScript';
+      script.src = `https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(apiKey)}&v=weekly&callback=handleAreaMapsLoaded`;
+      script.async = true;
+      script.defer = true;
+      script.onerror = () => initFallbackMap('Unable to load Google Maps. Using local fallback map for area marking.');
+      googleMapsLoadedKey = apiKey;
+      document.head.appendChild(script);
+    }
+
+    function initFallbackMap(message = 'Using local fallback map for area marking.') {
+      fallbackMapMode = true;
+      const mapElement = document.getElementById('areaMap');
+      if (!mapElement) return;
+      mapElement.innerHTML = `
+        <div class="fallback-map-grid">
+          <div id="fallbackTileLayer" class="fallback-tile-layer"></div>
+          <svg id="fallbackPolygonSvg" class="fallback-polygon-svg" viewBox="0 0 100 100" preserveAspectRatio="none"></svg>
+          <div class="fallback-map-title">Jaipur Map</div>
+          <div class="fallback-map-subtitle">${escapeHtml(message)} <a href="/settings#google-maps">Check Google Maps settings</a></div>
+          <div class="fallback-map-controls">
+            <button type="button" onclick="fallbackZoom(1)">+</button>
+            <button type="button" onclick="fallbackZoom(-1)">âˆ’</button>
+          </div>
+          <div class="fallback-map-attribution">Â© OpenStreetMap contributors</div>
+        </div>
+      `;
+      bindMarkerUi();
+      bindFallbackMapUi();
+      renderFallbackTiles();
+      window.addEventListener('resize', () => {
+        if (!fallbackMapMode) return;
+        renderFallbackTiles();
+        renderMarkers();
+      });
+      drawPath(selectedPath);
+      refreshVisibleAreas();
+      setStatus(message);
+    }
+
+    function bindFallbackMapUi() {
+      const card = document.querySelector('.area-map-card');
+      if (!card || card.dataset.fallbackBound === '1') return;
+      card.dataset.fallbackBound = '1';
+      card.addEventListener('wheel', (event) => {
+        if (!fallbackMapMode) return;
+        event.preventDefault();
+        fallbackZoom(event.deltaY < 0 ? 1 : -1, clickPixel(event));
+      }, { passive: false });
+      card.addEventListener('pointerdown', (event) => {
+        if (!fallbackMapMode || shouldPlacePoint(event)) return;
+        fallbackMapState.dragging = true;
+        fallbackMapState.dragStart = { x: event.clientX, y: event.clientY };
+        fallbackMapState.dragCenter = { ...fallbackMapState.center };
+        card.setPointerCapture?.(event.pointerId);
+      });
+      card.addEventListener('pointermove', (event) => {
+        if (!fallbackMapMode || !fallbackMapState.dragging || !fallbackMapState.dragStart) return;
+        const startCenter = fallbackWorldPixel(fallbackMapState.dragCenter.lat, fallbackMapState.dragCenter.lng);
+        const dx = event.clientX - fallbackMapState.dragStart.x;
+        const dy = event.clientY - fallbackMapState.dragStart.y;
+        fallbackMapState.center = fallbackLatLngFromWorldPixel(startCenter.x - dx, startCenter.y - dy);
+        renderFallbackTiles();
+        renderMarkers();
+      });
+      const stopDrag = (event) => {
+        if (!fallbackMapMode) return;
+        fallbackMapState.dragging = false;
+        fallbackMapState.dragStart = null;
+        fallbackMapState.dragCenter = null;
+        if (event && event.pointerId !== undefined) card.releasePointerCapture?.(event.pointerId);
+      };
+      card.addEventListener('pointerup', stopDrag);
+      card.addEventListener('pointercancel', stopDrag);
+      card.addEventListener('pointerleave', stopDrag);
+    }
+
+    function initMap() {
+      const options = {
+        center: { lat: 26.9124, lng: 75.7873 },
+        zoom: 12,
+        mapTypeControl: false,
+        streetViewControl: false,
+      };
+      if (mapsConfig.mapId) options.mapId = mapsConfig.mapId;
+      map = new google.maps.Map(document.getElementById('areaMap'), options);
+      mapProjectionOverlay = new google.maps.OverlayView();
+      mapProjectionOverlay.onAdd = function onAdd() {};
+      mapProjectionOverlay.draw = function draw() {};
+      mapProjectionOverlay.onRemove = function onRemove() {};
+      mapProjectionOverlay.setMap(map);
+      polygon = new google.maps.Polygon({
+        paths: [],
+        map,
+        strokeColor: '#0f9f4f',
+        strokeOpacity: 1,
+        strokeWeight: 4,
+        fillColor: '#22c55e',
+        fillOpacity: 0.26,
+        editable: true,
+        clickable: false,
+        zIndex: 50,
+      });
+      polygon.getPath().addListener('set_at', syncPathFromPolygon);
+      polygon.getPath().addListener('insert_at', syncPathFromPolygon);
+      polygon.getPath().addListener('remove_at', syncPathFromPolygon);
+      bindMarkerUi();
+      map.addListener('bounds_changed', scheduleMarkerRender);
+      map.addListener('center_changed', scheduleMarkerRender);
+      map.addListener('zoom_changed', scheduleMarkerRender);
+      map.addListener('idle', renderMarkers);
+      window.addEventListener('resize', scheduleMarkerRender);
+      refreshVisibleAreas();
+    }
+
+    function bindMarkerUi() {
+      if (markerUiBound) return;
+      markerUiBound = true;
+      const mapElement = document.getElementById('areaMap');
+      const markerLayer = document.getElementById('areaMarkerLayer');
+      const mapCard = document.querySelector('.area-map-card');
+      mapElement.addEventListener('click', handleMapDomClick, true);
+      markerLayer.addEventListener('pointerdown', handleMarkerLayerPointer);
+      markerLayer.addEventListener('click', handleMarkerLayerPointer);
+      mapCard.addEventListener('pointerdown', handleMarkerLayerPointer);
+      document.addEventListener('keydown', handleMarkingKey);
+      document.addEventListener('keyup', handleMarkingKey);
+      document.addEventListener('mousemove', handleMarkingMouseMove, true);
+      window.addEventListener('blur', () => setMarkingMode(false));
+    }
+
+    function syncPathFromPolygon() {
+      selectedPath = polygon.getPath().getArray().map((point) => ({ lat: point.lat(), lng: point.lng() }));
+      renderMarkers();
+      renderPointList();
+      setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
+    }
+
+    function drawPath(path) {
+      selectedPath = path.map((point) => ({ lat: Number(point.lat), lng: Number(point.lng) }))
+        .filter((point) => Number.isFinite(point.lat) && Number.isFinite(point.lng));
+      if (polygon) {
+        polygon.setPath(selectedPath);
+        polygon.setOptions({ zIndex: 50 });
+      }
+      renderMarkers();
+      renderPointList();
+      if (!fallbackMapMode && map && window.google && selectedPath.length) {
+        const bounds = new google.maps.LatLngBounds();
+        selectedPath.forEach((point) => bounds.extend(point));
+        map.fitBounds(bounds);
+      }
+      setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
+    }
+
+    function addPoint(latLng, domEvent = null) {
+      addPointFromValues(latLng.lat(), latLng.lng(), domEvent ? clickPixel(domEvent) : null);
+    }
+
+    function addPointFromValues(lat, lng, screen = null) {
+      selectedPath.push({ lat, lng });
+      if (polygon) {
+        polygon.setPath(selectedPath);
+        polygon.setOptions({ zIndex: 50 });
+      }
+      renderMarkers();
+      renderPointList();
+      setStatus(`${selectedPath.length} point${selectedPath.length === 1 ? '' : 's'} marked.`);
+    }
+
+    function handleMapDomClick(event) {
+      if (!fallbackMapMode && (!map || !polygon)) return;
+      if (!shouldPlacePoint(event)) {
+        setStatus('Click Mark Points first, or hold Ctrl and click on the map to add a point.');
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const screen = clickPixel(event);
+      if (!screen) return;
+      const latLng = mapPixelToLatLng(screen);
+      if (!latLng) return;
+      const lastPoint = selectedPath[selectedPath.length - 1];
+      if (
+        lastPoint
+        && Math.abs(lastPoint.lat - latLng.lat) < 0.0000001
+        && Math.abs(lastPoint.lng - latLng.lng) < 0.0000001
+      ) {
+        return;
+      }
+      addPointFromValues(latLng.lat, latLng.lng, screen);
+    }
+
+    function handleMarkerLayerPointer(event) {
+      if (!fallbackMapMode && (!map || !polygon)) {
+        setStatus('Map is still loading. Please wait a moment, then try again.', true);
+        return;
+      }
+      if (!shouldPlacePoint(event)) {
+        setStatus(`Map click detected at ${Math.round(event.clientX)}, ${Math.round(event.clientY)}. Click Mark Points first to add a point.`);
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      if (Date.now() - lastPlacedAt < 120) return;
+      const screen = clickPixel(event);
+      if (!screen) {
+        setStatus('Map click detected, but screen position could not be read.', true);
+        return;
+      }
+      const latLng = mapPixelToLatLng(screen);
+      if (!latLng) {
+        const center = map && map.getCenter && map.getCenter();
+        if (center) {
+          addPointFromValues(center.lat(), center.lng(), screen);
+          setStatus('Point placed visually. Map projection was still loading, so the map center was used.');
+          return;
+        }
+        setStatus('Map click detected, but map coordinates are not ready yet. Try again in one second.', true);
+        return;
+      }
+      lastPlacedAt = Date.now();
+      addPointFromValues(latLng.lat, latLng.lng, screen);
+    }
+
+    function handleMarkingKey(event) {
+      if (event.key !== 'Control') return;
+      setMarkingMode(event.type === 'keydown');
+    }
+
+    function handleMarkingMouseMove(event) {
+      const card = document.querySelector('.area-map-card');
+      if (!card) return;
+      const rect = card.getBoundingClientRect();
+      const insideMap = event.clientX >= rect.left
+        && event.clientX <= rect.right
+        && event.clientY >= rect.top
+        && event.clientY <= rect.bottom;
+      if (insideMap && shouldPlacePoint(event)) {
+        setMarkingMode(true);
+      } else if (!manualMarkingMode && !isCtrlPressed(event)) {
+        setMarkingMode(false, false);
+      }
+    }
+
+    function shouldPlacePoint(event) {
+      return manualMarkingMode || isCtrlPressed(event);
+    }
+
+    function isCtrlPressed(event) {
+      return Boolean(event && (event.ctrlKey || (event.getModifierState && event.getModifierState('Control'))));
+    }
+
+    function setMarkingMode(enabled, announce = true) {
+      const card = document.querySelector('.area-map-card');
+      if (!card) return;
+      card.classList.toggle('marking-mode', Boolean(enabled));
+      if (enabled && announce) setStatus('Point marking active. Click the map to add a point.');
+    }
+
+    function toggleManualMarking() {
+      manualMarkingMode = !manualMarkingMode;
+      const button = document.getElementById('toggleMarking');
+      button.textContent = manualMarkingMode ? 'Mark Points: On' : 'Mark Points: Off';
+      button.classList.toggle('area-marking-active', manualMarkingMode);
+      setMarkingMode(manualMarkingMode);
+      setStatus(manualMarkingMode
+        ? 'Point marking active. Click the map to add a point.'
+        : 'Click Mark Points, then click on the map to mark the area boundary.');
+    }
+
+    function scheduleMarkerRender() {
+      if (markerRenderFrame) cancelAnimationFrame(markerRenderFrame);
+      markerRenderFrame = requestAnimationFrame(() => {
+        markerRenderFrame = 0;
+        renderMarkers();
+      });
+    }
+
+    function renderMarkers() {
+      const layer = document.getElementById('areaMarkerLayer');
+      if (!layer || (!map && !fallbackMapMode)) return;
+      layer.innerHTML = '';
+      markers = [];
+
+      // Google Maps renders its editable vertex handles directly on the
+      // polygon. Duplicate HTML markers can drift during projection updates,
+      // so numbered overlay markers are reserved for the fallback map.
+      if (!fallbackMapMode) return;
+
+      selectedPath.forEach((point, index) => {
+        const pixel = fallbackLatLngToPixel(point);
+        if (!pixel) return;
+        const marker = document.createElement('span');
+        marker.className = 'area-point-marker';
+        marker.textContent = String(index + 1);
+        marker.title = `Point ${index + 1}`;
+        marker.style.left = `${pixel.x}px`;
+        marker.style.top = `${pixel.y}px`;
+        layer.appendChild(marker);
+        markers.push(marker);
+      });
+      renderFallbackPolygons();
+    }
+
+    function latLngToMapPixel(point) {
+      if (fallbackMapMode) return fallbackLatLngToPixel(point);
+      const projection = mapProjectionOverlay && mapProjectionOverlay.getProjection();
+      if (!projection) return null;
+      const pixel = projection.fromLatLngToContainerPixel(new google.maps.LatLng(point.lat, point.lng));
+      return pixel ? { x: pixel.x, y: pixel.y } : null;
+    }
+
+    function clickPixel(domEvent) {
+      const mapDiv = document.getElementById('areaMap');
+      if (!mapDiv || !domEvent || domEvent.clientX === undefined || domEvent.clientY === undefined) return null;
+      const rect = mapDiv.getBoundingClientRect();
+      return {
+        x: domEvent.clientX - rect.left,
+        y: domEvent.clientY - rect.top,
+      };
+    }
+
+    function mapPixelToLatLng(pixel) {
+      if (fallbackMapMode) return fallbackPixelToLatLng(pixel);
+      const projection = mapProjectionOverlay && mapProjectionOverlay.getProjection();
+      if (!projection) return null;
+      const latLng = projection.fromContainerPixelToLatLng(new google.maps.Point(pixel.x, pixel.y));
+      return latLng ? { lat: latLng.lat(), lng: latLng.lng() } : null;
+    }
+
+    function renderPointList() {
+      const list = document.getElementById('areaPointList');
+      if (!selectedPath.length) {
+        list.textContent = 'No points marked yet.';
+        return;
+      }
+      list.innerHTML = selectedPath.map((point, index) => (
+        `<span>Point ${index + 1}: ${point.lat.toFixed(6)}, ${point.lng.toFixed(6)}</span>`
+      )).join('');
+    }
+
+    function resetForm() {
+      const currentCity = '';
+      document.getElementById('areaId').value = '';
+      document.getElementById('areaName').value = '';
+      document.getElementById('areaCity').value = currentCity;
+      document.getElementById('ownDeliveryActive').checked = false;
+      document.getElementById('codEnabled').checked = false;
+      document.getElementById('areaPlatformFee').value = '0';
+      document.getElementById('areaDeliveryCharge').value = '0';
+      document.getElementById('areaOrderCommission').value = '0';
+      document.getElementById('areaDeliveryCommission').value = '0';
+      document.getElementById('areaActive').checked = true;
+      manualMarkingMode = false;
+      const markingButton = document.getElementById('toggleMarking');
+      if (markingButton) {
+        markingButton.textContent = 'Mark Points: Off';
+        markingButton.classList.remove('area-marking-active');
+      }
+      setMarkingMode(false, false);
+      drawPath([]);
+      renderPointList();
+      refreshVisibleAreas();
+      setStatus('Click Mark Points, then click on the map to mark the area boundary.');
+    }
+
+    async function loadAreas() {
+      const body = document.getElementById('areasBody');
+      body.innerHTML = '<div class="area-list-empty">Loading areas...</div>';
+      try {
+        const response = await fetch('/area-definitions/list', { headers: { Accept: 'application/json' } });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to load areas');
+        areas = data.areas || [];
+        syncAreaNameOptions();
+        syncCityOptionsFromAreas();
+        const requestedAreaId = Number(new URLSearchParams(window.location.search).get('area_id') || 0);
+        const requestedArea = areas.find((area) => Number(area.id) === requestedAreaId);
+        if (requestedArea) {
+          document.getElementById('areaCity').value = requestedArea.city || '';
+          editArea(requestedArea.id);
+        } else {
+          chooseInitialAreaCity();
+          refreshVisibleAreas();
+        }
+      } catch (error) {
+        body.innerHTML = `<div class="area-list-empty"><strong>Unable to load polygons</strong><span>${escapeHtml(error.message)}</span></div>`;
+      }
+    }
+
+    function syncAreaNameOptions() {
+      const select = document.getElementById('areaName');
+      const selectedId = String(document.getElementById('areaId').value || '');
+      const grouped = [...areas].sort((a, b) => String(a.city || '').localeCompare(String(b.city || '')) || String(a.name || '').localeCompare(String(b.name || '')));
+      select.innerHTML = '<option value="">Select an area</option>' + grouped.map((area) => `<option value="${Number(area.id)}">${escapeHtml(area.name)} — ${escapeHtml(area.city || 'No city')}</option>`).join('');
+      if (selectedId && grouped.some((area) => String(area.id) === selectedId)) select.value = selectedId;
+    }
+    function selectedAreaCity() {
+      return String(document.getElementById('areaCity').value || '').trim().toLowerCase();
+    }
+
+    function visibleAreas() {
+      const city = selectedAreaCity();
+      if (!city) return areas;
+      return areas.filter((area) => String(area.city || '').trim().toLowerCase() === city);
+    }
+
+    function syncCityOptionsFromAreas() {
+      const datalist = document.getElementById('cityOptions');
+      if (!datalist) return;
+      const existing = new Set(Array.from(datalist.options || []).map((option) => String(option.value || '').trim().toLowerCase()));
+      areas.forEach((area) => {
+        const city = String(area.city || '').trim();
+        if (!city || existing.has(city.toLowerCase())) return;
+        const option = document.createElement('option');
+        option.value = city;
+        datalist.appendChild(option);
+        existing.add(city.toLowerCase());
+      });
+    }
+
+    function chooseInitialAreaCity() {
+      if (didChooseInitialAreaCity || !areas.length) return;
+      didChooseInitialAreaCity = true;
+      if (visibleAreas().length) return;
+      const firstMappedCity = areas.map((area) => String(area.city || '').trim()).find(Boolean);
+      if (firstMappedCity) {
+        document.getElementById('areaCity').value = firstMappedCity;
+      }
+    }
+
+    function refreshVisibleAreas() {
+      renderAreas();
+      drawExistingAreas();
+      renderFallbackPolygons();
+    }
+
+    function renderAreas() {
+      const body = document.getElementById('areasBody');
+      const count = document.getElementById('areaListCount');
+      const cityAreas = visibleAreas();
+      if (count) count.textContent = `${cityAreas.length} area${cityAreas.length === 1 ? '' : 's'}`;
+      if (!cityAreas.length) {
+        const cityName = document.getElementById('areaCity').value.trim();
+        body.innerHTML = `<div class="area-list-empty"><strong>No polygons found</strong><span>No mapped areas${cityName ? ` for ${escapeHtml(cityName)}` : ''} yet.</span></div>`;
+        return;
+      }
+      body.innerHTML = cityAreas.map((area) => {
+        const pointCount = Array.isArray(area.polygon) ? area.polygon.length : 0;
+        return `
+          <article class="saved-area-card ${Number(document.getElementById('areaId').value) === Number(area.id) ? 'selected' : ''}">
+            <div class="saved-area-topline">
+              <div class="saved-area-identity">
+                <span class="saved-area-pin" aria-hidden="true">&#9673;</span>
+                <div><strong>${escapeHtml(area.name)}</strong><small>${escapeHtml(area.city || 'Any city')} · ${pointCount} boundary points</small></div>
+              </div>
+              <span class="area-status-pill ${area.is_active ? 'active' : 'inactive'}">${area.is_active ? 'Active' : 'Inactive'}</span>
+            </div>
+            <div class="saved-area-metrics">
+              <div><span>Platform fee</span><strong>₹${money(area.platform_fee || 0)}</strong></div>
+              <div><span>Delivery</span><strong>₹${money(area.delivery_charge || 0)}</strong></div>
+              <div><span>Order commission</span><strong>${Number(area.order_commission_percentage || 0).toFixed(2)}%</strong></div>
+              <div><span>Delivery commission</span><strong>${Number(area.delivery_commission_percentage || 0).toFixed(2)}%</strong></div>
+            </div>
+            <div class="saved-area-footer">
+              <div class="saved-area-flags">
+                <span class="area-feature-pill ${area.own_delivery_active ? 'enabled' : ''}">Own delivery ${area.own_delivery_active ? 'on' : 'off'}</span>
+                <span class="area-feature-pill ${area.cod_enabled ? 'enabled' : ''}">COD ${area.cod_enabled ? 'on' : 'off'}</span>
+              </div>
+              <div class="saved-area-actions">
+                <button class="area-edit-button" type="button" onclick="editArea(${Number(area.id)})">Edit</button>
+                <button class="area-delete-button" type="button" onclick="deleteArea(${Number(area.id)})">Delete</button>
+              </div>
+            </div>
+          </article>`;
+      }).join('');
+    }
+
+    let existingAreaPolygons = [];
+    function drawExistingAreas() {
+      if (fallbackMapMode) {
+        renderFallbackPolygons();
+        return;
+      }
+      if (!map || !window.google) return;
+      existingAreaPolygons.forEach((item) => item.setMap(null));
+      existingAreaPolygons = visibleAreas().map((area) => new google.maps.Polygon({
+        paths: area.polygon || [],
+        map,
+        strokeColor: area.own_delivery_active ? '#178f49' : '#64748b',
+        strokeOpacity: 0.65,
+        strokeWeight: 2,
+        fillColor: area.own_delivery_active ? '#28b446' : '#94a3b8',
+        fillOpacity: area.is_active ? 0.10 : 0.04,
+        clickable: false,
+        zIndex: 5,
+      }));
+      if (polygon) polygon.setOptions({ zIndex: 50 });
+    }
+
+    function fallbackBounds() {
+      return {
+        minLat: 26.78,
+        maxLat: 27.05,
+        minLng: 75.62,
+        maxLng: 75.95,
+      };
+    }
+
+    function fallbackWorldPixel(lat, lng, zoom = fallbackMapState.zoom) {
+      const sinLat = Math.sin((Number(lat) * Math.PI) / 180);
+      const scale = 256 * Math.pow(2, zoom);
+      return {
+        x: ((Number(lng) + 180) / 360) * scale,
+        y: (0.5 - Math.log((1 + sinLat) / (1 - sinLat)) / (4 * Math.PI)) * scale,
+      };
+    }
+
+    function fallbackZoom(delta, focusPixel = null) {
+      if (!fallbackMapMode) return;
+      const oldZoom = fallbackMapState.zoom;
+      const nextZoom = Math.max(10, Math.min(18, oldZoom + delta));
+      if (nextZoom === oldZoom) return;
+
+      if (focusPixel) {
+        const before = fallbackPixelToLatLng(focusPixel);
+        fallbackMapState.zoom = nextZoom;
+        const mapDiv = document.getElementById('areaMap');
+        const rect = mapDiv ? mapDiv.getBoundingClientRect() : { width: 1, height: 1 };
+        const world = fallbackWorldPixel(before.lat, before.lng);
+        const centerWorld = {
+          x: world.x - focusPixel.x + rect.width / 2,
+          y: world.y - focusPixel.y + rect.height / 2,
+        };
+        fallbackMapState.center = fallbackLatLngFromWorldPixel(centerWorld.x, centerWorld.y);
+      } else {
+        fallbackMapState.zoom = nextZoom;
+      }
+      renderFallbackTiles();
+      renderMarkers();
+      setStatus(`Fallback map zoom ${fallbackMapState.zoom}. Drag to pan, scroll to zoom, or turn Mark Points on to draw.`);
+    }
+
+    function fallbackLatLngFromWorldPixel(x, y, zoom = fallbackMapState.zoom) {
+      const scale = 256 * Math.pow(2, zoom);
+      const lng = (x / scale) * 360 - 180;
+      const n = Math.PI - (2 * Math.PI * y) / scale;
+      const lat = (180 / Math.PI) * Math.atan(0.5 * (Math.exp(n) - Math.exp(-n)));
+      return { lat, lng };
+    }
+
+    function fallbackViewportOrigin() {
+      const mapDiv = document.getElementById('areaMap');
+      const rect = mapDiv ? mapDiv.getBoundingClientRect() : { width: 1, height: 1 };
+      const center = fallbackWorldPixel(fallbackMapState.center.lat, fallbackMapState.center.lng);
+      return {
+        x: center.x - rect.width / 2,
+        y: center.y - rect.height / 2,
+        width: rect.width,
+        height: rect.height,
+      };
+    }
+
+    function renderFallbackTiles() {
+      if (!fallbackMapMode) return;
+      const layer = document.getElementById('fallbackTileLayer');
+      if (!layer) return;
+      const origin = fallbackViewportOrigin();
+      const zoom = fallbackMapState.zoom;
+      const tileSize = 256;
+      const maxTile = Math.pow(2, zoom);
+      const startX = Math.floor(origin.x / tileSize);
+      const endX = Math.floor((origin.x + origin.width) / tileSize);
+      const startY = Math.floor(origin.y / tileSize);
+      const endY = Math.floor((origin.y + origin.height) / tileSize);
+      const tiles = [];
+      for (let x = startX; x <= endX; x += 1) {
+        for (let y = startY; y <= endY; y += 1) {
+          if (y < 0 || y >= maxTile) continue;
+          const wrappedX = ((x % maxTile) + maxTile) % maxTile;
+          tiles.push(`
+            <img
+              class="fallback-map-tile"
+              alt=""
+              src="https://tile.openstreetmap.org/${zoom}/${wrappedX}/${y}.png"
+              style="left:${(x * tileSize) - origin.x}px;top:${(y * tileSize) - origin.y}px"
+              onerror="this.style.display='none'; document.getElementById('fallbackTileLayer').classList.add('tiles-failed');"
+            />`);
+        }
+      }
+      layer.innerHTML = tiles.join('');
+    }
+
+    function fallbackLatLngToPixel(point) {
+      const mapDiv = document.getElementById('areaMap');
+      if (!mapDiv) return point.screen || null;
+      const origin = fallbackViewportOrigin();
+      const world = fallbackWorldPixel(point.lat, point.lng);
+      return {
+        x: world.x - origin.x,
+        y: world.y - origin.y,
+      };
+    }
+
+    function fallbackPixelToLatLng(pixel) {
+      const mapDiv = document.getElementById('areaMap');
+      if (!mapDiv || !pixel) return null;
+      const origin = fallbackViewportOrigin();
+      return fallbackLatLngFromWorldPixel(origin.x + pixel.x, origin.y + pixel.y);
+    }
+
+    function fallbackPointsAttr(points) {
+      const mapDiv = document.getElementById('areaMap');
+      if (!mapDiv) return '';
+      const rect = mapDiv.getBoundingClientRect();
+      return points
+        .map((point) => fallbackLatLngToPixel(point))
+        .filter(Boolean)
+        .map((pixel) => `${(pixel.x / Math.max(rect.width, 1)) * 100},${(pixel.y / Math.max(rect.height, 1)) * 100}`)
+        .join(' ');
+    }
+
+    function renderFallbackPolygons() {
+      if (!fallbackMapMode) return;
+      const svg = document.getElementById('fallbackPolygonSvg');
+      if (!svg) return;
+      const existing = visibleAreas()
+        .filter((area) => Array.isArray(area.polygon) && area.polygon.length >= 3)
+        .map((area) => `<polygon points="${fallbackPointsAttr(area.polygon)}" class="fallback-existing-polygon ${area.own_delivery_active ? 'own-active' : ''}" />`)
+        .join('');
+      const selected = selectedPath.length >= 2
+        ? `<polyline points="${fallbackPointsAttr(selectedPath)}" class="fallback-selected-line" />`
+        : '';
+      const selectedPolygon = selectedPath.length >= 3
+        ? `<polygon points="${fallbackPointsAttr(selectedPath)}" class="fallback-selected-polygon" />`
+        : '';
+      svg.innerHTML = existing + selectedPolygon + selected;
+    }
+
+    function editArea(id) {
+      const area = areas.find((item) => Number(item.id) === Number(id));
+      if (!area) return;
+      document.getElementById('areaId').value = area.id;
+      document.getElementById('areaName').value = String(area.id);
+      document.getElementById('areaCity').value = area.city || '';
+      document.getElementById('ownDeliveryActive').checked = Boolean(area.own_delivery_active);
+      document.getElementById('codEnabled').checked = Boolean(area.cod_enabled);
+      document.getElementById('areaPlatformFee').value = Number(area.platform_fee || 0);
+      document.getElementById('areaDeliveryCharge').value = Number(area.delivery_charge || 0);
+      document.getElementById('areaOrderCommission').value = Number(area.order_commission_percentage || 0);
+      document.getElementById('areaDeliveryCommission').value = Number(area.delivery_commission_percentage || 0);
+      document.getElementById('areaActive').checked = Boolean(area.is_active);
+      drawPath(area.polygon || []);
+      refreshVisibleAreas();
+    }
+
+    async function saveArea() {
+      const payload = {
+        name: (areas.find((area) => Number(area.id) === Number(document.getElementById('areaId').value)) || {}).name || '',
+        city: document.getElementById('areaCity').value.trim(),
+        polygon: selectedPath,
+        platform_fee: Number(document.getElementById('areaPlatformFee').value || 0),
+        delivery_charge: Number(document.getElementById('areaDeliveryCharge').value || 0),
+        order_commission_percentage: Number(document.getElementById('areaOrderCommission').value || 0),
+        delivery_commission_percentage: Number(document.getElementById('areaDeliveryCommission').value || 0),
+        cod_enabled: document.getElementById('codEnabled').checked,
+        own_delivery_active: document.getElementById('ownDeliveryActive').checked,
+        is_active: document.getElementById('areaActive').checked,
+      };
+      const id = document.getElementById('areaId').value;
+      if (!id) { setStatus('Please select an area.', true); return; }
+      if (selectedPath.length < 3) { setStatus('Please draw a valid polygon with at least three points.', true); return; }
+      const url = id ? `/area-definitions/${encodeURIComponent(id)}` : '/area-definitions';
+      const method = id ? 'PUT' : 'POST';
+      try {
+        const response = await fetch(url, {
+          method,
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify(payload),
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to save area');
+        setStatus(data.message || 'Area saved');
+        resetForm();
+        await loadAreas();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    async function deleteArea(id) {
+      if (!confirm('Delete this mapped area?')) return;
+      try {
+        const response = await fetch(`/area-definitions/${encodeURIComponent(id)}`, {
+          method: 'DELETE',
+          headers: { Accept: 'application/json' },
+        });
+        const data = await response.json();
+        if (!data.success) throw new Error(data.message || 'Unable to delete area');
+        resetForm();
+        await loadAreas();
+      } catch (error) {
+        setStatus(error.message, true);
+      }
+    }
+
+    document.getElementById('saveArea').addEventListener('click', saveArea);
+    document.getElementById('resetArea').addEventListener('click', resetForm);
+    document.getElementById('toggleMarking').addEventListener('click', toggleManualMarking);
+    document.getElementById('undoPoint').addEventListener('click', () => drawPath(selectedPath.slice(0, -1)));
+    document.getElementById('clearPolygon').addEventListener('click', () => drawPath([]));
+    document.getElementById('areaName').addEventListener('change', (event) => {
+      const id = Number(event.target.value || 0);
+      if (id) editArea(id); else resetForm();
+    });
+    bindMarkerUi();
+    loadAreas();
+    ensureMapScript();
+  </script>
+
+  <style>
+    .area-definition-shell {
+      display: grid;
+      grid-template-columns: minmax(320px, 430px) minmax(0, 1fr);
+      gap: 18px;
+      align-items: stretch;
+    }
+    .area-definition-panel,
+    .area-map-card {
+      background: #fff;
+      border: 1px solid rgba(204, 210, 215, 0.75);
+      border-radius: 8px;
+      box-shadow: 0 2px 6px rgba(32, 42, 54, 0.08);
+    }
+    .area-definition-panel {
+      padding: 16px;
+      min-width: 0;
+    }
+    .area-map-card {
+      overflow: hidden;
+      min-height: 680px;
+      position: relative;
+    }
+    .area-map {
+      width: 100%;
+      height: 100%;
+      min-height: 680px;
+    }
+    .area-marker-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 100000;
+      pointer-events: none;
+      cursor: grab;
+    }
+    .area-map-card.marking-mode .area-marker-layer {
+      pointer-events: auto;
+      cursor: crosshair;
+    }
+    .area-map img {
+      max-width: none !important;
+    }
+    .area-map svg {
+      width: auto;
+      height: auto;
+      fill: initial;
+      stroke: initial;
+      stroke-width: initial;
+      stroke-linecap: initial;
+      stroke-linejoin: initial;
+      overflow: visible;
+    }
+    .fallback-map-grid {
+      position: relative;
+      width: 100%;
+      height: 100%;
+      min-height: 680px;
+      overflow: hidden;
+      background:
+        linear-gradient(90deg, rgba(37, 99, 235, 0.09) 1px, transparent 1px),
+        linear-gradient(rgba(37, 99, 235, 0.09) 1px, transparent 1px),
+        #dbeafe;
+      background-size: 48px 48px, 48px 48px, auto;
+    }
+    .fallback-tile-layer {
+      position: absolute;
+      inset: 0;
+      z-index: 1;
+      background: #dbeafe;
+    }
+    .fallback-tile-layer.tiles-failed::after {
+      content: 'Map tiles could not load. You can still mark area points on this fallback grid.';
+      position: absolute;
+      left: 50%;
+      top: 50%;
+      transform: translate(-50%, -50%);
+      max-width: 360px;
+      padding: 14px 16px;
+      border-radius: 12px;
+      background: rgba(255, 255, 255, 0.92);
+      color: #334155;
+      font-weight: 900;
+      text-align: center;
+      box-shadow: 0 14px 32px rgba(15, 23, 42, 0.16);
+    }
+    .fallback-map-tile {
+      position: absolute;
+      width: 256px !important;
+      height: 256px !important;
+      max-width: none !important;
+      user-select: none;
+      pointer-events: none;
+    }
+    .fallback-map-title {
+      position: absolute;
+      top: 22px;
+      left: 24px;
+      z-index: 4;
+      padding: 9px 13px;
+      border-radius: 999px;
+      background: rgba(15, 23, 42, 0.82);
+      color: #fff;
+      font-weight: 900;
+      letter-spacing: 0.02em;
+    }
+    .fallback-map-subtitle {
+      position: absolute;
+      top: 70px;
+      left: 24px;
+      z-index: 4;
+      padding: 8px 12px;
+      border-radius: 8px;
+      background: rgba(255, 255, 255, 0.88);
+      color: #334155;
+      font-weight: 800;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.12);
+    }
+    .fallback-map-subtitle a {
+      color: #1d4ed8;
+      font-weight: 900;
+      text-decoration: underline;
+    }
+    .fallback-map-controls {
+      position: absolute;
+      top: 22px;
+      right: 22px;
+      z-index: 5;
+      display: grid;
+      gap: 8px;
+    }
+    .fallback-map-controls button {
+      width: 40px;
+      height: 40px;
+      border: 0;
+      border-radius: 10px;
+      background: rgba(255, 255, 255, 0.94);
+      color: #0f172a;
+      font-size: 24px;
+      font-weight: 900;
+      cursor: pointer;
+      box-shadow: 0 8px 20px rgba(15, 23, 42, 0.16);
+    }
+    .fallback-map-controls button:hover {
+      background: #eff6ff;
+    }
+    .fallback-map-attribution {
+      position: absolute;
+      right: 8px;
+      bottom: 6px;
+      z-index: 4;
+      padding: 3px 6px;
+      border-radius: 5px;
+      background: rgba(255, 255, 255, 0.86);
+      color: #334155;
+      font-size: 11px;
+      font-weight: 800;
+    }
+    .fallback-polygon-svg {
+      position: absolute;
+      inset: 0;
+      z-index: 2;
+      width: 100% !important;
+      height: 100% !important;
+      pointer-events: none;
+    }
+    .fallback-existing-polygon {
+      fill: rgba(100, 116, 139, 0.18);
+      stroke: rgba(71, 85, 105, 0.7);
+      stroke-width: 0.45;
+    }
+    .fallback-existing-polygon.own-active {
+      fill: rgba(34, 197, 94, 0.16);
+      stroke: rgba(22, 163, 74, 0.8);
+    }
+    .fallback-selected-polygon {
+      fill: rgba(34, 197, 94, 0.28);
+      stroke: rgba(15, 159, 79, 0.95);
+      stroke-width: 0.65;
+    }
+    .fallback-selected-line {
+      fill: none;
+      stroke: #ef4444;
+      stroke-width: 0.48;
+      stroke-dasharray: 1.3 1;
+    }
+    .area-point-marker {
+      position: absolute;
+      transform: translate(-50%, -50%);
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      border: 3px solid #fff;
+      border-radius: 999px;
+      background: #ef4444;
+      color: #fff;
+      font-size: 13px;
+      font-weight: 900;
+      line-height: 1;
+      box-shadow: 0 3px 10px rgba(15, 23, 42, 0.35);
+      z-index: 999999;
+      cursor: pointer;
+      pointer-events: auto;
+    }
+    .area-toggle-row {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      font-weight: 800;
+      color: #334155;
+    }
+    .area-toggle-row input {
+      width: 18px;
+      height: 18px;
+    }
+    .area-map-actions {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    .area-map-actions .area-marking-active {
+      background: #dc2626;
+      box-shadow: 0 0 0 3px rgba(220, 38, 38, 0.18);
+    }
+    .area-help-card {
+      margin-top: 14px;
+      padding: 12px 14px;
+      border: 1px solid #dbeafe;
+      border-radius: 8px;
+      background: #eff6ff;
+      color: #1e3a8a;
+    }
+    .area-help-card h2 {
+      margin: 0 0 8px;
+      font-size: 15px;
+      font-weight: 900;
+      color: #1e40af;
+    }
+    .area-help-card ol {
+      margin: 0;
+      padding-left: 18px;
+      display: grid;
+      gap: 5px;
+      font-size: 13px;
+      font-weight: 700;
+      line-height: 1.45;
+    }
+    .area-definition-status {
+      margin: 14px 0;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #ecfdf5;
+      color: #17643a;
+      font-weight: 800;
+    }
+    .area-definition-status.error {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .area-point-list {
+      display: grid;
+      gap: 5px;
+      margin: -4px 0 14px;
+      padding: 10px 12px;
+      border-radius: 6px;
+      background: #f8fafc;
+      color: #475569;
+      font-size: 12px;
+      font-weight: 800;
+      max-height: 116px;
+      overflow: auto;
+    }
+    .area-point-list span {
+      display: block;
+    }
+    .area-list-card {
+      max-height: 390px;
+      overflow: auto;
+    }
+    .area-row-button {
+      margin: 2px;
+      padding: 5px 8px;
+      font-size: 12px;
+    }
+    @media (max-width: 980px) {
+      .area-definition-shell {
+        grid-template-columns: 1fr;
+      }
+      .area-map-card,
+      .area-map {
+        min-height: 520px;
+      }
+    }
+
+    /* Modern area editor */
+    .area-definition-shell { grid-template-columns: minmax(380px, 480px) minmax(0, 1fr); gap: 24px; }
+    .area-definition-panel { padding: 0; border: 1px solid #e2e8f0; border-radius: 18px; overflow: hidden; box-shadow: 0 18px 48px rgba(15, 23, 42, .08); }
+    .area-panel-heading { display: flex; gap: 14px; align-items: center; padding: 22px 24px; color: #fff; background: linear-gradient(135deg, #0f766e, #0891b2); }
+    .area-panel-icon { display: grid; place-items: center; width: 46px; height: 46px; flex: 0 0 auto; border: 1px solid rgba(255,255,255,.35); border-radius: 14px; background: rgba(255,255,255,.16); font-size: 27px; }
+    .area-panel-heading p { margin: 0 0 3px; font-size: 11px; font-weight: 900; letter-spacing: .13em; text-transform: uppercase; opacity: .78; }
+    .area-panel-heading h2 { margin: 0; color: #fff; font-size: 20px; line-height: 1.2; }
+    .area-panel-heading small { display: block; margin-top: 5px; color: rgba(255,255,255,.84); font-weight: 600; line-height: 1.35; }
+    #areaForm { padding: 22px 24px 10px; gap: 16px; }
+    #areaForm > label { position: relative; gap: 8px; color: #334155; font-size: 13px; font-weight: 800; }
+    #areaForm input[type="text"], #areaForm input[type="number"], #areaForm select { min-height: 46px; width: 100%; border: 1px solid #d7e0ea; border-radius: 11px; background: #f8fafc; color: #0f172a; font-size: 14px; transition: border-color .2s, box-shadow .2s, background .2s; }
+    #areaForm select { appearance: none; padding-right: 42px; cursor: pointer; background-image: linear-gradient(45deg,transparent 50%,#0f766e 50%),linear-gradient(135deg,#0f766e 50%,transparent 50%); background-position: calc(100% - 18px) 20px,calc(100% - 13px) 20px; background-size: 5px 5px,5px 5px; background-repeat: no-repeat; }
+    #areaForm input:focus, #areaForm select:focus { outline: 0; border-color: #0d9488; background-color: #fff; box-shadow: 0 0 0 4px rgba(13,148,136,.12); }
+    #areaForm input[readonly] { color: #64748b; background: #eef2f6; cursor: not-allowed; }
+    .area-toggle-row { min-height: 58px; padding: 10px 14px; border: 1px solid #e2e8f0; border-radius: 12px; background: #fff; }
+    .area-toggle-row:hover { border-color: #99f6e4; background: #f0fdfa; }
+    .area-toggle-row input { appearance: none; position: relative; width: 42px; height: 24px; flex: 0 0 42px; border: 0; border-radius: 999px; background: #cbd5e1; cursor: pointer; transition: .2s; }
+    .area-toggle-row input::after { content: ''; position: absolute; top: 3px; left: 3px; width: 18px; height: 18px; border-radius: 50%; background: #fff; box-shadow: 0 2px 5px rgba(15,23,42,.24); transition: .2s; }
+    .area-toggle-row input:checked { background: #0d9488; }
+    .area-toggle-row input:checked::after { transform: translateX(18px); }
+    .area-map-actions { padding-top: 4px; }
+    .area-map-actions button { min-height: 42px; border-radius: 10px; font-weight: 800; }
+    #toggleMarking { background: linear-gradient(135deg,#0891b2,#0d9488); box-shadow: 0 8px 18px rgba(13,148,136,.2); }
+    .area-help-card { margin: 12px 24px 0; padding: 16px 18px; border-color: #bae6fd; border-radius: 13px; background: linear-gradient(145deg,#f0f9ff,#ecfeff); }
+    .area-help-card h2 { color: #0e7490; }
+    .area-help-card ol { color: #155e75; }
+    .area-definition-status { margin: 14px 24px; border-radius: 10px; }
+    .area-point-list { margin: -4px 24px 16px; border: 1px solid #e2e8f0; border-radius: 10px; }
+    .area-list-card { margin: 0 24px 24px; border-radius: 12px; }
+    .area-map-card { border: 1px solid #e2e8f0; border-radius: 18px; box-shadow: 0 18px 48px rgba(15,23,42,.08); }
+    @media (max-width: 980px) { .area-definition-shell { grid-template-columns: 1fr; } }
+    @media (max-width: 560px) { .area-panel-heading, #areaForm { padding-left: 16px; padding-right: 16px; } .area-help-card, .area-definition-status, .area-list-card { margin-left: 16px; margin-right: 16px; } }
+
+    /* Responsive saved polygon cards */
+    .area-list-card { max-height: 460px; overflow-x: hidden; overflow-y: auto; border: 1px solid #e2e8f0; background: #f8fafc; }
+    .area-list-heading { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 15px 16px; border-bottom: 1px solid #e2e8f0; background: rgba(255,255,255,.96); backdrop-filter: blur(8px); }
+    .area-list-heading p { margin: 0 0 2px; color: #0d9488; font-size: 10px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .area-list-heading h2 { margin: 0; color: #0f172a; font-size: 16px; }
+    .area-list-count { flex: 0 0 auto; padding: 5px 9px; border-radius: 999px; background: #ccfbf1; color: #0f766e; font-size: 11px; font-weight: 900; }
+    .area-card-list { display: grid; gap: 10px; padding: 12px; min-width: 0; }
+    .saved-area-card { min-width: 0; padding: 14px; border: 1px solid #e2e8f0; border-radius: 13px; background: #fff; box-shadow: 0 4px 14px rgba(15,23,42,.04); transition: border-color .2s, box-shadow .2s, transform .2s; }
+    .saved-area-card:hover, .saved-area-card.selected { border-color: #5eead4; box-shadow: 0 9px 22px rgba(13,148,136,.11); }
+    .saved-area-card.selected { background: linear-gradient(145deg,#fff,#f0fdfa); }
+    .saved-area-topline, .saved-area-footer { display: flex; align-items: center; justify-content: space-between; gap: 10px; min-width: 0; }
+    .saved-area-identity { display: flex; align-items: center; gap: 10px; min-width: 0; }
+    .saved-area-identity > div { min-width: 0; }
+    .saved-area-identity strong, .saved-area-identity small { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .saved-area-identity strong { color: #0f172a; font-size: 14px; }
+    .saved-area-identity small { margin-top: 3px; color: #64748b; font-size: 11px; }
+    .saved-area-pin { display: grid; place-items: center; width: 32px; height: 32px; flex: 0 0 32px; border-radius: 10px; background: #ccfbf1; color: #0f766e; }
+    .area-status-pill, .area-feature-pill { flex: 0 0 auto; padding: 5px 8px; border-radius: 999px; background: #f1f5f9; color: #64748b; font-size: 10px; font-weight: 900; }
+    .area-status-pill.active, .area-feature-pill.enabled { background: #dcfce7; color: #15803d; }
+    .area-status-pill.inactive { background: #fee2e2; color: #b91c1c; }
+    .saved-area-metrics { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 8px; margin: 12px 0; }
+    .saved-area-metrics > div { min-width: 0; padding: 9px 10px; border-radius: 9px; background: #f8fafc; }
+    .saved-area-metrics span, .saved-area-metrics strong { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .saved-area-metrics span { color: #64748b; font-size: 9px; font-weight: 800; text-transform: uppercase; }
+    .saved-area-metrics strong { margin-top: 3px; color: #0f172a; font-size: 12px; }
+    .saved-area-footer { padding-top: 11px; border-top: 1px solid #f1f5f9; }
+    .saved-area-flags, .saved-area-actions { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+    .saved-area-actions { flex-wrap: nowrap; }
+    .area-edit-button, .area-delete-button { min-height: 32px; padding: 6px 10px; border-radius: 8px; font-size: 11px; font-weight: 900; cursor: pointer; }
+    .area-edit-button { border: 1px solid #99f6e4; background: #f0fdfa; color: #0f766e; }
+    .area-delete-button { border: 1px solid #fecaca; background: #fff7f7; color: #b91c1c; }
+    .area-list-empty { display: grid; gap: 4px; place-items: center; padding: 30px 16px; color: #94a3b8; text-align: center; }
+    .area-list-empty strong { color: #475569; font-size: 14px; }
+    .area-list-empty span { font-size: 12px; }
+    @media (max-width: 430px) { .saved-area-footer { align-items: flex-start; flex-direction: column; } .saved-area-actions, .saved-area-actions button { width: 100%; } }
+  </style>
+</body>
+</html>

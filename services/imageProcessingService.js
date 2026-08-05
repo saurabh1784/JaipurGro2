@@ -40,8 +40,16 @@ async function processImageBuffer(buffer, type, baseName) {
   const outputPath = path.join(uploadDir, fileName);
   await fs.promises.writeFile(outputPath, buffer);
 
+  const relPath = publicPathFor(outputPath);
+  try {
+    const { backupFileToDatabase } = require('./fileStorageService');
+    await backupFileToDatabase(relPath, outputPath);
+  } catch (backupErr) {
+    console.error(`[imageProcessingService] Failed to back up uploaded file to DB:`, backupErr.message);
+  }
+
   return {
-    path: publicPathFor(outputPath),
+    path: relPath,
     width: preset.width,
     height: preset.height,
     format: ext,

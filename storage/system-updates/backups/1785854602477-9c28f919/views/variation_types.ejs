@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .variation-page-shell {
+      padding: 20px;
+      max-width: 1280px;
+      margin: 0 auto;
+    }
+    .variation-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+      gap: 18px;
+      margin-top: 16px;
+    }
+    .type-card {
+      background: #ffffff;
+      border-radius: 14px;
+      border: 1px solid #cbd5e1;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+    .type-card:hover {
+      box-shadow: 0 8px 20px rgba(0, 0, 0, 0.08);
+      transform: translateY(-2px);
+    }
+    .type-header {
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      padding: 12px 16px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .type-header-title {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .type-header-title h3 {
+      margin: 0;
+      font-size: 1.02rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .type-code-badge {
+      background: #e0f2fe;
+      color: #0369a1;
+      font-size: 0.72rem;
+      font-weight: 700;
+      padding: 2px 8px;
+      border-radius: 6px;
+      text-transform: lowercase;
+    }
+    .values-container {
+      padding: 14px;
+      flex: 1;
+    }
+    .values-grid {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+    .value-chip {
+      background: #f8fafc;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      padding: 4px 10px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #334155;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .value-chip .unit {
+      color: #0284c7;
+      font-weight: 600;
+      font-size: 0.78rem;
+    }
+    .empty-values-text {
+      color: #94a3b8;
+      font-size: 0.82rem;
+      font-style: italic;
+    }
+
+    /* Modals */
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(15, 23, 42, 0.5);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      z-index: 9999;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+    }
+    .modal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .modal-content {
+      background: #ffffff;
+      border-radius: 16px;
+      width: 100%;
+      max-width: 440px;
+      padding: 1.5rem;
+      box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.25);
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.25rem;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+    .modal-header h2 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #0f172a;
+    }
+    .close-btn {
+      background: none;
+      border: none;
+      font-size: 1.4rem;
+      cursor: pointer;
+      color: #94a3b8;
+      line-height: 1;
+    }
+    .close-btn:hover {
+      color: #0f172a;
+    }
+    .form-group-item {
+      margin-bottom: 1rem;
+    }
+    .form-group-item label {
+      display: block;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+      font-size: 0.82rem;
+      color: #334155;
+    }
+    .form-input-field {
+      width: 100%;
+      padding: 0.65rem 0.85rem;
+      font-size: 0.88rem;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+    }
+    .form-input-field:focus {
+      outline: none;
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.12);
+    }
+    .compact-btn-primary {
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      color: #ffffff;
+      border: none;
+      padding: 8px 16px;
+      border-radius: 8px;
+      font-weight: 700;
+      font-size: 0.85rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      box-shadow: 0 2px 6px rgba(2, 132, 199, 0.25);
+    }
+    .compact-btn-secondary {
+      background: #e0f2fe;
+      color: #0369a1;
+      border: 1px solid #7dd3fc;
+      padding: 5px 12px;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 0.78rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: all 0.2s ease;
+    }
+    .compact-btn-secondary:hover {
+      background: #bae6fd;
+    }
+  </style>
+</head>
+<body class="system-theme">
+  <!-- System Sidebar partial included -->
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Variation Types</p>
+        <h1>Product Variation Types & Values</h1>
+      </div>
+      <div class="topbar-actions" style="display:flex; align-items:center; gap:10px;">
+        <button type="button" onclick="openValueModal()" class="compact-btn-secondary" style="padding:7px 14px; font-size:0.82rem; border-radius:8px;">+ Add Value</button>
+        <button type="button" onclick="openTypeModal()" class="compact-btn-primary">+ New Variation Type</button>
+      </div>
+    </header>
+
+    <div class="variation-page-shell">
+      <% if (locals.message) { %>
+        <div style="background:#ecfdf5; border:1px solid #a7f3d0; color:#047857; padding:0.75rem 1rem; border-radius:10px; margin-bottom:1rem; font-weight:700; font-size:0.88rem;">
+          ✓ <%= message %>
+        </div>
+      <% } %>
+      <% if (locals.error) { %>
+        <div style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; padding:0.75rem 1rem; border-radius:10px; margin-bottom:1rem; font-weight:700; font-size:0.88rem;">
+          ⚠ <%= error %>
+        </div>
+      <% } %>
+
+      <!-- Variation Types Grid Layout -->
+      <% if (types && types.length) { %>
+        <div class="variation-grid">
+          <% types.forEach(type => { %>
+            <div class="type-card">
+              <div class="type-header">
+                <div class="type-header-title">
+                  <h3><%= type.name %></h3>
+                  <span class="type-code-badge"><%= type.code %></span>
+                </div>
+                <div style="display:flex; align-items:center; gap:6px;">
+                  <button type="button" class="compact-btn-secondary" onclick="openValueModal('<%= type.id %>')">+ Add Value</button>
+                  <form action="/admin/variation-types/<%= type.id %>/delete" method="POST" style="margin:0;" onsubmit="return confirm('Delete variation type &quot;<%= type.name %>&quot;?');">
+                    <button type="submit" style="background:#fee2e2; color:#dc2626; border:1px solid #fca5a5; padding:4px 8px; border-radius:6px; font-weight:700; font-size:0.75rem; cursor:pointer;" title="Delete Variation Type">🗑️</button>
+                  </form>
+                </div>
+              </div>
+              <div class="values-container">
+                <div class="values-grid">
+                  <% if (type.values && type.values.length) { %>
+                    <% type.values.forEach(val => { %>
+                      <div class="value-chip">
+                        <span><%= val.value %></span>
+                        <% if (val.unit) { %><span class="unit"><%= val.unit %></span><% } %>
+                        <form action="/admin/variation-values/<%= val.id %>/delete" method="POST" style="display:inline; margin:0;" onsubmit="return confirm('Delete value &quot;<%= val.value %> <%= val.unit || '' %>&quot;?');">
+                          <button type="submit" style="background:none; border:none; color:#ef4444; font-weight:800; font-size:0.85rem; cursor:pointer; padding:0 0 0 4px; line-height:1;" title="Delete Value">&times;</button>
+                        </form>
+                      </div>
+                    <% }) %>
+                  <% } else { %>
+                    <div class="empty-values-text">No values added yet for this variation type.</div>
+                  <% } %>
+                </div>
+              </div>
+            </div>
+          <% }) %>
+        </div>
+      <% } else { %>
+        <div style="text-align:center; padding:3rem 1.5rem; background:#ffffff; border-radius:14px; border:1px dashed #cbd5e1; margin-top:1rem;">
+          <h3 style="margin:0 0 0.5rem; color:#0f172a; font-size:1.1rem; font-weight:800;">No Variation Types Found</h3>
+          <p style="color:#64748b; margin:0 0 1rem; font-size:0.88rem;">Click "+ New Variation Type" above to create your first variation group.</p>
+          <button type="button" onclick="openTypeModal()" class="compact-btn-primary">+ New Variation Type</button>
+        </div>
+      <% } %>
+    </div>
+  </main>
+
+  <!-- Add Type Modal -->
+  <div class="modal-overlay" id="typeModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Add Variation Type</h2>
+        <button type="button" class="close-btn" onclick="closeModal('typeModal')">&times;</button>
+      </div>
+      <form action="/admin/variation-types" method="POST">
+        <div class="form-group-item">
+          <label for="typeNameInput">Type Name (e.g. Weight, Volume, Pack Quantity)</label>
+          <input type="text" id="typeNameInput" name="name" class="form-input-field" required placeholder="e.g. Weight" />
+        </div>
+        <div class="form-group-item" style="margin-bottom: 1.25rem;">
+          <label for="typeCodeInput">Code / Slug (Optional)</label>
+          <input type="text" id="typeCodeInput" name="code" class="form-input-field" placeholder="e.g. weight" />
+        </div>
+        <button type="submit" class="compact-btn-primary" style="width:100%;">Save Variation Type</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Add Value Modal -->
+  <div class="modal-overlay" id="valueModal">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Add Variation Value</h2>
+        <button type="button" class="close-btn" onclick="closeModal('valueModal')">&times;</button>
+      </div>
+      <form action="/admin/variation-values" method="POST">
+        <div class="form-group-item">
+          <label for="valTypeSelect">Variation Type</label>
+          <select name="variation_type_id" id="valTypeSelect" class="form-input-field" required>
+            <% (types || []).forEach(t => { %>
+              <option value="<%= t.id %>"><%= t.name %></option>
+            <% }) %>
+          </select>
+        </div>
+        <div class="form-group-item">
+          <label for="valValueInput">Value (e.g. 1, 500, 250, Pouch)</label>
+          <input type="text" id="valValueInput" name="value" class="form-input-field" required placeholder="e.g. 1" />
+        </div>
+        <div class="form-group-item" style="margin-bottom: 1.25rem;">
+          <label for="valUnitInput">Unit (e.g. kg, g, ml, L, pieces)</label>
+          <input type="text" id="valUnitInput" name="unit" class="form-input-field" placeholder="e.g. kg" />
+        </div>
+        <button type="submit" class="compact-btn-primary" style="width:100%;">Save Variation Value</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    function openTypeModal() {
+      document.getElementById('typeModal').classList.add('active');
+    }
+    function openValueModal(typeId) {
+      if (typeId) {
+        document.getElementById('valTypeSelect').value = typeId;
+      }
+      document.getElementById('valueModal').classList.add('active');
+    }
+    function closeModal(id) {
+      document.getElementById(id).classList.remove('active');
+    }
+  </script>
+</body>
+</html>

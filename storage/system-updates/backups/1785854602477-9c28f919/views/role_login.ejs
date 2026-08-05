@@ -1,0 +1,348 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= roleLabel %> Login</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<%
+  const loginBgStyle = (typeof loginBg !== 'undefined' && loginBg && loginBg.activeStyle)
+    ? loginBg.activeStyle
+    : 'background-color: #4a0e17; background-image: linear-gradient(135deg, #4a0e17 0%, #28050b 100%);';
+%>
+<body class="role-login-page <%= roleSlug === 'Vendor' ? 'vendor-login-page' : 'client-login-page' %>" style="<%= loginBgStyle %>">
+  <main class="role-login-shell">
+    <section class="role-login-card">
+      <a class="role-login-logo" href="/">
+        <span class="grocery-logo-mark">
+          <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M7 8h3l2 11h11l3-8H12"/><circle cx="14" cy="24" r="2"/><circle cx="23" cy="24" r="2"/><path d="M6 13H3M8 17H4M10 21H6"/></svg>
+        </span>
+        <span>Groxen Dashboard</span>
+      </a>
+
+      <div class="role-login-heading">
+        <span><%= roleLabel %> Portal</span>
+        <h1><%= roleLabel %> <%= roleSlug === 'Vendor' ? 'Portal' : 'Login' %></h1>
+        <p><%= roleSlug === 'Vendor' ? 'Manage products, stock, prices, and orders.' : 'View products, orders, wallet, and profile.' %></p>
+        <p style="font-size: 0.8rem; opacity: 0.85; margin-top: 4px; font-weight: 600;">A product by Shining Universal Organisation Private Limited</p>
+      </div>
+
+      <% if (roleSlug === 'Vendor') { %>
+        <div style="display: flex; gap: 8px; margin-bottom: 20px; border-bottom: 2px solid #e2e8f0; padding-bottom: 10px;">
+          <button type="button" id="tabSignInBtn" onclick="switchVendorTab('login')" style="flex: 1; padding: 10px; border: none; background: #0f766e; color: #fff; font-weight: 700; border-radius: 8px; cursor: pointer; transition: all 0.2s;">Sign In</button>
+          <button type="button" id="tabRegisterBtn" onclick="switchVendorTab('register')" style="flex: 1; padding: 10px; border: none; background: #f1f5f9; color: #475569; font-weight: 600; border-radius: 8px; cursor: pointer; transition: all 0.2s;">Register as Vendor</button>
+        </div>
+      <% } %>
+
+      <% if (error) { %>
+        <div class="error"><%= error %></div>
+      <% } %>
+
+      <form method="POST" action="<%= loginPath %>" autocomplete="off">
+        <label for="identifier">Email or Username</label>
+        <input id="identifier" type="text" name="identifier" placeholder="Enter email or phone" value="" autocomplete="off" required autofocus />
+
+        <label for="password">Password</label>
+        <input id="password" type="password" name="password" placeholder="Enter password" value="" autocomplete="new-password" required />
+
+        <button type="submit"><%= roleLabel %> Sign In</button>
+      </form>
+
+      <% if (roleSlug === 'Vendor') { %>
+        <div id="vendorRegisterContainer" style="display: none;">
+          <div id="registerAlert" style="display: none; padding: 12px; margin-bottom: 15px; border-radius: 8px; font-size: 0.9rem;"></div>
+          <form id="vendorSignUpForm" onsubmit="handleVendorRegister(event)">
+            <label for="regName">Full Name *</label>
+            <input id="regName" type="text" name="name" placeholder="Enter full name" required />
+
+            <label for="regBusiness">Business / Store Name *</label>
+            <input id="regBusiness" type="text" name="business_name" placeholder="Enter business name" required />
+
+            <label for="regEmail">Email Address *</label>
+            <input id="regEmail" type="email" name="email" placeholder="name@company.com" required />
+
+            <label for="regPhone">Phone Number *</label>
+            <input id="regPhone" type="text" name="phone" placeholder="Enter phone number" required />
+
+            <label for="regPassword">Password *</label>
+            <input id="regPassword" type="password" name="password" placeholder="Create password (min 6 chars)" required minlength="6" />
+
+            <label for="regCity">Working City *</label>
+            <select id="regCity" name="city" required onchange="onVendorRegCityChange(this.value)" style="box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #d4dee8; border-radius: 9px; padding: 9px 10px; margin-bottom: 12px;">
+              <option value="">Loading Cities...</option>
+            </select>
+
+            <div id="customCityContainer" style="display: none; margin-bottom: 12px;">
+              <label for="customCityInput">Custom City Name *</label>
+              <input id="customCityInput" type="text" placeholder="e.g. Jaipur" style="box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #d4dee8; border-radius: 9px; padding: 9px 10px;" />
+            </div>
+
+            <label for="regArea">Operational Area *</label>
+            <select id="regArea" name="area" required onchange="onVendorRegAreaChange(this.value)" style="box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #d4dee8; border-radius: 9px; padding: 9px 10px; margin-bottom: 12px;">
+              <option value="*">All Areas (*)</option>
+            </select>
+
+            <div id="customAreaContainer" style="display: none; margin-bottom: 12px;">
+              <label for="customAreaInput">Custom Area Name *</label>
+              <input id="customAreaInput" type="text" placeholder="e.g. Mansarovar" style="box-sizing: border-box; width: 100%; min-height: 40px; border: 1px solid #d4dee8; border-radius: 9px; padding: 9px 10px;" />
+            </div>
+
+            <% const gstMandatory = Boolean(typeof isGstMandatory !== 'undefined' ? isGstMandatory : false); %>
+
+            <label for="regGst" id="regGstLabel">
+              GST Number <span id="regGstRequiredStar" style="color: #ef4444;"><%= gstMandatory ? '*' : '*' %></span>
+            </label>
+            <input id="regGst" type="text" name="gst_number" placeholder="e.g. 08AAAAA0000A1Z5" <%= gstMandatory ? 'required' : 'required' %> />
+
+            <% if (!gstMandatory) { %>
+              <label style="display: flex; align-items: center; gap: 8px; margin-top: 10px; margin-bottom: 14px; cursor: pointer; font-size: 0.9rem; color: #475569;">
+                <input type="checkbox" id="regGstNotApplicable" name="gst_not_applicable" onchange="toggleGstRequirement(this.checked)" style="width: 18px; height: 18px; accent-color: #0f766e;" />
+                <span>GST Not Applicable</span>
+              </label>
+            <% } %>
+
+            <button type="submit" id="regSubmitBtn" style="margin-top: 18px; background: #0f766e; color: #fff;">Register Vendor Account</button>
+          </form>
+        </div>
+      <% } %>
+
+      <% const googleLoginClientId = typeof googleWebClientId !== 'undefined' ? googleWebClientId : ''; %>
+      <% const firebaseLoginConfig = typeof firebaseConfig !== 'undefined' ? firebaseConfig : null; %>
+      <% if (firebaseLoginConfig && firebaseLoginConfig.apiKey) { %>
+        <script type="module">
+          import { initializeApp } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-app.js';
+          import { getAnalytics, isSupported } from 'https://www.gstatic.com/firebasejs/10.12.4/firebase-analytics.js';
+
+          const firebaseConfig = <%- JSON.stringify(firebaseLoginConfig) %>;
+          const firebaseApp = initializeApp(firebaseConfig);
+          isSupported().then((supported) => {
+            if (supported) getAnalytics(firebaseApp);
+          });
+        </script>
+      <% } %>
+      <% if (roleSlug === 'Client' && googleLoginClientId) { %>
+        <div class="role-login-divider"><span>or</span></div>
+        <div id="g_id_onload"
+          data-client_id="<%= googleLoginClientId %>"
+          data-login_uri="/login/client/google"
+          data-auto_prompt="false"></div>
+        <div class="g_id_signin"
+          data-type="standard"
+          data-size="large"
+          data-theme="outline"
+          data-text="signin_with"
+          data-shape="rectangular"
+          data-logo_alignment="left"
+          data-width="384"></div>
+        <script src="https://accounts.google.com/gsi/client" async defer></script>
+      <% } else if (roleSlug === 'Client') { %>
+        <div class="role-google-disabled">Google login is not configured yet.</div>
+      <% } %>
+
+      <div class="role-login-links">
+        <a href="/">Back Home</a>
+        <a href="<%= roleSlug === 'Vendor' ? '/login/client' : '/login/vendor' %>"><%= roleSlug === 'Vendor' ? 'Client Login' : 'Vendor Login' %></a>
+      </div>
+    </section>
+  </main>
+
+  <% if (roleSlug === 'Vendor') { %>
+    <script>
+      const isGstMandatory = <%= Boolean(typeof isGstMandatory !== 'undefined' ? isGstMandatory : false) %>;
+
+      function switchVendorTab(tab) {
+        const loginForm = document.querySelector('form[action="<%= loginPath %>"]');
+        const regContainer = document.getElementById('vendorRegisterContainer');
+        const signInBtn = document.getElementById('tabSignInBtn');
+        const regBtn = document.getElementById('tabRegisterBtn');
+
+        if (tab === 'register') {
+          if (loginForm) loginForm.style.display = 'none';
+          if (regContainer) regContainer.style.display = 'block';
+          if (signInBtn) { signInBtn.style.background = '#f1f5f9'; signInBtn.style.color = '#475569'; }
+          if (regBtn) { regBtn.style.background = '#0f766e'; regBtn.style.color = '#fff'; }
+        } else {
+          if (loginForm) loginForm.style.display = 'block';
+          if (regContainer) regContainer.style.display = 'none';
+          if (signInBtn) { signInBtn.style.background = '#0f766e'; signInBtn.style.color = '#fff'; }
+          if (regBtn) { regBtn.style.background = '#f1f5f9'; regBtn.style.color = '#475569'; }
+        }
+      }
+
+      function toggleGstRequirement(notApplicable) {
+        const gstInput = document.getElementById('regGst');
+        const star = document.getElementById('regGstRequiredStar');
+        if (!gstInput) return;
+
+        if (notApplicable) {
+          gstInput.required = false;
+          gstInput.value = '';
+          gstInput.disabled = true;
+          if (star) star.style.display = 'none';
+        } else {
+          gstInput.disabled = false;
+          gstInput.required = true;
+          if (star) star.style.display = 'inline';
+        }
+      }
+
+      let vendorRegLocationData = { cities: [], areas: [] };
+
+      async function loadVendorRegLocations() {
+        try {
+          const res = await fetch('/api/area-definitions/options');
+          const data = await res.json();
+          if (data.success) {
+            vendorRegLocationData = data;
+            const citySelect = document.getElementById('regCity');
+            if (citySelect) {
+              const cities = data.cities || [];
+              citySelect.innerHTML = '<option value="">Select Working City</option>' +
+                cities.map(c => `<option value="${c}">${c}</option>`).join('') +
+                '<option value="__custom__">+ Enter Custom City</option>';
+            }
+          }
+        } catch (e) {
+          console.error('Error loading location options for vendor registration:', e);
+        }
+      }
+
+      function onVendorRegCityChange(cityVal) {
+        const areaSelect = document.getElementById('regArea');
+        const customCityDiv = document.getElementById('customCityContainer');
+        const customAreaDiv = document.getElementById('customAreaContainer');
+
+        if (cityVal === '__custom__') {
+          if (customCityDiv) customCityDiv.style.display = 'block';
+          if (areaSelect) areaSelect.innerHTML = '<option value="*">All Areas (*)</option><option value="__custom__">+ Enter Custom Area</option>';
+          return;
+        }
+
+        if (customCityDiv) customCityDiv.style.display = 'none';
+        if (customAreaDiv) customAreaDiv.style.display = 'none';
+
+        if (!areaSelect) return;
+        const matching = (vendorRegLocationData.areas || []).filter(
+          a => String(a.city).trim().toLowerCase() === String(cityVal).trim().toLowerCase()
+        );
+        let opts = '<option value="*">All Areas (*)</option>';
+        if (matching.length > 0) {
+          opts += matching.map(a => `<option value="${a.name}">${a.name}</option>`).join('');
+        }
+        opts += '<option value="__custom__">+ Enter Custom Area</option>';
+        areaSelect.innerHTML = opts;
+      }
+
+      function onVendorRegAreaChange(areaVal) {
+        const customAreaDiv = document.getElementById('customAreaContainer');
+        if (customAreaDiv) {
+          customAreaDiv.style.display = areaVal === '__custom__' ? 'block' : 'none';
+        }
+      }
+
+      if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', loadVendorRegLocations);
+      } else {
+        loadVendorRegLocations();
+      }
+
+      async function handleVendorRegister(event) {
+        event.preventDefault();
+        const alertBox = document.getElementById('registerAlert');
+        const submitBtn = document.getElementById('regSubmitBtn');
+
+        alertBox.style.display = 'none';
+        submitBtn.disabled = true;
+        submitBtn.textContent = 'Registering...';
+
+        const notApplicable = document.getElementById('regGstNotApplicable')?.checked || false;
+        const gstValue = document.getElementById('regGst')?.value?.trim() || '';
+
+        if (isGstMandatory && !gstValue) {
+          showAlert('GST Number is mandatory for vendor registration.', false);
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Register Vendor Account';
+          return;
+        }
+
+        if (!isGstMandatory && !notApplicable && !gstValue) {
+          showAlert('GST Number is required unless GST Not Applicable is checked.', false);
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Register Vendor Account';
+          return;
+        }
+
+        const citySelectVal = document.getElementById('regCity')?.value || '';
+        const cityVal = citySelectVal === '__custom__'
+          ? (document.getElementById('customCityInput')?.value?.trim() || '')
+          : citySelectVal;
+
+        const areaSelectVal = document.getElementById('regArea')?.value || '';
+        const areaVal = areaSelectVal === '__custom__'
+          ? (document.getElementById('customAreaInput')?.value?.trim() || '*')
+          : (areaSelectVal || '*');
+
+        if (!cityVal) {
+          showAlert('City is required.', false);
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Register Vendor Account';
+          return;
+        }
+
+        const payload = {
+          role: 'Vendor',
+          name: document.getElementById('regName').value.trim(),
+          business_name: document.getElementById('regBusiness').value.trim(),
+          email: document.getElementById('regEmail').value.trim(),
+          phone: document.getElementById('regPhone').value.trim(),
+          password: document.getElementById('regPassword').value,
+          city: cityVal,
+          area: areaVal,
+          gst_number: gstValue,
+          gst_not_applicable: notApplicable,
+        };
+
+        try {
+          const response = await fetch('/api/auth/signup', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify(payload),
+          });
+
+          const data = await response.json();
+          if (data.success) {
+            showAlert('Registration successful! Your vendor account is created in Pending status. A Super Admin will review and approve your account shortly.', true);
+            document.getElementById('vendorSignUpForm').reset();
+            setTimeout(() => switchVendorTab('login'), 3500);
+          } else {
+            const errorMsg = data.message || (Array.isArray(data.errors) ? data.errors.join(', ') : 'Registration failed');
+            showAlert(errorMsg, false);
+          }
+        } catch (err) {
+          showAlert('Network error. Unable to register vendor account.', false);
+        } finally {
+          submitBtn.disabled = false;
+          submitBtn.textContent = 'Register Vendor Account';
+        }
+      }
+
+      function showAlert(msg, isSuccess) {
+        const alertBox = document.getElementById('registerAlert');
+        alertBox.style.display = 'block';
+        alertBox.style.background = isSuccess ? '#dcfce7' : '#fee2e2';
+        alertBox.style.color = isSuccess ? '#166534' : '#991b1b';
+        alertBox.style.border = `1px solid ${isSuccess ? '#bbf7d0' : '#fecaca'}`;
+        alertBox.textContent = msg;
+      }
+    </script>
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const idEl = document.getElementById('identifier');
+      const passEl = document.getElementById('password');
+      if (idEl) idEl.value = '';
+      if (passEl) passEl.value = '';
+    });
+  </script>
+</body>
+</html>

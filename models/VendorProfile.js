@@ -44,6 +44,18 @@ async function update(userId, data) {
     'gst_number',
     'services',
     'account_health',
+    'pan_card_path',
+    'aadhaar_card_path',
+    'gst_certificate_path',
+    'food_license_path',
+    'cancelled_cheque_path',
+    'shop_front_photo_path',
+    'shop_inside_photo_1_path',
+    'shop_inside_photo_2_path',
+    'shop_inside_photo_3_path',
+    'kyc_status',
+    'kyc_submitted_at',
+    'kyc_rejection_reason',
   ];
 
   for (const field of allowedFields) {

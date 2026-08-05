@@ -1,0 +1,1062 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    :root {
+      --primary-accent: #0284c7;
+      --primary-gradient: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      --emerald-gradient: linear-gradient(135deg, #10b981 0%, #059669 100%);
+      --purple-gradient: linear-gradient(135deg, #8b5cf6 0%, #6d28d9 100%);
+      --amber-gradient: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      --surface-card: var(--surface-color, #ffffff);
+      --border-subtle: var(--border-color, #e2e8f0);
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+    }
+
+    .order-info-shell {
+      background: var(--surface-card);
+      border: 1px solid var(--border-subtle);
+      border-radius: 20px;
+      padding: 24px;
+      box-shadow: 0 10px 30px -10px rgba(15, 23, 42, 0.05);
+    }
+
+    /* KPI Summary Header Cards */
+    .kpi-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .kpi-card {
+      background: var(--surface-bg, #f8fafc);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 18px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      transition: all 0.25s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    .kpi-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 24px -8px rgba(15, 23, 42, 0.08);
+      border-color: #cbd5e1;
+    }
+
+    .kpi-icon-box {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      font-size: 1.4rem;
+      flex-shrink: 0;
+      box-shadow: 0 8px 18px -4px rgba(0, 0, 0, 0.15);
+    }
+
+    .kpi-icon-box.blue { background: var(--primary-gradient); }
+    .kpi-icon-box.green { background: var(--emerald-gradient); }
+    .kpi-icon-box.purple { background: var(--purple-gradient); }
+    .kpi-icon-box.amber { background: var(--amber-gradient); }
+
+    .kpi-content {
+      display: flex;
+      flex-direction: column;
+    }
+
+    .kpi-label {
+      font-size: 0.78rem;
+      font-weight: 700;
+      color: var(--text-muted, #64748b);
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .kpi-value {
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: var(--text-main, #0f172a);
+      line-height: 1.25;
+      margin-top: 2px;
+    }
+
+    /* Filter Box */
+    .filter-box {
+      background: linear-gradient(180deg, #f8fafc 0%, #f1f5f9 100%);
+      border: 1px solid var(--border-subtle);
+      border-radius: 16px;
+      padding: 20px 22px;
+      margin-bottom: 24px;
+    }
+
+    .filter-title {
+      font-size: 0.92rem;
+      font-weight: 800;
+      color: #0f172a;
+      margin-bottom: 14px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .filter-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 14px;
+      align-items: end;
+    }
+
+    .filter-grid label {
+      font-size: 0.8rem;
+      font-weight: 800;
+      color: #475569;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+
+    .filter-grid input, .filter-grid select {
+      padding: 9px 12px;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 10px;
+      font-size: 0.86rem;
+      background: #ffffff;
+      color: #0f172a;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+
+    .filter-grid input:focus, .filter-grid select:focus {
+      outline: none;
+      border-color: #0284c7;
+      box-shadow: 0 0 0 3px rgba(2, 132, 199, 0.15);
+    }
+
+    .btn-filter-submit {
+      padding: 9px 18px;
+      background: var(--primary-gradient);
+      color: #ffffff;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.86rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.25);
+      transition: all 0.2s ease;
+    }
+
+    .btn-filter-submit:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 6px 16px rgba(2, 132, 199, 0.35);
+    }
+
+    .btn-filter-reset {
+      padding: 9px 16px;
+      background: #64748b;
+      color: #ffffff;
+      border: none;
+      border-radius: 10px;
+      font-weight: 700;
+      font-size: 0.86rem;
+      text-decoration: none;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+
+    .btn-filter-reset:hover {
+      background: #475569;
+    }
+
+    /* Bulk Action Bar */
+    .bulk-action-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      margin-bottom: 20px;
+      padding: 14px 20px;
+      background: linear-gradient(135deg, #f0f9ff 0%, #e0f2fe 100%);
+      border: 1px solid #bae6fd;
+      border-radius: 14px;
+      box-shadow: 0 4px 12px rgba(2, 132, 199, 0.08);
+    }
+
+    .bulk-print-btn {
+      background: linear-gradient(135deg, #0284c7 0%, #0369a1 100%);
+      color: #ffffff;
+      border: none;
+      padding: 10px 20px;
+      border-radius: 10px;
+      font-weight: 800;
+      font-size: 0.88rem;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      box-shadow: 0 6px 18px rgba(2, 132, 199, 0.3);
+      transition: transform 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .bulk-print-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 10px 24px rgba(2, 132, 199, 0.4);
+    }
+
+    /* Info Table */
+    .table-responsive-wrap {
+      overflow-x: auto;
+      border-radius: 14px;
+      border: 1px solid var(--border-subtle);
+    }
+
+    .info-table {
+      width: 100%;
+      border-collapse: collapse;
+      background: var(--surface-card);
+    }
+
+    .info-table th {
+      background: #f8fafc;
+      color: #475569;
+      font-weight: 800;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      padding: 14px 16px;
+      border-bottom: 1.5px solid #e2e8f0;
+      text-align: left;
+    }
+
+    .info-table td {
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border-subtle);
+      font-size: 0.86rem;
+      color: #334155;
+      vertical-align: middle;
+    }
+
+    .info-table tbody tr {
+      transition: background 0.15s ease;
+    }
+
+    .info-table tbody tr:hover {
+      background: #f8fafc;
+    }
+
+    /* Badges & Pills */
+    .order-id-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-family: monospace;
+      font-weight: 800;
+      font-size: 0.85rem;
+      background: #f1f5f9;
+      color: #0f172a;
+      padding: 4px 10px;
+      border-radius: 8px;
+      border: 1px solid #cbd5e1;
+    }
+
+    .user-avatar-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .avatar-circle {
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      background: linear-gradient(135deg, #0284c7, #0369a1);
+      color: #ffffff;
+      font-weight: 800;
+      font-size: 0.78rem;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .avatar-circle.vendor { background: linear-gradient(135deg, #8b5cf6, #6d28d9); }
+    .avatar-circle.rider { background: linear-gradient(135deg, #10b981, #059669); }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 800;
+      text-transform: capitalize;
+    }
+
+    .status-pill.delivered, .status-pill.completed { background: #dcfce7; color: #15803d; border: 1px solid #bbf7d0; }
+    .status-pill.out_for_delivery, .status-pill.processing { background: #e0f2fe; color: #0369a1; border: 1px solid #bae6fd; }
+    .status-pill.accepted, .status-pill.pending { background: #fef3c7; color: #b45309; border: 1px solid #fde68a; }
+    .status-pill.canceled { background: #fee2e2; color: #b91c1c; border: 1px solid #fecaca; }
+
+    .btn-info-detail {
+      background: linear-gradient(135deg, #faf5ff 0%, #f3e8ff 100%);
+      color: #7e22ce;
+      border: 1px solid #e9d5ff;
+      padding: 6px 14px;
+      border-radius: 8px;
+      font-size: 0.8rem;
+      font-weight: 800;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      box-shadow: 0 2px 6px rgba(126, 34, 206, 0.1);
+      transition: all 0.2s ease;
+    }
+
+    .btn-info-detail:hover {
+      background: #e9d5ff;
+      transform: translateY(-1px);
+    }
+
+    /* Modal Dialog */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(15, 23, 42, 0.65);
+      backdrop-filter: blur(6px);
+      z-index: 99999;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 20px;
+    }
+
+    .modal-content {
+      background: #ffffff;
+      border-radius: 24px;
+      width: 100%;
+      max-width: 950px;
+      max-height: 90vh;
+      overflow-y: auto;
+      box-shadow: 0 25px 60px -15px rgba(0, 0, 0, 0.35);
+      border: 1px solid #e2e8f0;
+      animation: modalPop 0.3s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes modalPop {
+      from { opacity: 0; transform: scale(0.95) translateY(10px); }
+      to { opacity: 1; transform: scale(1) translateY(0); }
+    }
+
+    .modal-header {
+      padding: 20px 28px;
+      border-bottom: 1px solid #e2e8f0;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+      color: #ffffff;
+      border-top-left-radius: 24px;
+      border-top-right-radius: 24px;
+    }
+
+    .modal-header h3 {
+      margin: 0;
+      font-size: 1.25rem;
+      font-weight: 800;
+      color: #ffffff;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .modal-close-btn {
+      background: rgba(255,255,255,0.15);
+      border: none;
+      color: #ffffff;
+      width: 32px;
+      height: 32px;
+      border-radius: 50%;
+      font-size: 1.2rem;
+      font-weight: bold;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: background 0.2s;
+    }
+
+    .modal-close-btn:hover {
+      background: rgba(239, 68, 68, 0.8);
+    }
+
+    .modal-body {
+      padding: 28px;
+    }
+
+    /* Stakeholders Info Cards */
+    .stakeholder-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(270px, 1fr));
+      gap: 18px;
+      margin-bottom: 24px;
+    }
+
+    .stakeholder-card {
+      background: #f8fafc;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 18px 20px;
+      position: relative;
+    }
+
+    .stakeholder-card.vendor-border { border-top: 4px solid #8b5cf6; }
+    .stakeholder-card.client-border { border-top: 4px solid #0284c7; }
+    .stakeholder-card.rider-border { border-top: 4px solid #10b981; }
+
+    .stakeholder-title {
+      font-size: 0.9rem;
+      font-weight: 800;
+      margin-bottom: 12px;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #e2e8f0;
+    }
+
+    .stakeholder-title.vendor { color: #7e22ce; }
+    .stakeholder-title.client { color: #0369a1; }
+    .stakeholder-title.rider { color: #15803d; }
+
+    .stakeholder-line {
+      font-size: 0.84rem;
+      color: #475569;
+      margin: 6px 0;
+      line-height: 1.45;
+    }
+
+    .stakeholder-line strong {
+      color: #0f172a;
+    }
+
+    /* Audit Timestamps Bar */
+    .timeline-bar {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+      background: #f0f9ff;
+      border: 1px solid #bae6fd;
+      padding: 16px;
+      border-radius: 16px;
+    }
+
+    .timeline-item {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+
+    .timeline-label {
+      font-size: 0.76rem;
+      font-weight: 800;
+      color: #0369a1;
+      text-transform: uppercase;
+    }
+
+    .timeline-val {
+      font-size: 0.85rem;
+      font-weight: 700;
+      color: #0f172a;
+    }
+
+    /* Audit Product Table */
+    .product-info-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      border-radius: 12px;
+      overflow: hidden;
+      border: 1px solid #e2e8f0;
+    }
+
+    .product-info-table th {
+      background: #f1f5f9;
+      padding: 10px 14px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      color: #475569;
+      text-transform: uppercase;
+      text-align: left;
+    }
+
+    .product-info-table td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      font-size: 0.84rem;
+      color: #334155;
+      vertical-align: middle;
+    }
+
+    .hsn-badge {
+      background: #e0f2fe;
+      color: #0369a1;
+      padding: 3px 8px;
+      border-radius: 6px;
+      font-weight: 800;
+      font-family: monospace;
+      font-size: 0.8rem;
+    }
+
+    .price-base {
+      color: #94a3b8;
+      text-decoration: line-through;
+      font-size: 0.8rem;
+      margin-right: 6px;
+    }
+
+    .price-bid {
+      color: #15803d;
+      font-weight: 800;
+      font-size: 0.88rem;
+    }
+
+    /* Print Styles */
+    @media print {
+      body * {
+        visibility: hidden;
+      }
+      #printArea, #printArea * {
+        visibility: visible;
+      }
+      #printArea {
+        position: absolute;
+        left: 0;
+        top: 0;
+        width: 100%;
+        color: #000000 !important;
+        background: #ffffff !important;
+      }
+      .no-print {
+        display: none !important;
+      }
+      .print-page-break {
+        page-break-after: always;
+      }
+    }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar no-print">
+      <div>
+        <p class="crumb">Order Management / Audit Hub</p>
+        <h1>Order Information &amp; Full Statistics</h1>
+      </div>
+    </header>
+
+    <div class="order-info-shell">
+      <!-- KPI Stats Summary Header Cards -->
+      <div class="kpi-grid no-print">
+        <div class="kpi-card">
+          <div class="kpi-icon-box blue">📊</div>
+          <div class="kpi-content">
+            <span class="kpi-label">Total Audit Orders</span>
+            <span class="kpi-value"><%= totalCount %></span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-icon-box green">💰</div>
+          <div class="kpi-content">
+            <span class="kpi-label">Processed Value</span>
+            <span class="kpi-value">
+              <%
+                let totalRevenue = 0;
+                if (orders && orders.length) {
+                  totalRevenue = orders.reduce((sum, o) => sum + Number(o.total_amount || 0), 0);
+                }
+              %>
+              ₹<%= totalRevenue.toLocaleString('en-IN') %>
+            </span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-icon-box amber">🚚</div>
+          <div class="kpi-content">
+            <span class="kpi-label">Active In-Transit</span>
+            <span class="kpi-value">
+              <%= orders ? orders.filter(o => ['out_for_delivery', 'processing', 'accepted'].includes(String(o.delivery_status || o.status).toLowerCase())).length : 0 %>
+            </span>
+          </div>
+        </div>
+
+        <div class="kpi-card">
+          <div class="kpi-icon-box purple">✅</div>
+          <div class="kpi-content">
+            <span class="kpi-label">Delivered &amp; Verified</span>
+            <span class="kpi-value">
+              <%= orders ? orders.filter(o => ['delivered', 'completed'].includes(String(o.delivery_status || o.status).toLowerCase())).length : 0 %>
+            </span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Filter Bar -->
+      <form method="GET" action="/order-information" class="filter-box no-print">
+        <div class="filter-title">
+          <span>🔍 Search &amp; Audit Multi-Param Filters</span>
+        </div>
+        <div class="filter-grid">
+          <label>
+            🔍 Search Keyword
+            <input type="text" name="search" value="<%= filters.search %>" placeholder="Order #, Client Name, Phone, Vendor, Rider..." />
+          </label>
+
+          <label>
+            📅 From Date
+            <input type="date" name="startDate" value="<%= filters.startDate %>" />
+          </label>
+
+          <label>
+            📅 To Date
+            <input type="date" name="endDate" value="<%= filters.endDate %>" />
+          </label>
+
+          <label>
+            📌 Order Status
+            <select name="status">
+              <option value="">All Statuses</option>
+              <option value="pending" <%= filters.status === 'pending' ? 'selected' : '' %>>Pending</option>
+              <option value="accepted" <%= filters.status === 'accepted' ? 'selected' : '' %>>Accepted</option>
+              <option value="processing" <%= filters.status === 'processing' ? 'selected' : '' %>>Processing</option>
+              <option value="out_for_delivery" <%= filters.status === 'out_for_delivery' ? 'selected' : '' %>>Out for Delivery</option>
+              <option value="delivered" <%= filters.status === 'delivered' ? 'selected' : '' %>>Delivered</option>
+              <option value="canceled" <%= filters.status === 'canceled' ? 'selected' : '' %>>Canceled</option>
+            </select>
+          </label>
+
+          <div style="display: flex; gap: 8px;">
+            <button type="submit" class="btn-filter-submit">🔍 Filter Orders</button>
+            <a href="/order-information" class="btn-filter-reset">Reset</a>
+          </div>
+        </div>
+      </form>
+
+      <!-- Bulk Action Bar -->
+      <div class="bulk-action-bar no-print">
+        <div style="display: flex; align-items: center; gap: 12px;">
+          <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this)" style="width: 18px; height: 18px; cursor: pointer; accent-color: #0284c7;" />
+          <span style="font-weight: 800; font-size: 0.9rem; color: #0369a1;">Select All Orders</span>
+          <span id="selectedCountBadge" style="background: #ffffff; color: #0284c7; padding: 3px 10px; border-radius: 12px; font-weight: 800; font-size: 0.8rem; border: 1px solid #bae6fd;">0 Selected</span>
+        </div>
+
+        <button type="button" class="bulk-print-btn" onclick="printSelectedOrders()">
+          🖨️ Print Selected Orders (Bulk Audit Dossiers)
+        </button>
+      </div>
+
+      <!-- Orders List Table -->
+      <div class="table-responsive-wrap">
+        <table class="info-table">
+          <thead>
+            <tr>
+              <th class="no-print" style="width: 40px; text-align: center;">Select</th>
+              <th>Order Ref</th>
+              <th>Date &amp; Time</th>
+              <th>Client Customer</th>
+              <th>Vendor Store</th>
+              <th>Delivery Partner</th>
+              <th>Status</th>
+              <th>Total Amount</th>
+              <th class="no-print" style="text-align: right;">Action</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% if (!orders || !orders.length) { %>
+              <tr>
+                <td colspan="9" style="text-align: center; padding: 36px; color: var(--text-muted, #94a3b8); font-weight: 600;">
+                  🚫 No orders found matching the specified search or filter criteria.
+                </td>
+              </tr>
+            <% } else { %>
+              <% orders.forEach(function(o) { %>
+                <tr>
+                  <td class="no-print" style="text-align: center;">
+                    <input type="checkbox" class="order-select-checkbox" value="<%= o.id %>" onchange="updateSelectedCount()" style="width: 17px; height: 17px; cursor: pointer; accent-color: #0284c7;" />
+                  </td>
+                  <td>
+                    <span class="order-id-badge">
+                      <span>#<%= o.order_number || o.id %></span>
+                    </span>
+                  </td>
+                  <td>
+                    <div style="font-weight: 700; color: #0f172a;"><%= new Date(o.created_at).toLocaleDateString('en-IN', { day: '2-digit', month: 'short', year: 'numeric' }) %></div>
+                    <div style="font-size: 0.78rem; color: #64748b;"><%= new Date(o.created_at).toLocaleTimeString('en-IN', { hour: '2-digit', minute: '2-digit' }) %></div>
+                  </td>
+                  <td>
+                    <div class="user-avatar-pill">
+                      <div class="avatar-circle">
+                        <%= String(o.client_name || 'C').charAt(0).toUpperCase() %>
+                      </div>
+                      <div>
+                        <div style="font-weight: 800; color: #0f172a;"><%= o.client_name || 'Customer' %></div>
+                        <div style="font-size: 0.78rem; color: #64748b;"><%= o.client_phone || 'N/A' %></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="user-avatar-pill">
+                      <div class="avatar-circle vendor">🏪</div>
+                      <div>
+                        <div style="font-weight: 800; color: #0f172a;"><%= o.vendor_name || 'Vendor Store' %></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <div class="user-avatar-pill">
+                      <div class="avatar-circle rider">🛵</div>
+                      <div>
+                        <div style="font-weight: 800; color: #0f172a;"><%= o.rider_name || 'Unassigned' %></div>
+                      </div>
+                    </div>
+                  </td>
+                  <td>
+                    <% const st = String(o.delivery_status || o.status || 'pending').toLowerCase(); %>
+                    <span class="status-pill <%= st %>">
+                      ● <%= st.replace(/_/g, ' ') %>
+                    </span>
+                  </td>
+                  <td>
+                    <div style="font-weight: 800; font-size: 0.95rem; color: #059669;">
+                      ₹<%= Number(o.total_amount || 0).toLocaleString('en-IN', { minimumFractionDigits: 2 }) %>
+                    </div>
+                    <div style="font-size: 0.75rem; color: #64748b;"><%= String(o.payment_method || 'COD').toUpperCase() %></div>
+                  </td>
+                  <td class="no-print" style="text-align: right;">
+                    <button type="button" class="btn-info-detail" onclick="openOrderInfoModal(<%= o.id %>)">
+                      ℹ️ Full Info &amp; Stats
+                    </button>
+                  </td>
+                </tr>
+              <% }); %>
+            <% } %>
+          </tbody>
+        </table>
+      </div>
+
+      <!-- Pagination -->
+      <% if (totalPages > 1) { %>
+        <div style="display: flex; justify-content: space-between; align-items: center; margin-top: 20px;" class="no-print">
+          <span style="font-size: 0.84rem; color: #64748b; font-weight: 600;">
+            Showing Page <strong><%= currentPage %></strong> of <strong><%= totalPages %></strong> (Total <%= totalCount %> records)
+          </span>
+          <div style="display: flex; gap: 8px;">
+            <% if (currentPage > 1) { %>
+              <a href="/order-information?page=<%= currentPage - 1 %>&search=<%= filters.search %>&startDate=<%= filters.startDate %>&endDate=<%= filters.endDate %>&status=<%= filters.status %>" class="btn-filter-reset">← Previous</a>
+            <% } %>
+            <% if (currentPage < totalPages) { %>
+              <a href="/order-information?page=<%= currentPage + 1 %>&search=<%= filters.search %>&startDate=<%= filters.startDate %>&endDate=<%= filters.endDate %>&status=<%= filters.status %>" class="btn-filter-submit">Next →</a>
+            <% } %>
+          </div>
+        </div>
+      <% } %>
+    </div>
+  </main>
+
+  <!-- Detailed Statistics Modal -->
+  <div id="orderInfoModal" class="modal-overlay no-print" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalTitle">Order Full Info &amp; Audit Statistics</h3>
+        <button type="button" class="modal-close-btn" onclick="closeOrderInfoModal()">✕</button>
+      </div>
+
+      <div class="modal-body" id="modalBody">
+        <div style="text-align: center; padding: 40px; color: #0284c7; font-weight: 700;">
+          ⏳ Loading detailed audit statistics...
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Print Container (Hidden on Screen, Visible on Print) -->
+  <div id="printArea"></div>
+
+  <script>
+    function toggleSelectAll(masterCheckbox) {
+      const checkboxes = document.querySelectorAll('.order-select-checkbox');
+      checkboxes.forEach(cb => cb.checked = masterCheckbox.checked);
+      updateSelectedCount();
+    }
+
+    function updateSelectedCount() {
+      const selected = document.querySelectorAll('.order-select-checkbox:checked');
+      const badge = document.getElementById('selectedCountBadge');
+      if (badge) badge.textContent = `${selected.length} Selected`;
+    }
+
+    async function openOrderInfoModal(orderId) {
+      const modal = document.getElementById('orderInfoModal');
+      const body = document.getElementById('modalBody');
+      const title = document.getElementById('modalTitle');
+
+      modal.style.display = 'flex';
+      body.innerHTML = '<div style="text-align:center; padding:40px; color:#0284c7; font-weight:700;">⏳ Fetching detailed order statistics...</div>';
+
+      try {
+        const res = await fetch(`/api/orders/info-details/${orderId}`);
+        const data = await res.json();
+        if (!data.success || !data.stats) throw new Error(data.message || 'Stats not found');
+
+        const s = data.stats;
+        title.innerHTML = `📦 Order Audit #${s.orderNumber} <span class="status-pill ${String(s.deliveryStatus || s.status).toLowerCase()}" style="font-size:0.75rem;">${s.deliveryStatus || s.status}</span>`;
+
+        body.innerHTML = `
+          <!-- Audit Timestamps Bar -->
+          <div class="timeline-bar">
+            <div class="timeline-item">
+              <span class="timeline-label">🛒 Placed Date &amp; Time</span>
+              <span class="timeline-val">${s.createdAt ? new Date(s.createdAt).toLocaleString('en-IN') : 'N/A'}</span>
+            </div>
+            <div class="timeline-item">
+              <span class="timeline-label">✅ Vendor Accepted</span>
+              <span class="timeline-val">${s.acceptedAt ? new Date(s.acceptedAt).toLocaleString('en-IN') : 'Pending / Auto'}</span>
+            </div>
+            <div class="timeline-item">
+              <span class="timeline-label">🚚 Pickup Date &amp; Time</span>
+              <span class="timeline-val">${s.pickedUpAt ? new Date(s.pickedUpAt).toLocaleString('en-IN') : 'Not Picked Up'}</span>
+            </div>
+            <div class="timeline-item">
+              <span class="timeline-label">🏁 Delivery Completion</span>
+              <span class="timeline-val">${s.deliveredAt ? new Date(s.deliveredAt).toLocaleString('en-IN') : 'In Transit'}</span>
+            </div>
+          </div>
+
+          <!-- Stakeholder Cards -->
+          <div class="stakeholder-grid">
+            <div class="stakeholder-card vendor-border">
+              <div class="stakeholder-title vendor">🏪 Vendor Store Details</div>
+              <div class="stakeholder-line"><strong>Store Name:</strong> ${escapeHtml(s.vendor.storeName)}</div>
+              <div class="stakeholder-line"><strong>Owner Name:</strong> ${escapeHtml(s.vendor.ownerName)}</div>
+              <div class="stakeholder-line"><strong>Phone:</strong> ${escapeHtml(s.vendor.phone)}</div>
+              <div class="stakeholder-line"><strong>Email:</strong> ${escapeHtml(s.vendor.email)}</div>
+              <div class="stakeholder-line"><strong>Address:</strong> ${escapeHtml(s.vendor.address)}, ${escapeHtml(s.vendor.city)}</div>
+              <div class="stakeholder-line"><strong>GSTIN:</strong> ${escapeHtml(s.vendor.gstNumber)}</div>
+            </div>
+
+            <div class="stakeholder-card client-border">
+              <div class="stakeholder-title client">👤 Client Customer Info</div>
+              <div class="stakeholder-line"><strong>Customer Name:</strong> ${escapeHtml(s.client.name)}</div>
+              <div class="stakeholder-line"><strong>Phone:</strong> ${escapeHtml(s.client.phone)}</div>
+              <div class="stakeholder-line"><strong>Email:</strong> ${escapeHtml(s.client.email)}</div>
+              <div class="stakeholder-line"><strong>Delivery Address:</strong> ${escapeHtml(s.client.address)}</div>
+              <div class="stakeholder-line"><strong>Area &amp; City:</strong> ${escapeHtml(s.client.area || '')} ${escapeHtml(s.client.city)} ${escapeHtml(s.client.pincode || '')}</div>
+              <div class="stakeholder-line"><strong>Delivery OTP:</strong> <code style="background:#e0f2fe; color:#0369a1; padding:2px 6px; border-radius:4px; font-weight:800;">${escapeHtml(s.deliveryOtp)}</code></div>
+            </div>
+
+            <div class="stakeholder-card rider-border">
+              <div class="stakeholder-title rider">🛵 Delivery Partner Details</div>
+              <div class="stakeholder-line"><strong>Rider Name:</strong> ${escapeHtml(s.deliveryPartner.name)}</div>
+              <div class="stakeholder-line"><strong>Phone:</strong> ${escapeHtml(s.deliveryPartner.phone)}</div>
+              <div class="stakeholder-line"><strong>Vehicle Type:</strong> ${escapeHtml(s.deliveryPartner.vehicleType)}</div>
+              <div class="stakeholder-line"><strong>Vehicle Number:</strong> ${escapeHtml(s.deliveryPartner.vehicleNumber)}</div>
+              <div class="stakeholder-line"><strong>Status:</strong> ${escapeHtml(s.deliveryStatus)}</div>
+            </div>
+          </div>
+
+          <!-- Product Item Specs Table -->
+          <h4 style="margin:20px 0 8px 0; font-size:1rem; font-weight:800; color:#0f172a;">📋 Product List (HSN Codes, MRP Base vs Bid Price)</h4>
+          <table class="product-info-table">
+            <thead>
+              <tr>
+                <th>Item Description</th>
+                <th>HSN / SAC</th>
+                <th>Qty</th>
+                <th>Base MRP</th>
+                <th>Bid / Agreed Price</th>
+                <th style="text-align:right;">Subtotal</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${s.items.map(item => `
+                <tr>
+                  <td>
+                    <div style="font-weight:800; color:#0f172a;">${escapeHtml(item.productName)}</div>
+                    <div style="font-size:0.78rem; color:#64748b;">Unit: ${escapeHtml(item.unit)}</div>
+                  </td>
+                  <td><span class="hsn-badge">${escapeHtml(item.hsnCode)}</span></td>
+                  <td style="font-weight:700;">${item.quantity}</td>
+                  <td><span class="price-base">₹${item.baseUnitPrice.toFixed(2)}</span></td>
+                  <td><span class="price-bid">₹${item.bidUnitPrice.toFixed(2)}</span></td>
+                  <td style="text-align:right; font-weight:800; color:#0f172a;">₹${item.itemTotal.toFixed(2)}</td>
+                </tr>
+              `).join('')}
+            </tbody>
+          </table>
+
+          <!-- Financial Breakdown Bar -->
+          <div style="margin-top:20px; background:#f8fafc; border:1px solid #e2e8f0; border-radius:14px; padding:18px; display:flex; justify-content:space-between; flex-wrap:wrap; gap:16px;">
+            <div>
+              <div style="font-size:0.8rem; color:#64748b; font-weight:700;">PAYMENT METHOD</div>
+              <div style="font-weight:800; color:#0f172a; font-size:1rem;">${escapeHtml(s.paymentMethod)} (${escapeHtml(s.paymentStatus)})</div>
+            </div>
+            <div style="text-align:right;">
+              <div style="font-size:0.84rem; color:#475569;">Subtotal: ₹${s.financials.subtotalAmount.toFixed(2)} | Delivery: ₹${s.financials.deliveryCharge.toFixed(2)}</div>
+              <div style="font-size:1.25rem; font-weight:800; color:#059669; margin-top:2px;">Grand Total: ₹${s.financials.totalAmount.toFixed(2)}</div>
+            </div>
+          </div>
+        `;
+      } catch (err) {
+        body.innerHTML = `<div style="color:#b91c1c; font-weight:700; padding:20px; text-align:center;">❌ Error loading stats: ${escapeHtml(err.message)}</div>`;
+      }
+    }
+
+    function closeOrderInfoModal() {
+      document.getElementById('orderInfoModal').style.display = 'none';
+    }
+
+    async function printSelectedOrders() {
+      const selectedBoxes = document.querySelectorAll('.order-select-checkbox:checked');
+      if (!selectedBoxes.length) {
+        alert('Please select at least one order checkbox to generate print audit dossiers.');
+        return;
+      }
+
+      const selectedIds = Array.from(selectedBoxes).map(cb => cb.value);
+      const printContainer = document.getElementById('printArea');
+      printContainer.innerHTML = '<div style="font-size:1.2rem; font-weight:bold; padding:20px;">Generating printable audit sheets...</div>';
+
+      try {
+        let pagesHtml = '';
+        for (let i = 0; i < selectedIds.length; i++) {
+          const res = await fetch(`/api/orders/info-details/${selectedIds[i]}`);
+          const data = await res.json();
+          if (data.success && data.stats) {
+            const s = data.stats;
+            pagesHtml += `
+              <div class="print-page-break" style="padding:24px; font-family:sans-serif; color:#000;">
+                <div style="display:flex; justify-content:space-between; border-bottom:2px solid #000; padding-bottom:12px; margin-bottom:16px;">
+                  <div>
+                    <h2 style="margin:0;">GROXEN OFFICIAL ORDER AUDIT DOSSIER</h2>
+                    <div style="font-size:0.9rem;">Order Reference: <strong>#${s.orderNumber}</strong> | Status: ${s.deliveryStatus || s.status}</div>
+                  </div>
+                  <div style="text-align:right; font-size:0.85rem;">
+                    <div>Printed Date: ${new Date().toLocaleDateString('en-IN')}</div>
+                    <div>Delivery OTP: <strong>${s.deliveryOtp}</strong></div>
+                  </div>
+                </div>
+
+                <!-- Timestamps -->
+                <table style="width:100%; border:1px solid #000; border-collapse:collapse; margin-bottom:16px; font-size:0.82rem;">
+                  <tr style="background:#f0f0f0;">
+                    <th style="border:1px solid #000; padding:6px;">Order Placed</th>
+                    <th style="border:1px solid #000; padding:6px;">Vendor Accepted</th>
+                    <th style="border:1px solid #000; padding:6px;">Pickup Time</th>
+                    <th style="border:1px solid #000; padding:6px;">Delivered Time</th>
+                  </tr>
+                  <tr>
+                    <td style="border:1px solid #000; padding:6px; text-align:center;">${s.createdAt ? new Date(s.createdAt).toLocaleString('en-IN') : 'N/A'}</td>
+                    <td style="border:1px solid #000; padding:6px; text-align:center;">${s.acceptedAt ? new Date(s.acceptedAt).toLocaleString('en-IN') : 'Auto'}</td>
+                    <td style="border:1px solid #000; padding:6px; text-align:center;">${s.pickedUpAt ? new Date(s.pickedUpAt).toLocaleString('en-IN') : 'N/A'}</td>
+                    <td style="border:1px solid #000; padding:6px; text-align:center;">${s.deliveredAt ? new Date(s.deliveredAt).toLocaleString('en-IN') : 'N/A'}</td>
+                  </tr>
+                </table>
+
+                <!-- Stakeholders -->
+                <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:12px; margin-bottom:16px; font-size:0.82rem;">
+                  <div style="border:1px solid #000; padding:10px;">
+                    <h4 style="margin:0 0 6px 0; border-bottom:1px solid #000;">VENDOR DETAILS</h4>
+                    <div><strong>Store:</strong> ${s.vendor.storeName}</div>
+                    <div><strong>Owner:</strong> ${s.vendor.ownerName}</div>
+                    <div><strong>Phone:</strong> ${s.vendor.phone}</div>
+                    <div><strong>GSTIN:</strong> ${s.vendor.gstNumber}</div>
+                  </div>
+                  <div style="border:1px solid #000; padding:10px;">
+                    <h4 style="margin:0 0 6px 0; border-bottom:1px solid #000;">CLIENT CUSTOMER</h4>
+                    <div><strong>Name:</strong> ${s.client.name}</div>
+                    <div><strong>Phone:</strong> ${s.client.phone}</div>
+                    <div><strong>Address:</strong> ${s.client.address}</div>
+                    <div><strong>City:</strong> ${s.client.city} ${s.client.pincode}</div>
+                  </div>
+                  <div style="border:1px solid #000; padding:10px;">
+                    <h4 style="margin:0 0 6px 0; border-bottom:1px solid #000;">DELIVERY RIDER</h4>
+                    <div><strong>Name:</strong> ${s.deliveryPartner.name}</div>
+                    <div><strong>Phone:</strong> ${s.deliveryPartner.phone}</div>
+                    <div><strong>Vehicle:</strong> ${s.deliveryPartner.vehicleType} (${s.deliveryPartner.vehicleNumber})</div>
+                  </div>
+                </div>
+
+                <!-- Products Table -->
+                <h4 style="margin:10px 0 4px 0; font-size:0.9rem;">PRODUCT ITEMS AUDIT (HSN CODES &amp; BID PRICES)</h4>
+                <table style="width:100%; border:1px solid #000; border-collapse:collapse; font-size:0.82rem; margin-bottom:16px;">
+                  <thead style="background:#f0f0f0;">
+                    <tr>
+                      <th style="border:1px solid #000; padding:6px; text-align:left;">Item Name</th>
+                      <th style="border:1px solid #000; padding:6px;">HSN</th>
+                      <th style="border:1px solid #000; padding:6px;">Qty</th>
+                      <th style="border:1px solid #000; padding:6px;">Base MRP</th>
+                      <th style="border:1px solid #000; padding:6px;">Bid Unit Price</th>
+                      <th style="border:1px solid #000; padding:6px; text-align:right;">Subtotal</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    ${s.items.map(item => `
+                      <tr>
+                        <td style="border:1px solid #000; padding:6px;">${item.productName} (${item.unit})</td>
+                        <td style="border:1px solid #000; padding:6px; text-align:center;">${item.hsnCode}</td>
+                        <td style="border:1px solid #000; padding:6px; text-align:center;">${item.quantity}</td>
+                        <td style="border:1px solid #000; padding:6px; text-align:center;">₹${item.baseUnitPrice.toFixed(2)}</td>
+                        <td style="border:1px solid #000; padding:6px; text-align:center;">₹${item.bidUnitPrice.toFixed(2)}</td>
+                        <td style="border:1px solid #000; padding:6px; text-align:right;">₹${item.itemTotal.toFixed(2)}</td>
+                      </tr>
+                    `).join('')}
+                  </tbody>
+                </table>
+
+                <!-- Total -->
+                <div style="text-align:right; font-size:1.1rem; font-weight:bold;">
+                  Grand Total Amount Paid (${s.paymentMethod}): ₹${s.financials.totalAmount.toFixed(2)}
+                </div>
+              </div>
+            `;
+          }
+        }
+
+        printContainer.innerHTML = pagesHtml;
+        setTimeout(() => { window.print(); }, 300);
+      } catch (err) {
+        alert('Print generation error: ' + err.message);
+      }
+    }
+
+    function escapeHtml(str) {
+      if (!str) return 'N/A';
+      return String(str).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+    }
+  </script>
+</body>
+</html>

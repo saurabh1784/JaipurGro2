@@ -1,4 +1,4 @@
-const pool = require('../db');
+﻿const pool = require('../db');
 const { invalidateCatalogCache } = require('./Catalog');
 
 function toPositiveInt(value, fallback) {
@@ -295,8 +295,8 @@ async function findByName(name) {
 async function create(data) {
   const [result] = await pool.query(
     `INSERT INTO products
-     (name, description, hsn_code, price, weight_value, weight_unit, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id, approval_status, created_by_vendor_id, approved_by, approved_at, rejection_reason)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     (name, description, hsn_code, price, weight_value, weight_unit, weight_kg, image_url, tax_name, tax_percentage, category_id, sub_category_id, brand_id, approval_status, created_by_vendor_id, approved_by, approved_at, rejection_reason, barcode, pack_size, request_reason)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
     [
       data.name,
       data.description || null,
@@ -316,6 +316,9 @@ async function create(data) {
       data.approved_by || null,
       data.approved_at || (data.approval_status === 'approved' ? new Date() : null),
       data.rejection_reason || null,
+      data.barcode || null,
+      data.pack_size || null,
+      data.request_reason || null,
     ]
   );
   invalidateCatalogCache();
@@ -368,8 +371,8 @@ async function updatePrice(id, price) {
 
 async function updateApprovalStatus(id, { status, actor_id, rejection_reason }) {
   const normalized = String(status || '').trim().toLowerCase();
-  if (!['pending', 'in_review', 'approved', 'rejected'].includes(normalized)) {
-    const error = new Error('Status must be Pending, In Review, Approved, or Rejected');
+  if (!['pending', 'in_review', 'changes_required', 'approved', 'rejected'].includes(normalized)) {
+    const error = new Error('Status must be Pending, In Review, Changes Required, Approved, or Rejected');
     error.status = 422;
     throw error;
   }
@@ -379,7 +382,7 @@ async function updateApprovalStatus(id, { status, actor_id, rejection_reason }) 
      SET approval_status = ?,
          approved_by = ?,
          approved_at = CASE WHEN ? IN ('approved', 'rejected') THEN CURRENT_TIMESTAMP ELSE approved_at END,
-         rejection_reason = CASE WHEN ? = 'rejected' THEN ? ELSE NULL END
+         rejection_reason = CASE WHEN ? IN ('rejected', 'changes_required') THEN ? ELSE NULL END
      WHERE id = ? AND is_deleted = 0`,
     [normalized, actor_id || null, normalized, normalized, rejection_reason || null, id]
   );
@@ -556,5 +559,7 @@ module.exports = {
    resolveRelation,
    listApproved,
  };
+
+
 
 

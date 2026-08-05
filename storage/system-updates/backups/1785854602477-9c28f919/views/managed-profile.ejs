@@ -1,0 +1,457 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= user.name %> - Profile</title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Profile</p>
+        <h1><%= user.name %></h1>
+      </div>
+      <div class="topbar-actions">
+        <span class="profile-role-badge"><%= profileRole %></span>
+      </div>
+    </header>
+
+    <section class="profile-page-shell">
+      <div class="profile-summary-panel">
+        <div class="profile-avatar"><%= (user.name || 'U').slice(0, 1).toUpperCase() %></div>
+        <div>
+          <h2><%= user.name %></h2>
+          <p><%= user.email %></p>
+        </div>
+        <dl>
+          <div>
+            <dt>Role</dt>
+            <dd><%= profileRole %></dd>
+          </div>
+          <div>
+            <dt>Status</dt>
+            <dd><%= user.status || 'active' %></dd>
+          </div>
+          <% if (user.phone) { %>
+            <div>
+              <dt>Phone</dt>
+              <dd><%= user.phone %></dd>
+            </div>
+          <% } %>
+        </dl>
+      </div>
+
+      <div class="users-table-card profile-edit-panel">
+        <div class="profile-form-header">
+          <div>
+            <h2>Profile Details</h2>
+            <p id="profileSaveStatus">Update your account details here.</p>
+          </div>
+        </div>
+
+        <form id="profilePageForm" class="user-modal-grid">
+          <% const data = profile || {}; %>
+          <% const arrayValue = (value) => Array.isArray(value) ? value.join(', ') : (value || ''); %>
+          <% const assignedCategories = Array.isArray(data.categories) ? data.categories : []; %>
+
+          <% if (profileRole === 'Vendor') { %>
+            <label>
+              Business Name
+              <input name="business_name" value="<%= data.business_name || '' %>" />
+            </label>
+            <label>
+              GST Number
+              <input name="gst_number" value="<%= data.gst_number || '' %>" />
+            </label>
+            <label class="profile-full-field">
+              Address
+              <textarea name="address"><%= data.address || '' %></textarea>
+            </label>
+            <label>
+              Country
+              <input name="country" value="<%= data.country || '' %>" />
+            </label>
+            <label>
+              State
+              <input name="state" value="<%= data.state || '' %>" />
+            </label>
+            <label>
+              City
+              <input name="city" value="<%= data.city || '' %>" />
+            </label>
+            <label class="profile-full-field">
+              Services
+              <textarea name="services"><%= arrayValue(data.services) %></textarea>
+            </label>
+            <div class="profile-full-field profile-readonly-section">
+              <span class="profile-readonly-label">Invoice Signature</span>
+              <% if (data.signature_path) { %>
+                <img class="profile-signature-preview" id="signaturePreview" src="<%= data.signature_path %>" alt="Vendor signature" />
+              <% } else { %>
+                <p id="signaturePreviewEmpty">No signature uploaded yet.</p>
+                <img class="profile-signature-preview" id="signaturePreview" src="" alt="Vendor signature" style="display:none" />
+              <% } %>
+              <input id="vendorSignatureInput" name="signature" type="file" accept="image/png,image/jpeg" />
+            </div>
+            <div class="profile-full-field profile-readonly-section">
+              <span class="profile-readonly-label">Assigned Categories</span>
+              <% if (assignedCategories.length) { %>
+                <div class="profile-readonly-chips" aria-label="Assigned vendor categories">
+                  <% assignedCategories.forEach((category) => { %>
+                    <span><%= category.name %></span>
+                  <% }) %>
+                </div>
+              <% } else { %>
+                <p>No categories assigned yet.</p>
+              <% } %>
+            </div>
+            <div class="profile-full-field profile-readonly-section" id="categoryRequestPanel">
+              <span class="profile-readonly-label">Request Category Activation</span>
+              <p id="categoryRequestStatus">Loading category request options...</p>
+              <div id="categoryRequestOptions" class="profile-readonly-chips" aria-label="Available categories to request"></div>
+              <textarea id="categoryRequestNote" rows="2" placeholder="Optional note for admin"></textarea>
+              <button class="settings-save" id="categoryRequestSubmit" type="button">Send Request</button>
+            </div>
+          <% } else if (profileRole === 'Client') { %>
+            <label class="profile-full-field">
+              Address
+              <textarea name="address"><%= data.address || '' %></textarea>
+            </label>
+            <label>
+              Country
+              <input name="country" value="<%= data.country || '' %>" />
+            </label>
+            <label>
+              State
+              <input name="state" value="<%= data.state || '' %>" />
+            </label>
+            <label>
+              City
+              <input name="city" value="<%= data.city || '' %>" />
+            </label>
+            <label>
+              Age
+              <input name="age" type="number" min="0" value="<%= data.age || '' %>" />
+            </label>
+            <label>
+              Gender
+              <select name="gender">
+                <option value="">Select gender</option>
+                <option value="male" <%= data.gender === 'male' ? 'selected' : '' %>>Male</option>
+                <option value="female" <%= data.gender === 'female' ? 'selected' : '' %>>Female</option>
+                <option value="other" <%= data.gender === 'other' ? 'selected' : '' %>>Other</option>
+              </select>
+            </label>
+            <label class="profile-full-field">
+              Notes
+              <textarea name="notes"><%= data.notes || '' %></textarea>
+            </label>
+          <% } else if (profileRole === 'Admin') { %>
+            <label class="profile-full-field">
+              Permissions
+              <textarea name="permissions"><%= arrayValue(data.permissions) %></textarea>
+            </label>
+          <% } else { %>
+            <p>No editable profile fields are configured for this role.</p>
+          <% } %>
+
+          <button class="settings-save profile-full-field" type="submit">Save Profile</button>
+        </form>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    const form = document.getElementById('profilePageForm');
+    const statusText = document.getElementById('profileSaveStatus');
+
+    form.addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const formData = new FormData(form);
+      const profile = {};
+
+      for (const [key, value] of formData.entries()) {
+        if (key === 'signature') continue;
+        profile[key] = key === 'services' || key === 'permissions'
+          ? value.split(',').map((item) => item.trim()).filter(Boolean)
+          : value.trim();
+      }
+
+      statusText.textContent = 'Saving...';
+
+      try {
+        const response = await fetch('/profiles/<%= user.id %>', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ profile }),
+        });
+        const data = await response.json();
+
+        if (!data.success) {
+          throw new Error(data.message || 'Unable to update profile');
+        }
+
+        statusText.textContent = 'Profile saved successfully.';
+        await uploadSignatureIfSelected();
+      } catch (error) {
+        statusText.textContent = error.message;
+      }
+    });
+
+    async function uploadSignatureIfSelected() {
+      const input = document.getElementById('vendorSignatureInput');
+      if (!input || !input.files || !input.files.length) return;
+
+      statusText.textContent = 'Uploading signature...';
+      const uploadData = new FormData();
+      uploadData.append('signature', input.files[0]);
+
+      const response = await fetch('/profiles/<%= user.id %>/vendor-signature', {
+        method: 'POST',
+        body: uploadData,
+      });
+      const result = await response.json();
+      if (!result.success) {
+        throw new Error(result.message || 'Unable to upload signature');
+      }
+
+      const preview = document.getElementById('signaturePreview');
+      const emptyText = document.getElementById('signaturePreviewEmpty');
+      if (preview) {
+        preview.src = result.signature_path;
+        preview.style.display = 'block';
+      }
+      if (emptyText) emptyText.style.display = 'none';
+      input.value = '';
+      statusText.textContent = 'Profile and signature saved successfully.';
+    }
+
+    <% if (profileRole === 'Vendor') { %>
+      const categoryRequestStatus = document.getElementById('categoryRequestStatus');
+      const categoryRequestOptions = document.getElementById('categoryRequestOptions');
+      const categoryRequestNote = document.getElementById('categoryRequestNote');
+      const categoryRequestSubmit = document.getElementById('categoryRequestSubmit');
+
+      async function loadCategoryRequestState() {
+        try {
+          const response = await fetch('/api/vendor/category-requests', { headers: { Accept: 'application/json' } });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.message || 'Unable to load category requests');
+
+          const pendingRequests = data.pending_requests || (data.pending_request ? [data.pending_request] : []);
+          const pendingText = pendingRequests.length
+            ? ` Pending approval: ${pendingRequests.map((request) => request.category_name).join(', ')}.`
+            : '';
+
+          const categories = data.available_categories || [];
+          if (!categories.length) {
+            categoryRequestStatus.textContent = `No additional categories are available for request.${pendingText}`;
+            categoryRequestOptions.innerHTML = '';
+            categoryRequestSubmit.disabled = true;
+            return;
+          }
+
+          categoryRequestStatus.textContent = `Select one or more categories and send them to admin for activation.${pendingText}`;
+          categoryRequestNote.disabled = false;
+          categoryRequestSubmit.disabled = false;
+          categoryRequestOptions.innerHTML = categories
+            .map((category) => `
+              <label class="profile-request-option">
+                <input type="checkbox" value="${category.id}" />
+                <span>${escapeHtml(category.name)}</span>
+              </label>
+            `)
+            .join('');
+        } catch (error) {
+          categoryRequestStatus.textContent = error.message;
+          categoryRequestSubmit.disabled = true;
+        }
+      }
+
+      categoryRequestSubmit.addEventListener('click', async () => {
+        const categoryIds = Array.from(categoryRequestOptions.querySelectorAll('input[type="checkbox"]:checked'))
+          .map((input) => Number(input.value))
+          .filter(Boolean);
+        if (!categoryIds.length) {
+          categoryRequestStatus.textContent = 'Select at least one category.';
+          return;
+        }
+        categoryRequestSubmit.disabled = true;
+        categoryRequestStatus.textContent = 'Sending request...';
+        try {
+          const response = await fetch('/api/vendor/category-requests', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+            body: JSON.stringify({
+              category_ids: categoryIds,
+              note: categoryRequestNote.value,
+            }),
+          });
+          const data = await response.json();
+          if (!data.success) throw new Error(data.message || 'Unable to send request');
+          categoryRequestNote.value = '';
+          await loadCategoryRequestState();
+        } catch (error) {
+          categoryRequestStatus.textContent = error.message;
+          categoryRequestSubmit.disabled = false;
+        }
+      });
+
+      loadCategoryRequestState();
+    <% } %>
+  </script>
+
+  <style>
+    .profile-page-shell {
+      display: grid;
+      grid-template-columns: 300px minmax(0, 1fr);
+      gap: 20px;
+      align-items: start;
+    }
+
+    .profile-summary-panel,
+    .profile-edit-panel {
+      border: 1px solid var(--border-color, #d8dee6);
+      background: var(--panel-bg, #fff);
+      border-radius: 8px;
+      padding: 20px;
+    }
+
+    .profile-avatar {
+      width: 72px;
+      height: 72px;
+      display: grid;
+      place-items: center;
+      border-radius: 18px;
+      background: #1f8f4d;
+      color: #fff;
+      font-size: 2rem;
+      font-weight: 800;
+      margin-bottom: 16px;
+    }
+
+    .profile-summary-panel h2,
+    .profile-form-header h2 {
+      margin: 0;
+      color: #263238;
+    }
+
+    .profile-summary-panel p,
+    .profile-form-header p {
+      margin: 6px 0 0;
+      color: #64748b;
+    }
+
+    .profile-summary-panel dl {
+      margin: 20px 0 0;
+      display: grid;
+      gap: 12px;
+    }
+
+    .profile-summary-panel dt {
+      font-size: 0.78rem;
+      color: #64748b;
+      text-transform: uppercase;
+      letter-spacing: 0;
+    }
+
+    .profile-summary-panel dd {
+      margin: 3px 0 0;
+      color: #263238;
+      font-weight: 700;
+    }
+
+    .profile-role-badge {
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: #e8f5ee;
+      color: #17643a;
+      font-weight: 800;
+    }
+
+    .profile-edit-panel .user-modal-grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      margin-top: 18px;
+    }
+
+    .profile-full-field {
+      grid-column: 1 / -1;
+    }
+
+    .profile-readonly-section {
+      display: grid;
+      gap: 10px;
+    }
+
+    .profile-readonly-label {
+      color: #64748b;
+      font-weight: 700;
+    }
+
+    .profile-readonly-chips {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+
+    .profile-readonly-chips span {
+      border: 1px solid #d7ecdf;
+      background: #eefbf3;
+      color: #166534;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-weight: 700;
+    }
+
+    .profile-request-option {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      border: 1px solid #d7ecdf;
+      background: #eefbf3;
+      color: #166534;
+      border-radius: 999px;
+      padding: 7px 12px;
+      font-weight: 700;
+    }
+
+    .profile-signature-preview {
+      width: min(260px, 100%);
+      height: 90px;
+      object-fit: contain;
+      object-position: left center;
+      border: 1px solid #d8dee6;
+      border-radius: 6px;
+      background: #fff;
+      padding: 10px;
+    }
+
+    .theme-dark .profile-summary-panel,
+    .theme-dark .profile-edit-panel {
+      background: #18212c;
+      border-color: #2d3a48;
+    }
+
+    .theme-dark .profile-summary-panel h2,
+    .theme-dark .profile-form-header h2,
+    .theme-dark .profile-summary-panel dd {
+      color: #f8fafc;
+    }
+
+    @media (max-width: 860px) {
+      .profile-page-shell {
+        grid-template-columns: 1fr;
+      }
+
+      .profile-edit-panel .user-modal-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+  <script src="/image-upload-editor.js"></script>
+</body>
+</html>

@@ -1,4 +1,4 @@
-const pool = require('../db');
+﻿const pool = require('../db');
 const VendorInventory = require('../models/VendorInventory');
 
 // 1. Get Vendor Inventory List (With filters & search)
@@ -212,8 +212,7 @@ const updateInventory = async (req, res) => {
       barcode
     } = req.body;
 
-    const newPrice = vendor_price !== undefined ? parseFloat(vendor_price) : parseFloat(current.vendor_price);
-    const newMrp = mrp !== undefined ? parseFloat(mrp) : parseFloat(current.mrp);
+    const newPrice = parseFloat(current.vendor_price);
     const newMin = minimum_order_quantity !== undefined ? parseInt(minimum_order_quantity, 10) : current.minimum_order_quantity;
     const newMax = maximum_order_quantity !== undefined ? parseInt(maximum_order_quantity, 10) : current.maximum_order_quantity;
     const newLowLimit = low_stock_limit !== undefined ? parseInt(low_stock_limit, 10) : current.low_stock_limit;
@@ -249,7 +248,7 @@ const updateInventory = async (req, res) => {
        SET vendor_price = ?, mrp = ?, stock_quantity = ?, minimum_order_quantity = ?, maximum_order_quantity = ?,
            low_stock_limit = ?, is_available = ?, approval_status = ?, sku = ?, barcode = ?, updated_at = CURRENT_TIMESTAMP
        WHERE id = ? AND vendor_id = ?`,
-      [newPrice, newMrp, newStock, newMin, newMax, newLowLimit, newAvail, newApprovalStatus, newSku || null, newBarcode || null, vpvId, vendorId]
+      [newPrice, current.mrp, newStock, newMin, newMax, newLowLimit, newAvail, newApprovalStatus, newSku || null, newBarcode || null, vpvId, vendorId]
     );
 
     return res.json({
@@ -401,3 +400,7 @@ module.exports = {
   getReports,
   exportReport
 };
+
+
+
+

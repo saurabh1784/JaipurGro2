@@ -18,6 +18,21 @@ function validate(body, creating = false) {
   return null;
 }
 
+async function updateKycFields(id, body, connection) {
+  const allowed = ['bike_rc_path', 'pan_card_path', 'aadhaar_card_path', 'driving_license_path',
+    'cancelled_cheque_path', 'live_selfie_path', 'profile_image_path', 'kyc_status', 'kyc_rejection_reason'];
+  const fields = [];
+  const values = [];
+  for (const key of allowed) {
+    if (Object.prototype.hasOwnProperty.call(body, key)) {
+      values.push(text(body[key]) || null);
+      fields.push(`${key} = $${values.length}`);
+    }
+  }
+  if (!fields.length) return;
+  values.push(id);
+  await connection.query(`UPDATE delivery_person_profiles SET ${fields.join(', ')}, updated_at = CURRENT_TIMESTAMP WHERE user_id = $${values.length}`, values);
+}
 async function validateAreaAssignments(body, connection) {
   if (!Array.isArray(body.delivery_areas)) return;
   if (!body.delivery_areas.length) {
@@ -110,7 +125,7 @@ async function create(req, res) {
     await connection.beginTransaction();
     const email = text(req.body.login_id || req.body.email).toLowerCase();
     const phone = text(req.body.phone);
-    const [duplicates] = await connection.query('SELECT id FROM users WHERE is_deleted = 0 AND (email = ? OR phone = ?) LIMIT 1', [email, phone]);
+    const [duplicates] = await connection.query(`SELECT id FROM users WHERE is_deleted = 0 AND (email = ? OR (phone = ? AND LOWER(role) IN ('deliveryperson','delivery_partner','delivery','rider'))) LIMIT 1`, [email, phone]);
     if (duplicates.length) { const e = new Error('Login ID or phone already exists'); e.status = 409; throw e; }
     const hash = await bcrypt.hash(text(req.body.password), 10);
     const status = text(req.body.status).toLowerCase() === 'blocked' ? 'blocked' : 'active';
@@ -118,6 +133,7 @@ async function create(req, res) {
     const id = result.insertId;
     await validateAreaAssignments(req.body, connection);
     await DeliveryPerson.upsertProfile(id, { ...req.body, status }, connection);
+    await updateKycFields(id, req.body, connection);
     await Wallet.ensureForUser(id, connection);
     const opening = Number(req.body.initial_wallet_balance || 0);
     if (opening > 0) {
@@ -158,7 +174,7 @@ async function update(req, res) {
     await connection.beginTransaction();
     const email = text(req.body.login_id || req.body.email).toLowerCase();
     const phone = text(req.body.phone);
-    const [duplicates] = await connection.query('SELECT id FROM users WHERE is_deleted = 0 AND id <> ? AND (email = ? OR phone = ?) LIMIT 1', [id, email, phone]);
+    const [duplicates] = await connection.query(`SELECT id FROM users WHERE is_deleted = 0 AND id <> ? AND (email = ? OR (phone = ? AND LOWER(role) IN ('deliveryperson','delivery_partner','delivery','rider'))) LIMIT 1`, [id, email, phone]);
     if (duplicates.length) { const e = new Error('Login ID or phone already exists'); e.status = 409; throw e; }
     const status = text(req.body.status).toLowerCase() === 'blocked' ? 'blocked' : 'active';
     await validateAreaAssignments(req.body, connection);
@@ -170,6 +186,7 @@ async function update(req, res) {
       await connection.query('UPDATE users SET name = ?, email = ?, phone = ?, status = ? WHERE id = ?', [text(req.body.name), email, phone, status, id]);
     }
     await DeliveryPerson.upsertProfile(id, { ...req.body, status }, connection);
+    await updateKycFields(id, req.body, connection);
     await DeliveryPerson.log({ deliveryPersonId: id, actorId: actor(req).id, action: 'profile_updated', description: 'Profile details updated' }, connection);
     if (password) {
       await DeliveryPerson.log({ deliveryPersonId: id, actorId: actor(req).id, action: 'password_updated', description: 'Login password updated from profile edit' }, connection);
@@ -196,6 +213,9 @@ async function setStatus(req, res) {
       return res.status(403).json({ success: false, message: `Admins can only update status for delivery partners in their assigned city (${adminCity}).` });
     }
     await pool.query('UPDATE users SET status = ? WHERE id = ?', [status, id]);
+    if (status === 'active') {
+      await pool.query("UPDATE delivery_person_profiles SET kyc_status = 'approved' WHERE user_id = ?", [id]).catch(() => {});
+    }
     await pool.query('UPDATE delivery_partner_settings SET is_active = ? WHERE user_id = ?', [status === 'active' ? 1 : 0, id]);
     await DeliveryPerson.log({ deliveryPersonId: id, actorId: actor(req).id, action: status === 'active' ? 'account_unblocked' : 'account_blocked', description: status === 'active' ? 'Account enabled' : 'Account blocked from accepting new orders' });
     res.json({ success: true, message: status === 'active' ? 'Delivery person unblocked' : 'Delivery person blocked' });

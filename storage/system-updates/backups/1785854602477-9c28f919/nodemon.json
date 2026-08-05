@@ -1,0 +1,13 @@
+{
+  "watch": ["app.js", "controllers", "models", "routes", "services", "utils", "views", "middleware", "db.js"],
+  "ext": "js,json,ejs",
+  "ignore": [
+    "storage/*",
+    "uploads/*",
+    "logs/*",
+    ".git/*",
+    ".gemini/*",
+    "node_modules/*"
+  ],
+  "delay": "1000"
+}

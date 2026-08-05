@@ -67,6 +67,34 @@ async function webOrJwtAuth(req, res, next) {
   }
 }
 
+// KYC is the only authenticated workflow an inactive partner may use. Keep
+// regular authentication strict so unapproved users cannot access dashboards.
+async function kycPartnerAuth(req, res, next) {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const [scheme, token] = authHeader.split(' ');
+    if (scheme !== 'Bearer' || !token || isTokenRevoked(token)) {
+      return res.status(401).json({ success: false, message: 'Authentication token required' });
+    }
+    const payload = verify(token);
+    const user = await User.findById(payload.id);
+    const role = String(user && user.role || '').toLowerCase();
+    const status = String(user && user.status || '').toLowerCase();
+    if (!user || user.is_deleted === 1 || ['suspended', 'blocked', 'deleted'].includes(status)) {
+      return res.status(401).json({ success: false, message: 'User is blocked or no longer exists' });
+    }
+    if (!['vendor', 'deliveryperson'].includes(role)) {
+      return res.status(403).json({ success: false, message: 'Partner account required' });
+    }
+    req.token = token;
+    req.user = user;
+    req.authUser = user;
+    req.authType = 'jwt';
+    return next();
+  } catch (error) {
+    return res.status(401).json({ success: false, message: error.message || 'Invalid token' });
+  }
+}
 function canManageUsers(user) {
   return Boolean(
     user &&
@@ -201,6 +229,7 @@ async function requireApprovedUser(req, res, next) {
 
 module.exports = {
   webOrJwtAuth,
+  kycPartnerAuth,
   requireAuthRole,
   requireApprovedUser,
   requireUserManagement,

@@ -1,0 +1,497 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Portal Login - Groxen</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    :root {
+      --primary: #10b981;
+      --primary-dark: #059669;
+      --primary-gradient: linear-gradient(135deg, #10b981 0%, #047857 100%);
+      --bg-gradient: radial-gradient(circle at 50% 0%, #1e293b 0%, #0f172a 60%, #090d16 100%);
+      --card-bg: rgba(255, 255, 255, 0.96);
+      --text-main: #0f172a;
+      --text-muted: #64748b;
+      --border-color: #cbd5e1;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Plus Jakarta Sans', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+      background: var(--bg-gradient);
+      min-height: 100vh;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1.5rem;
+      color: var(--text-main);
+      position: relative;
+      overflow-x: hidden;
+    }
+
+    /* Ambient Background Glowing Orbs */
+    body::before {
+      content: '';
+      position: absolute;
+      width: 450px;
+      height: 450px;
+      background: radial-gradient(circle, rgba(16, 185, 129, 0.22) 0%, rgba(16, 185, 129, 0) 70%);
+      top: 10%;
+      left: 20%;
+      pointer-events: none;
+      filter: blur(40px);
+      z-index: 0;
+    }
+
+    body::after {
+      content: '';
+      position: absolute;
+      width: 400px;
+      height: 400px;
+      background: radial-gradient(circle, rgba(79, 70, 229, 0.2) 0%, rgba(79, 70, 229, 0) 70%);
+      bottom: 10%;
+      right: 20%;
+      pointer-events: none;
+      filter: blur(40px);
+      z-index: 0;
+    }
+
+    .portal-container {
+      width: 100%;
+      max-width: 450px;
+      position: relative;
+      z-index: 1;
+    }
+
+    .portal-card {
+      background: var(--card-bg);
+      backdrop-filter: blur(24px);
+      -webkit-backdrop-filter: blur(24px);
+      border: 1px solid rgba(255, 255, 255, 0.8);
+      border-radius: 32px;
+      padding: 2.75rem 2.5rem;
+      box-shadow: 0 30px 70px -15px rgba(0, 0, 0, 0.4), 0 0 0 1px rgba(255, 255, 255, 0.5) inset;
+      animation: fadeInCard 0.45s cubic-bezier(0.16, 1, 0.3, 1);
+    }
+
+    @keyframes fadeInCard {
+      from { opacity: 0; transform: translateY(18px) scale(0.98); }
+      to { opacity: 1; transform: translateY(0) scale(1); }
+    }
+
+    .site-logo-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      margin-bottom: 1.5rem;
+      text-decoration: none;
+    }
+
+    .site-logo-mark {
+      width: 60px;
+      height: 60px;
+      background: var(--primary-gradient);
+      border-radius: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      color: #ffffff;
+      box-shadow: 0 12px 28px -6px rgba(16, 185, 129, 0.45), 0 0 0 1px rgba(255, 255, 255, 0.2) inset;
+      margin-bottom: 0.65rem;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .site-logo-wrapper:hover .site-logo-mark {
+      transform: translateY(-2px) scale(1.04);
+      box-shadow: 0 16px 32px -6px rgba(16, 185, 129, 0.55);
+    }
+
+    .site-brand-name {
+      font-size: 1.85rem;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.035em;
+    }
+
+    .portal-header {
+      text-align: center;
+      margin-bottom: 1.75rem;
+    }
+
+    .portal-header h1 {
+      margin: 0;
+      font-size: 1.4rem;
+      font-weight: 800;
+      letter-spacing: -0.025em;
+      color: #0f172a;
+    }
+
+    .portal-header p {
+      margin: 0.4rem 0 0;
+      font-size: 0.875rem;
+      color: var(--text-muted);
+      line-height: 1.45;
+      max-width: 320px;
+      margin-left: auto;
+      margin-right: auto;
+    }
+
+    .role-tabs {
+      display: flex;
+      gap: 6px;
+      background: #f1f5f9;
+      padding: 5px;
+      border-radius: 16px;
+      margin-bottom: 1.75rem;
+      border: 1px solid #e2e8f0;
+    }
+
+    .role-tab {
+      flex: 1;
+      border: none;
+      background: transparent;
+      padding: 9px 8px;
+      font-size: 0.8rem;
+      font-weight: 600;
+      color: var(--text-muted);
+      border-radius: 12px;
+      cursor: pointer;
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      text-align: center;
+      line-height: 1.2;
+    }
+
+    .role-tab:hover {
+      color: var(--text-main);
+    }
+
+    .role-tab.active {
+      background: #ffffff;
+      color: #059669;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.07), 0 1px 2px rgba(0, 0, 0, 0.04);
+      font-weight: 700;
+    }
+
+    .error-alert {
+      background: #fef2f2;
+      border: 1px solid #fecaca;
+      color: #dc2626;
+      padding: 0.85rem 1.1rem;
+      border-radius: 16px;
+      font-size: 0.875rem;
+      font-weight: 600;
+      margin-bottom: 1.35rem;
+      display: flex;
+      align-items: center;
+      gap: 0.65rem;
+      animation: shake 0.3s ease-in-out;
+    }
+
+    @keyframes shake {
+      0%, 100% { transform: translateX(0); }
+      25% { transform: translateX(-4px); }
+      75% { transform: translateX(4px); }
+    }
+
+    .form-group {
+      margin-bottom: 1.25rem;
+    }
+
+    .form-group label {
+      display: block;
+      font-size: 0.775rem;
+      font-weight: 800;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+    }
+
+    .input-wrapper {
+      position: relative;
+      display: flex;
+      align-items: center;
+      width: 100%;
+    }
+
+    .input-icon {
+      position: absolute;
+      left: 16px;
+      top: 50%;
+      transform: translateY(-50%);
+      color: #94a3b8;
+      pointer-events: none;
+      transition: color 0.2s ease;
+      z-index: 3;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      width: 20px;
+      height: 20px;
+    }
+
+    .form-control {
+      width: 100%;
+      height: 52px;
+      padding: 0 16px 0 48px;
+      font-family: inherit;
+      font-size: 0.95rem;
+      border: 1.5px solid var(--border-color);
+      border-radius: 16px;
+      background: #ffffff;
+      color: var(--text-main);
+      transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: none;
+      -webkit-appearance: none;
+      appearance: none;
+    }
+
+    .form-control.has-toggle {
+      padding-right: 50px !important;
+    }
+
+    .form-control:focus {
+      outline: none;
+      border-color: #10b981;
+      box-shadow: 0 0 0 4px rgba(16, 185, 129, 0.14);
+      background: #ffffff;
+    }
+
+    .input-wrapper:focus-within .input-icon {
+      color: #10b981;
+    }
+
+    .password-toggle {
+      position: absolute;
+      right: 12px;
+      top: 50%;
+      transform: translateY(-50%);
+      background: transparent;
+      border: none;
+      color: #94a3b8;
+      cursor: pointer;
+      padding: 6px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      transition: all 0.2s ease;
+      z-index: 4;
+      width: 34px;
+      height: 34px;
+    }
+
+    .password-toggle:hover {
+      color: #0f172a;
+      background: #f1f5f9;
+    }
+
+    .submit-btn {
+      width: 100%;
+      height: 52px;
+      border: none;
+      border-radius: 16px;
+      background: var(--primary-gradient);
+      color: #ffffff;
+      font-weight: 700;
+      font-size: 1rem;
+      cursor: pointer;
+      box-shadow: 0 12px 28px -6px rgba(16, 185, 129, 0.45);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.6rem;
+      margin-top: 1rem;
+    }
+
+    .submit-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 16px 32px -6px rgba(16, 185, 129, 0.55);
+    }
+
+    .submit-btn:active {
+      transform: translateY(0);
+    }
+
+    .portal-footer {
+      margin-top: 1.85rem;
+      padding-top: 1.35rem;
+      border-top: 1px solid #f1f5f9;
+      text-align: center;
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+    }
+
+    .portal-footer a {
+      color: #059669;
+      text-decoration: none;
+      font-weight: 700;
+      transition: color 0.2s ease;
+    }
+
+    .portal-footer a:hover {
+      color: #047857;
+      text-decoration: underline;
+    }
+
+    .back-landing-link {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 4px;
+      transition: transform 0.2s ease;
+    }
+
+    .back-landing-link:hover {
+      transform: translateX(-2px);
+      text-decoration: none !important;
+    }
+
+    .other-portals {
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      gap: 12px;
+      font-size: 0.83rem;
+    }
+  </style>
+</head>
+<%
+  const loginBgStyle = (typeof loginBg !== 'undefined' && loginBg && loginBg.activeStyle)
+    ? loginBg.activeStyle
+    : 'background-color: #4a0e17; background-image: linear-gradient(135deg, #4a0e17 0%, #28050b 100%);';
+%>
+<body style="<%= loginBgStyle %>">
+  <div class="portal-container">
+    <div class="portal-card">
+      
+      <!-- Site Logo Header -->
+      <a class="site-logo-wrapper" href="/" aria-label="Groxen Home">
+        <div class="site-logo-mark">
+          <svg viewBox="0 0 48 48" aria-hidden="true" style="width: 32px; height: 32px; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round;">
+            <path d="M12 27h24l-3 12H15z" fill="none" />
+            <path d="M15 26c0-7 4-12 9-12s9 5 9 12" fill="none" />
+            <path d="M17 18c-3-3-3-7 1-10 5 1 8 4 7 9" fill="currentColor" stroke="none" />
+            <path d="M27 17c-1-5 2-9 7-10 4 4 3 9-1 12" fill="#ff8a00" stroke="none" />
+            <path d="M10 27h28M15 39h18M14 31h21" fill="none" />
+          </svg>
+        </div>
+        <span class="site-brand-name">Groxen Dashboard</span>
+      </a>
+      <div style="text-align: center; font-size: 0.78rem; font-weight: 600; color: #64748b; margin-top: 4px; margin-bottom: 12px;">A product by Shining Universal Organisation Private Limited</div>
+
+      <div class="portal-header">
+        <h1>Admin Portal</h1>
+        <p>Sign in to access your administration & operations management dashboard</p>
+      </div>
+
+      <!-- Segmented Role Tabs (Super Admin tab hidden, silent authentication supported) -->
+      <div class="role-tabs">
+        <button type="button" class="role-tab <%= (!locals.selectedRole || locals.selectedRole === 'all') ? 'active' : '' %>" onclick="setRole('all')">All Portal Roles</button>
+        <button type="button" class="role-tab <%= (locals.selectedRole === 'admin') ? 'active' : '' %>" onclick="setRole('admin')">City Admin</button>
+        <button type="button" class="role-tab <%= (locals.selectedRole === 'staff') ? 'active' : '' %>" onclick="setRole('staff')">Operations Staff</button>
+      </div>
+
+      <% if (locals.error) { %>
+        <div class="error-alert">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+          <span><%= error %></span>
+        </div>
+      <% } %>
+
+      <form method="POST" action="/admin/login" id="loginForm" autocomplete="off">
+        <input type="hidden" name="login_role" id="loginRoleInput" value="<%= locals.selectedRole || 'all' %>" />
+
+        <div class="form-group">
+          <label for="email">Email Address</label>
+          <div class="input-wrapper">
+            <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+            <input id="email" type="email" name="email" class="form-control" placeholder="Enter email address" value="" autocomplete="off" required autofocus />
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="password">Password</label>
+          <div class="input-wrapper">
+            <svg class="input-icon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+            <input id="password" type="password" name="password" class="form-control has-toggle" placeholder="Enter password" value="" autocomplete="new-password" required />
+            <button type="button" class="password-toggle" onclick="togglePasswordVisibility()" aria-label="Toggle password visibility">
+              <svg id="eyeIcon" xmlns="http://www.w3.org/2000/svg" width="19" height="19" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" class="submit-btn" id="submitBtn">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/><polyline points="10 17 15 12 10 7"/><line x1="15" y1="12" x2="3" y2="12"/></svg>
+          <span id="submitBtnText">Sign In to Dashboard</span>
+        </button>
+      </form>
+
+      <div class="portal-footer">
+        <div class="other-portals">
+          <span>Vendor? <a href="/login/vendor">Vendor Login</a></span>
+          <span style="color: #cbd5e1;">•</span>
+          <span>Client? <a href="/login/client">Client Login</a></span>
+          <span style="color: #cbd5e1;">•</span>
+          <span>Superadmin? <a href="/superadmin">Superadmin Portal</a></span>
+        </div>
+        <a class="back-landing-link" href="/">← Back to Landing Page</a>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    window.addEventListener('DOMContentLoaded', () => {
+      const emailEl = document.getElementById('email');
+      const passEl = document.getElementById('password');
+      if (emailEl) emailEl.value = '';
+      if (passEl) passEl.value = '';
+    });
+
+    function setRole(role) {
+      document.getElementById('loginRoleInput').value = role;
+      document.querySelectorAll('.role-tab').forEach(tab => tab.classList.remove('active'));
+      const activeTab = Array.from(document.querySelectorAll('.role-tab')).find(t => {
+        const text = t.textContent.toLowerCase();
+        if (role === 'all' && text.includes('all')) return true;
+        if (role === 'admin' && text.includes('admin')) return true;
+        if (role === 'staff' && text.includes('staff')) return true;
+        return false;
+      });
+      if (activeTab) activeTab.classList.add('active');
+
+      const btnText = document.getElementById('submitBtnText');
+      if (role === 'admin') btnText.textContent = 'Sign In as City Admin';
+      else if (role === 'staff') btnText.textContent = 'Sign In as Operations Staff';
+      else btnText.textContent = 'Sign In to Dashboard';
+    }
+
+    function togglePasswordVisibility() {
+      const passwordInput = document.getElementById('password');
+      const eyeIcon = document.getElementById('eyeIcon');
+      if (passwordInput.type === 'password') {
+        passwordInput.type = 'text';
+        eyeIcon.innerHTML = '<path d="M17.94 17.94A10.07 10.07 0 0 1 12 20c-7 0-11-8-11-8a18.45 18.45 0 0 1 5.06-5.94M9.9 4.24A9.12 9.12 0 0 1 12 4c7 0 11 8 11 8a18.5 18.5 0 0 1-2.16 3.19m-6.72-1.07a3 3 0 1 1-4.24-4.24"/><line x1="1" y1="1" x2="23" y2="23"/>';
+      } else {
+        passwordInput.type = 'password';
+        eyeIcon.innerHTML = '<path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/>';
+      }
+    }
+  </script>
+</body>
+</html>

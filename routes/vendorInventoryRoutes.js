@@ -1,6 +1,8 @@
-const express = require('express');
+﻿const express = require('express');
 const router = express.Router();
 const vendorInventoryController = require('../controllers/vendorInventoryController');
+const mrpRevisionController = require('../controllers/mrpRevisionController');
+const { uploadProductImage, handleProductImageUploadError } = require('../middleware/productImageUpload');
 const { webOrJwtAuth, requireAuthRole } = require('../middleware/webOrJwtAuth');
 
 const vendorAuth = [webOrJwtAuth, requireAuthRole('Vendor')];
@@ -13,6 +15,8 @@ router.post('/api/vendor/variants/request-approval', vendorAuth, vendorInventory
 
 // Update inventory details for variation
 router.put('/api/vendor/inventory/:id', vendorAuth, vendorInventoryController.updateInventory);
+router.get('/api/vendor/mrp-revision-requests', vendorAuth, mrpRevisionController.list);
+router.post('/api/vendor/mrp-revision-requests', vendorAuth, uploadProductImage.single('proof'), handleProductImageUploadError, mrpRevisionController.create);
 
 // Reports & Analytics
 router.get('/api/vendor/inventory/reports', vendorAuth, vendorInventoryController.getReports);
@@ -21,3 +25,4 @@ router.get('/api/vendor/inventory/reports', vendorAuth, vendorInventoryControlle
 router.get('/api/vendor/inventory/export', vendorAuth, vendorInventoryController.exportReport);
 
 module.exports = router;
+

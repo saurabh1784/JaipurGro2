@@ -1,0 +1,248 @@
+<script>
+  document.body.classList.add('<%= shell.themeMode === "dark" ? "theme-dark" : "theme-light" %>');
+  document.body.dataset.themeMode = '<%= shell.themeMode === "dark" ? "dark" : "light" %>';
+</script>
+
+<aside class="system-sidebar" aria-label="Primary navigation">
+  <div class="brand">
+    <span class="brand-mark">G</span>
+    <span>GROXEN DASHBOARD</span>
+  </div>
+
+  <nav class="side-nav">
+    <% shell.navItems.forEach((item) => { %>
+      <% if (item.children && item.children.length) { %>
+        <details class="side-group" <%= item.active ? 'open' : '' %>>
+          <summary class="side-link <%= item.active ? 'active' : '' %>">
+            <span class="nav-icon">
+              <% if (item.icon === 'dashboard') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+              <% } else if (item.icon === 'users') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+              <% } else if (item.icon === 'roles') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+              <% } else if (item.icon === 'clients') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M21 8v6M18 11h6"/></svg>
+              <% } else if (item.icon === 'vendors') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h16l-1-5H5z"/><path d="M5 10v10h14V10"/><path d="M9 20v-5h6v5"/></svg>
+              <% } else if (item.icon === 'products') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12l3 5v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 7h18M9 11a3 3 0 0 0 6 0"/></svg>
+              <% } else if (item.icon === 'wallets') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="15" r="1"/></svg>
+              <% } else if (item.icon === 'orders') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
+              <% } else if (item.icon === 'delivery') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="1"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+              <% } else if (item.icon === 'support') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v10H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg>
+              <% } else if (item.icon === 'discounts') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
+              <% } else if (item.icon === 'reports') { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+              <% } else { %>
+                <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4"/></svg>
+              <% } %>
+            </span>
+            <span class="side-label"><%= item.label %></span>
+            <span class="side-caret" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+            </span>
+          </summary>
+          <div class="side-subnav">
+            <% item.children.forEach((child) => { %>
+              <a class="side-sublink <%= child.active ? 'active' : '' %>" href="<%= child.href %>"><%= child.label %></a>
+            <% }) %>
+          </div>
+        </details>
+      <% } else { %>
+        <a class="side-link <%= item.active ? 'active' : '' %>" href="<%= item.href %>">
+          <span class="nav-icon">
+            <% if (item.icon === 'dashboard') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/></svg>
+            <% } else if (item.icon === 'users') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+            <% } else if (item.icon === 'roles') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+            <% } else if (item.icon === 'vendors') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10h16l-1-5H5z"/><path d="M5 10v10h14V10"/><path d="M9 20v-5h6v5"/></svg>
+            <% } else if (item.icon === 'clients') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17 21v-2a4 4 0 0 0-4-4H7a4 4 0 0 0-4 4v2"/><circle cx="10" cy="7" r="4"/><path d="M21 8v6M18 11h6"/></svg>
+            <% } else if (item.icon === 'products') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2h12l3 5v13a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V7z"/><path d="M3 7h18M9 11a3 3 0 0 0 6 0"/></svg>
+            <% } else if (item.icon === 'wallets') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="2"/><path d="M2 10h20"/><circle cx="17" cy="15" r="1"/></svg>
+            <% } else if (item.icon === 'orders') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M6 2L3 6v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2V6l-3-4z"/><line x1="3" y1="6" x2="21" y2="6"/></svg>
+            <% } else if (item.icon === 'delivery') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="1" y="3" width="15" height="13" rx="1"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+            <% } else if (item.icon === 'support') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 5h16v10H8l-4 4z"/><path d="M8 9h8M8 12h5"/></svg>
+            <% } else if (item.icon === 'discounts') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><circle cx="7" cy="7" r="1.5"/></svg>
+            <% } else if (item.icon === 'reports') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
+            <% } else { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06A1.65 1.65 0 0 0 15 19.4"/></svg>
+            <% } %>
+          </span>
+          <%= item.label %>
+        </a>
+      <% } %>
+    <% }) %>
+    <a class="side-link" href="/logout">
+      <span class="nav-icon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 20H5a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h4"/><path d="M16 17l5-5-5-5M21 12H9"/></svg>
+      </span>
+      Logout
+    </a>
+  </nav>
+
+  <div class="role-summary">
+    <span>Signed in as</span>
+    <strong><%= shell.roleTitle %></strong>
+    <button class="theme-toggle" type="button" data-theme-toggle aria-label="Toggle light and dark mode" title="Toggle theme">
+      <span class="theme-toggle-icon theme-toggle-sun">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41"/></svg>
+      </span>
+      <span class="theme-toggle-icon theme-toggle-moon">
+        <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M21 12.8A8.5 8.5 0 1 1 11.2 3a6.8 6.8 0 0 0 9.8 9.8z"/></svg>
+      </span>
+      <span data-theme-label><%= shell.themeMode === 'dark' ? 'Dark' : 'Light' %></span>
+    </button>
+    <div style="font-size: 0.7rem; opacity: 0.8; margin-top: 8px; text-align: center; font-weight: 500; word-break: break-word;">
+      groxen is a child organisation of Shining Universal Organisation Private Limited
+    </div>
+  </div>
+</aside>
+
+<script>
+  (() => {
+    const button = document.querySelector('[data-theme-toggle]');
+    if (!button) return;
+    const label = button.querySelector('[data-theme-label]');
+
+    button.addEventListener('click', async () => {
+      const nextTheme = document.body.dataset.themeMode === 'dark' ? 'light' : 'dark';
+      document.body.classList.toggle('theme-dark', nextTheme === 'dark');
+      document.body.classList.toggle('theme-light', nextTheme === 'light');
+      document.body.dataset.themeMode = nextTheme;
+      if (label) label.textContent = nextTheme === 'dark' ? 'Dark' : 'Light';
+
+      try {
+        const response = await fetch('/theme', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ theme_mode: nextTheme }),
+        });
+        if (!response.ok) throw new Error('Unable to save theme');
+      } catch (error) {
+        const previousTheme = nextTheme === 'dark' ? 'light' : 'dark';
+        document.body.classList.toggle('theme-dark', previousTheme === 'dark');
+        document.body.classList.toggle('theme-light', previousTheme === 'light');
+        document.body.dataset.themeMode = previousTheme;
+        if (label) label.textContent = previousTheme === 'dark' ? 'Dark' : 'Light';
+        alert(error.message);
+      }
+    });
+  })();
+</script>
+
+<script>
+  (() => {
+    if (window.__systemFeedbackReady) return;
+    window.__systemFeedbackReady = true;
+
+    function feedbackType(message, requestedType) {
+      if (requestedType) return requestedType;
+      const text = String(message || '').toLowerCase();
+      if (/error|unable|failed|invalid|required|not found|denied|select|cannot|must /.test(text)) return 'error';
+      if (/success|saved|updated|deleted|created|sent|placed|approved|completed/.test(text)) return 'success';
+      if (/warning|confirm|careful|pending/.test(text)) return 'warning';
+      return 'info';
+    }
+
+    function feedbackStack() {
+      let stack = document.getElementById('systemFeedbackStack');
+      if (!stack) {
+        stack = document.createElement('section');
+        stack.id = 'systemFeedbackStack';
+        stack.className = 'system-feedback-stack';
+        stack.setAttribute('aria-live', 'polite');
+        stack.setAttribute('aria-label', 'System notifications');
+        document.body.appendChild(stack);
+      }
+      return stack;
+    }
+
+    window.systemNotify = (message, requestedType, options = {}) => {
+      const text = String(message || '').trim();
+      if (!text) return null;
+      const type = feedbackType(text, requestedType);
+      const card = document.createElement('article');
+      card.className = `system-feedback-card ${type}`;
+      card.setAttribute('role', type === 'error' ? 'alert' : 'status');
+      const icons = { error: '!', success: '✓', warning: '!', info: 'i' };
+      const titles = { error: 'Action needed', success: 'Success', warning: 'Please note', info: 'Information' };
+      card.innerHTML = `<span class="system-feedback-icon">${icons[type]}</span><div class="system-feedback-copy"><strong>${titles[type]}</strong><p></p></div><button type="button" class="system-feedback-close" aria-label="Dismiss">×</button>`;
+      card.querySelector('p').textContent = text;
+      const dismiss = () => { card.classList.add('leaving'); setTimeout(() => card.remove(), 180); };
+      card.querySelector('button').addEventListener('click', dismiss);
+      feedbackStack().appendChild(card);
+      requestAnimationFrame(() => card.classList.add('visible'));
+      if (options.sticky !== true) setTimeout(dismiss, Number(options.duration || (type === 'error' ? 7000 : 4500)));
+      return card;
+    };
+
+    window.alert = (message) => { window.systemNotify(message); };
+    window.addEventListener('unhandledrejection', (event) => {
+      const message = event.reason && event.reason.message ? event.reason.message : event.reason;
+      if (message) window.systemNotify(message, 'error', { sticky: true });
+    });
+    window.addEventListener('error', (event) => {
+      if (event.message) window.systemNotify(event.message, 'error', { sticky: true });
+    });
+  })();
+</script>
+
+<script>
+  (() => {
+    // Inactivity Auto-Logout Timer per Role
+    const userRole = "<%= String(shell && (shell.roleSlug || shell.roleTitle || shell.role) || '').toLowerCase().replace(/[\\s_-]+/g, '') %>";
+    
+    let timeoutMs = 24 * 60 * 60 * 1000; // Default 24 Hours
+    if (userRole === 'superadmin') {
+      timeoutMs = 2 * 60 * 60 * 1000; // 2 Hours for Superadmin
+    } else if (userRole === 'admin') {
+      timeoutMs = 1 * 60 * 60 * 1000; // 1 Hour for Admin
+    } else if (userRole.includes('staff') || userRole === 'manager' || userRole === 'operator') {
+      timeoutMs = 3 * 60 * 60 * 1000; // 3 Hours for Staff
+    } else if (userRole === 'vendor' || userRole === 'provider') {
+      timeoutMs = 24 * 60 * 60 * 1000; // 24 Hours for Vendor
+    } else if (userRole === 'client' || userRole === 'customer') {
+      timeoutMs = 0; // Persistent for Client until manual logout
+    }
+
+    if (timeoutMs > 0) {
+      let inactivityTimer;
+
+      function resetInactivityTimer() {
+        if (inactivityTimer) clearTimeout(inactivityTimer);
+        inactivityTimer = setTimeout(() => {
+          if (window.systemNotify) {
+            window.systemNotify('Session expired due to inactivity. Logging out...', 'warning', { sticky: true });
+          }
+          setTimeout(() => {
+            window.location.href = '/logout';
+          }, 1200);
+        }, timeoutMs);
+      }
+
+      const activityEvents = ['mousemove', 'mousedown', 'keydown', 'touchstart', 'scroll', 'click'];
+      activityEvents.forEach((evt) => {
+        window.addEventListener(evt, resetInactivityTimer, { passive: true });
+      });
+    }
+  })();
+</script>
+
+<%- include('admin_top_notification_widget') %>

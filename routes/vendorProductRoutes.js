@@ -1,6 +1,8 @@
-const express = require('express');
+﻿const express = require('express');
 const vendorProductController = require('../controllers/vendorProductController');
 const { uploadProductImage, handleProductImageUploadError } = require('../middleware/productImageUpload');
+const mrpRevisionController = require('../controllers/mrpRevisionController');
+const priceRevisionController = require('../controllers/priceRevisionController');
 
 const router = express.Router();
 
@@ -14,6 +16,12 @@ router.get('/client-visible/suggestions', vendorProductController.suggestions);
 router.post('/client-visible/activity', vendorProductController.trackActivity);
 router.post('/products/:productId/approve', vendorProductController.approveProduct);
 router.post('/products/:productId/reject', vendorProductController.rejectProduct);
+router.get('/price-revision-requests', priceRevisionController.list);
+router.post('/price-revision-requests', uploadProductImage.single('proof'), handleProductImageUploadError, priceRevisionController.create);
+router.post('/price-revision-requests/:id/review', priceRevisionController.review);
+router.put('/price-revision-requests/low-stock/:vendorProductId', priceRevisionController.setLowStockLimit);
+router.get('/mrp-revision-requests', mrpRevisionController.list);
+router.post('/mrp-revision-requests/:id/review', mrpRevisionController.review);
 router.post('/bulk-delete', vendorProductController.bulkDestroy);
 router.delete('/bulk', vendorProductController.bulkDestroy);
 router.get('/:id', vendorProductController.show);
@@ -24,3 +32,6 @@ router.delete('/:id/client-prices/:clientId', vendorProductController.deleteClie
 router.delete('/:id', vendorProductController.destroy);
 
 module.exports = router;
+
+
+

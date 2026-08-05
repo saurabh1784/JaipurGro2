@@ -75,6 +75,17 @@ function validateVendor(body, { requirePassword = false, locationOptions = null 
     category_ids: normalizeCategoryIds(body.category_ids || body.categories),
     is_premium_vendor: body.is_premium_vendor === true || body.is_premium_vendor === 'true' || body.is_premium_vendor === '1' || body.is_premium_vendor === 1,
     premium_commission_percent: Math.max(0, Math.min(100, Number(body.premium_commission_percent || 0))),
+    pan_card_path: body.pan_card_path ? String(body.pan_card_path).trim() : null,
+    aadhaar_card_path: body.aadhaar_card_path ? String(body.aadhaar_card_path).trim() : null,
+    gst_certificate_path: body.gst_certificate_path ? String(body.gst_certificate_path).trim() : null,
+    food_license_path: body.food_license_path ? String(body.food_license_path).trim() : null,
+    cancelled_cheque_path: body.cancelled_cheque_path ? String(body.cancelled_cheque_path).trim() : null,
+    shop_front_photo_path: body.shop_front_photo_path ? String(body.shop_front_photo_path).trim() : null,
+    shop_inside_photo_1_path: body.shop_inside_photo_1_path ? String(body.shop_inside_photo_1_path).trim() : null,
+    shop_inside_photo_2_path: body.shop_inside_photo_2_path ? String(body.shop_inside_photo_2_path).trim() : null,
+    shop_inside_photo_3_path: body.shop_inside_photo_3_path ? String(body.shop_inside_photo_3_path).trim() : null,
+    kyc_status: body.kyc_status ? String(body.kyc_status).trim() : 'pending_documents',
+    kyc_rejection_reason: body.kyc_rejection_reason ? String(body.kyc_rejection_reason).trim() : null,
   };
 
   if (data.name.length < 2) errors.push('Name must be at least 2 characters');
@@ -193,6 +204,7 @@ async function create(req, res) {
   try {
     data.password = await bcrypt.hash(data.password, 10);
     const id = await Vendor.create(data);
+    await VendorProfile.update(id, data);
     return res.status(201).json({ success: true, message: 'Vendor created', vendor: await Vendor.findById(id) });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
@@ -254,6 +266,14 @@ async function update(req, res) {
 
   try {
     await Vendor.update(id, data);
+    await VendorProfile.update(id, {
+      pan_card_path: data.pan_card_path, aadhaar_card_path: data.aadhaar_card_path,
+      gst_certificate_path: data.gst_certificate_path, food_license_path: data.food_license_path,
+      cancelled_cheque_path: data.cancelled_cheque_path, shop_front_photo_path: data.shop_front_photo_path,
+      shop_inside_photo_1_path: data.shop_inside_photo_1_path, shop_inside_photo_2_path: data.shop_inside_photo_2_path,
+      shop_inside_photo_3_path: data.shop_inside_photo_3_path, kyc_status: data.kyc_status,
+      kyc_rejection_reason: data.kyc_rejection_reason,
+    });
     return res.json({ success: true, message: 'Vendor updated', vendor: await Vendor.findById(id) });
   } catch (error) {
     if (error.code === 'ER_DUP_ENTRY' || error.code === '23505') {
@@ -397,6 +417,7 @@ async function fullDetails(req, res) {
         total_amount_earned: totalAmountEarned,
         wallet_balance: Number(wallet?.balance || 0),
         total_bids_assigned: totalBidsAssigned,
+        unique_product_count: Number(vendor.unique_product_count || 0),
         account_health: accountHealth,
         has_health_warning: hasWarning,
         health_warning_message: warningMessage,

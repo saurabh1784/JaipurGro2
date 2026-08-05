@@ -1,4 +1,4 @@
-const pool = require('../db');
+﻿const pool = require('../db');
 const Product = require('./Product');
 
 function normalize(row) {
@@ -11,6 +11,7 @@ function normalize(row) {
     product_id: row.product_id,
     vendor_id: row.vendor_id,
     quantity: Number(row.quantity || 0),
+    low_stock_limit: Number(row.low_stock_limit || 10),
     price: defaultPrice === undefined ? (row.price === undefined ? undefined : Number(row.price || 0)) : defaultPrice,
     status: row.status,
     created_at: row.created_at,
@@ -285,6 +286,22 @@ async function createProductRequest(data) {
     throw error;
   }
 
+  const duplicateParams = [data.name, data.brand_id, data.category_id, data.weight_value || 0, data.weight_unit || 'kg', data.pack_size || '', data.barcode || ''];
+  const [duplicates] = await pool.query(
+    `SELECT p.id, p.name FROM products p
+     WHERE p.is_deleted = 0 AND LOWER(TRIM(p.name)) = LOWER(TRIM(?))
+       AND p.brand_id = ? AND p.category_id = ?
+       AND COALESCE(p.weight_value, 0) = ? AND LOWER(COALESCE(p.weight_unit, '')) = LOWER(?)
+       AND LOWER(COALESCE(p.pack_size, '')) = LOWER(?)
+       AND (? = '' OR LOWER(COALESCE(p.barcode, '')) = LOWER(?))
+     LIMIT 1`, [...duplicateParams, duplicateParams[6]]
+  );
+  if (duplicates.length) {
+    const error = new Error(`A matching product already exists (${duplicates[0].name}, ID ${duplicates[0].id}). Please use the existing catalogue product.`);
+    error.status = 409;
+    throw error;
+  }
+
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -294,19 +311,9 @@ async function createProductRequest(data) {
       approval_status: 'pending',
       created_by_vendor_id: vendorId,
     });
-    await connection.query(
-      `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status, image_url)
-       VALUES (?, ?, ?, ?, 'active', ?)
-       ON CONFLICT (product_id, vendor_id) DO UPDATE
-       SET quantity = EXCLUDED.quantity,
-           price = EXCLUDED.price,
-           status = EXCLUDED.status,
-           image_url = EXCLUDED.image_url`,
-      [productId, vendorId, quantity, price, data.image_url || null]
-    );
     await connection.commit();
     invalidateVisibleProductsCache();
-    return findById(await findExistingId(productId, vendorId));
+    return Product.findById(productId);
   } catch (error) {
     await connection.rollback();
     throw error;
@@ -329,7 +336,7 @@ async function resubmitProductRequest(productId, data) {
     error.status = 404;
     throw error;
   }
-  if (!['rejected', 'pending', 'in_review'].includes(existing.approval_status)) {
+  if (!['rejected', 'changes_required', 'pending', 'in_review'].includes(existing.approval_status)) {
     const error = new Error('Only pending, in-review, or rejected product requests can be updated');
     error.status = 422;
     throw error;
@@ -351,22 +358,7 @@ async function resubmitProductRequest(productId, data) {
   await Product.update(id, { ...data, price });
   await Product.updateApprovalStatus(id, { status: 'pending', actor_id: vendorId });
   invalidateVisibleProductsCache();
-  const vendorProductId = await findExistingId(id, vendorId);
-  if (vendorProductId) {
-    await update(vendorProductId, {
-      price,
-      quantity,
-      status: 'active',
-      image_url: data.image_url,
-    });
-  } else {
-    await pool.query(
-      `INSERT INTO vendor_products (product_id, vendor_id, quantity, price, status, image_url)
-       VALUES (?, ?, ?, ?, 'active', ?)`,
-      [id, vendorId, quantity, price, data.image_url || null]
-    );
-  }
-  return findById(await findExistingId(id, vendorId));
+  return Product.findById(id);
 }
 
 async function findExistingId(productId, vendorId) {
@@ -896,6 +888,10 @@ module.exports = {
   visibleForClient,
   invalidateVisibleProductsCache,
 };
+
+
+
+
 
 
 

@@ -1,0 +1,2680 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= dashboard.roleTitle %> Dashboard</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap');
+
+    body {
+      font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    }
+
+    /* Live Status Topbar Button */
+    .live-status-btn {
+      display: inline-flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 18px;
+      border-radius: 10px;
+      border: 1px solid rgba(16, 185, 129, 0.4);
+      background: linear-gradient(135deg, rgba(16, 185, 129, 0.12) 0%, rgba(16, 185, 129, 0.04) 100%);
+      color: #10b981;
+      font-weight: 700;
+      font-size: 0.88rem;
+      cursor: pointer;
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+      box-shadow: 0 2px 8px rgba(16, 185, 129, 0.1);
+    }
+    .live-status-btn:hover {
+      background: #10b981;
+      color: #ffffff;
+      border-color: #10b981;
+      box-shadow: 0 6px 20px rgba(16, 185, 129, 0.35);
+      transform: translateY(-1px);
+    }
+    .live-pulse-dot {
+      width: 9px;
+      height: 9px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7);
+      animation: pulse-ring 1.5s infinite;
+    }
+    @keyframes pulse-ring {
+      0% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0.7); }
+      70% { box-shadow: 0 0 0 8px rgba(16, 185, 129, 0); }
+      100% { box-shadow: 0 0 0 0 rgba(16, 185, 129, 0); }
+    }
+
+    /* Main Dashboard Summary Cards */
+    .main-dashboard-summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 18px;
+      margin-bottom: 28px;
+    }
+    .dash-summary-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 14px;
+      padding: 18px 22px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04), 0 6px 12px -2px rgba(0, 0, 0, 0.03);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+    .dash-summary-card:hover {
+      transform: translateY(-3px);
+      box-shadow: 0 12px 24px -4px rgba(0, 0, 0, 0.08);
+      border-color: #cbd5e1;
+    }
+    .system-theme.theme-dark .dash-summary-card,
+    body.dark .dash-summary-card {
+      background: #1e293b;
+      border-color: #334155;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.2);
+    }
+    .dash-card-icon {
+      width: 48px;
+      height: 48px;
+      border-radius: 12px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      position: relative;
+      flex-shrink: 0;
+    }
+    .icon-blue { background: rgba(59, 130, 246, 0.12); color: #3b82f6; }
+    .icon-purple { background: rgba(168, 85, 247, 0.12); color: #a855f7; }
+    .icon-orange { background: rgba(249, 115, 22, 0.12); color: #f97316; }
+    .icon-green { background: rgba(16, 185, 129, 0.12); color: #10b981; }
+    .live-dot-indicator {
+      position: absolute;
+      top: 3px;
+      right: 3px;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: #10b981;
+      box-shadow: 0 0 6px #10b981;
+    }
+    .dash-card-title {
+      display: block;
+      font-size: 0.76rem;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.6px;
+    }
+    .dash-card-value {
+      display: block;
+      font-size: 1.6rem;
+      font-weight: 800;
+      color: #0f172a;
+      line-height: 1.2;
+      margin-top: 2px;
+    }
+    .system-theme.theme-dark .dash-card-value,
+    body.dark .dash-card-value { color: #f8fafc; }
+    .dash-card-value.live-green { color: #10b981; }
+
+    /* Product Statistics Section Styling */
+    .dashboard-product-stats-section {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 24px;
+      box-shadow: 0 4px 12px -2px rgba(0, 0, 0, 0.04);
+      transition: all 0.2s ease;
+    }
+    .system-theme.theme-dark .dashboard-product-stats-section,
+    body.dark .dashboard-product-stats-section {
+      background: #1e293b !important;
+      border-color: #334155 !important;
+      color: #f8fafc !important;
+    }
+    .system-theme.theme-dark .dashboard-product-stats-section h2,
+    .system-theme.theme-dark .dashboard-product-stats-section h4,
+    body.dark .dashboard-product-stats-section h2,
+    body.dark .dashboard-product-stats-section h4 {
+      color: #f8fafc !important;
+    }
+    .system-theme.theme-dark .dashboard-product-stats-section p,
+    body.dark .dashboard-product-stats-section p {
+      color: #94a3b8 !important;
+    }
+    .system-theme.theme-dark select,
+    body.dark select {
+      background: #0f172a !important;
+      color: #f8fafc !important;
+      border-color: #334155 !important;
+    }
+
+    /* Full-Screen Live Status Overlay Modal */
+    .live-fullscreen-modal {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      z-index: 99999;
+      background: #0b1329;
+      color: #f8fafc;
+      overflow-y: auto;
+      display: none;
+      flex-direction: column;
+    }
+    .live-fullscreen-modal.active {
+      display: flex;
+    }
+    .live-modal-header {
+      padding: 18px 32px;
+      background: #0f172a;
+      border-bottom: 1px solid #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 16px;
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      backdrop-filter: blur(8px);
+    }
+    .live-modal-title-group {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .live-modal-title-group h2 {
+      margin: 0;
+      font-size: 1.35rem;
+      font-weight: 800;
+      letter-spacing: -0.5px;
+      color: #ffffff;
+    }
+    .live-header-actions {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .live-meta-info {
+      font-size: 0.82rem;
+      color: #94a3b8;
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+    .live-refresh-btn {
+      padding: 7px 16px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: #1e293b;
+      color: #38bdf8;
+      font-weight: 700;
+      font-size: 0.82rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .live-refresh-btn:hover {
+      background: #38bdf8;
+      color: #0f172a;
+      border-color: #38bdf8;
+      box-shadow: 0 4px 12px rgba(56, 189, 248, 0.3);
+    }
+    .live-close-btn {
+      background: rgba(255, 255, 255, 0.1);
+      border: none;
+      color: #ffffff;
+      font-size: 26px;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+    .live-close-btn:hover {
+      background: #ef4444;
+    }
+
+    .live-modal-body {
+      padding: 28px 32px;
+      max-width: 1440px;
+      margin: 0 auto;
+      width: 100%;
+      box-sizing: border-box;
+      display: flex;
+      flex-direction: column;
+      gap: 28px;
+    }
+
+    /* Date & City Filter Bar */
+    .live-filter-bar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      flex-wrap: wrap;
+      gap: 16px;
+      background: #0f172a;
+      padding: 14px 20px;
+      border-radius: 12px;
+      border: 1px solid #1e293b;
+    }
+    .live-filter-pills {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .live-pill {
+      padding: 7px 15px;
+      border-radius: 8px;
+      border: 1px solid #334155;
+      background: transparent;
+      color: #94a3b8;
+      font-weight: 600;
+      font-size: 0.85rem;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .live-pill.active, .live-pill:hover {
+      background: #38bdf8;
+      color: #0f172a;
+      border-color: #38bdf8;
+      font-weight: 700;
+    }
+
+    /* Section Cards Grid */
+    .live-section-header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+    }
+    .live-section-header h3 {
+      margin: 0;
+      font-size: 1.15rem;
+      font-weight: 700;
+      color: #f1f5f9;
+    }
+    .live-grid-4 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+    }
+    .live-grid-6 {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 14px;
+    }
+
+    .live-metric-box {
+      background: #0f172a;
+      border: 1px solid #1e293b;
+      border-radius: 12px;
+      padding: 18px 22px;
+      cursor: pointer;
+      transition: all 0.25s ease;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+    }
+    .live-metric-box:hover {
+      border-color: #38bdf8;
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px -4px rgba(56, 189, 248, 0.25);
+    }
+    .live-metric-label {
+      font-size: 0.82rem;
+      color: #94a3b8;
+      font-weight: 600;
+      margin-bottom: 6px;
+    }
+    .live-metric-val {
+      font-size: 1.8rem;
+      font-weight: 800;
+      color: #f8fafc;
+    }
+    .live-metric-val.green { color: #34d399; }
+    .live-metric-val.amber { color: #fbbf24; }
+    .live-metric-val.blue { color: #60a5fa; }
+    .live-metric-val.purple { color: #c084fc; }
+    .live-metric-val.red { color: #f87171; }
+    .live-metric-sub {
+      font-size: 0.75rem;
+      color: #64748b;
+      margin-top: 6px;
+    }
+
+    /* Detail Sub Modal */
+    .live-submodal-overlay {
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: rgba(0, 0, 0, 0.75);
+      backdrop-filter: blur(4px);
+      z-index: 100000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      opacity: 0;
+      pointer-events: none;
+      transition: opacity 0.2s ease;
+      padding: 20px;
+    }
+    .live-submodal-overlay.active {
+      opacity: 1;
+      pointer-events: auto;
+    }
+    .live-submodal-card {
+      background: #0f172a;
+      border: 1px solid #334155;
+      width: 720px;
+      max-width: 95vw;
+      max-height: 80vh;
+      border-radius: 16px;
+      display: flex;
+      flex-direction: column;
+      overflow: hidden;
+      box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+    }
+    .live-submodal-header {
+      padding: 16px 22px;
+      background: #1e293b;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      border-bottom: 1px solid #334155;
+    }
+    .live-submodal-header h3 { margin: 0; color: #f8fafc; font-size: 1.1rem; }
+    .live-submodal-body {
+      padding: 18px 22px;
+      overflow-y: auto;
+      flex: 1;
+    }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  <% const vendorQuotationNotice = (dashboard.notifications || []).find((notification) => notification.href === '/vendor/quotations'); %>
+  <% const money = (value) => `INR ${Number(value || 0).toFixed(2)}`; %>
+  <% const clientLiveQuotations = dashboard.clientLiveQuotations || []; %>
+  <% const vendorNewOrders = dashboard.vendorNewOrders || []; %>
+  <% const vendorNewQuotations = dashboard.vendorNewQuotations || []; %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / <%= dashboard.roleTitle %></p>
+        <h1><%= dashboard.roleTitle %> Dashboard</h1>
+      </div>
+      <div class="topbar-actions">
+        <% if (locals.canViewLiveStatus) { %>
+          <button class="live-status-btn" type="button" onclick="openLiveStatusModal()">
+            <span class="live-pulse-dot"></span>
+            ⚡ Live Status
+          </button>
+        <% } %>
+        <label class="system-search" aria-label="Search dashboard">
+          <input type="search" placeholder="Search" />
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        </label>
+        <button class="icon-button" type="button" aria-label="Apps">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><rect x="14" y="14" width="6" height="6" rx="1"/></svg>
+        </button>
+        <button class="icon-button alert" type="button" aria-label="Notifications">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9"/><path d="M10 20h4"/></svg>
+        </button>
+        <button class="icon-button" type="button" aria-label="Account">
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21a8 8 0 0 1 16 0"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <% if (user && (String(user.role || user.roleName || '').toLowerCase().replace(/[\s_-]+/g, '') === 'superadmin')) { %>
+      <!-- SUPERADMIN SYSTEM COMMAND CENTER BANNER -->
+      <section class="superadmin-command-center" style="margin-top: 20px; margin-bottom: 24px; background: linear-gradient(135deg, #0f172a 0%, #1e1b4b 50%, #0f172a 100%); border: 1px solid #334155; border-radius: 16px; padding: 22px 28px; color: #ffffff; box-shadow: 0 10px 25px -5px rgba(15, 23, 42, 0.4);">
+        <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px;">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="width: 50px; height: 50px; border-radius: 14px; background: linear-gradient(135deg, #6366f1 0%, #a855f7 100%); display: flex; align-items: center; justify-content: center; font-size: 24px; box-shadow: 0 4px 14px rgba(99, 102, 241, 0.4); flex-shrink: 0;">
+              👑
+            </div>
+            <div>
+              <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <h2 style="margin: 0; font-size: 1.25rem; font-weight: 800; color: #ffffff; letter-spacing: -0.3px;">Superadmin All-System Command Center</h2>
+                <span style="padding: 3px 10px; border-radius: 20px; background: rgba(99, 102, 241, 0.25); border: 1px solid rgba(99, 102, 241, 0.4); color: #818cf8; font-size: 0.75rem; font-weight: 700;">REAL DATABASE LIVE METRICS</span>
+              </div>
+              <p style="margin: 4px 0 0 0; font-size: 0.85rem; color: #94a3b8;">
+                Real-time aggregated metrics across all cities, vendors, clients, delivery partners, orders, and financial data.
+              </p>
+            </div>
+          </div>
+          <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap;">
+            <button class="live-status-btn" type="button" onclick="setLiveCity('all')" style="border-color: #818cf8; background: rgba(99, 102, 241, 0.15); color: #a5b4fc;">
+              <span class="live-pulse-dot" style="background: #818cf8; box-shadow: 0 0 0 0 rgba(129, 140, 248, 0.7);"></span>
+              ⚡ Global All-System Mode
+            </button>
+            <button class="live-refresh-btn" type="button" onclick="fetchLiveStatus(); fetchProductStats();" style="padding: 9px 18px; border-radius: 10px; font-weight: 700; background: #38bdf8; color: #0f172a;">
+              ↻ Refresh Real Data
+            </button>
+          </div>
+        </div>
+      </section>
+    <% } %>
+
+    <% if (error) { %>
+      <div class="system-alert"><%= error %></div>
+    <% } %>
+
+    <% if (typeof message !== 'undefined' && message) { %>
+      <div class="system-alert system-alert-success"><%= message %></div>
+    <% } %>
+
+    <% if (dashboard.notifications && dashboard.notifications.length) { %>
+      <section class="dashboard-notifications" aria-label="Notifications">
+        <% dashboard.notifications.forEach((notification) => { %>
+          <a href="<%= notification.href %>" class="dashboard-notification">
+            <span><%= notification.message %></span>
+            <strong><%= notification.count %></strong>
+          </a>
+        <% }) %>
+      </section>
+    <% } %>
+
+    <% if (locals.canViewLiveStatus) { %>
+      <section class="main-dashboard-summary-grid" aria-label="Live System Summary">
+        <div class="dash-summary-card">
+          <div class="dash-card-icon icon-blue">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+          </div>
+          <div>
+            <span class="dash-card-title">Total Clients</span>
+            <strong class="dash-card-value" id="mainTotalClients">-</strong>
+          </div>
+        </div>
+        <div class="dash-summary-card">
+          <div class="dash-card-icon icon-purple">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="7" width="20" height="14" rx="2" ry="2"/><path d="M16 21V5a2 2 0 0 0-2-2h-4a2 2 0 0 0-2 2v16"/></svg>
+          </div>
+          <div>
+            <span class="dash-card-title">Total Vendors</span>
+            <strong class="dash-card-value" id="mainTotalVendors">-</strong>
+          </div>
+        </div>
+        <div class="dash-summary-card">
+          <div class="dash-card-icon icon-orange">
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><rect x="1" y="3" width="15" height="13"/><polygon points="16 8 20 8 23 11 23 16 16 16 16 8"/><circle cx="5.5" cy="18.5" r="2.5"/><circle cx="18.5" cy="18.5" r="2.5"/></svg>
+          </div>
+          <div>
+            <span class="dash-card-title">Total Delivery Partners</span>
+            <strong class="dash-card-value" id="mainTotalDp">-</strong>
+          </div>
+        </div>
+        <div class="dash-summary-card">
+          <div class="dash-card-icon icon-green">
+            <span class="live-dot-indicator"></span>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          </div>
+          <div>
+            <span class="dash-card-title">Online Clients</span>
+            <strong class="dash-card-value live-green" id="mainOnlineClients">-</strong>
+          </div>
+        </div>
+        <div class="dash-summary-card">
+          <div class="dash-card-icon icon-green">
+            <span class="live-dot-indicator"></span>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          </div>
+          <div>
+            <span class="dash-card-title">Online Vendors</span>
+            <strong class="dash-card-value live-green" id="mainOnlineVendors">-</strong>
+          </div>
+        </div>
+        <div class="dash-summary-card">
+          <div class="dash-card-icon icon-green">
+            <span class="live-dot-indicator"></span>
+            <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+          </div>
+          <div>
+            <span class="dash-card-title">Online Delivery Partners</span>
+            <strong class="dash-card-value live-green" id="mainOnlineDp">-</strong>
+          </div>
+        </div>
+      </section>
+    <% } %>
+
+    <% if (user.role === 'Client') { %>
+      <section class="client-live-bid-home-card" id="clientLiveBidHomeCard" aria-live="polite" hidden>
+        <button class="client-live-bid-close" type="button" id="clientLiveBidHomeClose" aria-label="Hide live bid card">x</button>
+        <div class="client-live-bid-copy">
+          <span id="clientLiveBidStatus">Active bidding</span>
+          <h2 id="clientLiveBidTitle">Live Bid</h2>
+          <p id="clientLiveBidVendor">Vendor response</p>
+        </div>
+        <div class="client-live-bid-metrics">
+          <div>
+            <span>Base Price</span>
+            <strong id="clientLiveBidBase">INR 0.00</strong>
+          </div>
+          <div>
+            <span>Bid Price</span>
+            <strong id="clientLiveBidPrice">INR 0.00</strong>
+          </div>
+          <div>
+            <span>Saving</span>
+            <strong id="clientLiveBidSaving">INR 0.00</strong>
+          </div>
+        </div>
+        <a class="client-live-bid-link" id="clientLiveBidLink" href="/client/quotations">Open Quotation</a>
+      </section>
+    <% } %>
+
+    <% if (user.role === 'Vendor') { %>
+      <section class="vendor-new-order-card" id="vendorNewOrderCard" aria-live="polite" hidden>
+        <div class="vendor-new-order-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
+        </div>
+        <div class="vendor-new-order-copy">
+          <span id="vendorNewOrderStatus">New order found</span>
+          <h2 id="vendorNewOrderTitle">Order #</h2>
+          <p id="vendorNewOrderMeta">Client order request</p>
+        </div>
+        <div class="vendor-new-order-metrics">
+          <div>
+            <span>Order Amount</span>
+            <strong id="vendorNewOrderAmount">INR 0.00</strong>
+          </div>
+          <div>
+            <span>Order Type</span>
+            <strong id="vendorNewOrderType">Direct</strong>
+          </div>
+          <div>
+            <span>Status</span>
+            <strong id="vendorNewOrderState">Pending</strong>
+          </div>
+        </div>
+        <a class="vendor-new-order-link" id="vendorNewOrderLink" href="/orders/vendor">Open Order</a>
+      </section>
+
+      <section class="vendor-new-quotation-card" id="vendorNewQuotationCard" aria-live="polite" hidden>
+        <div class="vendor-new-quotation-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24"><path d="M6 3h12v18H6z"/><path d="M9 8h6M9 12h6M9 16h4"/></svg>
+        </div>
+        <div class="vendor-new-quotation-copy">
+          <span id="vendorNewQuotationStatus">New quotation found</span>
+          <h2 id="vendorNewQuotationTitle">Quotation #</h2>
+          <p id="vendorNewQuotationMeta">Client quotation request</p>
+        </div>
+        <div class="vendor-new-quotation-metrics">
+          <div>
+            <span>Base Price</span>
+            <strong id="vendorNewQuotationBase">INR 0.00</strong>
+          </div>
+          <div>
+            <span>Minimum Bid</span>
+            <strong id="vendorNewQuotationBid">No bids yet</strong>
+          </div>
+          <div>
+            <span>Items</span>
+            <strong id="vendorNewQuotationItems">0</strong>
+          </div>
+        </div>
+        <a class="vendor-new-quotation-link" id="vendorNewQuotationLink" href="/vendor/quotations">Open Quotation</a>
+      </section>
+
+      <% if (dashboard.vendorCards) { %>
+        <section class="vendor-metric-cards-grid" aria-label="Vendor Overview Cards">
+          <a href="/vendor-products" class="vendor-metric-card">
+            <div class="vendor-metric-icon icon-products">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+              </svg>
+            </div>
+            <div class="vendor-metric-content">
+              <span class="vendor-metric-label">Total Products</span>
+              <strong class="vendor-metric-value"><%= dashboard.vendorCards.totalProducts %></strong>
+              <span class="vendor-metric-sub">Active items in store</span>
+            </div>
+          </a>
+
+          <a href="/vendor/quotations" class="vendor-metric-card">
+            <div class="vendor-metric-icon icon-quotations">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5.586a1 1 0 0 1 .707.293l5.414 5.414a1 1 0 0 1 .293.707V19a2 2 0 0 1-2 2z"/>
+              </svg>
+            </div>
+            <div class="vendor-metric-content">
+              <span class="vendor-metric-label">Received Quotations</span>
+              <strong class="vendor-metric-value"><%= dashboard.vendorCards.totalQuotations %></strong>
+              <span class="vendor-metric-sub">Total client requests</span>
+            </div>
+          </a>
+
+          <a href="/orders/vendor" class="vendor-metric-card">
+            <div class="vendor-metric-icon icon-orders">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                <path d="M16 11V7a4 4 0 0 0-8 0v4M5 9h14l1 12H4L5 9z"/>
+              </svg>
+            </div>
+            <div class="vendor-metric-content">
+              <span class="vendor-metric-label">Received Orders</span>
+              <strong class="vendor-metric-value"><%= dashboard.vendorCards.totalOrders %></strong>
+              <span class="vendor-metric-sub">Total client orders</span>
+            </div>
+          </a>
+
+          <a href="/wallets" class="vendor-metric-card">
+            <div class="vendor-metric-icon icon-wallet">
+              <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+                <rect x="2" y="5" width="20" height="14" rx="2"/>
+                <line x1="2" y1="10" x2="22" y2="10"/>
+              </svg>
+            </div>
+            <div class="vendor-metric-content">
+              <span class="vendor-metric-label">Wallet Amount</span>
+              <strong class="vendor-metric-value"><%= money(dashboard.vendorCards.walletBalance) %></strong>
+              <span class="vendor-metric-sub">Available balance</span>
+            </div>
+          </a>
+        </section>
+      <% } %>
+    <% } %>
+
+    <% if (dashboard.vendorStats) { %>
+      <section class="vendor-quotation-summary" aria-label="Vendor quotation summary">
+        <% dashboard.vendorStats.quotations.forEach((stat) => { %>
+          <a class="vendor-quote-stat <%= stat.tone %>" href="/vendor/quotations">
+            <span><%= stat.label %> Quotations</span>
+            <strong><%= stat.count %></strong>
+            <small><%= money(stat.amount) %></small>
+          </a>
+        <% }) %>
+        <article class="vendor-health-card <%= dashboard.vendorStats.accountHealth.tone %>">
+          <div class="vendor-health-header">
+            <span>Account Health</span>
+            <strong><%= dashboard.vendorStats.accountHealth.score %>%</strong>
+          </div>
+          <div class="vendor-health-track" aria-hidden="true">
+            <span style="width: <%= dashboard.vendorStats.accountHealth.score %>%"></span>
+          </div>
+          <p><%= dashboard.vendorStats.accountHealth.activeProducts %> active products / minimum <%= dashboard.vendorStats.accountHealth.minimum %></p>
+        </article>
+      </section>
+    <% } %>
+
+    <% if (dashboard.supportSummary) { %>
+      <section class="support-dashboard-card">
+        <div>
+          <span>Support</span>
+          <h2><%= dashboard.supportSummary.openTicket ? `Ticket #${dashboard.supportSummary.openTicket.id} is Open` : 'No open support ticket' %></h2>
+          <p><%= dashboard.supportSummary.openTicket ? dashboard.supportSummary.openTicket.subject : `${dashboard.supportSummary.total} total ticket${dashboard.supportSummary.total === 1 ? '' : 's'}` %></p>
+        </div>
+        <a class="settings-save" href="<%= dashboard.supportSummary.href %>">Open Support</a>
+      </section>
+      <% if (dashboard.supportTickets && dashboard.supportTickets.length) { %>
+        <section class="support-ticket-strip">
+          <% dashboard.supportTickets.forEach((ticket) => { %>
+            <a href="<%= dashboard.supportSummary.href %>" class="support-ticket-chip">
+              <span class="<%= ticket.status === 'Open' ? 'open' : 'closed' %>"><%= ticket.status %></span>
+              <strong>#<%= ticket.id %> <%= ticket.subject %></strong>
+              <small><%= ticket.message_count %> message<%= ticket.message_count === 1 ? '' : 's' %></small>
+            </a>
+          <% }) %>
+        </section>
+      <% } %>
+    <% } %>
+
+    <% if (dashboard.catalogStats) { %>
+
+      <section class="dashboard-catalog-card" aria-label="Product Data Summary">
+        <div class="catalog-summary-header">
+          <div class="catalog-summary-badge">
+            <svg viewBox="0 0 24 24" width="24" height="24" fill="none" stroke="currentColor" stroke-width="2">
+              <path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/>
+            </svg>
+          </div>
+          <div class="catalog-summary-text">
+            <h2>Product & Catalog Overview</h2>
+            <p>Live total counts for Main Categories, SubCategories, Brands, and Products</p>
+          </div>
+          <a href="/products" class="catalog-manage-btn">
+            Manage Products
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2"><path d="M5 12h14M12 5l7 7-7 7"/></svg>
+          </a>
+        </div>
+
+        <div class="catalog-stats-grid">
+          <div class="catalog-stat-item green">
+            <div class="catalog-stat-icon">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16M4 12h16M4 18h7"/></svg>
+            </div>
+            <div class="catalog-stat-data">
+              <span>Main Categories</span>
+              <strong><%= dashboard.catalogStats.categories %></strong>
+              <small>Active Categories</small>
+            </div>
+          </div>
+
+          <div class="catalog-stat-item blue">
+            <div class="catalog-stat-icon">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
+            </div>
+            <div class="catalog-stat-data">
+              <span>Sub Categories</span>
+              <strong><%= dashboard.catalogStats.subcategories %></strong>
+              <small>Catalog SubCategories</small>
+            </div>
+          </div>
+
+          <div class="catalog-stat-item purple">
+            <div class="catalog-stat-icon">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M7 7h10v10H7z"/><path d="M12 3v4M12 17v4M3 12h4M17 12h4"/></svg>
+            </div>
+            <div class="catalog-stat-data">
+              <span>Brands</span>
+              <strong><%= dashboard.catalogStats.brands %></strong>
+              <small>Registered Brands</small>
+            </div>
+          </div>
+
+          <div class="catalog-stat-item orange">
+            <div class="catalog-stat-icon">
+              <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 7l-8-4-8 4m16 0l-8 4m8-4v10l-8 4m0-10L4 7m8 4v10M4 7v10l8 4"/></svg>
+            </div>
+            <div class="catalog-stat-data">
+              <span>Total Products</span>
+              <strong><%= dashboard.catalogStats.products %></strong>
+              <small><%= dashboard.catalogStats.pendingProducts %> pending approval</small>
+            </div>
+          </div>
+        </div>
+      </section>
+    <% } %>
+
+    <section class="metric-grid" aria-label="Role dashboard metrics">
+
+      <% dashboard.metrics.forEach((metric) => { %>
+        <article class="metric-card">
+          <div class="metric-icon <%= metric.tone %>">
+            <% if (metric.icon === 'users') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/></svg>
+            <% } else if (metric.icon === 'revenue') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v18M7 8h10M9 13h6"/></svg>
+            <% } else if (metric.icon === 'alerts') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="12" cy="12" r="8"/><path d="M12 8v5M12 16h.01"/></svg>
+            <% } else if (metric.icon === 'orders') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h14v16H5z"/><path d="M8 8h8M8 12h8M8 16h5"/></svg>
+            <% } else if (metric.icon === 'products') { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 7h11v13H8z"/><path d="M5 4h11v13"/></svg>
+            <% } else { %>
+              <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 18h14M7 15l3-6 4 4 3-8"/></svg>
+            <% } %>
+          </div>
+          <span class="metric-label"><%= metric.label %></span>
+          <strong><%= metric.value %></strong>
+          <p><%= metric.note %></p>
+        </article>
+      <% }) %>
+    </section>
+
+    <section class="chart-grid" aria-label="Role charts">
+      <% dashboard.charts.forEach((chart) => { %>
+        <article class="panel chart-panel <%= chart.tone %>">
+          <div class="chart-card">
+            <% if (chart.type === 'bars') { %>
+              <div class="bar-chart" aria-hidden="true">
+                <% [46, 70, 42, 82, 55, 76, 48, 66, 58, 73, 88, 95].forEach((height) => { %>
+                  <span style="height: <%= height %>%"></span>
+                <% }) %>
+              </div>
+            <% } else if (chart.type === 'line-down') { %>
+              <svg viewBox="0 0 320 120" aria-hidden="true">
+                <path class="grid-line" d="M10 25H310M10 55H310M10 85H310"/>
+                <path class="line-chart" d="M22 90L61 18L100 58L139 68L178 72L217 76L256 79L298 82"/>
+              </svg>
+            <% } else { %>
+              <svg viewBox="0 0 320 120" aria-hidden="true">
+                <path class="grid-line" d="M10 25H310M10 55H310M10 85H310"/>
+                <path class="line-chart" d="M22 80L61 63L100 77L139 58L178 48L217 59L256 39L298 13"/>
+              </svg>
+            <% } %>
+          </div>
+          <h2><%= chart.title %></h2>
+          <p><%= chart.subtitle %></p>
+          <span><%= chart.footer %></span>
+        </article>
+      <% }) %>
+    </section>
+
+    <section class="work-grid">
+      <article class="panel tasks-panel">
+        <div class="panel-header purple-header">
+          <h2>Tasks</h2>
+          <div class="tabs" aria-label="Permission summary">
+            <% dashboard.permissions.slice(0, 3).forEach((permission) => { %>
+              <button type="button"><%= permission %></button>
+            <% }) %>
+          </div>
+        </div>
+        <ul class="task-list">
+          <% dashboard.tasks.forEach((task, index) => { %>
+            <li>
+              <input type="checkbox" <%= index === 0 || index === 3 ? 'checked' : '' %> aria-label="Complete task" />
+              <span><%= task %></span>
+              <a href="#" aria-label="Edit task">Edit</a>
+              <a href="#" aria-label="Remove task">Remove</a>
+            </li>
+          <% }) %>
+        </ul>
+      </article>
+
+      <article class="panel employees-panel">
+        <div class="panel-header orange-header">
+          <h2>Team Stats</h2>
+          <p>Visible for <%= dashboard.roleTitle %> access</p>
+        </div>
+        <table>
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Status</th>
+              <th>Role</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% dashboard.employees.forEach((employee) => { %>
+              <tr>
+                <td><%= employee.id %></td>
+                <td><%= employee.name %></td>
+                <td><%= employee.salary %></td>
+                <td><%= employee.country %></td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      </article>
+    </section>
+  </main>
+  <style>
+    .system-alert-success {
+      background: #ecfdf5;
+      color: #047857;
+      border-color: #a7f3d0;
+    }
+
+    .dashboard-notifications {
+      display: grid;
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .dashboard-notification {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding: 14px 16px;
+      border-radius: 8px;
+      background: #fff7ed;
+      color: #9a3412;
+      border: 1px solid #fed7aa;
+      text-decoration: none;
+      font-weight: 800;
+    }
+
+    .dashboard-notification strong {
+      display: grid;
+      place-items: center;
+      min-width: 28px;
+      height: 28px;
+      border-radius: 999px;
+      background: #ea580c;
+      color: #fff;
+      padding: 0 8px;
+    }
+
+    .theme-dark .dashboard-notification {
+      background: #332114;
+      border-color: #7c2d12;
+      color: #fed7aa;
+    }
+
+    .client-live-bid-home-card {
+      position: relative;
+      display: grid;
+      grid-template-columns: minmax(220px, 1fr) minmax(360px, 1.4fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 54px 18px 20px;
+      margin-bottom: 18px;
+      border: 1px solid #8ed05b;
+      border-radius: 8px;
+      background: #f2fae8;
+      box-shadow: 0 14px 30px rgba(22, 136, 50, 0.12);
+    }
+
+    .client-live-bid-home-card[hidden] {
+      display: none;
+    }
+
+    .client-live-bid-close {
+      position: absolute;
+      top: 10px;
+      right: 12px;
+      width: 30px;
+      height: 30px;
+      border: 0;
+      border-radius: 999px;
+      background: #dcfce7;
+      color: #166534;
+      cursor: pointer;
+      font-size: 18px;
+      font-weight: 900;
+    }
+
+    .client-live-bid-copy span {
+      color: #168832;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .client-live-bid-copy h2 {
+      margin: 5px 0;
+      color: #263238;
+      font-size: 1.25rem;
+    }
+
+    .client-live-bid-copy p {
+      margin: 0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    /* Vendor Overview Metric Cards */
+    .vendor-metric-cards-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 20px;
+      margin-bottom: 24px;
+    }
+
+    .vendor-metric-card {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 20px;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      text-decoration: none;
+      box-shadow: 0 4px 12px -2px rgba(15, 23, 42, 0.05);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .vendor-metric-card:hover {
+      transform: translateY(-3px);
+      border-color: #cbd5e1;
+      box-shadow: 0 16px 25px -8px rgba(15, 23, 42, 0.1);
+    }
+
+    .vendor-metric-icon {
+      width: 52px;
+      height: 52px;
+      border-radius: 14px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+
+    .icon-products {
+      background: #eff6ff;
+      color: #2563eb;
+      border: 1px solid #dbeafe;
+    }
+
+    .icon-quotations {
+      background: #f5f3ff;
+      color: #7c3aed;
+      border: 1px solid #ede9fe;
+    }
+
+    .icon-orders {
+      background: #ecfdf5;
+      color: #059669;
+      border: 1px solid #d1fae5;
+    }
+
+    .icon-wallet {
+      background: #fffbeb;
+      color: #d97706;
+      border: 1px solid #fde68a;
+    }
+
+    .vendor-metric-content {
+      display: flex;
+      flex-direction: column;
+      gap: 2px;
+      min-width: 0;
+    }
+
+    .vendor-metric-label {
+      font-size: 0.82rem;
+      font-weight: 600;
+      color: #64748b;
+    }
+
+    .vendor-metric-value {
+      font-size: 1.45rem;
+      font-weight: 800;
+      color: #0f172a;
+      letter-spacing: -0.02em;
+    }
+
+    .vendor-metric-sub {
+      font-size: 0.74rem;
+      color: #94a3b8;
+      font-weight: 500;
+    }
+
+    .client-live-bid-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .client-live-bid-metrics div {
+      padding: 11px 12px;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .client-live-bid-metrics span {
+      display: block;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+
+    .client-live-bid-metrics strong {
+      color: #166534;
+      font-size: 1rem;
+    }
+
+    .client-live-bid-link {
+      align-self: stretch;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: #168832;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .theme-dark .client-live-bid-home-card {
+      background: #16301f;
+      border-color: #166534;
+    }
+
+    .theme-dark .client-live-bid-copy h2,
+    .theme-dark .client-live-bid-metrics strong {
+      color: #f8fafc;
+    }
+
+    .theme-dark .client-live-bid-copy p {
+      color: #cbd5e1;
+    }
+
+    .theme-dark .client-live-bid-metrics div {
+      background: #111827;
+      border-color: #166534;
+    }
+
+    .vendor-new-quotation-card {
+      display: grid;
+      grid-template-columns: auto minmax(220px, 1fr) minmax(360px, 1.35fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 20px;
+      margin-bottom: 18px;
+      border: 1px solid #8ed05b;
+      border-radius: 8px;
+      background: #f2fae8;
+      box-shadow: 0 14px 30px rgba(22, 136, 50, 0.12);
+    }
+
+    .vendor-new-quotation-card[hidden] {
+      display: none;
+    }
+
+    .vendor-new-quotation-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: #dcfce7;
+      color: #168832;
+    }
+
+    .vendor-new-quotation-icon svg {
+      width: 25px;
+      height: 25px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .vendor-new-quotation-copy span {
+      color: #168832;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .vendor-new-quotation-copy h2 {
+      margin: 5px 0;
+      color: #263238;
+      font-size: 1.25rem;
+    }
+
+    .vendor-new-quotation-copy p {
+      margin: 0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .vendor-new-quotation-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .vendor-new-quotation-metrics div {
+      padding: 11px 12px;
+      border: 1px solid #bbf7d0;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .vendor-new-quotation-metrics span {
+      display: block;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+
+    .vendor-new-quotation-metrics strong {
+      color: #166534;
+      font-size: 1rem;
+    }
+
+    .vendor-new-quotation-link {
+      align-self: stretch;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: #168832;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .theme-dark .vendor-new-quotation-card {
+      background: #16301f;
+      border-color: #166534;
+    }
+
+    .theme-dark .vendor-new-quotation-copy h2,
+    .theme-dark .vendor-new-quotation-metrics strong {
+      color: #f8fafc;
+    }
+
+    .theme-dark .vendor-new-quotation-copy p {
+      color: #cbd5e1;
+    }
+
+    .theme-dark .vendor-new-quotation-metrics div {
+      background: #111827;
+      border-color: #166534;
+    }
+
+    .vendor-new-order-card {
+      display: grid;
+      grid-template-columns: auto minmax(220px, 1fr) minmax(360px, 1.35fr) auto;
+      gap: 16px;
+      align-items: center;
+      padding: 18px 20px;
+      margin-bottom: 18px;
+      border: 1px solid #fbbf24;
+      border-radius: 8px;
+      background: #fff7e6;
+      box-shadow: 0 14px 30px rgba(230, 134, 25, 0.12);
+    }
+
+    .vendor-new-order-card[hidden] {
+      display: none;
+    }
+
+    .vendor-new-order-icon {
+      width: 48px;
+      height: 48px;
+      display: grid;
+      place-items: center;
+      border-radius: 12px;
+      background: #ffedd5;
+      color: #e68619;
+    }
+
+    .vendor-new-order-icon svg {
+      width: 25px;
+      height: 25px;
+      fill: none;
+      stroke: currentColor;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    .vendor-new-order-copy span {
+      color: #e68619;
+      font-size: 0.78rem;
+      font-weight: 900;
+      text-transform: uppercase;
+    }
+
+    .vendor-new-order-copy h2 {
+      margin: 5px 0;
+      color: #263238;
+      font-size: 1.25rem;
+    }
+
+    .vendor-new-order-copy p {
+      margin: 0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .vendor-new-order-metrics {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .vendor-new-order-metrics div {
+      padding: 11px 12px;
+      border: 1px solid #fed7aa;
+      border-radius: 8px;
+      background: #fff;
+    }
+
+    .vendor-new-order-metrics span {
+      display: block;
+      color: #64748b;
+      font-size: 0.78rem;
+      font-weight: 900;
+      margin-bottom: 4px;
+    }
+
+    .vendor-new-order-metrics strong {
+      color: #c2410c;
+      font-size: 1rem;
+    }
+
+    .vendor-new-order-link {
+      align-self: stretch;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      padding: 10px 14px;
+      border-radius: 6px;
+      background: #e68619;
+      color: #fff;
+      text-decoration: none;
+      font-weight: 900;
+      white-space: nowrap;
+    }
+
+    .theme-dark .vendor-new-order-card {
+      background: #332114;
+      border-color: #92400e;
+    }
+
+    .theme-dark .vendor-new-order-copy h2,
+    .theme-dark .vendor-new-order-metrics strong {
+      color: #f8fafc;
+    }
+
+    .theme-dark .vendor-new-order-copy p {
+      color: #cbd5e1;
+    }
+
+    .theme-dark .vendor-new-order-metrics div {
+      background: #111827;
+      border-color: #92400e;
+    }
+
+    .vendor-quotation-summary {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 18px;
+    }
+
+    .support-dashboard-card {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 18px;
+      margin-bottom: 14px;
+      background: #eef9fb;
+      border: 1px solid #bae6fd;
+      border-radius: 8px;
+    }
+
+    .support-dashboard-card span {
+      color: #0891b2;
+      font-weight: 900;
+      text-transform: uppercase;
+      font-size: 0.78rem;
+    }
+
+    .support-dashboard-card h2 {
+      margin: 4px 0;
+      color: #0f172a;
+    }
+
+    .support-dashboard-card p {
+      margin: 0;
+      color: #475569;
+    }
+
+    .support-ticket-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 10px;
+      margin-bottom: 18px;
+    }
+
+    .support-ticket-chip {
+      display: grid;
+      gap: 6px;
+      padding: 12px;
+      border: 1px solid #e2e8f0;
+      border-radius: 8px;
+      background: #fff;
+      color: inherit;
+      text-decoration: none;
+    }
+
+    .support-ticket-chip span {
+      justify-self: start;
+      padding: 4px 8px;
+      border-radius: 999px;
+      font-size: 0.76rem;
+      font-weight: 900;
+    }
+
+    .support-ticket-chip span.open {
+      background: #dcfce7;
+      color: #166534;
+    }
+
+    .support-ticket-chip span.closed {
+      background: #e2e8f0;
+      color: #334155;
+    }
+
+    .vendor-quote-stat,
+    .vendor-health-card {
+      display: grid;
+      gap: 8px;
+      padding: 16px;
+      border-radius: 8px;
+      background: #fff;
+      border: 1px solid #e2e8f0;
+      text-decoration: none;
+      color: #263238;
+      box-shadow: 0 8px 22px rgba(15, 23, 42, 0.06);
+    }
+
+    .vendor-quote-stat span,
+    .vendor-health-header span {
+      color: #64748b;
+      font-size: 0.82rem;
+      font-weight: 800;
+      text-transform: uppercase;
+    }
+
+    .vendor-quote-stat strong,
+    .vendor-health-header strong {
+      color: #0f172a;
+      font-size: 1.8rem;
+      line-height: 1;
+    }
+
+    .vendor-quote-stat small,
+    .vendor-health-card p {
+      margin: 0;
+      color: #475569;
+      font-weight: 800;
+    }
+
+    .vendor-quote-stat.pending { border-top: 4px solid #f59e0b; }
+    .vendor-quote-stat.processed { border-top: 4px solid #16a34a; }
+    .vendor-quote-stat.rejected { border-top: 4px solid #dc2626; }
+
+    .vendor-health-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .vendor-health-track {
+      height: 12px;
+      overflow: hidden;
+      border-radius: 999px;
+      background: #e2e8f0;
+    }
+
+    .vendor-health-track span {
+      display: block;
+      height: 100%;
+      border-radius: inherit;
+      transition: width 0.25s ease;
+    }
+
+    .vendor-health-card.low .vendor-health-track span { background: #dc2626; }
+    .vendor-health-card.fair .vendor-health-track span { background: #f59e0b; }
+    .vendor-health-card.good .vendor-health-track span { background: #16a34a; }
+    .vendor-health-card.low { border-top: 4px solid #dc2626; }
+    .vendor-health-card.fair { border-top: 4px solid #f59e0b; }
+    .vendor-health-card.good { border-top: 4px solid #16a34a; }
+
+    .theme-dark .vendor-quote-stat,
+    .theme-dark .vendor-health-card {
+      background: #172033;
+      border-color: #334155;
+      color: #f8fafc;
+    }
+
+    .theme-dark .vendor-quote-stat strong,
+    .theme-dark .vendor-health-header strong {
+      color: #f8fafc;
+    }
+
+    @media (max-width: 980px) {
+      .client-live-bid-home-card {
+        grid-template-columns: 1fr;
+        align-items: stretch;
+      }
+
+      .client-live-bid-link {
+        align-self: auto;
+      }
+
+      .vendor-new-quotation-card {
+        grid-template-columns: auto 1fr;
+        align-items: stretch;
+      }
+
+      .vendor-new-order-card {
+        grid-template-columns: auto 1fr;
+        align-items: stretch;
+      }
+
+      .vendor-new-quotation-metrics,
+      .vendor-new-quotation-link,
+      .vendor-new-order-metrics,
+      .vendor-new-order-link {
+        grid-column: 1 / -1;
+      }
+
+      .vendor-new-quotation-link,
+      .vendor-new-order-link {
+        align-self: auto;
+      }
+
+      .vendor-quotation-summary {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+
+    }
+
+    @media (max-width: 620px) {
+      .client-live-bid-metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .vendor-new-quotation-card {
+        grid-template-columns: 1fr;
+      }
+
+      .vendor-new-order-card {
+        grid-template-columns: 1fr;
+      }
+
+      .vendor-new-quotation-metrics,
+      .vendor-new-order-metrics {
+        grid-template-columns: 1fr;
+      }
+
+      .vendor-quotation-summary {
+        grid-template-columns: 1fr;
+      }
+
+    }
+  </style>
+  <% if (user.role === 'Vendor') { %>
+    <script>
+      let vendorNewOrders = <%- JSON.stringify(vendorNewOrders).replace(/</g, '\\u003c') %>;
+      let vendorNewOrderIndex = 0;
+      let vendorNewQuotations = <%- JSON.stringify(vendorNewQuotations).replace(/</g, '\\u003c') %>;
+      let vendorNewQuotationIndex = 0;
+
+      function vendorMoney(value) {
+        return `INR ${Number(value || 0).toFixed(2)}`;
+      }
+
+      function pendingVendorOrders() {
+        return vendorNewOrders.filter((order) => order.status === 'pending');
+      }
+
+      function pendingVendorQuotations() {
+        return vendorNewQuotations.filter((quotation) => (
+          quotation.recipient_status === 'new' || quotation.recipient_status === 'seen'
+        ));
+      }
+
+      function renderVendorNewOrderCard() {
+        const card = document.getElementById('vendorNewOrderCard');
+        if (!card) return;
+
+        const orders = pendingVendorOrders();
+        if (!orders.length) {
+          card.hidden = true;
+          return;
+        }
+
+        if (vendorNewOrderIndex >= orders.length) {
+          vendorNewOrderIndex = 0;
+        }
+
+        const order = orders[vendorNewOrderIndex];
+        const amount = Number(order.total_amount || order.amount || 0);
+        const orderType = String(order.order_type || 'direct').replace(/_/g, ' ');
+        document.getElementById('vendorNewOrderStatus').textContent = orders.length === 1
+          ? 'New order found'
+          : `${orders.length} new orders found`;
+        document.getElementById('vendorNewOrderTitle').textContent = `Order #${order.order_number || order.orderNumber || order.id}`;
+        document.getElementById('vendorNewOrderMeta').textContent = [
+          order.client_name || order.customer || 'Client',
+          order.city || order.area || '',
+          order.client_phone || '',
+        ].filter(Boolean).join(' - ');
+        document.getElementById('vendorNewOrderAmount').textContent = vendorMoney(amount);
+        document.getElementById('vendorNewOrderType').textContent = orderType.charAt(0).toUpperCase() + orderType.slice(1);
+        document.getElementById('vendorNewOrderState').textContent = order.status || 'pending';
+        document.getElementById('vendorNewOrderLink').href = '/orders/vendor';
+        card.hidden = false;
+      }
+
+      function renderVendorNewQuotationCard() {
+        const card = document.getElementById('vendorNewQuotationCard');
+        if (!card) return;
+
+        const quotations = pendingVendorQuotations();
+        if (!quotations.length) {
+          card.hidden = true;
+          return;
+        }
+
+        if (vendorNewQuotationIndex >= quotations.length) {
+          vendorNewQuotationIndex = 0;
+        }
+
+        const quotation = quotations[vendorNewQuotationIndex];
+        const category = quotation.category_name || 'Category quotation';
+        const city = quotation.client_city || '';
+        const itemCount = Array.isArray(quotation.items)
+          ? quotation.items.length
+          : Number(quotation.item_count || 0);
+        const minimumBid = Number(quotation.min_bid_price || 0);
+
+        document.getElementById('vendorNewQuotationStatus').textContent = quotations.length === 1
+          ? 'New quotation found'
+          : `${quotations.length} new quotations found`;
+        document.getElementById('vendorNewQuotationTitle').textContent = `Quotation #${quotation.id}`;
+        document.getElementById('vendorNewQuotationMeta').textContent = [
+          quotation.client_name || 'Client',
+          category,
+          city,
+        ].filter(Boolean).join(' - ');
+        document.getElementById('vendorNewQuotationBase').textContent = vendorMoney(quotation.total_amount || quotation.actual_total || 0);
+        document.getElementById('vendorNewQuotationBid').textContent = minimumBid > 0 ? vendorMoney(minimumBid) : 'No bids yet';
+        document.getElementById('vendorNewQuotationItems').textContent = `${itemCount} item${itemCount === 1 ? '' : 's'}`;
+        document.getElementById('vendorNewQuotationLink').href = `/vendor/quotations?recipient_id=${quotation.recipient_id || ''}`;
+        card.hidden = false;
+      }
+
+      async function refreshVendorQuotationNotice() {
+        try {
+          const response = await fetch('/vendor/quotations?format=json&peek=1', {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success || !Array.isArray(data.quotations)) return;
+          vendorNewQuotations = data.quotations;
+          renderVendorNewQuotationCard();
+        } catch (error) {
+          console.error('Vendor quotation dashboard refresh failed:', error);
+        }
+      }
+
+      async function refreshVendorOrderNotice() {
+        try {
+          const response = await fetch('/api/orders/vendor?status=pending', {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success || !Array.isArray(data.orders)) return;
+          vendorNewOrders = data.orders;
+          renderVendorNewOrderCard();
+        } catch (error) {
+          console.error('Vendor order dashboard refresh failed:', error);
+        }
+      }
+
+      renderVendorNewOrderCard();
+      renderVendorNewQuotationCard();
+      setInterval(() => {
+        const orders = pendingVendorOrders();
+        if (orders.length > 1) {
+          vendorNewOrderIndex = (vendorNewOrderIndex + 1) % orders.length;
+          renderVendorNewOrderCard();
+        }
+
+        const quotations = pendingVendorQuotations();
+        if (quotations.length > 1) {
+          vendorNewQuotationIndex = (vendorNewQuotationIndex + 1) % quotations.length;
+          renderVendorNewQuotationCard();
+        }
+      }, 15000);
+      setInterval(refreshVendorOrderNotice, 5000);
+      setInterval(refreshVendorQuotationNotice, 5000);
+    </script>
+  <% } %>
+  <% if (user.role === 'Client') { %>
+    <script>
+      const clientLiveBidStorageKey = 'jaipurgro.client.liveBidCardVisible';
+      let clientLiveQuotations = <%- JSON.stringify(clientLiveQuotations).replace(/</g, '\\u003c') %>;
+      let clientLiveBidIndex = 0;
+
+      function clientMoney(value) {
+        return `INR ${Number(value || 0).toFixed(2)}`;
+      }
+
+      function isClientLiveBidVisible() {
+        return localStorage.getItem(clientLiveBidStorageKey) !== 'hidden';
+      }
+
+      function activeClientLiveQuotations() {
+        return clientLiveQuotations.filter((quotation) => (
+          quotation.recipient_status === 'submitted' && quotation.bid_editable
+        ));
+      }
+
+      function renderClientLiveBidCard() {
+        const card = document.getElementById('clientLiveBidHomeCard');
+        if (!card) return;
+
+        const active = activeClientLiveQuotations();
+        if (!isClientLiveBidVisible() || active.length === 0) {
+          card.hidden = true;
+          return;
+        }
+
+        if (clientLiveBidIndex >= active.length) {
+          clientLiveBidIndex = 0;
+        }
+
+        const quotation = active[clientLiveBidIndex];
+        const baseTotal = Number(quotation.actual_total || quotation.total_amount || 0);
+        const bidTotal = Number(quotation.response_total || 0);
+        const saving = Math.max(0, Number(quotation.savings || (baseTotal - bidTotal) || 0));
+        const vendor = quotation.vendor_store_name || quotation.vendor_name || 'Vendor response';
+        const category = quotation.category_name ? `${quotation.category_name} active bidding` : 'Active bidding';
+
+        document.getElementById('clientLiveBidStatus').textContent = category;
+        document.getElementById('clientLiveBidTitle').textContent = `Quotation #${quotation.id}`;
+        document.getElementById('clientLiveBidVendor').textContent = vendor;
+        document.getElementById('clientLiveBidBase').textContent = clientMoney(baseTotal);
+        document.getElementById('clientLiveBidPrice').textContent = clientMoney(bidTotal);
+        document.getElementById('clientLiveBidSaving').textContent = clientMoney(saving);
+        document.getElementById('clientLiveBidLink').href = `/client/quotations?recipient_id=${quotation.recipient_id}`;
+        card.hidden = false;
+      }
+
+      async function refreshClientLiveBids() {
+        try {
+          const response = await fetch('/api/client/quotations', {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!response.ok || !data.success || !Array.isArray(data.quotations)) return;
+          clientLiveQuotations = data.quotations;
+          renderClientLiveBidCard();
+        } catch (error) {
+          console.error('Client live bid refresh failed:', error);
+        }
+      }
+
+      document.getElementById('clientLiveBidHomeClose')?.addEventListener('click', () => {
+        localStorage.setItem(clientLiveBidStorageKey, 'hidden');
+        renderClientLiveBidCard();
+      });
+
+      renderClientLiveBidCard();
+      setInterval(() => {
+        if (!isClientLiveBidVisible()) return;
+        const active = activeClientLiveQuotations();
+        if (active.length <= 1) return;
+        clientLiveBidIndex = (clientLiveBidIndex + 1) % active.length;
+        renderClientLiveBidCard();
+      }, 15000);
+      setInterval(refreshClientLiveBids, 5000);
+    </script>
+  <% } %>
+
+  <% if (locals.canViewLiveStatus) { %>
+    <!-- FULL SCREEN LIVE STATUS MODAL -->
+    <div class="live-fullscreen-modal" id="liveStatusModal" aria-hidden="true">
+      <div class="live-modal-header">
+        <div class="live-modal-title-group">
+          <span class="live-pulse-dot"></span>
+          <h2>Live Operational Monitoring</h2>
+        </div>
+        <div class="live-header-actions">
+          <div class="live-meta-info">
+            <span>Last updated: <strong id="liveLastUpdated">-</strong></span>
+            <span>•</span>
+            <span id="liveCountdownText">Next refresh in 5m 00s</span>
+          </div>
+          <button class="live-refresh-btn" type="button" onclick="refreshLiveStatusNow()">↻ Refresh Now</button>
+          <button class="live-close-btn" type="button" onclick="closeLiveStatusModal()" aria-label="Close Live Monitoring">×</button>
+        </div>
+      </div>
+
+      <div class="live-modal-body">
+        <!-- City & Date Filter Bar -->
+        <div class="live-filter-bar" style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; background: #1e293b; padding: 12px 18px; border-radius: 10px; border: 1px solid #334155;">
+          <div style="display: flex; align-items: center; gap: 10px;" id="liveCityPillsContainer">
+            <span style="font-size: 0.82rem; font-weight: 700; color: #94a3b8;">City Filter:</span>
+            <!-- City pills populated dynamically -->
+          </div>
+          <div class="live-filter-pills">
+            <button class="live-pill active" type="button" data-range="today" onclick="setLiveDateRange('today')">Today</button>
+            <button class="live-pill" type="button" data-range="month" onclick="setLiveDateRange('month')">This Month</button>
+            <button class="live-pill" type="button" data-range="custom" onclick="setLiveDateRange('custom')">Custom Range</button>
+          </div>
+          <div class="live-custom-dates" id="liveCustomDatesGroup" style="display: none;">
+            <label style="color: #cbd5e1; font-size: 0.82rem;">From: <input type="date" id="liveFromDate" onchange="fetchLiveStatus()" style="background: #0f172a; color: #ffffff; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px;" /></label>
+            <label style="color: #cbd5e1; font-size: 0.82rem;">To: <input type="date" id="liveToDate" onchange="fetchLiveStatus()" style="background: #0f172a; color: #ffffff; border: 1px solid #334155; border-radius: 6px; padding: 4px 8px;" /></label>
+          </div>
+        </div>
+
+        <!-- Section 1: Live Quotation and Bidding Status -->
+        <div>
+          <div class="live-section-header">
+            <h3>📑 Live Quotations & Bidding Metrics</h3>
+          </div>
+          <div class="live-grid-4">
+            <div class="live-metric-box" onclick="openLiveDetail('totalLive')">
+              <div>
+                <span class="live-metric-label">Total Live Quotations</span>
+                <div class="live-metric-val blue" id="qTotalLive">0</div>
+              </div>
+              <span class="live-metric-sub">Active client quotation requests</span>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('receivingBids')">
+              <div>
+                <span class="live-metric-label">Receiving Bids</span>
+                <div class="live-metric-val green" id="qReceivingBids">0</div>
+              </div>
+              <span class="live-metric-sub">Quotations with active vendor offers</span>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('waitingVendorBids')">
+              <div>
+                <span class="live-metric-label">Waiting for Bids</span>
+                <div class="live-metric-val amber" id="qWaitingBids">0</div>
+              </div>
+              <span class="live-metric-sub">Awaiting first vendor bid</span>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('nearExpiry')">
+              <div>
+                <span class="live-metric-label">Near Expiry (< 2h)</span>
+                <div class="live-metric-val red" id="qNearExpiry">0</div>
+              </div>
+              <span class="live-metric-sub">Quotations closing soon</span>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('completed')">
+              <div>
+                <span class="live-metric-label">Completed Quotations</span>
+                <div class="live-metric-val green" id="qCompleted">0</div>
+              </div>
+              <span class="live-metric-sub">Accepted / converted to orders</span>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('closedWithoutBid')">
+              <div>
+                <span class="live-metric-label">Closed Without Bid</span>
+                <div class="live-metric-val purple" id="qClosedNoBid">0</div>
+              </div>
+              <span class="live-metric-sub">Expired with 0 vendor responses</span>
+            </div>
+            <div class="live-metric-box">
+              <div>
+                <span class="live-metric-label">Total Bids Received</span>
+                <div class="live-metric-val blue" id="qTotalBids">0</div>
+              </div>
+              <span class="live-metric-sub">Sum of all vendor offers submitted</span>
+            </div>
+            <div class="live-metric-box">
+              <div>
+                <span class="live-metric-label">Participating Vendors</span>
+                <div class="live-metric-val green" id="qParticipatingVendors">0</div>
+              </div>
+              <span class="live-metric-sub">Unique vendors actively bidding</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 2: Live Order Status Breakdown -->
+        <div>
+          <div class="live-section-header">
+            <h3>📦 Live Order Status Breakdown</h3>
+          </div>
+          <div class="live-grid-6">
+            <div class="live-metric-box" onclick="openLiveDetail('total')">
+              <span class="live-metric-label">Total Orders</span>
+              <div class="live-metric-val" id="ordTotal">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('pending')">
+              <span class="live-metric-label">Pending</span>
+              <div class="live-metric-val amber" id="ordPending">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('accepted')">
+              <span class="live-metric-label">Accepted</span>
+              <div class="live-metric-val blue" id="ordAccepted">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('processing')">
+              <span class="live-metric-label">Processing</span>
+              <div class="live-metric-val purple" id="ordProcessing">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('readyForPickup')">
+              <span class="live-metric-label">Ready for Pickup</span>
+              <div class="live-metric-val blue" id="ordReady">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('assignedToDp')">
+              <span class="live-metric-label">Assigned to DP</span>
+              <div class="live-metric-val amber" id="ordAssigned">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('pickedUp')">
+              <span class="live-metric-label">Picked Up</span>
+              <div class="live-metric-val purple" id="ordPickedUp">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('onTheWay')">
+              <span class="live-metric-label">On the Way</span>
+              <div class="live-metric-val blue" id="ordOnTheWay">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('delivered')">
+              <span class="live-metric-label">Delivered</span>
+              <div class="live-metric-val green" id="ordDelivered">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('cancelled')">
+              <span class="live-metric-label">Cancelled</span>
+              <div class="live-metric-val red" id="ordCancelled">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('failed')">
+              <span class="live-metric-label">Failed</span>
+              <div class="live-metric-val red" id="ordFailed">0</div>
+            </div>
+            <div class="live-metric-box" onclick="openLiveDetail('returned')">
+              <span class="live-metric-label">Returned</span>
+              <div class="live-metric-val red" id="ordReturned">0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 3: Operational Alerts -->
+        <div>
+          <div class="live-section-header">
+            <h3>⚠️ Operational Alerts & Delays</h3>
+          </div>
+          <div class="live-grid-4">
+            <div class="live-metric-box live-alert-box" onclick="openLiveDetail('waitingVendorAcceptance')">
+              <div>
+                <span class="live-metric-label">Awaiting Vendor Acceptance (> 5m)</span>
+                <div class="live-metric-val" id="alertVendorAccept">0</div>
+              </div>
+              <span class="live-metric-sub">Pending vendor confirmation</span>
+            </div>
+            <div class="live-metric-box live-alert-box" onclick="openLiveDetail('waitingDeliveryAssignment')">
+              <div>
+                <span class="live-metric-label">Awaiting Delivery Assignment</span>
+                <div class="live-metric-val" id="alertDeliveryAssign">0</div>
+              </div>
+              <span class="live-metric-sub">Orders needing a delivery partner</span>
+            </div>
+            <div class="live-metric-box live-alert-box" onclick="openLiveDetail('delayedOrders')">
+              <div>
+                <span class="live-metric-label">Delayed Orders</span>
+                <div class="live-metric-val" id="alertDelayed">0</div>
+              </div>
+              <span class="live-metric-sub">Past estimated delivery window</span>
+            </div>
+            <div class="live-metric-box live-alert-box" onclick="openLiveDetail('activeComplaints')">
+              <div>
+                <span class="live-metric-label">Active Support Complaints</span>
+                <div class="live-metric-val" id="alertComplaints">0</div>
+              </div>
+              <span class="live-metric-sub">Open order support tickets</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 4: Current Online Activity -->
+        <div>
+          <div class="live-section-header">
+            <h3>🟢 Current Online Activity</h3>
+          </div>
+          <div class="live-grid-4">
+            <div class="live-metric-box">
+              <span class="live-metric-label">Online Clients</span>
+              <div class="live-metric-val green" id="actClients">0</div>
+            </div>
+            <div class="live-metric-box">
+              <span class="live-metric-label">Online Vendors</span>
+              <div class="live-metric-val green" id="actVendors">0</div>
+            </div>
+            <div class="live-metric-box">
+              <span class="live-metric-label">Online Delivery Partners</span>
+              <div class="live-metric-val green" id="actDp">0</div>
+            </div>
+            <div class="live-metric-box">
+              <span class="live-metric-label">Vendors Bidding Today</span>
+              <div class="live-metric-val blue" id="actVendorsBidding">0</div>
+            </div>
+            <div class="live-metric-box">
+              <span class="live-metric-label">Free Delivery Partners</span>
+              <div class="live-metric-val green" id="actDpFree">0</div>
+            </div>
+            <div class="live-metric-box">
+              <span class="live-metric-label">Delivery Partners on Order</span>
+              <div class="live-metric-val purple" id="actDpOnOrder">0</div>
+            </div>
+            <div class="live-metric-box">
+              <span class="live-metric-label">Delivery Partners on the Way</span>
+              <div class="live-metric-val blue" id="actDpOnTheWay">0</div>
+            </div>
+            <div class="live-metric-box">
+              <span class="live-metric-label">Clients Tracking Orders</span>
+              <div class="live-metric-val green" id="actClientsTracking">0</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: Product Statistics & Area Performance Analytics -->
+        <div style="background: #0f172a; border: 1px solid #1e293b; border-radius: 14px; padding: 22px; margin-top: 10px;">
+          <div style="display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 20px; border-bottom: 1px solid #1e293b; padding-bottom: 14px;">
+            <div>
+              <h3 style="font-size: 1.15rem; font-weight: 800; margin: 0; color: #f8fafc; display: flex; align-items: center; gap: 8px;">
+                📊 Product Statistics & Area Performance Analytics
+              </h3>
+              <p style="margin: 4px 0 0 0; font-size: 0.82rem; color: #94a3b8;">Detailed sales, inventory, and area performance metrics</p>
+            </div>
+
+            <!-- City & Area Filter Bar -->
+            <div style="display: flex; flex-wrap: wrap; align-items: center; gap: 12px;">
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <label style="font-size: 0.82rem; font-weight: 700; color: #cbd5e1;">City:</label>
+                <select id="prodStatsCitySelect" style="padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #f8fafc; font-weight: 600; font-size: 0.85rem;" onchange="onProdStatsCityChange()">
+                  <option value="all_assigned">All Assigned Cities</option>
+                </select>
+              </div>
+              <div style="display: flex; align-items: center; gap: 6px;">
+                <label style="font-size: 0.82rem; font-weight: 700; color: #cbd5e1;">Area (Optional):</label>
+                <select id="prodStatsAreaSelect" style="padding: 6px 12px; border-radius: 8px; border: 1px solid #334155; background: #1e293b; color: #f8fafc; font-weight: 600; font-size: 0.85rem;" onchange="fetchProductStats()">
+                  <option value="all">All Areas</option>
+                </select>
+              </div>
+              <button class="live-refresh-btn" type="button" onclick="fetchProductStats()">↻ Refresh Stats</button>
+            </div>
+          </div>
+
+          <!-- Product Status Overview Cards -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr)); gap: 14px; margin-bottom: 24px;">
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Active Products</span>
+              <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #34d399; margin-top: 4px;" id="psActive">-</strong>
+            </div>
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Inactive Products</span>
+              <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #94a3b8; margin-top: 4px;" id="psInactive">-</strong>
+            </div>
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Approved Products</span>
+              <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #60a5fa; margin-top: 4px;" id="psApproved">-</strong>
+            </div>
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Pending Products</span>
+              <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #fbbf24; margin-top: 4px;" id="psPending">-</strong>
+            </div>
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Out of Stock</span>
+              <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #f87171; margin-top: 4px;" id="psOutOfStock">-</strong>
+            </div>
+            <div style="background: #1e293b; border: 1px solid #334155; border-radius: 10px; padding: 14px 16px;">
+              <span style="font-size: 0.78rem; font-weight: 700; color: #94a3b8; text-transform: uppercase;">Low Inventory</span>
+              <strong style="display: block; font-size: 1.4rem; font-weight: 800; color: #fb923c; margin-top: 4px;" id="psLowStock">-</strong>
+            </div>
+          </div>
+
+          <!-- Product Tables Grid (Most Sold & Most Returned) -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; margin-bottom: 24px;">
+            <!-- Most Sold Products Table -->
+            <div style="border: 1px solid #334155; border-radius: 12px; overflow: hidden; background: #1e293b;">
+              <div style="padding: 14px 18px; background: #0f172a; border-bottom: 1px solid #334155; font-weight: 800; font-size: 0.95rem; color: #f8fafc; display: flex; justify-content: space-between; align-items: center;">
+                <span>🔥 Most Sold Products</span>
+                <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 600;">Top 10</span>
+              </div>
+              <div style="max-height: 340px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left; color: #f8fafc;">
+                  <thead style="background: #0f172a; color: #94a3b8; position: sticky; top: 0;">
+                    <tr>
+                      <th style="padding: 10px 12px;">Product</th>
+                      <th style="padding: 10px 12px;">ID</th>
+                      <th style="padding: 10px 12px;">Category</th>
+                      <th style="padding: 10px 12px; text-align: right;">Qty Sold</th>
+                      <th style="padding: 10px 12px; text-align: right;">Orders</th>
+                      <th style="padding: 10px 12px; text-align: right;">Sales</th>
+                    </tr>
+                  </thead>
+                  <tbody id="psMostSoldTable">
+                    <tr><td colspan="6" style="padding: 16px; text-align: center; color: #94a3b8;">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Most Returned Products Table -->
+            <div style="border: 1px solid #334155; border-radius: 12px; overflow: hidden; background: #1e293b;">
+              <div style="padding: 14px 18px; background: #0f172a; border-bottom: 1px solid #334155; font-weight: 800; font-size: 0.95rem; color: #f8fafc; display: flex; justify-content: space-between; align-items: center;">
+                <span>↩️ Most Returned Products</span>
+                <span style="font-size: 0.75rem; color: #94a3b8; font-weight: 600;">Top 10</span>
+              </div>
+              <div style="max-height: 340px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left; color: #f8fafc;">
+                  <thead style="background: #0f172a; color: #94a3b8; position: sticky; top: 0;">
+                    <tr>
+                      <th style="padding: 10px 12px;">Product</th>
+                      <th style="padding: 10px 12px;">ID</th>
+                      <th style="padding: 10px 12px;">Category</th>
+                      <th style="padding: 10px 12px; text-align: right;">Qty Returned</th>
+                      <th style="padding: 10px 12px; text-align: right;">Orders</th>
+                    </tr>
+                  </thead>
+                  <tbody id="psMostReturnedTable">
+                    <tr><td colspan="5" style="padding: 16px; text-align: center; color: #94a3b8;">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Revenue & Sales Extremes Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 20px; margin-bottom: 24px;">
+            <!-- Highest Revenue Products -->
+            <div style="border: 1px solid #334155; border-radius: 12px; overflow: hidden; background: #1e293b;">
+              <div style="padding: 14px 18px; background: #0f172a; border-bottom: 1px solid #334155; font-weight: 800; font-size: 0.95rem; color: #f8fafc;">
+                💰 Highest Revenue Products
+              </div>
+              <div style="max-height: 280px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left; color: #f8fafc;">
+                  <thead style="background: #0f172a; color: #94a3b8; position: sticky; top: 0;">
+                    <tr>
+                      <th style="padding: 10px 12px;">Product</th>
+                      <th style="padding: 10px 12px;">Category</th>
+                      <th style="padding: 10px 12px; text-align: right;">Qty Sold</th>
+                      <th style="padding: 10px 12px; text-align: right;">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody id="psHighestRevenueTable">
+                    <tr><td colspan="4" style="padding: 16px; text-align: center; color: #94a3b8;">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <!-- Lowest Sales Products -->
+            <div style="border: 1px solid #334155; border-radius: 12px; overflow: hidden; background: #1e293b;">
+              <div style="padding: 14px 18px; background: #0f172a; border-bottom: 1px solid #334155; font-weight: 800; font-size: 0.95rem; color: #f8fafc;">
+                📉 Lowest Sales Products
+              </div>
+              <div style="max-height: 280px; overflow-y: auto;">
+                <table style="width: 100%; border-collapse: collapse; font-size: 0.82rem; text-align: left; color: #f8fafc;">
+                  <thead style="background: #0f172a; color: #94a3b8; position: sticky; top: 0;">
+                    <tr>
+                      <th style="padding: 10px 12px;">Product</th>
+                      <th style="padding: 10px 12px;">Category</th>
+                      <th style="padding: 10px 12px; text-align: right;">Qty Sold</th>
+                    </tr>
+                  </thead>
+                  <tbody id="psLowestSalesTable">
+                    <tr><td colspan="3" style="padding: 16px; text-align: center; color: #94a3b8;">Loading...</td></tr>
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+
+          <!-- Category, Subcategory & Area Breakdowns Grid -->
+          <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 20px;">
+            <!-- Top Categories -->
+            <div style="border: 1px solid #334155; border-radius: 12px; padding: 16px; background: #1e293b;">
+              <h4 style="font-size: 0.9rem; font-weight: 800; margin: 0 0 12px 0; color: #f8fafc;">🏷️ Top-Selling Categories</h4>
+              <ul id="psTopCategoriesList" style="list-style: none; margin: 0; padding: 0; font-size: 0.82rem;">
+                <li style="color: #94a3b8;">Loading...</li>
+              </ul>
+            </div>
+
+            <!-- Top Subcategories -->
+            <div style="border: 1px solid #334155; border-radius: 12px; padding: 16px; background: #1e293b;">
+              <h4 style="font-size: 0.9rem; font-weight: 800; margin: 0 0 12px 0; color: #f8fafc;">📁 Top-Selling Subcategories</h4>
+              <ul id="psTopSubcategoriesList" style="list-style: none; margin: 0; padding: 0; font-size: 0.82rem;">
+                <li style="color: #94a3b8;">Loading...</li>
+              </ul>
+            </div>
+
+            <!-- Area Sales & Return Breakdown -->
+            <div style="border: 1px solid #334155; border-radius: 12px; padding: 16px; background: #1e293b;">
+              <h4 style="font-size: 0.9rem; font-weight: 800; margin: 0 0 12px 0; color: #f8fafc;">📍 Area Performance Breakdown</h4>
+              <div id="psAreaBreakdownContent" style="font-size: 0.82rem; color: #cbd5e1;">
+                <p style="color: #94a3b8;">Loading area stats...</p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- DETAIL SUB MODAL -->
+    <div class="live-submodal-overlay" id="liveDetailSubModal" aria-hidden="true">
+      <div class="live-submodal-card">
+        <div class="live-submodal-header">
+          <h3 id="liveDetailTitle">Metric Details</h3>
+          <button class="live-close-btn" type="button" onclick="closeLiveDetailSubModal()">×</button>
+        </div>
+        <div class="live-submodal-body" id="liveDetailBody">
+          <p style="color: #94a3b8;">Loading details...</p>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      let liveRange = 'today';
+      let liveSelectedCity = 'all_assigned';
+      let liveCountdownSeconds = 300;
+      let liveTimerInterval = null;
+      let previousScrollY = 0;
+      let systemLocationData = null;
+
+      async function initLocationOptions() {
+        try {
+          const response = await fetch('/api/dashboard/cities-areas', {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!data.success) return;
+          systemLocationData = data;
+
+          // 1. Populate Live Status City Pills
+          const pillsContainer = document.getElementById('liveCityPillsContainer');
+          if (pillsContainer) {
+            const cities = data.displayCities || [];
+            let html = '<span style="font-size: 0.82rem; font-weight: 700; color: #94a3b8;">City Filter:</span>';
+            if (cities.length > 1 || data.isSuper) {
+              html += `<button class="live-pill ${liveSelectedCity === 'all_assigned' || liveSelectedCity === 'all' ? 'active' : ''}" type="button" onclick="setLiveCity('${data.isSuper ? 'all' : 'all_assigned'}')">${data.isSuper ? 'All Cities' : 'All Assigned Cities'}</button>`;
+            }
+            cities.forEach((c) => {
+              const isActive = liveSelectedCity.toLowerCase() === c.toLowerCase();
+              html += `<button class="live-pill ${isActive ? 'active' : ''}" type="button" onclick="setLiveCity('${c}')">${c}</button>`;
+            });
+            pillsContainer.innerHTML = html;
+          }
+
+          // 2. Populate Product Statistics City Select
+          const citySelect = document.getElementById('prodStatsCitySelect');
+          if (citySelect) {
+            const cities = data.displayCities || [];
+            let optionsHtml = '';
+            if (cities.length > 1 || data.isSuper) {
+              optionsHtml += `<option value="${data.isSuper ? 'all' : 'all_assigned'}">${data.isSuper ? 'All Cities' : 'All Assigned Cities'}</option>`;
+            }
+            cities.forEach((c) => {
+              optionsHtml += `<option value="${c}">${c}</option>`;
+            });
+            citySelect.innerHTML = optionsHtml;
+            if (cities.length === 1 && !data.isSuper) {
+              citySelect.value = cities[0];
+            }
+          }
+
+          onProdStatsCityChange();
+        } catch (err) {
+          console.error('Error initializing location options:', err);
+        }
+      }
+
+      function setLiveCity(city) {
+        liveSelectedCity = city;
+        const pillsContainer = document.getElementById('liveCityPillsContainer');
+        if (pillsContainer) {
+          pillsContainer.querySelectorAll('.live-pill').forEach((btn) => {
+            const txt = btn.textContent.trim().toLowerCase();
+            const target = city.toLowerCase();
+            const isAll = (target === 'all_assigned' || target === 'all') && (txt === 'all cities' || txt === 'all assigned cities');
+            btn.classList.toggle('active', isAll || txt === target);
+          });
+        }
+        fetchLiveStatus();
+      }
+
+      function openLiveStatusModal() {
+        previousScrollY = window.scrollY;
+        const modal = document.getElementById('liveStatusModal');
+        modal.classList.add('active');
+        document.body.style.overflow = 'hidden';
+        fetchLiveStatus();
+        startLiveCountdown();
+      }
+
+      function closeLiveStatusModal() {
+        const modal = document.getElementById('liveStatusModal');
+        modal.classList.remove('active');
+        document.body.style.overflow = '';
+        window.scrollTo(0, previousScrollY);
+        if (liveTimerInterval) clearInterval(liveTimerInterval);
+      }
+
+      function setLiveDateRange(range) {
+        liveRange = range;
+        document.querySelectorAll('.live-filter-pills .live-pill').forEach((btn) => {
+          btn.classList.toggle('active', btn.getAttribute('data-range') === range);
+        });
+        const customGroup = document.getElementById('liveCustomDatesGroup');
+        if (customGroup) customGroup.style.display = range === 'custom' ? 'flex' : 'none';
+
+        if (range !== 'custom') {
+          fetchLiveStatus();
+        }
+      }
+
+      function startLiveCountdown() {
+        if (liveTimerInterval) clearInterval(liveTimerInterval);
+        liveCountdownSeconds = 300;
+        updateCountdownText();
+
+        liveTimerInterval = setInterval(() => {
+          liveCountdownSeconds--;
+          if (liveCountdownSeconds <= 0) {
+            fetchLiveStatus();
+            liveCountdownSeconds = 300;
+          }
+          updateCountdownText();
+        }, 1000);
+      }
+
+      function updateCountdownText() {
+        const m = Math.floor(liveCountdownSeconds / 60);
+        const s = liveCountdownSeconds % 60;
+        const text = `Next refresh in ${m}m ${s < 10 ? '0' : ''}${s}s`;
+        const el = document.getElementById('liveCountdownText');
+        if (el) el.textContent = text;
+      }
+
+      function refreshLiveStatusNow() {
+        fetchLiveStatus();
+        liveCountdownSeconds = 300;
+        updateCountdownText();
+      }
+
+      async function fetchLiveStatus() {
+        try {
+          const fromDate = document.getElementById('liveFromDate')?.value || '';
+          const toDate = document.getElementById('liveToDate')?.value || '';
+          const params = new URLSearchParams({
+            range: liveRange,
+            city: liveSelectedCity,
+          });
+          if (liveRange === 'custom') {
+            params.append('fromDate', fromDate);
+            params.append('toDate', toDate);
+          }
+
+          const response = await fetch(`/api/dashboard/live-status?${params.toString()}`, {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!data.success) return;
+
+          // Main Dashboard Summary Cards
+          if (document.getElementById('mainTotalClients')) document.getElementById('mainTotalClients').textContent = data.summary.totalClients;
+          if (document.getElementById('mainTotalVendors')) document.getElementById('mainTotalVendors').textContent = data.summary.totalVendors;
+          if (document.getElementById('mainTotalDp')) document.getElementById('mainTotalDp').textContent = data.summary.totalDeliveryPartners;
+          if (document.getElementById('mainOnlineClients')) document.getElementById('mainOnlineClients').textContent = data.summary.onlineClients;
+          if (document.getElementById('mainOnlineVendors')) document.getElementById('mainOnlineVendors').textContent = data.summary.onlineVendors;
+          if (document.getElementById('mainOnlineDp')) document.getElementById('mainOnlineDp').textContent = data.summary.onlineDeliveryPartners;
+
+          // Live Modal Meta
+          if (document.getElementById('liveLastUpdated')) document.getElementById('liveLastUpdated').textContent = data.lastUpdated;
+
+          // Quotation Metrics
+          if (document.getElementById('qTotalLive')) document.getElementById('qTotalLive').textContent = data.quotations.totalLive;
+          if (document.getElementById('qReceivingBids')) document.getElementById('qReceivingBids').textContent = data.quotations.receivingBids;
+          if (document.getElementById('qWaitingBids')) document.getElementById('qWaitingBids').textContent = data.quotations.waitingVendorBids;
+          if (document.getElementById('qNearExpiry')) document.getElementById('qNearExpiry').textContent = data.quotations.nearExpiry;
+          if (document.getElementById('qCompleted')) document.getElementById('qCompleted').textContent = data.quotations.completed;
+          if (document.getElementById('qClosedNoBid')) document.getElementById('qClosedNoBid').textContent = data.quotations.closedWithoutBid;
+          if (document.getElementById('qTotalBids')) document.getElementById('qTotalBids').textContent = data.quotations.totalBidsReceived;
+          if (document.getElementById('qParticipatingVendors')) document.getElementById('qParticipatingVendors').textContent = data.quotations.participatingVendors;
+
+          // Order Metrics
+          if (document.getElementById('ordTotal')) document.getElementById('ordTotal').textContent = data.orders.total;
+          if (document.getElementById('ordPending')) document.getElementById('ordPending').textContent = data.orders.pending;
+          if (document.getElementById('ordAccepted')) document.getElementById('ordAccepted').textContent = data.orders.accepted;
+          if (document.getElementById('ordProcessing')) document.getElementById('ordProcessing').textContent = data.orders.processing;
+          if (document.getElementById('ordReady')) document.getElementById('ordReady').textContent = data.orders.readyForPickup;
+          if (document.getElementById('ordAssigned')) document.getElementById('ordAssigned').textContent = data.orders.assignedToDp;
+          if (document.getElementById('ordPickedUp')) document.getElementById('ordPickedUp').textContent = data.orders.pickedUp;
+          if (document.getElementById('ordOnTheWay')) document.getElementById('ordOnTheWay').textContent = data.orders.onTheWay;
+          if (document.getElementById('ordDelivered')) document.getElementById('ordDelivered').textContent = data.orders.delivered;
+          if (document.getElementById('ordCancelled')) document.getElementById('ordCancelled').textContent = data.orders.cancelled;
+          if (document.getElementById('ordFailed')) document.getElementById('ordFailed').textContent = data.orders.failed;
+          if (document.getElementById('ordReturned')) document.getElementById('ordReturned').textContent = data.orders.returned;
+
+          // Operational Alerts
+          if (document.getElementById('alertVendorAccept')) document.getElementById('alertVendorAccept').textContent = data.orders.waitingVendorAcceptance;
+          if (document.getElementById('alertDeliveryAssign')) document.getElementById('alertDeliveryAssign').textContent = data.orders.waitingDeliveryAssignment;
+          if (document.getElementById('alertDelayed')) document.getElementById('alertDelayed').textContent = data.orders.delayedOrders;
+          if (document.getElementById('alertComplaints')) document.getElementById('alertComplaints').textContent = data.orders.activeComplaints;
+
+          // Online Activity
+          if (document.getElementById('actClients')) document.getElementById('actClients').textContent = data.activity.onlineClients;
+          if (document.getElementById('actVendors')) document.getElementById('actVendors').textContent = data.activity.onlineVendors;
+          if (document.getElementById('actDp')) document.getElementById('actDp').textContent = data.activity.onlineDeliveryPartners;
+          if (document.getElementById('actVendorsBidding')) document.getElementById('actVendorsBidding').textContent = data.activity.vendorsBidding;
+          if (document.getElementById('actDpFree')) document.getElementById('actDpFree').textContent = data.activity.dpFree;
+          if (document.getElementById('actDpOnOrder')) document.getElementById('actDpOnOrder').textContent = data.activity.dpOnOrder;
+          if (document.getElementById('actDpOnTheWay')) document.getElementById('actDpOnTheWay').textContent = data.activity.dpOnTheWay;
+          if (document.getElementById('actClientsTracking')) document.getElementById('actClientsTracking').textContent = data.activity.clientsTracking;
+        } catch (err) {
+          console.error('Error loading live status:', err);
+        }
+      }
+
+      async function openLiveDetail(type) {
+        const overlay = document.getElementById('liveDetailSubModal');
+        const body = document.getElementById('liveDetailBody');
+        const title = document.getElementById('liveDetailTitle');
+
+        title.textContent = `List Details (${type})`;
+        body.innerHTML = '<p style="color: #94a3b8;">Loading details...</p>';
+        overlay.classList.add('active');
+
+        try {
+          const response = await fetch(`/api/dashboard/live-details?type=${encodeURIComponent(type)}&city=${encodeURIComponent(liveSelectedCity)}`, {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!data.success || !data.items || !data.items.length) {
+            body.innerHTML = '<p style="color: #94a3b8;">No records found for this category.</p>';
+            return;
+          }
+
+          body.innerHTML = `
+            <table class="users-table" style="color:#f8fafc;">
+              <thead>
+                <tr>
+                  <th>ID</th>
+                  <th>Details</th>
+                  <th>Info</th>
+                  <th>Status</th>
+                  <th>Date</th>
+                </tr>
+              </thead>
+              <tbody>
+                ${data.items.map(item => `
+                  <tr>
+                    <td><strong style="color:#38bdf8;">${item.id}</strong></td>
+                    <td>${item.title}</td>
+                    <td>${item.sub}</td>
+                    <td><span class="user-status-pill active">${item.status}</span></td>
+                    <td>${new Date(item.date).toLocaleDateString()}</td>
+                  </tr>
+                `).join('')}
+              </tbody>
+            </table>
+          `;
+        } catch (err) {
+          body.innerHTML = '<p style="color: #ef4444;">Failed to load detail items.</p>';
+        }
+      }
+
+      function closeLiveDetailSubModal() {
+        document.getElementById('liveDetailSubModal').classList.remove('active');
+      }
+
+      // --- Product Statistics & Area Filters ---
+      function onProdStatsCityChange() {
+        const citySelect = document.getElementById('prodStatsCitySelect');
+        const areaSelect = document.getElementById('prodStatsAreaSelect');
+        if (!citySelect || !areaSelect) return;
+
+        const selectedCity = citySelect.value;
+        const cityAreasMap = (systemLocationData && systemLocationData.cityAreasMap) || {};
+
+        let areas = [];
+        if (selectedCity && selectedCity !== 'all_assigned' && selectedCity !== 'all') {
+          // Find matching city key
+          const matchKey = Object.keys(cityAreasMap).find((k) => k.toLowerCase() === selectedCity.toLowerCase());
+          if (matchKey) {
+            areas = cityAreasMap[matchKey];
+          }
+        }
+
+        let areaHtml = '<option value="all">All Areas</option>';
+        areas.forEach((a) => {
+          areaHtml += `<option value="${a}">${a}</option>`;
+        });
+        areaSelect.innerHTML = areaHtml;
+        fetchProductStats();
+      }
+
+      async function fetchProductStats() {
+        const citySelect = document.getElementById('prodStatsCitySelect');
+        const areaSelect = document.getElementById('prodStatsAreaSelect');
+        if (!citySelect) return;
+
+        const city = citySelect.value || 'all_assigned';
+        const area = areaSelect ? areaSelect.value : 'all';
+
+        try {
+          const params = new URLSearchParams({ city, area });
+          const response = await fetch(`/api/dashboard/product-stats?${params.toString()}`, {
+            headers: { Accept: 'application/json' },
+          });
+          const data = await response.json();
+          if (!data.success) return;
+
+          // Metrics Overview
+          if (document.getElementById('psActive')) document.getElementById('psActive').textContent = data.metrics.totalActiveProducts;
+          if (document.getElementById('psInactive')) document.getElementById('psInactive').textContent = data.metrics.totalInactiveProducts;
+          if (document.getElementById('psApproved')) document.getElementById('psApproved').textContent = data.metrics.totalApprovedProducts;
+          if (document.getElementById('psPending')) document.getElementById('psPending').textContent = data.metrics.totalPendingProducts;
+          if (document.getElementById('psOutOfStock')) document.getElementById('psOutOfStock').textContent = data.metrics.totalOutOfStockProducts;
+          if (document.getElementById('psLowStock')) document.getElementById('psLowStock').textContent = data.metrics.totalLowInventoryProducts;
+
+          // Render Most Sold Products Table
+          const mostSoldTbody = document.getElementById('psMostSoldTable');
+          if (mostSoldTbody) {
+            if (!data.mostSoldProducts || !data.mostSoldProducts.length) {
+              mostSoldTbody.innerHTML = '<tr><td colspan="6" style="padding: 16px; text-align: center; color: #94a3b8;">No sales records found</td></tr>';
+            } else {
+              mostSoldTbody.innerHTML = data.mostSoldProducts.map((p) => `
+                <tr style="border-bottom: 1px solid #334155;">
+                  <td style="padding: 10px 12px; display: flex; align-items: center; gap: 8px;">
+                    <img src="${p.imageUrl}" alt="" style="width: 28px; height: 28px; border-radius: 4px; object-fit: cover;" onerror="this.src='/placeholder.png'" />
+                    <span style="font-weight: 700; color: #f8fafc;">${p.name}</span>
+                  </td>
+                  <td style="padding: 10px 12px; color: #94a3b8;">#${p.productId}</td>
+                  <td style="padding: 10px 12px; color: #cbd5e1;">${p.category}</td>
+                  <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #34d399;">${p.totalQuantitySold}</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #cbd5e1;">${p.totalOrders}</td>
+                  <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #38bdf8;">INR ${p.salesAmount.toFixed(2)}</td>
+                </tr>
+              `).join('');
+            }
+          }
+
+          // Render Most Returned Products Table
+          const mostReturnedTbody = document.getElementById('psMostReturnedTable');
+          if (mostReturnedTbody) {
+            if (!data.mostReturnedProducts || !data.mostReturnedProducts.length) {
+              mostReturnedTbody.innerHTML = '<tr><td colspan="5" style="padding: 16px; text-align: center; color: #94a3b8;">No return records found</td></tr>';
+            } else {
+              mostReturnedTbody.innerHTML = data.mostReturnedProducts.map((p) => `
+                <tr style="border-bottom: 1px solid #334155;">
+                  <td style="padding: 10px 12px; display: flex; align-items: center; gap: 8px;">
+                    <img src="${p.imageUrl}" alt="" style="width: 28px; height: 28px; border-radius: 4px; object-fit: cover;" onerror="this.src='/placeholder.png'" />
+                    <span style="font-weight: 700; color: #f8fafc;">${p.name}</span>
+                  </td>
+                  <td style="padding: 10px 12px; color: #94a3b8;">#${p.productId}</td>
+                  <td style="padding: 10px 12px; color: #cbd5e1;">${p.category}</td>
+                  <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #f87171;">${p.totalQuantityReturned}</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #cbd5e1;">${p.totalOrders}</td>
+                </tr>
+              `).join('');
+            }
+          }
+
+          // Highest Revenue Table
+          const highestRevTbody = document.getElementById('psHighestRevenueTable');
+          if (highestRevTbody) {
+            if (!data.highestRevenueProducts || !data.highestRevenueProducts.length) {
+              highestRevTbody.innerHTML = '<tr><td colspan="4" style="padding: 16px; text-align: center; color: #94a3b8;">No revenue records</td></tr>';
+            } else {
+              highestRevTbody.innerHTML = data.highestRevenueProducts.map((p) => `
+                <tr style="border-bottom: 1px solid #334155;">
+                  <td style="padding: 10px 12px; font-weight: 700; color: #f8fafc;">${p.name}</td>
+                  <td style="padding: 10px 12px; color: #cbd5e1;">${p.category}</td>
+                  <td style="padding: 10px 12px; text-align: right; color: #cbd5e1;">${p.totalQuantitySold}</td>
+                  <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #34d399;">INR ${p.totalRevenue.toFixed(2)}</td>
+                </tr>
+              `).join('');
+            }
+          }
+
+          // Lowest Sales Table
+          const lowestSalesTbody = document.getElementById('psLowestSalesTable');
+          if (lowestSalesTbody) {
+            if (!data.lowestSalesProducts || !data.lowestSalesProducts.length) {
+              lowestSalesTbody.innerHTML = '<tr><td colspan="3" style="padding: 16px; text-align: center; color: #94a3b8;">No records</td></tr>';
+            } else {
+              lowestSalesTbody.innerHTML = data.lowestSalesProducts.map((p) => `
+                <tr style="border-bottom: 1px solid #334155;">
+                  <td style="padding: 10px 12px; font-weight: 700; color: #f8fafc;">${p.name}</td>
+                  <td style="padding: 10px 12px; color: #cbd5e1;">${p.category}</td>
+                  <td style="padding: 10px 12px; text-align: right; font-weight: 700; color: #fbbf24;">${p.totalQuantitySold}</td>
+                </tr>
+              `).join('');
+            }
+          }
+
+          // Top Categories List
+          const topCatList = document.getElementById('psTopCategoriesList');
+          if (topCatList) {
+            if (!data.topCategories || !data.topCategories.length) {
+              topCatList.innerHTML = '<li style="color: #94a3b8;">No category data</li>';
+            } else {
+              topCatList.innerHTML = data.topCategories.map((c) => `
+                <li style="padding: 8px 0; border-bottom: 1px solid #334155; display: flex; justify-content: space-between;">
+                  <span style="font-weight: 700; color: #f8fafc;">${c.name}</span>
+                  <span style="color: #34d399; font-weight: 700;">INR ${c.totalSales.toFixed(2)} (${c.totalQuantity} units)</span>
+                </li>
+              `).join('');
+            }
+          }
+
+          // Top Subcategories List
+          const topSubcatList = document.getElementById('psTopSubcategoriesList');
+          if (topSubcatList) {
+            if (!data.topSubcategories || !data.topSubcategories.length) {
+              topSubcatList.innerHTML = '<li style="color: #94a3b8;">No subcategory data</li>';
+            } else {
+              topSubcatList.innerHTML = data.topSubcategories.map((sc) => `
+                <li style="padding: 8px 0; border-bottom: 1px solid #334155; display: flex; justify-content: space-between;">
+                  <span style="font-weight: 700; color: #f8fafc;">${sc.name} <small style="color:#94a3b8;">(${sc.category})</small></span>
+                  <span style="color: #34d399; font-weight: 700;">INR ${sc.totalSales.toFixed(2)}</span>
+                </li>
+              `).join('');
+            }
+          }
+
+          // Area Performance Content
+          const areaContent = document.getElementById('psAreaBreakdownContent');
+          if (areaContent) {
+            const am = data.areaMetrics || {};
+            areaContent.innerHTML = `
+              <div style="background: #1e293b; border: 1px solid #334155; padding: 12px; border-radius: 8px; margin-bottom: 10px;">
+                <span style="color: #94a3b8; font-size: 0.78rem;">Best-Selling Area:</span>
+                <strong style="display: block; font-size: 1.05rem; color: #34d399;">${am.bestSellingArea || 'N/A'}</strong>
+              </div>
+              <ul style="list-style: none; padding: 0; margin: 0; line-height: 1.8; color: #cbd5e1;">
+                <li><strong style="color:#f8fafc;">Total Sales by Area:</strong> INR ${(am.totalSalesByArea || 0).toFixed(2)}</li>
+                <li><strong style="color:#f8fafc;">Total Orders by Area:</strong> ${am.totalOrdersByArea || 0}</li>
+                <li><strong style="color:#f8fafc;">Returned Products in Area:</strong> ${am.totalReturnedProductsByArea || 0}</li>
+                <li><strong style="color:#f8fafc;">Active Vendors in Area:</strong> ${am.activeVendorsByArea || 0}</li>
+                <li><strong style="color:#f8fafc;">Active Clients in Area:</strong> ${am.activeClientsByArea || 0}</li>
+              </ul>
+            `;
+          }
+        } catch (err) {
+          console.error('Error fetching product statistics:', err);
+        }
+      }
+
+      // Initial load
+      window.addEventListener('DOMContentLoaded', () => {
+        initLocationOptions();
+        fetchLiveStatus();
+      });
+    </script>
+  <% } %>
+</body>
+</html>

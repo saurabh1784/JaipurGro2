@@ -1,4 +1,4 @@
-const express = require('express');
+﻿const express = require('express');
 const session = require('express-session');
 const PgSession = require('connect-pg-simple')(session);
 const bcrypt = require('bcryptjs');
@@ -12,7 +12,8 @@ const {
   restoreSnapshotOnStartup,
 } = require('./databaseSnapshot');
 const { runMigrations } = require('./migrationRunner');
-const { ensureAllSchemaTables } = require('./services/schemaSyncService');
+const { ensureAllSchemaTables, ensureSessionTableExists } = require('./services/schemaSyncService');
+const databaseCleanerService = require('./services/databaseCleanerService');
 const vendorNotifications = require('./vendorNotifications');
 const {
   validateCityAndAreaAccess,
@@ -31,6 +32,7 @@ const orderRoutes = require('./routes/orderRoutes');
 const deliveryPersonRoutes = require('./routes/deliveryPersonRoutes');
 const deliveryTypeRoutes = require('./routes/deliveryTypeRoutes');
 const appSettingsRoutes = require('./routes/appSettingsRoutes');
+const systemUpdateRoutes = require('./routes/systemUpdateRoutes');
 const referralRoutes = require('./routes/referralRoutes');
 const variationRoutes = require('./routes/variationRoutes');
 const variationApprovalRoutes = require('./routes/variationApprovalRoutes');
@@ -83,10 +85,13 @@ const { findOrCreateGoogleClient, publicGoogleConfig } = require('./services/goo
 const { firebaseAdminStatus } = require('./services/firebaseAdminService');
 const emailService = require('./services/emailService');
 const messageService = require('./services/messageService');
+const msg91UnifiedService = require('./services/msg91UnifiedService');
 const pushNotificationService = require('./services/pushNotificationService');
 const adminNotificationService = require('./services/adminNotificationService');
 const notificationTemplateService = require('./services/notificationTemplateService');
+const inAppMessageService = require('./services/inAppMessageService');
 const loginThemeService = require('./services/loginThemeService');
+const paymentGatewayService = require('./services/paymentGatewayService');
 const {
   uploadBrandLogo,
   handleUploadError,
@@ -574,6 +579,28 @@ app.use(
   })
 );
 
+async function getAppMaintenanceStatus(appType='customer') {
+  const app=String(appType||'customer').toLowerCase()==='client'?'customer':String(appType||'customer').toLowerCase();
+  const enabled=await settingValue('maintenance_mode','false');
+  const scope=await settingValue('maintenance_apps','all');
+  const targets=String(scope).split(',').map((v)=>v.trim().toLowerCase());
+  return {success:true,serverAvailable:true,enabled:enabled==='true'||enabled==='1',maintenanceMode:(enabled==='true'||enabled==='1')&&(targets.includes('all')||targets.includes(app)),app,title:await settingValue('maintenance_title',"We'll Be Back Soon"),message:await settingValue('maintenance_message','We are improving the app. Please try again after some time.'),estimatedTime:(await settingValue('maintenance_estimated_time',''))||null,minimumVersion:await settingValue(`${app}_minimum_version`,'1.0.0'),forceUpdate:false};
+}
+
+app.get('/api/app-status',async(req,res)=>{try{return res.json(await getAppMaintenanceStatus(req.query.app));}catch(error){return res.status(503).json({success:false,serverAvailable:false,maintenanceMode:false,message:'Service status is temporarily unavailable.'});}});
+
+app.use('/api',async(req,res,next)=>{
+  if(req.path==='/app-status')return next();
+  try{
+    const actor=req.session&&req.session.user;
+    if(actor&&isSuperAdminUser(actor))return next();
+    const hinted=req.get('x-app-type')||req.query.app||req.body&&req.body.appType||(/vendor/i.test(req.path)?'vendor':/delivery/i.test(req.path)?'delivery':'customer');
+    const status=await getAppMaintenanceStatus(hinted);
+    if(status.maintenanceMode)return res.status(503).json(status);
+    return next();
+  }catch(_){return next();}
+});
+
 app.use('/api/auth', authRoutes);
 app.use('/api/profile', profileRoutes);
 
@@ -796,6 +823,18 @@ async function addUniqueIndexIfMissing(tableName, indexName, columnName) {
   }
 }
 
+async function ensureRoleScopedPhoneUniqueness() {
+  await pool.query('ALTER TABLE users DROP CONSTRAINT IF EXISTS idx_users_phone_unique').catch(() => {});
+  await pool.query('DROP INDEX IF EXISTS idx_users_phone_unique').catch(() => {});
+  await pool.query(`CREATE UNIQUE INDEX IF NOT EXISTS idx_users_phone_role_unique
+    ON users (phone, (CASE
+      WHEN LOWER(REPLACE(REPLACE(REPLACE(role, ' ', ''), '_', ''), '-', '')) IN ('client', 'customer') THEN 'client'
+      WHEN LOWER(REPLACE(REPLACE(REPLACE(role, ' ', ''), '_', ''), '-', '')) = 'vendor' THEN 'vendor'
+      WHEN LOWER(REPLACE(REPLACE(REPLACE(role, ' ', ''), '_', ''), '-', '')) IN ('deliveryperson', 'deliverypartner', 'delivery', 'rider') THEN 'deliveryperson'
+      ELSE LOWER(REPLACE(REPLACE(REPLACE(role, ' ', ''), '_', ''), '-', ''))
+    END))
+    WHERE phone IS NOT NULL AND phone <> '' AND is_deleted = 0`);
+}
 async function settingValue(key, fallback = '') {
   try {
     const [rows] = await pool.query('SELECT setting_value FROM app_settings WHERE setting_key = ? LIMIT 1', [key]);
@@ -861,7 +900,7 @@ async function forgetDeletedRoleSlug(slug) {
 }
 
 function formatRupees(value) {
-  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return `â‚¹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 async function notifyClientBidUpdate(response) {
@@ -1113,6 +1152,7 @@ async function initDatabase(options = {}) {
     await pgPool.ensureDatabase().catch(() => {});
     console.log('Database init: connectivity check');
     await pool.query('SELECT 1');
+    await ensureSessionTableExists(pool).catch(() => {});
     await addColumnIfMissing('users', 'social_provider', 'VARCHAR(50) DEFAULT NULL').catch(() => {});
     await addColumnIfMissing('users', 'social_provider_id', 'VARCHAR(255) DEFAULT NULL').catch(() => {});
     await addColumnIfMissing('users', 'profile_image', 'TEXT DEFAULT NULL').catch(() => {});
@@ -1219,7 +1259,7 @@ async function initDatabase(options = {}) {
   await addColumnIfMissing('users', 'assigned_admin_id', 'INT UNSIGNED DEFAULT NULL AFTER area');
   await addColumnIfMissing('users', 'created_by', 'INT UNSIGNED DEFAULT NULL AFTER assigned_admin_id');
   await addColumnIfMissing('users', 'updated_at', 'TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP AFTER created_at');
-  await addUniqueIndexIfMissing('users', 'idx_users_phone_unique', 'phone');
+  await ensureRoleScopedPhoneUniqueness();
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS wallets (
@@ -2997,9 +3037,10 @@ function buildShell(user, activePath = '/dashboard') {
       navItem('Client Support', '/support/clients', 'support.manage', 'support', activePath.startsWith('/support/clients')),
       navItem('Vendor Support', '/support/vendors', 'support.manage', 'support', activePath.startsWith('/support/vendors')),
     ]),
-    navGroup('System Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings') || activePath.startsWith('/app-settings') || activePath.startsWith('/message-settings') || activePath.startsWith('/system-backups'), [
+    navGroup('System Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings') || activePath.startsWith('/app-settings') || activePath.startsWith('/message-settings') || activePath.startsWith('/payment-gateway-settings') || activePath.startsWith('/system-backups'), [
       navItem('General & System Settings', '/settings', 'settings.manage', 'settings', activePath.startsWith('/settings') && !activePath.startsWith('/settings/message')),
       navItem('Message & OTP Settings', '/message-settings', 'settings.manage', 'support', activePath.startsWith('/message-settings')),
+      navItem('Payment Gateway', '/payment-gateway-settings', 'settings.manage', 'wallets', activePath.startsWith('/payment-gateway-settings')),
       navItem('App Settings', '/app-settings', 'settings.manage', 'settings', activePath.startsWith('/app-settings')),
       navItem('Server Backups (24h)', '/system-backups', 'settings.manage', 'settings', activePath.startsWith('/system-backups')),
       navItem('Reports', '#', 'reports.view', 'reports', false),
@@ -3020,43 +3061,42 @@ function buildShell(user, activePath = '/dashboard') {
 function buildDashboard(user, activePath = '/dashboard') {
   const can = (permission) => roleCan(user, permission);
   const shell = buildShell(user, activePath);
-
   const roleMetrics = {
     superadmin: [
-      { label: 'System Users', value: '4 Roles', tone: 'orange', icon: 'users', note: 'Full access enabled' },
-      { label: 'Revenue', value: '$34,245', tone: 'green', icon: 'revenue', note: 'Last 24 hours' },
-      { label: 'Open Issues', value: '75', tone: 'red', icon: 'alerts', note: 'Tracked by admin team' },
-      { label: 'Followers', value: '+245', tone: 'blue', icon: 'followers', note: 'Just updated' },
+      { label: 'System Users', value: '0', tone: 'orange', icon: 'users', note: 'Registered users' },
+      { label: 'Today Revenue', value: 'â‚¹0', tone: 'green', icon: 'revenue', note: '0 orders today' },
+      { label: 'Open Issues', value: '0', tone: 'red', icon: 'alerts', note: '0 open issues' },
+      { label: 'Clients & Vendors', value: '0 / 0', tone: 'blue', icon: 'followers', note: 'Registered clients / vendors' },
     ],
     admin: [
-      { label: 'Active Users', value: '124', tone: 'orange', icon: 'users', note: '12 new this week' },
-      { label: 'Revenue', value: '$18,920', tone: 'green', icon: 'revenue', note: 'Admin region' },
-      { label: 'Pending Roles', value: '6', tone: 'red', icon: 'alerts', note: 'Needs review' },
-      { label: 'Reports', value: '38', tone: 'blue', icon: 'reports', note: 'Ready to export' },
+      { label: 'Active Users', value: '0', tone: 'orange', icon: 'users', note: 'Active accounts' },
+      { label: 'Today Revenue', value: 'â‚¹0', tone: 'green', icon: 'revenue', note: '0 orders today' },
+      { label: 'Pending Roles', value: '0', tone: 'red', icon: 'alerts', note: 'Needs review' },
+      { label: 'Reports', value: '0', tone: 'blue', icon: 'reports', note: 'Ready to export' },
     ],
     manager: [
-      { label: 'Products', value: '1,284', tone: 'orange', icon: 'products', note: 'Catalog available' },
-      { label: 'Today Sales', value: '$8,245', tone: 'green', icon: 'revenue', note: 'Store performance' },
-      { label: 'Low Stock', value: '21', tone: 'red', icon: 'alerts', note: 'Restock required' },
-      { label: 'Orders', value: '186', tone: 'blue', icon: 'orders', note: 'Updated minutes ago' },
+      { label: 'Products', value: '0', tone: 'orange', icon: 'products', note: 'Catalog available' },
+      { label: 'Today Sales', value: 'â‚¹0', tone: 'green', icon: 'revenue', note: 'Store performance' },
+      { label: 'Low Stock', value: '0', tone: 'red', icon: 'alerts', note: 'Restock required' },
+      { label: 'Orders', value: '0', tone: 'blue', icon: 'orders', note: 'Updated live' },
     ],
     Vendor: [
-      { label: 'Active Products', value: 'Vendor Stock', tone: 'orange', icon: 'products', note: 'Only active stocked products are visible' },
-      { label: 'Pending Approval', value: 'Review', tone: 'red', icon: 'alerts', note: 'New submissions need admin approval' },
-      { label: 'Client Pricing', value: 'Custom', tone: 'green', icon: 'revenue', note: 'Set client-specific product prices' },
-      { label: 'Wallet', value: 'Enabled', tone: 'blue', icon: 'revenue', note: 'Track vendor transactions' },
+      { label: 'Active Products', value: '0', tone: 'orange', icon: 'products', note: 'Only active stocked products' },
+      { label: 'Pending Approval', value: '0', tone: 'red', icon: 'alerts', note: 'Submissions pending admin review' },
+      { label: 'Client Pricing', value: 'Custom', tone: 'green', icon: 'revenue', note: 'Set client-specific prices' },
+      { label: 'Wallet', value: 'Enabled', tone: 'blue', icon: 'revenue', note: 'Track vendor balance' },
     ],
     Client: [
-      { label: 'Visible Products', value: 'Approved', tone: 'orange', icon: 'products', note: 'Approved, active, in-stock items only' },
-      { label: 'Custom Prices', value: 'Applied', tone: 'green', icon: 'revenue', note: 'Vendor custom prices override defaults' },
+      { label: 'Visible Products', value: 'Catalog', tone: 'orange', icon: 'products', note: 'Approved in-stock items' },
+      { label: 'Custom Prices', value: 'Applied', tone: 'green', icon: 'revenue', note: 'Vendor prices applied' },
       { label: 'Wallet', value: 'Enabled', tone: 'blue', icon: 'revenue', note: 'Track client transactions' },
-      { label: 'Account Status', value: 'Active', tone: 'red', icon: 'alerts', note: 'Access depends on profile status' },
+      { label: 'Account Status', value: 'Active', tone: 'red', icon: 'alerts', note: 'Account active' },
     ],
     staff: [
-      { label: 'Assigned Orders', value: '42', tone: 'orange', icon: 'orders', note: 'For today' },
-      { label: 'Packed', value: '28', tone: 'green', icon: 'products', note: 'Ready to dispatch' },
-      { label: 'Delayed', value: '4', tone: 'red', icon: 'alerts', note: 'Needs attention' },
-      { label: 'Completed', value: '96%', tone: 'blue', icon: 'reports', note: 'Shift target' },
+      { label: 'Assigned Orders', value: '0', tone: 'orange', icon: 'orders', note: 'For today' },
+      { label: 'Packed', value: '0', tone: 'green', icon: 'products', note: 'Ready to dispatch' },
+      { label: 'Delayed', value: '0', tone: 'red', icon: 'alerts', note: 'Needs attention' },
+      { label: 'Completed', value: '0', tone: 'blue', icon: 'reports', note: 'Shift target' },
     ],
   };
 
@@ -3068,9 +3108,9 @@ function buildDashboard(user, activePath = '/dashboard') {
     permissions: user.permissions.map((permission) => permissionLabels[permission] || permission),
     metrics: roleMetrics[role],
     charts: [
-      { title: 'Daily Sales', tone: 'green-panel', subtitle: '55% increase in today sales.', footer: 'Updated 4 minutes ago', type: 'line-up' },
-      { title: 'Email Subscriptions', tone: 'orange-panel', subtitle: 'Last campaign performance', footer: 'Campaign sent 2 days ago', type: 'bars' },
-      { title: 'Completed Tasks', tone: 'red-panel', subtitle: 'Role based workflow progress', footer: 'Updated 10 minutes ago', type: 'line-down' },
+      { title: 'Daily Sales', tone: 'green-panel', subtitle: 'â‚¹0 today.', footer: '0 orders today', type: 'line-up' },
+      { title: 'Orders & Quotations', tone: 'orange-panel', subtitle: '0 orders / 0 pending quotations', footer: '0 pending orders', type: 'bars' },
+      { title: 'Operational Issues', tone: 'red-panel', subtitle: '0 open items need action', footer: '0 low-stock items', type: 'line-down' },
     ],
     tasks: [
       `Review ${user.roleName || user.role} dashboard permissions`,
@@ -3079,17 +3119,14 @@ function buildDashboard(user, activePath = '/dashboard') {
       can('roles.manage') ? 'Audit role assignments for new users' : 'Send shift handover note',
     ],
     employees: [
-      { id: 1, name: 'Dakota Rice', salary: '$36,738', country: 'Niger' },
-      { id: 2, name: 'Minerva Hooper', salary: '$23,789', country: 'Curacao' },
-      { id: 3, name: 'Sage Rodriguez', salary: '$56,142', country: 'Netherlands' },
-      { id: 4, name: user.name, salary: '$38,735', country: user.roleName || user.role },
+      { id: user.id || 1, name: user.name || 'System User', salary: user.status || 'Active', country: user.roleName || user.role },
     ],
     notifications: [],
   };
 }
 
 function formatDashboardMoney(value) {
-  return `₹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
+  return `â‚¹${Number(value || 0).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
 }
 
 function formatDashboardNumber(value) {
@@ -3671,11 +3708,11 @@ async function syncVendorPricesToMasterProducts() {
 }
 
 app.get('/', (req, res) => {
-  if (req.session && req.session.user) {
-    return res.redirect('/dashboard');
-  }
+  res.render('landing');
+});
 
-  res.render('login', { error: null });
+app.get('/privacy-policy', (req, res) => {
+  res.render('privacy-policy');
 });
 
 app.get('/admin', (req, res) => {
@@ -3887,12 +3924,12 @@ app.post('/admin/login', handleAdminLogin);
 app.post('/login', handleAdminLogin);
 
 async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
-  const identifier = String(req.body.identifier || req.body.email || '').trim().toLowerCase();
+  const identifier = String(req.body.identifier || req.body.email || req.body.phone || '').trim().toLowerCase();
   const password = String(req.body.password || '');
   const roleLabel = expectedRole;
   const loginPath = expectedRole === 'Vendor' ? '/login/vendor' : '/login/client';
 
-  if (!identifier || !password) {
+  const renderLoginError = async (errorMsg) => {
     return res.render('role_login', {
       roleLabel,
       roleSlug: expectedRole,
@@ -3900,62 +3937,62 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
       demoCredentials: null,
       googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
       firebaseConfig: publicGoogleConfig().firebase,
-      error: 'Please enter email/username and password.',
+      isGstMandatory: expectedRole === 'Vendor' ? await appSettingsController.getGstMandatory() : false,
+      error: errorMsg,
     });
+  };
+
+  if (!identifier || !password) {
+    return renderLoginError('Please enter email/phone/username and password.');
   }
 
   try {
     const rawUser = await User.findByEmailOrPhoneIdentifier(identifier);
     if (rawUser && isSuperAdminUser(rawUser)) {
-      return res.render('role_login', {
-        roleLabel,
-        roleSlug: expectedRole,
-        loginPath,
-        demoCredentials: null,
-        googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
-        firebaseConfig: publicGoogleConfig().firebase,
-        error: 'Superadmin accounts must log in exclusively via the /superadmin portal.',
-      });
+      return renderLoginError('Superadmin accounts must log in exclusively via the /superadmin portal.');
     }
 
-    if (!rawUser || rawUser.role !== expectedRole || rawUser.status !== 'active') {
-      return res.render('role_login', {
-        roleLabel,
-        roleSlug: expectedRole,
-        loginPath,
-        demoCredentials: null,
-        googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
-        firebaseConfig: publicGoogleConfig().firebase,
-        error: `Invalid ${roleLabel.toLowerCase()} credentials.`,
-      });
+    if (!rawUser) {
+      return renderLoginError(`Invalid ${roleLabel.toLowerCase()} credentials.`);
+    }
+
+    const normUserRole = String(rawUser.role || '').trim().toLowerCase();
+    const normExpectedRole = String(expectedRole || '').trim().toLowerCase();
+
+    if (normUserRole !== normExpectedRole) {
+      return renderLoginError(`This account is registered as ${rawUser.role || 'another role'}, not as ${roleLabel}. Please use the correct login portal.`);
+    }
+
+    if (rawUser.status === 'pending') {
+      return renderLoginError(`Your ${roleLabel.toLowerCase()} account registration is pending admin approval. You will be able to log in once an admin approves your account.`);
+    }
+
+    if (rawUser.status === 'on_hold' || rawUser.status === 'suspended' || rawUser.status === 'inactive') {
+      return renderLoginError(`Your ${roleLabel.toLowerCase()} account is currently ${rawUser.status}. Please contact support or admin for assistance.`);
     }
 
     const passwordMatches = await bcrypt.compare(password, rawUser.password);
     if (!passwordMatches) {
-      return res.render('role_login', {
-        roleLabel,
-        roleSlug: expectedRole,
-        loginPath,
-        demoCredentials: null,
-        googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
-        firebaseConfig: publicGoogleConfig().firebase,
-        error: `Invalid ${roleLabel.toLowerCase()} credentials.`,
-      });
+      return renderLoginError(`Invalid ${roleLabel.toLowerCase()} credentials.`);
     }
 
-    const fallbackPermissions = expectedRole === 'Client'
+    const canonicalRole = normExpectedRole === 'vendor' ? 'Vendor' : (normExpectedRole === 'client' ? 'Client' : rawUser.role);
+    const fallbackPermissions = canonicalRole === 'Client'
       ? ['dashboard.view', 'wallets.view', 'coupons.apply']
       : ['dashboard.view', 'wallets.view'];
+
     const user = {
       id: rawUser.id,
       name: rawUser.name,
       email: rawUser.email,
+      phone: rawUser.phone,
       themeMode: rawUser.theme_mode || 'light',
-      role: rawUser.role,
-      roleName: rawUser.role,
-      roles: [{ id: null, name: rawUser.role, slug: rawUser.role, level: 99, permissions: fallbackPermissions }],
+      role: canonicalRole,
+      roleName: canonicalRole,
+      roles: [{ id: null, name: canonicalRole, slug: canonicalRole, level: 99, permissions: fallbackPermissions }],
       permissions: fallbackPermissions,
     };
+
     req.session.user = user;
     applyRoleSessionMaxAge(req, user);
     return req.session.save((err) => {
@@ -3964,15 +4001,7 @@ async function handleRoleLogin(req, res, expectedRole, dashboardPath) {
     });
   } catch (error) {
     console.error(`${roleLabel} login error:`, error);
-    return res.render('role_login', {
-      roleLabel,
-      roleSlug: expectedRole,
-      loginPath,
-      demoCredentials: null,
-      googleWebClientId: expectedRole === 'Client' ? publicGoogleConfig().webClientId : '',
-      firebaseConfig: publicGoogleConfig().firebase,
-      error: 'Unable to process login. Please try again later.',
-    });
+    return renderLoginError('Unable to process login. Please try again later.');
   }
 }
 
@@ -4194,7 +4223,7 @@ app.get('/api/dashboard/live-status', requireAuth, async (req, res) => {
     `, [hasCity, targetCities]);
 
     // 5. Current Online Activity Metrics
-    const { rows: activityRows } = await pool.query(`
+    const [activityRows] = await pool.query(`
       SELECT
         (SELECT COUNT(DISTINCT qvr.vendor_id) FROM quotation_vendor_recipients qvr INNER JOIN quotation_requests qr ON qr.id = qvr.quotation_request_id WHERE qvr.created_at >= CURRENT_DATE AND qvr.status IN ('submitted', 'accepted') AND ($1 = false OR LOWER(TRIM(COALESCE(qr.client_city, ''))) = ANY($2::text[]))) AS vendors_bidding,
         (SELECT COUNT(*) FROM users u LEFT JOIN delivery_person_profiles dp ON dp.user_id = u.id WHERE LOWER(u.role) IN ('deliveryperson', 'delivery_person', 'deliverypartner', 'delivery_partner') AND u.is_deleted = 0 AND COALESCE(dp.is_available, 1) = 1 AND u.id NOT IN (SELECT COALESCE(delivery_partner_id, 0) FROM client_orders WHERE status IN ('Assigned', 'Accepted', 'Picked Up', 'On the Way', 'Out for Delivery')) AND ($1 = false OR LOWER(TRIM(COALESCE(NULLIF(u.city, ''), dp.city, ''))) = ANY($2::text[]))) AS dp_free,
@@ -5790,6 +5819,11 @@ app.put('/api/admin/vendor-inventory/:vendorProductId', webOrJwtAuth, requirePer
   }
 });
 
+app.get('/price-revision-requests', requireAuth, (req, res) => {
+  const role = String((req.session.user && req.session.user.role) || '').toLowerCase();
+  if (!['admin', 'superadmin', 'staff'].includes(role)) return res.status(403).send('Reviewer access required');
+  return res.render('price-revision-requests', { user: req.session.user });
+});
 app.get('/vendor-products', requireAuth, requireSessionRole('Vendor', '/login/vendor'), async (req, res) => {
   try {
     const products = await VendorProduct.list({
@@ -5968,6 +6002,317 @@ app.get('/api/admin/vendor-withdrawals', webOrJwtAuth, requirePermission('vendor
 app.put('/api/admin/vendor-withdrawals/:id/approve', webOrJwtAuth, requirePermission('vendors.manage'), vendorWithdrawalController.approveWithdrawal);
 app.put('/api/admin/vendor-withdrawals/:id/reject', webOrJwtAuth, requirePermission('vendors.manage'), vendorWithdrawalController.rejectWithdrawal);
 
+const { uploadVendorKyc, uploadDeliveryKyc, handleKycUploadError } = require('./middleware/kycUpload');
+const { kycPartnerAuth } = require('./middleware/webOrJwtAuth');
+
+// Vendor KYC Endpoints
+app.post('/api/vendor/kyc/upload-documents', kycPartnerAuth, requireAuthRole('Vendor'), uploadVendorKyc.fields([
+  { name: 'pan_card', maxCount: 1 },
+  { name: 'aadhaar_card', maxCount: 1 },
+  { name: 'gst_certificate', maxCount: 1 },
+  { name: 'food_license', maxCount: 1 },
+  { name: 'cancelled_cheque', maxCount: 1 },
+  { name: 'shop_front_photo', maxCount: 1 },
+  { name: 'shop_inside_photo_1', maxCount: 1 },
+  { name: 'shop_inside_photo_2', maxCount: 1 },
+  { name: 'shop_inside_photo_3', maxCount: 1 },
+]), handleKycUploadError, async (req, res) => {
+  try {
+    const userId = req.authUser.id;
+    const files = req.files || {};
+    const updates = {};
+    if (files.pan_card && files.pan_card[0]) updates.pan_card_path = `/uploads/vendor-kyc/${files.pan_card[0].filename}`;
+    if (files.aadhaar_card && files.aadhaar_card[0]) updates.aadhaar_card_path = `/uploads/vendor-kyc/${files.aadhaar_card[0].filename}`;
+    if (files.gst_certificate && files.gst_certificate[0]) updates.gst_certificate_path = `/uploads/vendor-kyc/${files.gst_certificate[0].filename}`;
+    if (files.food_license && files.food_license[0]) updates.food_license_path = `/uploads/vendor-kyc/${files.food_license[0].filename}`;
+    if (files.cancelled_cheque && files.cancelled_cheque[0]) updates.cancelled_cheque_path = `/uploads/vendor-kyc/${files.cancelled_cheque[0].filename}`;
+    if (files.shop_front_photo && files.shop_front_photo[0]) updates.shop_front_photo_path = `/uploads/vendor-kyc/${files.shop_front_photo[0].filename}`;
+    if (files.shop_inside_photo_1 && files.shop_inside_photo_1[0]) updates.shop_inside_photo_1_path = `/uploads/vendor-kyc/${files.shop_inside_photo_1[0].filename}`;
+    if (files.shop_inside_photo_2 && files.shop_inside_photo_2[0]) updates.shop_inside_photo_2_path = `/uploads/vendor-kyc/${files.shop_inside_photo_2[0].filename}`;
+    if (files.shop_inside_photo_3 && files.shop_inside_photo_3[0]) updates.shop_inside_photo_3_path = `/uploads/vendor-kyc/${files.shop_inside_photo_3[0].filename}`;
+
+    if (Object.keys(updates).length > 0) {
+      await VendorProfile.update(userId, updates);
+    }
+    const profile = await VendorProfile.findByUserId(userId);
+    return res.json({ success: true, message: 'KYC documents uploaded successfully', profile });
+  } catch (err) {
+    console.error('Vendor KYC upload error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to upload KYC documents' });
+  }
+});
+
+app.post('/api/vendor/kyc/submit', kycPartnerAuth, requireAuthRole('Vendor'), async (req, res) => {
+  try {
+    const userId = req.authUser.id;
+    const profile = await VendorProfile.findByUserId(userId);
+    const requiredDocs = [
+      { key: 'pan_card_path', name: 'PAN Card' },
+      { key: 'aadhaar_card_path', name: 'Aadhaar Card' },
+      { key: 'gst_certificate_path', name: 'GST Certificate' },
+      { key: 'food_license_path', name: 'Food License' },
+      { key: 'cancelled_cheque_path', name: 'Cancelled Cheque' },
+      { key: 'shop_front_photo_path', name: 'Front photo of shop' },
+      { key: 'shop_inside_photo_1_path', name: 'Shop inside photo 1' },
+      { key: 'shop_inside_photo_2_path', name: 'Shop inside photo 2' },
+      { key: 'shop_inside_photo_3_path', name: 'Shop inside photo 3' },
+    ];
+    const missing = requiredDocs.filter((doc) => !profile[doc.key]).map((doc) => doc.name);
+    if (missing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Please upload all required documents: ${missing.join(', ')}`,
+        missing_documents: missing,
+      });
+    }
+
+    await pool.query(
+      `UPDATE vendor_profiles SET kyc_status = 'pending_approval', kyc_submitted_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+      [userId]
+    );
+    await pool.query(`UPDATE users SET status = 'inactive' WHERE id = ?`, [userId]);
+
+    adminNotificationService.notifyAdmin({
+      type: 'vendor_kyc_submitted',
+      title: 'Vendor KYC Submitted',
+      message: `Vendor ${req.authUser.name || userId} submitted KYC documents for admin verification.`,
+      link: `/vendors?id=${userId}`,
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      message: 'Vendor KYC documents submitted successfully for admin verification. Account remains inactive until approved.',
+      kyc_status: 'pending_approval',
+    });
+  } catch (err) {
+    console.error('Vendor KYC submission error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to submit KYC for verification' });
+  }
+});
+
+app.get('/api/vendor/kyc/status', kycPartnerAuth, requireAuthRole('Vendor'), async (req, res) => {
+  try {
+    const userId = req.authUser.id;
+    const profile = await VendorProfile.findByUserId(userId);
+    const [userRows] = await pool.query('SELECT status FROM users WHERE id = ? LIMIT 1', [userId]);
+    const userStatus = userRows[0] ? userRows[0].status : 'inactive';
+    const requiredDocs = [
+      { key: 'pan_card_path', name: 'PAN Card' },
+      { key: 'aadhaar_card_path', name: 'Aadhaar Card' },
+      { key: 'gst_certificate_path', name: 'GST Certificate' },
+      { key: 'food_license_path', name: 'Food License' },
+      { key: 'cancelled_cheque_path', name: 'Cancelled Cheque' },
+      { key: 'shop_front_photo_path', name: 'Front photo of shop' },
+      { key: 'shop_inside_photo_1_path', name: 'Shop inside photo 1' },
+      { key: 'shop_inside_photo_2_path', name: 'Shop inside photo 2' },
+      { key: 'shop_inside_photo_3_path', name: 'Shop inside photo 3' },
+    ];
+    const missing = requiredDocs.filter((doc) => !profile[doc.key]).map((doc) => doc.name);
+    return res.json({
+      success: true,
+      user_status: userStatus,
+      kyc_status: profile.kyc_status || 'pending_documents',
+      kyc_rejection_reason: profile.kyc_rejection_reason || null,
+      missing_documents: missing,
+      profile,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Unable to fetch KYC status' });
+  }
+});
+
+// Delivery Partner KYC Endpoints
+app.post('/api/delivery-person/kyc/upload-documents', kycPartnerAuth, requireAuthRole('deliveryPerson'), uploadDeliveryKyc.fields([
+  { name: 'bike_rc', maxCount: 1 },
+  { name: 'pan_card', maxCount: 1 },
+  { name: 'aadhaar_card', maxCount: 1 },
+  { name: 'driving_license', maxCount: 1 },
+  { name: 'cancelled_cheque', maxCount: 1 },
+  { name: 'live_selfie', maxCount: 1 },
+]), handleKycUploadError, async (req, res) => {
+  try {
+    const userId = req.authUser.id;
+    const files = req.files || {};
+    const vehicleNumber = req.body.vehicle_number ? String(req.body.vehicle_number).trim().toUpperCase() : null;
+    const updates = [];
+    const values = [];
+
+    if (vehicleNumber) {
+      updates.push('vehicle_number = ?');
+      values.push(vehicleNumber);
+    }
+    if (files.bike_rc && files.bike_rc[0]) {
+      updates.push('bike_rc_path = ?');
+      values.push(`/uploads/delivery-kyc/${files.bike_rc[0].filename}`);
+    }
+    if (files.pan_card && files.pan_card[0]) {
+      updates.push('pan_card_path = ?');
+      values.push(`/uploads/delivery-kyc/${files.pan_card[0].filename}`);
+    }
+    if (files.aadhaar_card && files.aadhaar_card[0]) {
+      updates.push('aadhaar_card_path = ?');
+      values.push(`/uploads/delivery-kyc/${files.aadhaar_card[0].filename}`);
+    }
+    if (files.driving_license && files.driving_license[0]) {
+      updates.push('driving_license_path = ?');
+      values.push(`/uploads/delivery-kyc/${files.driving_license[0].filename}`);
+    }
+    if (files.cancelled_cheque && files.cancelled_cheque[0]) {
+      updates.push('cancelled_cheque_path = ?');
+      values.push(`/uploads/delivery-kyc/${files.cancelled_cheque[0].filename}`);
+    }
+    if (files.live_selfie && files.live_selfie[0]) {
+      const selfiePath = `/uploads/delivery-kyc/${files.live_selfie[0].filename}`;
+      updates.push('live_selfie_path = ?');
+      values.push(selfiePath);
+      updates.push('profile_image_path = ?');
+      values.push(selfiePath);
+    }
+
+    if (updates.length > 0) {
+      values.push(userId);
+      await pool.query(`UPDATE delivery_person_profiles SET ${updates.join(', ')} WHERE user_id = ?`, values);
+    }
+
+    const person = await DeliveryPerson.findById(userId);
+    return res.json({ success: true, message: 'Delivery partner KYC documents uploaded successfully', person });
+  } catch (err) {
+    console.error('Delivery partner KYC upload error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to upload KYC documents' });
+  }
+});
+
+app.post('/api/delivery-person/kyc/submit', kycPartnerAuth, requireAuthRole('deliveryPerson'), async (req, res) => {
+  try {
+    const userId = req.authUser.id;
+    const person = await DeliveryPerson.findById(userId);
+    const requiredDocs = [
+      { key: 'vehicle_number', name: 'Bike Registration Number' },
+      { key: 'bike_rc_path', name: 'Bike RC' },
+      { key: 'pan_card_path', name: 'PAN Card' },
+      { key: 'aadhaar_card_path', name: 'Aadhaar Card' },
+      { key: 'driving_license_path', name: 'Driving License' },
+      { key: 'cancelled_cheque_path', name: 'Cancelled Cheque' },
+      { key: 'live_selfie_path', name: 'Live Selfie Photo' },
+    ];
+    const missing = requiredDocs.filter((doc) => !person || !person[doc.key]).map((doc) => doc.name);
+    if (missing.length > 0) {
+      return res.status(400).json({
+        success: false,
+        message: `Please provide all required documents and details: ${missing.join(', ')}`,
+        missing_documents: missing,
+      });
+    }
+
+    await pool.query(
+      `UPDATE delivery_person_profiles SET kyc_status = 'pending_approval', kyc_submitted_at = CURRENT_TIMESTAMP WHERE user_id = ?`,
+      [userId]
+    );
+    await pool.query(`UPDATE users SET status = 'inactive' WHERE id = ?`, [userId]);
+
+    adminNotificationService.notifyAdmin({
+      type: 'delivery_kyc_submitted',
+      title: 'Delivery Partner KYC Submitted',
+      message: `Delivery partner ${req.authUser.name || userId} submitted KYC documents for admin verification.`,
+      link: `/delivery-persons?id=${userId}`,
+    }).catch(() => {});
+
+    return res.json({
+      success: true,
+      message: 'Delivery partner KYC documents submitted successfully for admin verification. Account remains inactive until approved.',
+      kyc_status: 'pending_approval',
+    });
+  } catch (err) {
+    console.error('Delivery partner KYC submission error:', err);
+    return res.status(500).json({ success: false, message: 'Failed to submit KYC for verification' });
+  }
+});
+
+app.get('/api/delivery-person/kyc/status', kycPartnerAuth, requireAuthRole('deliveryPerson'), async (req, res) => {
+  try {
+    const userId = req.authUser.id;
+    const person = await DeliveryPerson.findById(userId);
+    const [userRows] = await pool.query('SELECT status FROM users WHERE id = ? LIMIT 1', [userId]);
+    const userStatus = userRows[0] ? userRows[0].status : 'inactive';
+    const requiredDocs = [
+      { key: 'vehicle_number', name: 'Bike Registration Number' },
+      { key: 'bike_rc_path', name: 'Bike RC' },
+      { key: 'pan_card_path', name: 'PAN Card' },
+      { key: 'aadhaar_card_path', name: 'Aadhaar Card' },
+      { key: 'driving_license_path', name: 'Driving License' },
+      { key: 'cancelled_cheque_path', name: 'Cancelled Cheque' },
+      { key: 'live_selfie_path', name: 'Live Selfie Photo' },
+    ];
+    const missing = requiredDocs.filter((doc) => !person || !person[doc.key]).map((doc) => doc.name);
+    return res.json({
+      success: true,
+      user_status: userStatus,
+      kyc_status: person ? person.kyc_status || 'pending_documents' : 'pending_documents',
+      kyc_rejection_reason: person ? person.kyc_rejection_reason || null : null,
+      missing_documents: missing,
+      person,
+    });
+  } catch (err) {
+    return res.status(500).json({ success: false, message: 'Unable to fetch KYC status' });
+  }
+});
+
+// Bidding Products (Filtered by Vendor Area & Stock)
+app.get('/api/client/bidding-products', webOrJwtAuth, async (req, res) => {
+  try {
+    const userId = req.authUser ? req.authUser.id : null;
+    let city = req.query.city ? String(req.query.city).trim() : '';
+    let area = req.query.area ? String(req.query.area).trim() : '';
+
+    if (!city && userId) {
+      const [cpRows] = await pool.query('SELECT city, area FROM client_profiles WHERE user_id = ? LIMIT 1', [userId]);
+      if (cpRows && cpRows[0]) {
+        city = String(cpRows[0].city || '').trim();
+        area = area || String(cpRows[0].area || '').trim();
+      }
+    }
+
+    if (!city) {
+      return res.status(400).json({ success: false, message: 'Customer city/location is required to fetch bidding products' });
+    }
+
+    const params = [city];
+    let areaFilter = '';
+    if (area) {
+      areaFilter = ' AND (LOWER(TRIM(vprof.area)) = LOWER(TRIM(?)) OR vprof.area IS NULL OR TRIM(vprof.area) = \'\')';
+      params.push(area);
+    }
+
+    const [rows] = await pool.query(
+      `SELECT DISTINCT p.id, p.name, p.category_id, c.name AS category_name,
+              p.sub_category_id, sc.name AS subcategory_name, p.brand_id, b.name AS brand_name,
+              p.price, p.image_url, p.description, p.weight_kg, p.weight_unit, p.weight_value,
+              vp.id AS vendor_product_id, vp.quantity AS in_stock_quantity
+       FROM products p
+       INNER JOIN categories c ON c.id = p.category_id
+       LEFT JOIN sub_categories sc ON sc.id = p.sub_category_id
+       LEFT JOIN brands b ON b.id = p.brand_id
+       INNER JOIN vendor_products vp ON vp.product_id = p.id AND vp.status = 'active' AND vp.quantity > 0
+       INNER JOIN users u ON u.id = vp.vendor_id AND u.role = 'Vendor' AND u.status IN ('active', 'approved') AND u.is_deleted = 0
+       INNER JOIN vendor_profiles vprof ON vprof.user_id = u.id
+       WHERE p.is_deleted = 0 AND p.approval_status = 'approved'
+         AND LOWER(TRIM(vprof.city)) = LOWER(TRIM(?)) ${areaFilter}
+       ORDER BY p.name ASC`,
+      params
+    );
+
+    return res.json({
+      success: true,
+      city,
+      area,
+      products: rows,
+    });
+  } catch (err) {
+    console.error('Bidding products fetch error:', err);
+    return res.status(500).json({ success: false, message: 'Unable to load bidding products for selected location' });
+  }
+});
+
 const deliveryWithdrawalController = require('./controllers/deliveryWithdrawalController');
 app.get('/api/orders/delivery/bank-account', webOrJwtAuth, deliveryWithdrawalController.getBankAccount);
 app.get('/api/delivery/bank-account', webOrJwtAuth, deliveryWithdrawalController.getBankAccount);
@@ -5996,6 +6341,7 @@ app.get('/api/admin/backups', webOrJwtAuth, requirePermission('settings.manage')
 app.post('/api/admin/backups/create', webOrJwtAuth, requirePermission('settings.manage'), backupController.createBackup);
 app.get('/api/admin/backups/download/:filename', webOrJwtAuth, requirePermission('settings.manage'), backupController.downloadBackup);
 app.delete('/api/admin/backups/:filename', webOrJwtAuth, requirePermission('settings.manage'), backupController.deleteBackup);
+app.use('/api/admin/system-updates', webOrJwtAuth, requireSuperAdmin, systemUpdateRoutes);
 
 backupService.scheduleMidnightBackup();
 const orderInfoService = require('./services/orderInfoService');
@@ -7247,7 +7593,7 @@ app.post(['/client/orders', '/api/client/orders'], webOrJwtAuth, requireAuthRole
         adminNotificationService.notifyAdmin({
           type: 'new_order',
           title: 'New Order Placed',
-          message: `New Order #${createdOrders[0]?.orderNumber || createdOrders[0]?.id || ''} placed for ₹${createdOrders[0]?.totalAmount || '0.00'}.`,
+          message: `New Order #${createdOrders[0]?.orderNumber || createdOrders[0]?.id || ''} placed for â‚¹${createdOrders[0]?.totalAmount || '0.00'}.`,
           link: '/orders',
         });
       } catch (adminErr) {
@@ -7989,6 +8335,9 @@ app.post('/api/support/tickets', webOrJwtAuth, async (req, res) => {
       user: req.authUser,
       subject: req.body.subject,
       message: req.body.message,
+      description: req.body.description,
+      category: req.body.category,
+      orderId: req.body.order_id || req.body.orderId,
     });
     res.status(201).json({ success: true, id, message: 'Support ticket created' });
   } catch (error) {
@@ -8577,6 +8926,8 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
     } catch (error) {
       console.error('Firebase settings fetch error:', error);
     }
+    const appMaintenance=await getAppMaintenanceStatus('customer');
+    appMaintenance.apps=await settingValue('maintenance_apps','all');
     return res.render('settings', {
       user: req.session.user,
       shell: buildShell(req.session.user, req.path),
@@ -8593,7 +8944,8 @@ app.get('/settings', requireAuth, requirePermission('settings.manage'), async (r
           supportEmail: 'support@groceryapp.local',
           timezone: 'Asia/Kolkata',
           currency: 'INR',
-          maintenanceMode: false,
+          maintenanceMode: appMaintenance.enabled,
+          maintenance: appMaintenance,
           quotationSubmissionMinutes,
         },
         vendor: {
@@ -8661,6 +9013,19 @@ app.post('/settings/social-login', requireAuth, async (req, res) => {
 });
 
 // Save Mobile OTP Login Settings (Superadmin or settings.manage permission)
+app.post('/settings/maintenance-mode',requireAuth,async(req,res)=>{
+  try{
+    if(!isSuperAdminUser(req.session.user||req.authUser))return res.status(403).json({success:false,message:'Only Super Admin can manage maintenance mode.'});
+    const apps=['customer','vendor','delivery','all'].includes(String(req.body.apps||'all'))?String(req.body.apps||'all'):'all';
+    await saveSetting('maintenance_mode',req.body.enabled===true||req.body.enabled==='true'||req.body.enabled==='1'?'true':'false');
+    await saveSetting('maintenance_title',String(req.body.title||"We'll Be Back Soon").slice(0,180));
+    await saveSetting('maintenance_message',String(req.body.message||'').slice(0,1000));
+    await saveSetting('maintenance_estimated_time',String(req.body.estimatedTime||'').slice(0,100));
+    await saveSetting('maintenance_apps',apps);
+    return res.json({success:true,message:'Maintenance settings saved.',settings:await getAppMaintenanceStatus(apps==='all'?'customer':apps)});
+  }catch(error){return res.status(500).json({success:false,message:error.message||'Unable to save maintenance settings'});}
+});
+
 app.post('/settings/otp-login', requireAuth, async (req, res) => {
   try {
     const user = req.session.user || req.authUser;
@@ -8761,6 +9126,100 @@ app.put('/settings/email', requireAuth, requirePermission('settings.manage'), as
       fromName: body.fromName,
       triggers: body.triggers || {},
     });
+// Save Firebase Settings (Superadmin or settings.manage permission)
+app.post('/settings/firebase', requireAuth, async (req, res) => {
+  try {
+    const user = req.session.user || req.authUser;
+    if (!user || (!isSuperAdminUser(user) && !hasPermission(user, 'settings.manage'))) {
+      return res.status(403).json({ success: false, message: 'Access Denied: You do not have permission to manage Firebase settings.' });
+    }
+
+    const { saveFirebaseSettings } = require('./services/googleClientAuthService');
+    const updated = await saveFirebaseSettings(req.body || {});
+    return res.json({ success: true, message: 'Firebase settings updated successfully', settings: updated });
+  } catch (error) {
+    console.error('Error saving Firebase settings:', error);
+    return res.status(500).json({ success: false, message: error.message || 'Failed to save Firebase settings' });
+  }
+});
+// Upload Login Background Image (Superadmin Only)
+app.post('/settings/login-background/upload', requireAuth, (req, res, next) => {
+  const user = req.session.user || req.authUser;
+  if (!user || !isSuperAdminUser(user)) {
+    return res.status(403).json({ success: false, message: 'Access Denied: Only Superadmin users can upload login background images.' });
+  }
+  uploadLoginBg.single('image')(req, res, async (err) => {
+    if (err) return res.status(400).json({ success: false, message: err.message });
+    if (!req.file) return res.status(400).json({ success: false, message: 'No image file uploaded' });
+
+    const imageUrl = `/uploads/login-bg/${req.file.filename}`;
+    try {
+      const { backupFileToDatabase } = require('./services/fileStorageService');
+      await backupFileToDatabase(imageUrl, req.file.path);
+    } catch (_) {}
+    res.json({ success: true, imageUrl });
+  });
+});
+
+// Save Login Background Settings (Superadmin Only)
+app.put('/settings/login-background', requireAuth, async (req, res) => {
+  try {
+    const user = req.session.user || req.authUser;
+    if (!user || !isSuperAdminUser(user)) {
+      return res.status(403).json({ success: false, message: 'Access Denied: Only Superadmin users can modify Login Background settings.' });
+    }
+
+    const { loginBgImage, loginBgColor } = req.body;
+    const settings = await loginThemeService.saveLoginBgSettings({ loginBgImage, loginBgColor });
+    res.json({ success: true, message: 'Login background settings saved successfully', settings });
+  } catch (error) {
+    console.error('Error saving login background settings:', error);
+    res.status(500).json({ success: false, message: error.message || 'Failed to save login background settings' });
+  }
+});
+
+app.get('/settings/vendor', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const gstMandatory = await appSettingsController.getGstMandatory();
+    res.json({ success: true, gstMandatory });
+  } catch (error) {
+    console.error('Vendor settings load error:', error);
+    res.status(500).json({ success: false, message: 'Unable to load vendor settings' });
+  }
+});
+
+app.put('/settings/vendor', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const isMandatory = Boolean(req.body.gstMandatory || req.body.gst_mandatory);
+    await appSettingsController.setGstMandatory(isMandatory);
+    res.json({ success: true, message: 'Vendor settings saved successfully', gstMandatory: isMandatory });
+  } catch (error) {
+    console.error('Vendor settings save error:', error);
+    res.status(500).json({ success: false, message: 'Unable to save vendor settings' });
+  }
+});
+
+app.put('/settings/email', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const body = req.body || {};
+    const updatedSettings = await emailService.saveEmailSettings({
+      status: body.status,
+      mailDriver: body.mailDriver,
+      host: body.host,
+      port: body.port,
+      encryption: body.encryption,
+      username: body.username,
+      password: body.password,
+      fromEmail: body.fromEmail,
+      fromName: body.fromName,
+      triggers: body.triggers || {},
+    });
+    res.json({ success: true, message: 'Email & SMTP settings updated successfully', settings: updatedSettings });
+  } catch (error) {
+    console.error('Error saving email settings:', error);
+    res.status(500).json({ success: false, message: 'Failed to save email settings: ' + error.message });
+  }
+});
     res.json({ success: true, message: 'Email & SMTP settings updated successfully', settings: updatedSettings });
   } catch (error) {
     console.error('Error saving email settings:', error);
@@ -8793,7 +9252,6 @@ app.get('/api/admin/notifications/stream', (req, res) => {
   const unsubscribe = adminNotificationService.subscribeAdmin(res);
   req.on('close', unsubscribe);
 });
-
 app.get('/api/admin/notifications/poll', (req, res) => {
   const events = adminNotificationService.getRecentEvents(req.query.since);
   res.json({ success: true, events });
@@ -8801,39 +9259,215 @@ app.get('/api/admin/notifications/poll', (req, res) => {
 
 app.get('/message-settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
   try {
-    const messageSettings = await messageService.getMessageSettings();
-    const emailSettings = await emailService.getEmailSettings();
-    const whatsappSettings = await messageService.getWhatsAppSettings();
-    const msg91Settings = await messageService.getMsg91Settings();
-    const pushNotifications = await pushNotificationService.getPushNotifications(50);
-    const fbAdminStatus = firebaseAdminStatus();
-    
-    // Fetch Template Collections
+    const config = await msg91UnifiedService.getConfig();
+    const emailConfig = await emailService.getEmailSettings();
+    const inAppTemplates = await inAppMessageService.getAllTemplates(req.query);
     const emailTemplates = await notificationTemplateService.getAllTemplates('email');
-    const whatsappTemplates = await notificationTemplateService.getAllTemplates('whatsapp');
-    const smsTemplates = await notificationTemplateService.getAllTemplates('sms');
-    const allTemplates = await notificationTemplateService.getAllTemplates();
-
-    res.render('message-settings', {
-      title: 'Message, Email, WhatsApp & Push Notifications Hub - Groxen',
+    try { await msg91UnifiedService.syncWhatsappStatuses(); } catch (syncError) { console.error('[MSG91 report sync]', syncError.message); }
+    const logs = await msg91UnifiedService.listLogs(req.query);
+    res.render('message-settings-unified', {
+      title: 'Message, Email and OTP Settings - GROXEN',
       user: req.session.user,
       shell: buildShell(req.session.user, req.path),
-      messageSettings,
-      emailSettings,
-      whatsappSettings,
-      msg91Settings,
-      pushNotifications,
-      fbAdminStatus,
+      config,
+      emailConfig,
+      inAppTemplates,
       emailTemplates,
-      whatsappTemplates,
-      smsTemplates,
-      allTemplates,
-      message: req.query.msg || null,
-      error: req.query.err || null,
+      logs,
+      isSuperAdmin: isSuperAdminUser(req.session.user),
+      webhookUrl: process.env.MSG91_WEBHOOK_URL || `${req.protocol}://${req.get('host')}/api/webhooks/msg91`,
     });
   } catch (error) {
     console.error('Error rendering message settings:', error);
     res.status(500).send('Unable to load Message Settings page: ' + error.message);
+  }
+});
+
+app.post('/api/message-settings/email', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const emailConfig = await emailService.saveEmailSettings(req.body);
+    res.json({ success: true, message: 'Email SMTP settings updated successfully', emailConfig });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/message-settings/test-email', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { recipientEmail, subject, customBody, templateKey } = req.body || {};
+    const result = await emailService.sendTestEmail({ recipientEmail, subject, customBody, templateKey });
+    res.json({ success: true, message: `Test email sent successfully to ${result.recipient} (From: "${result.fromName}")`, result });
+  } catch (error) {
+    console.error('[Email Test Error]:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+/* Email Settings Routes */
+app.get('/api/message-settings/email', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const emailConfig = await emailService.getEmailSettings();
+    res.json({ success: true, emailConfig });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.put('/api/message-settings/email', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const updated = await emailService.saveEmailSettings(req.body || {});
+    res.json({ success: true, message: 'Email settings saved successfully', emailConfig: updated });
+  } catch (error) {
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/message-settings/test-email', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { recipientEmail, subject, customBody } = req.body || {};
+    const result = await emailService.sendTestEmail({ recipientEmail, subject, customBody });
+    res.json({ success: true, message: `Test email sent successfully to ${result.recipient}`, result });
+  } catch (error) {
+    console.error('[Email Test Error]:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+/* Payment Gateway Settings Routes */
+app.get('/payment-gateway-settings', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const config = await paymentGatewayService.getRazorpayConfig();
+    res.render('payment-gateway-settings', {
+      title: 'Payment Gateway Settings - GROXEN',
+      user: req.session.user,
+      shell: buildShell(req.session.user, req.path),
+      config,
+      isSuperAdmin: isSuperAdminUser(req.session.user),
+      webhookUrl: process.env.RAZORPAY_WEBHOOK_URL || `${req.protocol}://${req.get('host')}/api/webhooks/razorpay`,
+    });
+  } catch (error) {
+    console.error('Error rendering payment gateway settings:', error);
+    res.status(500).send('Unable to load Payment Gateway Settings page: ' + error.message);
+  }
+});
+
+app.put('/api/payment-gateway-settings/razorpay', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const config = await paymentGatewayService.saveRazorpayConfig(req.body || {});
+    res.json({ success: true, message: 'Razorpay settings saved successfully', config });
+  } catch (error) {
+    console.error('[Razorpay settings error]:', error);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/payment-gateway-settings/config', async (req, res) => {
+  try {
+    const config = await paymentGatewayService.getPublicRazorpayConfig();
+    res.json({ success: true, config });
+  } catch (error) {
+    res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/payment-gateway-settings/test-connection', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const result = await paymentGatewayService.testRazorpayConnection(req.body || {});
+    res.json(result);
+  } catch (error) {
+    console.error('[Razorpay Test Connection Error]:', error.message);
+    res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+const msg91RateBuckets = new Map();
+function msg91RateLimit(limit, windowMs) {
+  return (req, res, next) => {
+    const key = String(req.ip || req.socket.remoteAddress || 'unknown');
+    const now = Date.now();
+    const bucket = msg91RateBuckets.get(key);
+    if (!bucket || bucket.resetAt <= now) {
+      msg91RateBuckets.set(key, { count: 1, resetAt: now + windowMs });
+      return next();
+    }
+    if (bucket.count >= limit) return res.status(429).json({ success: false, message: 'Too many requests. Please try again later.' });
+    bucket.count += 1;
+    return next();
+  };
+}
+
+app.put('/api/message-settings/msg91', requireAuth, requireSuperAdmin, async (req, res) => {
+  try {
+    const config = await msg91UnifiedService.saveConfig(req.body || {});
+    req.session.messageSettingsToast = 'Message and OTP settings saved successfully.';
+    return res.json({ success: true, message: 'Message and OTP settings saved successfully.', config });
+  } catch (error) {
+    console.error('[MSG91 settings]', error);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/message-settings/whatsapp-toggle', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const enabled = req.body.enabled === true || req.body.enabled === 'true';
+    await msg91UnifiedService.saveSetting('msg91_whatsapp_enabled', enabled ? 'true' : 'false');
+    const config = await msg91UnifiedService.getConfig();
+    return res.json({
+      success: true,
+      whatsappEnabled: config.whatsappEnabled,
+      message: `WhatsApp messaging is now ${config.whatsappEnabled ? 'ENABLED' : 'DISABLED'}.`
+    });
+  } catch (error) {
+    console.error('[WhatsApp Toggle Error]:', error);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.get('/api/message-settings/toast', requireAuth, (req, res) => {
+  const message = req.session.messageSettingsToast || '';
+  delete req.session.messageSettingsToast;
+  res.json({ success: true, message });
+});
+
+app.post('/api/message-settings/test-otp/send', requireAuth, requirePermission('settings.manage'), msg91RateLimit(5, 10 * 60 * 1000), async (req, res) => {
+  try {
+    const result = await msg91UnifiedService.sendTestOtp({ ...req.body, userId: req.session.user.id });
+    return res.json(result);
+  } catch (error) {
+    console.error('[MSG91 test OTP send]', error.detail || error.message);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/message-settings/test-otp/verify', requireAuth, requirePermission('settings.manage'), msg91RateLimit(10, 10 * 60 * 1000), async (req, res) => {
+  try {
+    return res.json(await msg91UnifiedService.verifyTestOtp(req.body || {}));
+  } catch (error) {
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/message-settings/test-message', requireAuth, requirePermission('settings.manage'), msg91RateLimit(5, 10 * 60 * 1000), async (req, res) => {
+  try {
+    return res.json(await msg91UnifiedService.sendTestMessage(req.body || {}));
+  } catch (error) {
+    console.error('[MSG91 test message]', error.detail || error.message);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/webhooks/msg91', async (req, res) => {
+  const expected = String(process.env.MSG91_WEBHOOK_SECRET || '');
+  const received = String(req.get('x-msg91-webhook-secret') || '');
+  const valid = expected && received.length === expected.length
+    && require('crypto').timingSafeEqual(Buffer.from(received), Buffer.from(expected));
+  if (!valid) return res.status(401).json({ success: false, message: 'Invalid webhook signature.' });
+  try {
+    const result = await msg91UnifiedService.handleWebhook(req.body || {});
+    return res.json({ success: true, duplicate: result.duplicate });
+  } catch (error) {
+    console.error('[MSG91 webhook]', error.message);
+    return res.status(400).json({ success: false, message: 'Invalid webhook payload.' });
   }
 });
 
@@ -8954,6 +9588,81 @@ app.post('/message-settings/templates/preview', requireAuth, requirePermission('
     return res.json({ success: true, rendered });
   } catch (error) {
     console.error('Error generating template preview:', error);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+// ===============================================
+// IN-APP MESSAGE TEMPLATE API ROUTES
+// ===============================================
+app.get('/api/inapp-templates', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const templates = await inAppMessageService.getAllTemplates(req.query);
+    return res.json({ success: true, templates });
+  } catch (error) {
+    console.error('Error fetching in-app templates:', error);
+    return res.status(500).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/inapp-templates', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const saved = await inAppMessageService.saveTemplate(req.body);
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.json({ success: true, message: 'In-App Message Template saved successfully', template: saved });
+    }
+    return res.redirect('/message-settings?msg=' + encodeURIComponent('In-App Template ' + saved.name + ' saved successfully') + '#inapp');
+  } catch (error) {
+    console.error('Error saving in-app template:', error);
+    if (req.xhr || (req.headers.accept && req.headers.accept.includes('application/json'))) {
+      return res.status(400).json({ success: false, message: error.message });
+    }
+    return res.redirect('/message-settings?err=' + encodeURIComponent(error.message) + '#inapp');
+  }
+});
+
+app.post('/api/inapp-templates/:id/toggle', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const templateId = req.params.id;
+    const { status } = req.body;
+    const updated = await inAppMessageService.toggleTemplateStatus(templateId, status);
+    return res.json({
+      success: true,
+      message: `In-App Template '${updated.name}' is now ${updated.status === 'active' ? 'ENABLED (ON)' : 'DISABLED (OFF)'}`,
+      template: updated,
+    });
+  } catch (error) {
+    console.error('Error toggling in-app template status:', error);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.delete('/api/inapp-templates/:id', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const result = await inAppMessageService.deleteTemplate(req.params.id);
+    return res.json(result);
+  } catch (error) {
+    console.error('Error deleting in-app template:', error);
+    return res.status(400).json({ success: false, message: error.message });
+  }
+});
+
+app.post('/api/inapp-templates/preview', requireAuth, requirePermission('settings.manage'), async (req, res) => {
+  try {
+    const { title, content, sampleData } = req.body;
+    const sample = sampleData || {
+      userName: 'Rahul Sharma',
+      orderId: '1094',
+      otp: '4921',
+      amount: '490.00',
+      status: 'Delivered',
+      storeName: 'Groxen Central',
+    };
+    const renderedTitle = inAppMessageService.renderContent(title, sample);
+    const renderedContent = inAppMessageService.renderContent(content, sample);
+    return res.json({ success: true, title: renderedTitle, content: renderedContent, sample });
+  } catch (error) {
+    console.error('Error previewing in-app template:', error);
     return res.status(400).json({ success: false, message: error.message });
   }
 });
@@ -10238,7 +10947,6 @@ if (!process.argv.includes('--sync-schema-only')) {
 }
 
 module.exports = app;
-
 
 
 

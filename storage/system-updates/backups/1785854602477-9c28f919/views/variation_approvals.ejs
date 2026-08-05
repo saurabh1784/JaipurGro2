@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .approval-shell {
+      padding: 20px;
+      max-width: 1320px;
+      margin: 0 auto;
+    }
+    .status-tabs {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 20px;
+      background: #f1f5f9;
+      padding: 5px;
+      border-radius: 12px;
+      width: fit-content;
+    }
+    .status-tab {
+      padding: 7px 16px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      color: #64748b;
+      text-decoration: none;
+      transition: all 0.2s ease;
+    }
+    .status-tab.active {
+      background: #ffffff;
+      color: #0284c7;
+      box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+    }
+    .approval-table {
+      width: 100%;
+      border-collapse: separate;
+      border-spacing: 0;
+      background: #ffffff;
+      border-radius: 14px;
+      border: 1px solid #cbd5e1;
+      overflow: hidden;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.04);
+    }
+    .approval-table th {
+      background: #f8fafc;
+      padding: 12px 14px;
+      font-size: 0.78rem;
+      font-weight: 800;
+      color: #475569;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+    }
+    .approval-table td {
+      padding: 12px 14px;
+      font-size: 0.86rem;
+      border-bottom: 1px solid #f1f5f9;
+      color: #334155;
+      vertical-align: middle;
+    }
+    .approval-table tr:last-child td {
+      border-bottom: none;
+    }
+    .badge-status {
+      display: inline-flex;
+      align-items: center;
+      padding: 3px 10px;
+      border-radius: 20px;
+      font-weight: 800;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+    }
+    .badge-pending { background: #fef3c7; color: #d97706; }
+    .badge-approved { background: #dcfce7; color: #15803d; }
+    .badge-rejected { background: #fee2e2; color: #b91c1c; }
+    .badge-suspended { background: #f1f5f9; color: #475569; }
+
+    .btn-approve { background: #10b981; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-weight: 700; font-size: 0.78rem; cursor: pointer; }
+    .btn-reject { background: #ef4444; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-weight: 700; font-size: 0.78rem; cursor: pointer; }
+    .btn-suspend { background: #64748b; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-weight: 700; font-size: 0.78rem; cursor: pointer; }
+    .btn-restore { background: #0284c7; color: #fff; border: none; padding: 5px 12px; border-radius: 6px; font-weight: 700; font-size: 0.78rem; cursor: pointer; }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Vendor Approvals</p>
+        <h1>Vendor Product Variation Approvals</h1>
+      </div>
+    </header>
+
+    <div class="approval-shell">
+      <% if (locals.message) { %>
+        <div style="background:#ecfdf5; border:1px solid #a7f3d0; color:#047857; padding:0.75rem 1rem; border-radius:10px; margin-bottom:1rem; font-weight:700; font-size:0.88rem;">
+          ✓ <%= message %>
+        </div>
+      <% } %>
+      <% if (locals.error) { %>
+        <div style="background:#fef2f2; border:1px solid #fecaca; color:#dc2626; padding:0.75rem 1rem; border-radius:10px; margin-bottom:1rem; font-weight:700; font-size:0.88rem;">
+          ⚠ <%= error %>
+        </div>
+      <% } %>
+
+      <!-- Filter Tabs -->
+      <div class="status-tabs">
+        <a href="/admin/variation-approvals?status=all" class="status-tab <%= statusFilter === 'all' ? 'active' : '' %>">All Requests</a>
+        <a href="/admin/variation-approvals?status=pending" class="status-tab <%= statusFilter === 'pending' ? 'active' : '' %>">Pending</a>
+        <a href="/admin/variation-approvals?status=approved" class="status-tab <%= statusFilter === 'approved' ? 'active' : '' %>">Approved</a>
+        <a href="/admin/variation-approvals?status=rejected" class="status-tab <%= statusFilter === 'rejected' ? 'active' : '' %>">Rejected</a>
+        <a href="/admin/variation-approvals?status=suspended" class="status-tab <%= statusFilter === 'suspended' ? 'active' : '' %>">Suspended</a>
+      </div>
+
+      <!-- Approvals Table -->
+      <% if (requests && requests.length) { %>
+        <table class="approval-table">
+          <thead>
+            <tr>
+              <th>Vendor</th>
+              <th>Product</th>
+              <th>Variation</th>
+              <th>Price / MRP</th>
+              <th>Stock</th>
+              <th>Status</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            <% requests.forEach(req => { %>
+              <tr>
+                <td>
+                  <strong><%= req.vendor_name %></strong><br />
+                  <span style="color:#64748b; font-size:0.78rem;"><%= req.vendor_email %></span>
+                </td>
+                <td>
+                  <div style="display:flex; align-items:center; gap:8px;">
+                    <img src="<%= req.variant_image || req.product_image || '/default.png' %>" alt="" style="width:36px; height:36px; border-radius:6px; object-fit:cover; border:1px solid #e2e8f0;" />
+                    <span><%= req.product_name %></span>
+                  </div>
+                </td>
+                <td>
+                  <strong><%= req.variant_name %></strong><br />
+                  <span style="color:#64748b; font-size:0.78rem;"><%= req.measurement_value %> <%= req.measurement_unit %></span>
+                </td>
+                <td>
+                  <strong style="color:#059669;">₹<%= Number(req.vendor_price || 0).toFixed(2) %></strong><br />
+                  <span style="color:#94a3b8; font-size:0.78rem; text-decoration:line-through;">₹<%= Number(req.mrp || 0).toFixed(2) %></span>
+                </td>
+                <td>
+                  <strong><%= req.stock_quantity %></strong> <span style="color:#64748b; font-size:0.75rem;">units</span>
+                </td>
+                <td>
+                  <span class="badge-status badge-<%= req.approval_status %>"><%= req.approval_status %></span>
+                  <% if (req.approval_note) { %>
+                    <br /><span style="font-size:0.72rem; color:#64748b;"><%= req.approval_note %></span>
+                  <% } %>
+                </td>
+                <td>
+                  <div style="display:flex; gap:6px; flex-wrap:wrap;">
+                    <% if (req.approval_status === 'pending' || req.approval_status === 'rejected') { %>
+                      <form action="/admin/variation-approvals/<%= req.id %>/approve" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-approve">Approve</button>
+                      </form>
+                    <% } %>
+                    <% if (req.approval_status === 'pending' || req.approval_status === 'approved') { %>
+                      <form action="/admin/variation-approvals/<%= req.id %>/reject" method="POST" style="margin:0;" onsubmit="const note = prompt('Enter rejection reason:'); if(!note) return false; this.appendChild(Object.assign(document.createElement('input'), {type:'hidden', name:'note', value:note}));">
+                        <button type="submit" class="btn-reject">Reject</button>
+                      </form>
+                    <% } %>
+                    <% if (req.approval_status === 'approved') { %>
+                      <form action="/admin/variation-approvals/<%= req.id %>/suspend" method="POST" style="margin:0;" onsubmit="const note = prompt('Reason for suspension:'); if(!note) return false; this.appendChild(Object.assign(document.createElement('input'), {type:'hidden', name:'note', value:note}));">
+                        <button type="submit" class="btn-suspend">Suspend</button>
+                      </form>
+                    <% } %>
+                    <% if (req.approval_status === 'suspended') { %>
+                      <form action="/admin/variation-approvals/<%= req.id %>/restore" method="POST" style="margin:0;">
+                        <button type="submit" class="btn-restore">Restore</button>
+                      </form>
+                    <% } %>
+                  </div>
+                </td>
+              </tr>
+            <% }) %>
+          </tbody>
+        </table>
+      <% } else { %>
+        <div style="text-align:center; padding:3rem; background:#ffffff; border-radius:14px; border:1px dashed #cbd5e1;">
+          <h3 style="margin:0 0 0.5rem; color:#0f172a;">No Variation Approvals Found</h3>
+          <p style="color:#64748b; margin:0;">There are no vendor variation requests matching the selected filter.</p>
+        </div>
+      <% } %>
+    </div>
+  </main>
+</body>
+</html>

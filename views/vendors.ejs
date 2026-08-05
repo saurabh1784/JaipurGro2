@@ -468,7 +468,11 @@
       max-height: 400px;
       overflow-y: auto;
     }
-  </style>
+      .kyc-doc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-top:10px; }
+    .kyc-doc-card { border:1px solid #dbe3ef; border-radius:10px; padding:10px; background:#f8fafc; min-width:0; }
+    .kyc-doc-card img { width:100%; height:120px; object-fit:cover; border-radius:7px; margin-top:7px; background:#e2e8f0; }
+    .kyc-doc-card a { color:#2563eb; word-break:break-all; font-size:12px; }
+    .kyc-edit-heading { grid-column:1/-1; margin:8px 0 0; padding-top:12px; border-top:1px solid #dbe3ef; }  </style>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -559,13 +563,14 @@
               <th>Area</th>
               <th>Main Categories</th>
               <th>Services</th>
+              <th>Unique Products</th>
               <% if (canManagePremiumVendors) { %><th>Premium</th><% } %>
               <th>Status</th>
               <th>Actions</th>
             </tr>
           </thead>
           <tbody id="vendorsTableBody">
-            <tr><td colspan="<%= canManagePremiumVendors ? 11 : 10 %>">Loading vendors...</td></tr>
+            <tr><td colspan="<%= canManagePremiumVendors ? 12 : 11 %>">Loading vendors...</td></tr>
           </tbody>
         </table>
       </div>
@@ -647,7 +652,18 @@
           Address
           <textarea id="vendorAddress" rows="3"></textarea>
         </label>
-        <% if (canManagePremiumVendors) { %>
+        <h3 class="kyc-edit-heading">KYC documents and shop photos</h3>
+        <label>KYC Status<select id="vendorKycStatus"><option value="pending_documents">Pending documents</option><option value="pending_approval">Pending approval</option><option value="approved">Approved</option><option value="rejected">Rejected</option></select></label>
+        <label>PAN Card URL<input id="vendorPanCard" type="text" /></label>
+        <label>Aadhaar Card URL<input id="vendorAadhaarCard" type="text" /></label>
+        <label>GST Certificate URL<input id="vendorGstCertificate" type="text" /></label>
+        <label>Food License URL<input id="vendorFoodLicense" type="text" /></label>
+        <label>Cancelled Cheque URL<input id="vendorCancelledCheque" type="text" /></label>
+        <label>Shop Front Photo URL<input id="vendorShopFront" type="text" /></label>
+        <label>Shop Inside Photo 1 URL<input id="vendorShopInside1" type="text" /></label>
+        <label>Shop Inside Photo 2 URL<input id="vendorShopInside2" type="text" /></label>
+        <label>Shop Inside Photo 3 URL<input id="vendorShopInside3" type="text" /></label>
+        <label class="settings-wide">KYC Rejection Reason<textarea id="vendorKycRejectionReason" rows="2"></textarea></label>        <% if (canManagePremiumVendors) { %>
           <label>
             Premium Vendor
             <select id="premiumVendorStatus">
@@ -763,6 +779,13 @@
                 <span class="stat-value" id="statBidsAssigned">0</span>
               </div>
             </div>
+            <div class="vendor-stat-card stat-products">
+              <div class="stat-icon">&#129530;</div>
+              <div class="stat-info">
+                <span class="stat-label">Unique Products Listed</span>
+                <span class="stat-value" id="statUniqueProducts">0</span>
+              </div>
+            </div>
             <div class="vendor-stat-card stat-health" id="statHealthCard">
               <div class="stat-icon" id="statHealthIcon">❤️</div>
               <div class="stat-info">
@@ -829,6 +852,10 @@
             <div class="info-group full-width">
               <span class="info-label">Full Address</span>
               <span class="info-val" id="viewValAddress">-</span>
+            </div>
+            <div class="info-group full-width">
+              <span class="info-label">KYC Status & Documents</span>
+              <div class="info-val" id="viewValKycDocuments">-</div>
             </div>
           </div>
         </div>
@@ -1162,7 +1189,7 @@
       const response = await fetch(`/vendors?${params.toString()}`, { headers: { Accept: 'application/json' } });
       const data = await response.json();
       if (!data.success) {
-        tableBody.innerHTML = `<tr><td colspan="${canManagePremiumVendors ? 11 : 10}">${escapeHtml(data.message || 'Unable to load vendors')}</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="${canManagePremiumVendors ? 12 : 11}">${escapeHtml(data.message || 'Unable to load vendors')}</td></tr>`;
         return;
       }
       vendors = data.vendors || [];
@@ -1173,7 +1200,7 @@
 
     function renderVendors() {
       if (!vendors.length) {
-        tableBody.innerHTML = `<tr><td colspan="${canManagePremiumVendors ? 11 : 10}">No vendors found</td></tr>`;
+        tableBody.innerHTML = `<tr><td colspan="${canManagePremiumVendors ? 12 : 11}">No vendors found</td></tr>`;
       } else {
         tableBody.innerHTML = vendors.map((vendor) => `
           <tr>
@@ -1188,6 +1215,7 @@
             <td>${escapeHtml(vendor.area || '-')}</td>
             <td class="vendor-services-cell">${escapeHtml(categoriesText(vendor.categories) || '-')}</td>
             <td class="vendor-services-cell">${escapeHtml(servicesText(vendor.services) || '-')}</td>
+            <td><strong>${Number(vendor.unique_product_count || 0).toLocaleString('en-IN')}</strong></td>
             ${canManagePremiumVendors ? `<td>${vendor.is_premium_vendor ? '<span class="user-status-pill active">Premium</span>' : '<span class="user-status-pill inactive">Standard</span>'}<br><small>${Number(vendor.premium_commission_percent || 0).toFixed(2)}%</small></td>` : ''}
             <td><span class="user-status-pill ${['active', 'approved'].includes(vendor.status) ? 'active' : (vendor.status === 'pending' ? 'pending' : 'inactive')}">${escapeHtml(vendor.status)}</span></td>
             <td>
@@ -1269,6 +1297,17 @@
       renderServiceOptions(vendor.services || []);
       renderCategoryOptions(vendor.category_ids || []);
       document.getElementById('vendorAddress').value = vendor.address || '';
+      document.getElementById('vendorKycStatus').value = vendor.kyc_status || 'pending_documents';
+      document.getElementById('vendorPanCard').value = vendor.pan_card_path || '';
+      document.getElementById('vendorAadhaarCard').value = vendor.aadhaar_card_path || '';
+      document.getElementById('vendorGstCertificate').value = vendor.gst_certificate_path || '';
+      document.getElementById('vendorFoodLicense').value = vendor.food_license_path || '';
+      document.getElementById('vendorCancelledCheque').value = vendor.cancelled_cheque_path || '';
+      document.getElementById('vendorShopFront').value = vendor.shop_front_photo_path || '';
+      document.getElementById('vendorShopInside1').value = vendor.shop_inside_photo_1_path || '';
+      document.getElementById('vendorShopInside2').value = vendor.shop_inside_photo_2_path || '';
+      document.getElementById('vendorShopInside3').value = vendor.shop_inside_photo_3_path || '';
+      document.getElementById('vendorKycRejectionReason').value = vendor.kyc_rejection_reason || '';
       document.getElementById('vendorModalTitle').textContent = 'Edit Vendor';
       document.getElementById('vendorSubmit').textContent = 'Update Vendor';
       openVendorModal();
@@ -1342,6 +1381,17 @@
         services: selectedServices(),
         category_ids: selectedCategoryIds(),
         address: document.getElementById('vendorAddress').value,
+        kyc_status: document.getElementById('vendorKycStatus').value,
+        pan_card_path: document.getElementById('vendorPanCard').value,
+        aadhaar_card_path: document.getElementById('vendorAadhaarCard').value,
+        gst_certificate_path: document.getElementById('vendorGstCertificate').value,
+        food_license_path: document.getElementById('vendorFoodLicense').value,
+        cancelled_cheque_path: document.getElementById('vendorCancelledCheque').value,
+        shop_front_photo_path: document.getElementById('vendorShopFront').value,
+        shop_inside_photo_1_path: document.getElementById('vendorShopInside1').value,
+        shop_inside_photo_2_path: document.getElementById('vendorShopInside2').value,
+        shop_inside_photo_3_path: document.getElementById('vendorShopInside3').value,
+        kyc_rejection_reason: document.getElementById('vendorKycRejectionReason').value,
       };
       if (canManagePremiumVendors) {
         payload.is_premium_vendor = document.getElementById('premiumVendorStatus').value === '1';
@@ -1465,6 +1515,7 @@
         document.getElementById('statAmountEarned').textContent = formatCurrency(stats.total_amount_earned);
         document.getElementById('statWalletBalance').textContent = formatCurrency(stats.wallet_balance);
         document.getElementById('statBidsAssigned').textContent = stats.total_bids_assigned;
+        document.getElementById('statUniqueProducts').textContent = Number(stats.unique_product_count || 0).toLocaleString('en-IN');
 
         const health = Number(stats.account_health !== undefined ? stats.account_health : (profile.account_health ?? 500));
         document.getElementById('statAccountHealth').textContent = `${health} / 500`;
@@ -1509,6 +1560,21 @@
         document.getElementById('viewValPremium').textContent = profile.is_premium_vendor ? `Premium (${profile.premium_commission_percent}%)` : 'Standard';
         document.getElementById('viewValServices').textContent = servicesText(profile.services) || '-';
         document.getElementById('viewValAddress').textContent = profile.address || '-';
+        const kycDocs = [
+          ['PAN Card', profile.pan_card_path], ['Aadhaar Card', profile.aadhaar_card_path],
+          ['GST Certificate', profile.gst_certificate_path], ['Food License', profile.food_license_path],
+          ['Cancelled Cheque', profile.cancelled_cheque_path], ['Shop Front', profile.shop_front_photo_path],
+          ['Shop Inside 1', profile.shop_inside_photo_1_path], ['Shop Inside 2', profile.shop_inside_photo_2_path],
+          ['Shop Inside 3', profile.shop_inside_photo_3_path],
+        ];
+        const kycStatus = escapeHtml(profile.kyc_status || 'pending_documents');
+        const rejection = profile.kyc_rejection_reason ? `<p><strong>Reason:</strong> ${escapeHtml(profile.kyc_rejection_reason)}</p>` : '';
+        document.getElementById('viewValKycDocuments').innerHTML = `<p><strong>Status:</strong> ${kycStatus}</p>${rejection}<div class="kyc-doc-grid">${kycDocs.map(([label, url]) => {
+          if (!url) return `<div class="kyc-doc-card"><strong>${label}</strong><p>Not uploaded</p></div>`;
+          const safe = escapeHtml(url);
+          const preview = /\.(png|jpe?g|webp)(\?.*)?$/i.test(url) ? `<img src="${safe}" alt="${label}" />` : '';
+          return `<div class="kyc-doc-card"><strong>${label}</strong>${preview}<p><a href="${safe}" target="_blank" rel="noopener">Open document</a></p></div>`;
+        }).join('')}</div>`;
 
         // Categories
         const categoriesContainer = document.getElementById('viewValCategories');

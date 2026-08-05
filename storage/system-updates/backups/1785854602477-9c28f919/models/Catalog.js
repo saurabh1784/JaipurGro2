@@ -1,0 +1,502 @@
+const pool = require('../db');
+
+function slugify(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/&/g, 'and')
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '');
+}
+
+function activeToStatus(isActive) {
+  return isActive === false || isActive === 'false' || isActive === 0 || isActive === '0' ? 'inactive' : 'active';
+}
+
+function row(row) {
+  return {
+    ...row,
+    tax_name: row.tax_name || '',
+    tax_percentage: row.tax_percentage === null || row.tax_percentage === undefined ? null : Number(row.tax_percentage || 0),
+    is_active: row.status === 'active',
+  };
+}
+
+let _catCache = null;
+let _catCacheTime = 0;
+let _subCatCache = null;
+let _subCatCacheTime = 0;
+const CACHE_TTL_MS = 15000;
+
+function invalidateCatalogCache() {
+  _catCache = null;
+  _catCacheTime = 0;
+  _subCatCache = null;
+  _subCatCacheTime = 0;
+}
+
+async function listCategories() {
+  const now = Date.now();
+  if (_catCache && (now - _catCacheTime < CACHE_TTL_MS)) {
+    return _catCache;
+  }
+  const { rows } = await pool.query(
+    `SELECT c.id, c.name, c.slug, c.tax_name, c.tax_percentage, c.status, c.created_at, c.updated_at,
+            c.icon_path AS manual_icon_path,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(c.icon_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(sub.image_path), ''), '/default.png')
+                FROM sub_categories sub
+                WHERE sub.category_id = c.id
+                  AND sub.is_deleted = 0
+                  AND sub.image_path IS NOT NULL
+                  AND TRIM(sub.image_path) <> ''
+                  AND sub.image_path <> '/default.png'
+                ORDER BY sub.id ASC
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(NULLIF(TRIM(prod.image_url), ''), '/default.png')
+                FROM products prod
+                WHERE prod.category_id = c.id
+                  AND prod.is_deleted = 0
+                  AND prod.approval_status = 'approved'
+                  AND prod.image_url IS NOT NULL
+                  AND TRIM(prod.image_url) <> ''
+                  AND prod.image_url <> '/default.png'
+                ORDER BY prod.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS icon_path
+     FROM categories c
+     WHERE c.is_deleted = 0
+     ORDER BY c.name ASC`
+  );
+  _catCache = rows.map(row);
+  _catCacheTime = now;
+  return _catCache;
+}
+
+async function listSubcategories() {
+  const now = Date.now();
+  if (_subCatCache && (now - _subCatCacheTime < CACHE_TTL_MS)) {
+    return _subCatCache;
+  }
+  const { rows } = await pool.query(
+    `SELECT s.id, s.category_id, s.name, s.slug, s.status, s.created_at, s.updated_at, c.name AS category_name,
+            s.image_path AS manual_image_path,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(s.image_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(p.image_url), ''), '/default.png')
+                FROM products p
+                WHERE p.sub_category_id = s.id
+                  AND p.is_deleted = 0
+                  AND p.approval_status = 'approved'
+                  AND p.image_url IS NOT NULL
+                  AND TRIM(p.image_url) <> ''
+                  AND p.image_url <> '/default.png'
+                ORDER BY p.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS image_path
+     FROM sub_categories s
+     INNER JOIN categories c ON c.id = s.category_id
+     WHERE s.is_deleted = 0 AND c.is_deleted = 0
+     ORDER BY c.name ASC, s.name ASC`
+  );
+  _subCatCache = rows.map(row);
+  _subCatCacheTime = now;
+  return _subCatCache;
+}
+
+async function listBrands() {
+  const { rows } = await pool.query(
+    `SELECT b.id, b.category_id, b.sub_category_id, b.name, b.slug, b.logo_path, b.status, b.created_at, b.updated_at,
+            s.name AS sub_category_name, c.name AS category_name
+     FROM brands b
+     INNER JOIN categories c ON c.id = b.category_id
+     INNER JOIN sub_categories s ON s.id = b.sub_category_id
+     WHERE b.is_deleted = 0 AND c.is_deleted = 0 AND s.is_deleted = 0
+     ORDER BY c.name ASC, s.name ASC, b.name ASC`
+  );
+  return rows.map((item) => ({
+    ...row(item),
+    subcategory_id: item.sub_category_id,
+    subcategory_name: item.sub_category_name,
+  }));
+}
+
+async function getTree() {
+  const [rows] = await pool.query(
+    `SELECT c.id AS category_id, c.name AS category_name, c.slug AS category_slug, c.status AS category_status,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(c.icon_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(sub.image_path), ''), '/default.png')
+                FROM sub_categories sub
+                WHERE sub.category_id = c.id
+                  AND sub.is_deleted = 0
+                  AND sub.image_path IS NOT NULL
+                  AND TRIM(sub.image_path) <> ''
+                  AND sub.image_path <> '/default.png'
+                ORDER BY sub.id ASC
+                LIMIT 1
+              ),
+              (
+                SELECT NULLIF(NULLIF(TRIM(prod.image_url), ''), '/default.png')
+                FROM products prod
+                WHERE prod.category_id = c.id
+                  AND prod.is_deleted = 0
+                  AND prod.approval_status = 'approved'
+                  AND prod.image_url IS NOT NULL
+                  AND TRIM(prod.image_url) <> ''
+                  AND prod.image_url <> '/default.png'
+                ORDER BY prod.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS category_icon_path,
+            s.id AS sub_category_id, s.name AS sub_category_name, s.slug AS sub_category_slug, s.status AS sub_category_status,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(s.image_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(p.image_url), ''), '/default.png')
+                FROM products p
+                WHERE p.sub_category_id = s.id
+                  AND p.is_deleted = 0
+                  AND p.approval_status = 'approved'
+                  AND p.image_url IS NOT NULL
+                  AND TRIM(p.image_url) <> ''
+                  AND p.image_url <> '/default.png'
+                ORDER BY p.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS sub_category_image_path,
+            c.tax_name AS category_tax_name, c.tax_percentage AS category_tax_percentage,
+            b.id AS brand_id, b.name AS brand_name, b.slug AS brand_slug, b.logo_path AS brand_logo_path, b.status AS brand_status
+     FROM categories c
+     LEFT JOIN sub_categories s ON s.category_id = c.id AND s.is_deleted = 0
+     LEFT JOIN brands b ON b.sub_category_id = s.id AND b.is_deleted = 0
+     WHERE c.is_deleted = 0
+     ORDER BY c.name ASC, s.name ASC, b.name ASC`
+  );
+
+  const map = new Map();
+  for (const item of rows) {
+    if (!map.has(item.category_id)) {
+      map.set(item.category_id, {
+        id: item.category_id,
+        name: item.category_name,
+        slug: item.category_slug,
+        icon_path: item.category_icon_path || '',
+        tax_name: item.category_tax_name || '',
+        tax_percentage: item.category_tax_percentage === null || item.category_tax_percentage === undefined ? null : Number(item.category_tax_percentage || 0),
+        status: item.category_status,
+        is_active: item.category_status === 'active',
+        subcategories: [],
+        subMap: new Map(),
+      });
+    }
+    const category = map.get(item.category_id);
+    if (item.sub_category_id && !category.subMap.has(item.sub_category_id)) {
+      const subcategory = {
+        id: item.sub_category_id,
+        category_id: item.category_id,
+        name: item.sub_category_name,
+        slug: item.sub_category_slug,
+        image_path: item.sub_category_image_path || '',
+        status: item.sub_category_status,
+        is_active: item.sub_category_status === 'active',
+        brands: [],
+      };
+      category.subMap.set(item.sub_category_id, subcategory);
+      category.subcategories.push(subcategory);
+    }
+    if (item.sub_category_id && item.brand_id) {
+      category.subMap.get(item.sub_category_id).brands.push({
+        id: item.brand_id,
+        category_id: item.category_id,
+        sub_category_id: item.sub_category_id,
+        subcategory_id: item.sub_category_id,
+        name: item.brand_name,
+        slug: item.brand_slug,
+        logo_path: item.brand_logo_path,
+        status: item.brand_status,
+        is_active: item.brand_status === 'active',
+      });
+    }
+  }
+  return [...map.values()].map((category) => {
+    delete category.subMap;
+    return category;
+  });
+}
+
+async function createCategory({ name, slug, is_active, tax_name, tax_percentage, icon_path }) {
+  const status = activeToStatus(is_active);
+  const [result] = await pool.query(
+    'INSERT INTO categories (name, slug, icon_path, tax_name, tax_percentage, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [name, slugify(slug || name), icon_path || null, tax_name || null, tax_percentage ?? null, status, status === 'active' ? 1 : 0]
+  );
+  invalidateCatalogCache();
+  return result.insertId;
+}
+
+async function updateCategory(id, { name, slug, is_active, tax_name, tax_percentage, icon_path }) {
+  const status = activeToStatus(is_active);
+  await pool.query('UPDATE categories SET name = ?, slug = ?, icon_path = COALESCE(?, icon_path), tax_name = ?, tax_percentage = ?, status = ?, is_active = ? WHERE id = ? AND is_deleted = 0', [
+    name,
+    slugify(slug || name),
+    icon_path || null,
+    tax_name || null,
+    tax_percentage ?? null,
+    status,
+    status === 'active' ? 1 : 0,
+    id,
+  ]);
+  invalidateCatalogCache();
+}
+
+async function deleteCategory(id) {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    await connection.query(
+      "UPDATE categories SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE id = ?",
+      [id]
+    );
+    await connection.query(
+      "UPDATE sub_categories SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE category_id = ?",
+      [id]
+    );
+    await connection.query(
+      "UPDATE brands SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE category_id = ?",
+      [id]
+    );
+    await connection.query(
+      "UPDATE products SET is_deleted = 1 WHERE category_id = ?",
+      [id]
+    );
+
+    await connection.commit();
+    invalidateCatalogCache();
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+
+async function createSubcategory({ category_id, name, slug, image_path, is_active }) {
+  const status = activeToStatus(is_active);
+  const [result] = await pool.query(
+    'INSERT INTO sub_categories (category_id, name, slug, image_path, status, is_active) VALUES (?, ?, ?, ?, ?, ?)',
+    [category_id, name, slugify(slug || name), image_path || null, status, status === 'active' ? 1 : 0]
+  );
+  invalidateCatalogCache();
+  return result.insertId;
+}
+
+async function updateSubcategory(id, { category_id, name, slug, image_path, is_active }) {
+  const status = activeToStatus(is_active);
+  await pool.query(
+    'UPDATE sub_categories SET category_id = ?, name = ?, slug = ?, image_path = COALESCE(?, image_path), status = ?, is_active = ? WHERE id = ? AND is_deleted = 0',
+    [category_id, name, slugify(slug || name), image_path || null, status, status === 'active' ? 1 : 0, id]
+  );
+  invalidateCatalogCache();
+}
+
+async function deleteSubcategory(id) {
+  await pool.query("UPDATE sub_categories SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE id = ?", [id]);
+  await pool.query("UPDATE brands SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE sub_category_id = ?", [id]);
+  invalidateCatalogCache();
+}
+
+async function bulkDeleteCategories(ids = []) {
+  const validIds = [...new Set([].concat(ids || []).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!validIds.length) return 0;
+  for (const id of validIds) {
+    await deleteCategory(id);
+  }
+  return validIds.length;
+}
+
+async function bulkDeleteSubcategories(ids = []) {
+  const validIds = [...new Set([].concat(ids || []).map((id) => parseInt(id, 10)).filter((id) => Number.isFinite(id) && id > 0))];
+  if (!validIds.length) return 0;
+  for (const id of validIds) {
+    await deleteSubcategory(id);
+  }
+  return validIds.length;
+}
+
+async function createBrand({ category_id, sub_category_id, subcategory_id, name, slug, logo_path, is_active }) {
+  const status = activeToStatus(is_active);
+  const subId = sub_category_id || subcategory_id;
+  const [result] = await pool.query(
+    'INSERT INTO brands (category_id, sub_category_id, name, slug, logo_path, status, is_active) VALUES (?, ?, ?, ?, ?, ?, ?)',
+    [category_id, subId, name, slugify(slug || name), logo_path || null, status, status === 'active' ? 1 : 0]
+  );
+  return result.insertId;
+}
+
+async function updateBrand(id, { category_id, sub_category_id, subcategory_id, name, slug, logo_path, is_active }) {
+  const status = activeToStatus(is_active);
+  await pool.query(
+    'UPDATE brands SET category_id = ?, sub_category_id = ?, name = ?, slug = ?, logo_path = COALESCE(?, logo_path), status = ?, is_active = ? WHERE id = ? AND is_deleted = 0',
+    [category_id, sub_category_id || subcategory_id, name, slugify(slug || name), logo_path || null, status, status === 'active' ? 1 : 0, id]
+  );
+}
+
+async function deleteBrand(id) {
+  await pool.query("UPDATE brands SET is_deleted = 1, status = 'inactive', is_active = 0 WHERE id = ?", [id]);
+}
+
+const { cleanupProductImages } = require('../services/imageProcessingService');
+
+async function cleanBrands() {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM client_order_items').catch(() => {});
+    await conn.query('DELETE FROM delivery_offer_assignments').catch(() => {});
+    await conn.query('DELETE FROM delivery_dashboard_offers').catch(() => {});
+    await conn.query('DELETE FROM delivery_partner_audit_logs').catch(() => {});
+    await conn.query('DELETE FROM client_orders').catch(() => {});
+    await conn.query('DELETE FROM vendor_client_product_prices').catch(() => {});
+    await conn.query('DELETE FROM sponsored_products').catch(() => {});
+    await conn.query('DELETE FROM product_ranking_scores').catch(() => {});
+    await conn.query('DELETE FROM product_keywords').catch(() => {});
+    await conn.query('DELETE FROM user_recent_activity WHERE product_id IS NOT NULL').catch(() => {});
+    await conn.query('DELETE FROM vendor_products');
+    const [prodResult] = await conn.query('DELETE FROM products');
+    const [brandResult] = await conn.query('DELETE FROM brands');
+    await conn.commit();
+    invalidateCatalogCache();
+
+    const imageStats = await cleanupProductImages(null);
+
+    return {
+      deletedProducts: prodResult.affectedRows || prodResult.rowCount || 0,
+      deletedBrands: brandResult.affectedRows || brandResult.rowCount || 0,
+      deletedImageFiles: imageStats.deletedFilesCount,
+    };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+async function cleanSubcategories() {
+  const conn = await pool.getConnection();
+  try {
+    await conn.beginTransaction();
+    await conn.query('DELETE FROM client_order_items').catch(() => {});
+    await conn.query('DELETE FROM delivery_offer_assignments').catch(() => {});
+    await conn.query('DELETE FROM delivery_dashboard_offers').catch(() => {});
+    await conn.query('DELETE FROM delivery_partner_audit_logs').catch(() => {});
+    await conn.query('DELETE FROM client_orders').catch(() => {});
+    await conn.query('DELETE FROM vendor_client_product_prices').catch(() => {});
+    await conn.query('DELETE FROM sponsored_products').catch(() => {});
+    await conn.query('DELETE FROM product_ranking_scores').catch(() => {});
+    await conn.query('DELETE FROM product_keywords').catch(() => {});
+    await conn.query('DELETE FROM user_recent_activity WHERE product_id IS NOT NULL').catch(() => {});
+    await conn.query('DELETE FROM vendor_products');
+    const [prodResult] = await conn.query('DELETE FROM products');
+    const [brandResult] = await conn.query('DELETE FROM brands');
+    const [subResult] = await conn.query('DELETE FROM sub_categories');
+    await conn.commit();
+    invalidateCatalogCache();
+
+    const imageStats = await cleanupProductImages(null);
+
+    return {
+      deletedProducts: prodResult.affectedRows || prodResult.rowCount || 0,
+      deletedBrands: brandResult.affectedRows || brandResult.rowCount || 0,
+      deletedSubcategories: subResult.affectedRows || subResult.rowCount || 0,
+      deletedImageFiles: imageStats.deletedFilesCount,
+    };
+  } catch (error) {
+    await conn.rollback();
+    throw error;
+  } finally {
+    conn.release();
+  }
+}
+
+async function findSubcategoryById(id) {
+  const { rows } = await pool.query(
+    `SELECT s.id, s.category_id, s.name, s.slug, s.status, c.name AS category_name,
+            s.image_path AS manual_image_path,
+            COALESCE(
+              NULLIF(NULLIF(TRIM(s.image_path), ''), '/default.png'),
+              (
+                SELECT NULLIF(NULLIF(TRIM(p.image_url), ''), '/default.png')
+                FROM products p
+                WHERE p.sub_category_id = s.id
+                  AND p.is_deleted = 0
+                  AND p.approval_status = 'approved'
+                  AND p.image_url IS NOT NULL
+                  AND TRIM(p.image_url) <> ''
+                  AND p.image_url <> '/default.png'
+                ORDER BY p.id ASC
+                LIMIT 1
+              ),
+              '/default.png'
+            ) AS image_path
+     FROM sub_categories s
+     INNER JOIN categories c ON c.id = s.category_id
+     WHERE s.id = ? AND s.is_deleted = 0 AND c.is_deleted = 0`,
+    [id]
+  );
+  return rows[0] ? row(rows[0]) : null;
+}
+
+async function findBrandById(id) {
+  const { rows } = await pool.query(
+    `SELECT b.id, b.category_id, b.sub_category_id, b.name, b.slug, b.logo_path, b.status,
+            s.name AS sub_category_name, c.name AS category_name
+     FROM brands b
+     INNER JOIN categories c ON c.id = b.category_id
+     INNER JOIN sub_categories s ON s.id = b.sub_category_id
+     WHERE b.id = ? AND b.is_deleted = 0 AND c.is_deleted = 0 AND s.is_deleted = 0`,
+    [id]
+  );
+  return rows[0] ? { ...row(rows[0]), subcategory_id: rows[0].sub_category_id, subcategory_name: rows[0].sub_category_name } : null;
+}
+
+module.exports = {
+  slugify,
+  invalidateCatalogCache,
+  listCategories,
+  listSubcategories,
+  listBrands,
+  findSubcategoryById,
+  findBrandById,
+  getTree,
+  createCategory,
+  updateCategory,
+  deleteCategory,
+  bulkDeleteCategories,
+  createSubcategory,
+  updateSubcategory,
+  deleteSubcategory,
+  bulkDeleteSubcategories,
+  createBrand,
+  updateBrand,
+  deleteBrand,
+  cleanBrands,
+  cleanSubcategories,
+};
+
+

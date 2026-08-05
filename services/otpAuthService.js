@@ -41,7 +41,7 @@ async function saveSettingValue(key, value, isSecret = 0) {
 
 async function getOtpSettings() {
   const clientEnabled = await getSettingValue('otp_client_app_enabled', 'true');
-  const vendorEnabled = await getSettingValue('otp_vendor_app_enabled', 'false');
+  const vendorEnabled = await getSettingValue('otp_vendor_app_enabled', 'true');
   const deliveryEnabled = await getSettingValue('otp_delivery_app_enabled', 'true');
 
   const length = parseInt(await getSettingValue('otp_length', '6'), 10) || 6;
@@ -53,14 +53,14 @@ async function getOtpSettings() {
   const defaultCountryCode = await getSettingValue('otp_default_country_code', '+91');
 
   const smsProvider = await getSettingValue('otp_sms_provider', 'MSG91');
-  const msg91AuthKey = await getSettingValue('otp_msg91_auth_key', '');
-  const msg91TemplateId = await getSettingValue('otp_msg91_template_id', '');
-  const msg91SenderId = await getSettingValue('otp_msg91_sender_id', 'GROXEN');
+  const msg91AuthKey = process.env.MSG91_AUTH_KEY || await getSettingValue('otp_msg91_auth_key', '');
+  const msg91TemplateId = process.env.MSG91_TEMPLATE_ID || await getSettingValue('otp_msg91_template_id', '');
+  const msg91SenderId = await getSettingValue('otp_msg91_sender_id', 'STYLECAB');
 
   const smsApiUrl = await getSettingValue('otp_sms_api_url', '');
   const smsApiKey = await getSettingValue('otp_sms_api_key', '');
   const smsSenderId = await getSettingValue('otp_sms_sender_id', '');
-  const smsTemplate = await getSettingValue('otp_sms_template', 'Your OTP verification code for Groxen is {{otp}}. Valid for {{minutes}} minutes.');
+  const smsTemplate = await getSettingValue('otp_sms_template', 'Your OTP verification code for STYLECAB is {{otp}}. Valid for {{minutes}} minutes.');
   const testMode = await getSettingValue('otp_test_mode', 'false');
 
   return {
@@ -160,21 +160,25 @@ async function blockPhone(phone, durationMinutes, reason = 'Too many failed OTP 
 async function sendMsg91Otp({ phone, otp, authKey, templateId, senderId }) {
   // MSG91 expects mobile number without '+' sign e.g. '919876543210'
   const mobile = phone.replace(/^\+/, '');
-  const payload = JSON.stringify({
+  const query = new URLSearchParams({
     template_id: templateId || '',
-    mobile: mobile,
-    otp: otp,
-    sender: senderId || 'GROXEN',
+    mobile: `+${mobile}`,
+    authkey: authKey || '',
+  });
+  const payload = JSON.stringify({
+    Param1: String(otp),
+    Param2: '5',
+    Param3: 'STYLECAB',
   });
 
   return new Promise((resolve, reject) => {
     const req = https.request(
-      'https://control.msg91.com/api/v5/otp',
+      `https://control.msg91.com/api/v5/otp?${query.toString()}`,
       {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'authkey': authKey || '',
+          'Accept': 'application/json',
           'Content-Length': Buffer.byteLength(payload),
         },
       },
@@ -184,7 +188,12 @@ async function sendMsg91Otp({ phone, otp, authKey, templateId, senderId }) {
         res.on('end', () => {
           try {
             const data = JSON.parse(body);
-            console.log('[MSG91 OTP API Response]:', data);
+            if (res.statusCode < 200 || res.statusCode >= 300 || data.type !== 'success') {
+              const error = new Error(data.message || `MSG91 rejected OTP dispatch (HTTP ${res.statusCode}).`);
+              error.providerResponse = data;
+              reject(error);
+              return;
+            }
             resolve(data);
           } catch (e) {
             resolve({ type: 'error', message: body });
@@ -201,6 +210,181 @@ async function sendMsg91Otp({ phone, otp, authKey, templateId, senderId }) {
     req.write(payload);
     req.end();
   });
+}
+
+async function verifyMsg91WidgetAccessToken(accessToken, authKey) {
+  if (!authKey) {
+    const error = new Error('MSG91 server Authkey is not configured.');
+    error.status = 503;
+    throw error;
+  }
+  const payload = JSON.stringify({
+    authkey: authKey,
+    'access-token': String(accessToken || ''),
+  });
+
+  return new Promise((resolve, reject) => {
+    const req = https.request(
+      'https://control.msg91.com/api/v5/widget/verifyAccessToken',
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+          'Content-Length': Buffer.byteLength(payload),
+        },
+      },
+      (res) => {
+        let body = '';
+        res.on('data', (chunk) => { body += chunk; });
+        res.on('end', () => {
+          try {
+            const data = JSON.parse(body);
+            if (res.statusCode < 200 || res.statusCode >= 300 || data.type !== 'success') {
+              const error = new Error(data.message || 'MSG91 access token validation failed.');
+              error.status = 401;
+              reject(error);
+              return;
+            }
+            resolve(data);
+          } catch (_) {
+            const error = new Error('MSG91 returned an invalid access-token response.');
+            error.status = 502;
+            reject(error);
+          }
+        });
+      },
+    );
+    req.on('error', (cause) => {
+      const error = new Error(`Unable to validate MSG91 access token: ${cause.message}`);
+      error.status = 502;
+      reject(error);
+    });
+    req.write(payload);
+    req.end();
+  });
+}
+
+function msg91VerifiedIdentifiers(value, result = []) {
+  if (!value || typeof value !== 'object') return result;
+  for (const [key, child] of Object.entries(value)) {
+    if (/identifier|mobile|phone/i.test(key) && child != null) result.push(String(child));
+    if (child && typeof child === 'object') msg91VerifiedIdentifiers(child, result);
+  }
+  return result;
+}
+
+async function createInstantCustomer(phone, referralCode = '') {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+    const randomPassword = crypto.randomBytes(32).toString('hex');
+    const hashedPassword = await bcrypt.hash(`otp:${phone}:${randomPassword}`, 10);
+    const digits = phone.replace(/\D/g, '');
+    const suffix = digits.slice(-4) || 'User';
+    const userId = await User.create({
+      name: `Customer ${suffix}`,
+      email: `customer.${digits}@mobile.groxen.local`,
+      phone,
+      password: hashedPassword,
+      role: 'Client',
+      status: 'active',
+    }, connection);
+    await Profile.createEmptyForRole(userId, 'Client', connection);
+    await Wallet.ensureForUser(userId, connection);
+    await connection.commit();
+
+    const user = await User.findById(userId);
+    if (referralCode && String(referralCode).trim()) {
+      const referralController = require('../controllers/referralController');
+      await referralController.processReferralOnSignup(user, String(referralCode).trim()).catch(() => {});
+    }
+    return user;
+  } catch (error) {
+    await connection.rollback();
+    if (error && (error.code === '23505' || error.code === 'ER_DUP_ENTRY')) {
+      const existing = await User.findByEmailOrPhoneIdentifierForApp(phone, 'client');
+      if (existing && String(existing.role).toLowerCase() === 'client') return User.findById(existing.id);
+    }
+    throw error;
+  } finally {
+    connection.release();
+  }
+}
+async function completeVerifiedPhoneLogin(phone, normApp) {
+  let existingUser = await User.findByEmailOrPhoneIdentifierForApp(phone, normApp);
+  if (!existingUser) {
+    const rawDigits = phone.replace(/\D/g, '');
+    existingUser = await User.findByEmailOrPhoneIdentifierForApp(rawDigits, normApp);
+    if (!existingUser && rawDigits.length > 10) {
+      existingUser = await User.findByEmailOrPhoneIdentifierForApp(rawDigits.slice(-10), normApp);
+    }
+  }
+
+  if (existingUser) {
+    const { validateAppRoleAccess } = require('../utils/roleAccessValidator');
+    const accessCheck = validateAppRoleAccess(existingUser.role, normApp);
+    if (!accessCheck.allowed) {
+      const error = new Error(accessCheck.message);
+      error.status = 403;
+      throw error;
+    }
+    if ((existingUser.status === 'inactive' && !['vendor', 'delivery'].includes(normApp)) || ['suspended', 'blocked', 'deleted'].includes(existingUser.status) || existingUser.is_deleted === 1) {
+      const error = new Error(`Your account status is ${existingUser.status || 'inactive'}. Please contact your administrator.`);
+      error.status = 403;
+      throw error;
+    }
+    if ((normApp === 'vendor' || normApp === 'delivery') && !['active', 'inactive', 'pending'].includes(existingUser.status)) {
+      const error = new Error(existingUser.status === 'rejected' ? 'Your profile has been rejected. Please contact support.' : 'Your profile is waiting for approval.');
+      error.status = 403;
+      throw error;
+    }
+    if (!existingUser.phone) await pool.query('UPDATE users SET phone = ? WHERE id = ?', [phone, existingUser.id]);
+    return User.findById(existingUser.id);
+  }
+
+  if (normApp === 'client') return createInstantCustomer(phone);
+
+  const registrationService = require('./otpRegistrationService');
+  const promoted = await registrationService.promote(phone, normApp);
+  if (promoted) {
+    return promoted;
+  }
+  const error = new Error('First-time Vendor or Delivery Partner login requires a completed registration form.');
+  error.status = 422;
+  throw error;
+}
+
+async function verifyMsg91AccessToken({ phoneInput, countryCodeInput, accessToken, appType = 'client' }) {
+  if (!accessToken) {
+    const error = new Error('MSG91 access token is required.');
+    error.status = 422;
+    throw error;
+  }
+  const settings = await getOtpSettings();
+  const { appType: normApp } = normalizeAppRole(appType);
+  const isEnabled = normApp === 'vendor'
+    ? settings.vendorEnabled
+    : (normApp === 'delivery' ? settings.deliveryEnabled : settings.clientEnabled);
+  if (!isEnabled) {
+    const error = new Error(`Mobile OTP Login is disabled for the ${normApp.toUpperCase()} app.`);
+    error.status = 403;
+    throw error;
+  }
+  const phone = cleanPhoneNumber(phoneInput, countryCodeInput || settings.defaultCountryCode);
+  const verification = await verifyMsg91WidgetAccessToken(accessToken, settings.msg91AuthKey);
+  const expectedDigits = phone.replace(/\D/g, '');
+  const identifiers = msg91VerifiedIdentifiers(verification);
+  const matchesPhone = identifiers.some((value) => {
+    const digits = value.replace(/\D/g, '');
+    return digits.length >= 10 && (digits === expectedDigits || digits.endsWith(expectedDigits) || expectedDigits.endsWith(digits));
+  });
+  if (!matchesPhone) {
+    const error = new Error('MSG91 verification token does not match this mobile number.');
+    error.status = 401;
+    throw error;
+  }
+  return completeVerifiedPhoneLogin(phone, normApp);
 }
 
 async function sendOtp({ phoneInput, countryCodeInput, appType = 'client' }) {
@@ -286,15 +470,19 @@ async function sendOtp({ phoneInput, countryCodeInput, appType = 'client' }) {
     console.log(`[TEST MODE OTP] Mobile: ${phone} | OTP Code: ${otp} | App: ${normApp}`);
   } else if (settings.smsProvider === 'MSG91') {
     try {
-      await sendMsg91Otp({
-        phone,
+      const msg91UnifiedService = require('./msg91UnifiedService');
+      const appNames = { client: 'Customer App', vendor: 'Vendor App', delivery: 'Delivery Partner App' };
+      const userRoles = { client: 'Customer', vendor: 'Vendor', delivery: 'Delivery Partner' };
+      await msg91UnifiedService.sendPlatformOtp({
+        mobile: phone,
         otp,
-        authKey: settings.msg91AuthKey,
-        templateId: settings.msg91TemplateId,
-        senderId: settings.msg91SenderId,
+        appName: appNames[normApp] || 'Customer App',
+        userRole: userRoles[normApp] || 'Customer',
       });
     } catch (smsErr) {
       console.error('[MSG91 Dispatch Failure]:', smsErr.message);
+      smsErr.status = smsErr.status || 502;
+      throw smsErr;
     }
   } else {
     try {
@@ -374,7 +562,7 @@ async function verifyOtp({ phoneInput, countryCodeInput, otp, appType = 'client'
   const matches = await bcrypt.compare(otpCode, record.otp_hash);
   if (!matches) {
     const remaining = Math.max(0, record.max_attempts - currentAttempts);
-    const error = new Error(`Invalid OTP code. ${remaining} attempt(s) remaining.`);
+    const error = new Error(`OTP does not match. Please enter the correct OTP. ${remaining} attempt(s) remaining.`);
     error.status = 400;
     throw error;
   }
@@ -383,10 +571,10 @@ async function verifyOtp({ phoneInput, countryCodeInput, otp, appType = 'client'
   await pool.query('UPDATE auth_otps SET is_verified = 1 WHERE id = ?', [record.id]);
 
   // Find user by phone number or email
-  let existingUser = await User.findByEmailOrPhoneIdentifier(phone);
+  let existingUser = await User.findByEmailOrPhoneIdentifierForApp(phone, normApp);
   if (!existingUser) {
     const rawDigits = phone.replace(/^\+\d{1,3}/, '');
-    existingUser = await User.findByEmailOrPhoneIdentifier(rawDigits);
+    existingUser = await User.findByEmailOrPhoneIdentifierForApp(rawDigits, normApp);
   }
 
   if (existingUser) {
@@ -398,10 +586,14 @@ async function verifyOtp({ phoneInput, countryCodeInput, otp, appType = 'client'
       throw error;
     }
 
-    if (existingUser.status === 'inactive' || existingUser.status === 'suspended' || existingUser.status === 'blocked' || existingUser.status === 'deleted' || existingUser.is_deleted === 1) {
-      const error = new Error(`Your account status is ${existingUser.status || 'inactive'}. Please contact your administrator.`);
+    if ((existingUser.status === 'inactive' && !['vendor', 'delivery'].includes(normApp)) || existingUser.status === 'suspended' || existingUser.status === 'blocked' || existingUser.status === 'deleted' || existingUser.is_deleted === 1) {
+      const message=existingUser.status==='rejected'?'Your profile has been rejected. Please contact support.':`Your account status is ${existingUser.status || 'inactive'}. Please contact your administrator.`;
+      const error = new Error(message);
       error.status = 403;
       throw error;
+    }
+    if ((normApp==='vendor'||normApp==='delivery') && !['active', 'inactive', 'pending'].includes(existingUser.status)) {
+      const error=new Error(existingUser.status==='rejected'?'Your profile has been rejected. Please contact support.':'Your profile is waiting for approval.'); error.status=403; throw error;
     }
 
     // Update phone number on existing user if needed
@@ -413,6 +605,16 @@ async function verifyOtp({ phoneInput, countryCodeInput, otp, appType = 'client'
   }
 
   // User does not exist -> Create new account
+  if (normApp === 'client') return createInstantCustomer(phone, referralCode);
+
+  const registrationService=require('./otpRegistrationService');
+  const promoted=await registrationService.promote(phone,normApp);
+  if(promoted){
+    return promoted;
+  }
+  { const error=new Error('First-time Vendor or Delivery Partner login requires a completed registration form.'); error.status=422; throw error; }
+
+  /* Legacy fallback retained for database compatibility; new registrations are promoted above.
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
@@ -456,6 +658,7 @@ async function verifyOtp({ phoneInput, countryCodeInput, otp, appType = 'client'
   } finally {
     connection.release();
   }
+  */
 }
 
 module.exports = {
@@ -463,5 +666,6 @@ module.exports = {
   saveOtpSettings,
   sendOtp,
   verifyOtp,
+  verifyMsg91AccessToken,
   cleanPhoneNumber,
 };

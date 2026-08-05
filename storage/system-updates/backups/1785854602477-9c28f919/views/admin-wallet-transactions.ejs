@@ -1,0 +1,392 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Admin Wallet Transactions</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .admin-wallet-page { display: grid; gap: 18px; }
+    .admin-wallet-summary {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+    }
+    .admin-wallet-card {
+      background: #fff;
+      border: 1px solid #e9ead9;
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 16px 32px rgba(17, 24, 39, 0.07);
+    }
+    .admin-wallet-card span {
+      color: #687064;
+      display: block;
+      font-size: 13px;
+      font-weight: 800;
+      margin-bottom: 8px;
+    }
+    .admin-wallet-card strong {
+      color: #172b14;
+      display: block;
+      font-size: 26px;
+      font-weight: 900;
+    }
+    .admin-wallet-card.credit strong { color: #168832; }
+    .admin-wallet-card.debit strong { color: #dc2626; }
+    .admin-wallet-filters {
+      align-items: end;
+      background: #fff;
+      border: 1px solid #e9ead9;
+      border-radius: 18px;
+      display: grid;
+      gap: 14px;
+      grid-template-columns: 1.2fr 1fr 1fr auto;
+      padding: 16px;
+    }
+    .admin-wallet-filters label {
+      color: #354230;
+      display: grid;
+      font-size: 12px;
+      font-weight: 800;
+      gap: 7px;
+      text-transform: uppercase;
+    }
+    .admin-wallet-filters input,
+    .admin-wallet-filters select {
+      border: 1px solid #dce3d7;
+      border-radius: 12px;
+      font: inherit;
+      padding: 11px 12px;
+    }
+    .admin-wallet-filters button {
+      background: #1c8d34;
+      border: 0;
+      border-radius: 12px;
+      color: #fff;
+      cursor: pointer;
+      font-weight: 900;
+      padding: 12px 18px;
+    }
+    .admin-wallet-chart-card {
+      background: #fff;
+      border: 1px solid #e9ead9;
+      border-radius: 18px;
+      padding: 18px;
+      box-shadow: 0 16px 32px rgba(17, 24, 39, 0.07);
+    }
+    .admin-wallet-chart-head {
+      align-items: center;
+      display: flex;
+      justify-content: space-between;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+    .admin-wallet-chart-head h2 { color: #172b14; font-size: 18px; margin: 0; }
+    .admin-wallet-legend { color: #687064; display: flex; gap: 14px; font-size: 12px; font-weight: 800; }
+    .legend-dot { border-radius: 50%; display: inline-block; height: 9px; margin-right: 5px; width: 9px; }
+    .legend-credit { background: #168832; }
+    .legend-debit { background: #ef4444; }
+    .legend-net { background: #2563eb; }
+    .admin-wallet-chart-wrap { height: 290px; position: relative; }
+    #walletTrendChart { height: 100%; width: 100%; }
+    .admin-wallet-table-card {
+      background: #fff;
+      border: 1px solid #e9ead9;
+      border-radius: 18px;
+      overflow: hidden;
+      box-shadow: 0 16px 32px rgba(17, 24, 39, 0.07);
+    }
+    .wallet-transaction-type.credit {
+      background: #dcfce7;
+      color: #166534;
+    }
+    .wallet-transaction-type.debit {
+      background: #fee2e2;
+      color: #991b1b;
+    }
+    .admin-wallet-empty { color: #687064; padding: 22px; text-align: center; }
+    @media (max-width: 980px) {
+      .admin-wallet-summary,
+      .admin-wallet-filters { grid-template-columns: 1fr; }
+      .admin-wallet-chart-head { align-items: flex-start; flex-direction: column; }
+    }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Admin Wallet Transactions</p>
+        <h1>Admin Wallet Transactions</h1>
+      </div>
+    </header>
+
+    <section class="admin-wallet-page">
+      <div class="admin-wallet-summary">
+        <article class="admin-wallet-card">
+          <span>Total Wallet Balance</span>
+          <strong id="totalWalletBalance">INR 0.00</strong>
+        </article>
+        <article class="admin-wallet-card credit">
+          <span>Total Credit Amount</span>
+          <strong id="totalCreditAmount">INR 0.00</strong>
+        </article>
+        <article class="admin-wallet-card debit">
+          <span>Total Debit Amount</span>
+          <strong id="totalDebitAmount">INR 0.00</strong>
+        </article>
+      </div>
+
+      <form class="admin-wallet-filters" id="walletFilters">
+        <label>
+          Filter
+          <select id="filterType">
+            <option value="today">Today</option>
+            <option value="month">This Month</option>
+            <option value="custom">Custom Date Range</option>
+          </select>
+        </label>
+        <label>
+          From Date
+          <input id="fromDate" type="date" disabled />
+        </label>
+        <label>
+          To Date
+          <input id="toDate" type="date" disabled />
+        </label>
+        <button type="submit">Apply</button>
+      </form>
+
+      <section class="admin-wallet-chart-card">
+        <div class="admin-wallet-chart-head">
+          <h2>Monthly Wallet Graph</h2>
+          <div class="admin-wallet-legend">
+            <span><i class="legend-dot legend-credit"></i>Credit</span>
+            <span><i class="legend-dot legend-debit"></i>Debit</span>
+            <span><i class="legend-dot legend-net"></i>Net</span>
+          </div>
+        </div>
+        <div class="admin-wallet-chart-wrap">
+          <canvas id="walletTrendChart" aria-label="Monthly admin wallet transaction chart"></canvas>
+        </div>
+      </section>
+
+      <div class="admin-wallet-table-card">
+        <table class="wallets-table">
+          <thead>
+            <tr>
+              <th>Transaction ID</th>
+              <th>Order ID</th>
+              <th>Amount</th>
+              <th>Transaction Type</th>
+              <th>Description</th>
+              <th>Date & Time</th>
+              <th>Current Balance</th>
+            </tr>
+          </thead>
+          <tbody id="transactionRows">
+            <tr><td colspan="7">Loading transactions...</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="users-pagination">
+        <button type="button" id="prevPage">Previous</button>
+        <span id="pageInfo">Page 1</span>
+        <button type="button" id="nextPage">Next</button>
+      </div>
+    </section>
+  </main>
+
+  <script>
+    let currentPage = 1;
+    let totalPages = 1;
+    let chartRows = [];
+
+    const filterType = document.getElementById('filterType');
+    const fromDate = document.getElementById('fromDate');
+    const toDate = document.getElementById('toDate');
+    const transactionRows = document.getElementById('transactionRows');
+    const pageInfo = document.getElementById('pageInfo');
+    const prevPage = document.getElementById('prevPage');
+    const nextPage = document.getElementById('nextPage');
+
+    function money(value) {
+      return `INR ${Number(value || 0).toFixed(2)}`;
+    }
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;',
+        '<': '&lt;',
+        '>': '&gt;',
+        '"': '&quot;',
+        "'": '&#039;',
+      }[char]));
+    }
+
+    function formatDateTime(value) {
+      if (!value) return '-';
+      return new Date(value).toLocaleString('en-IN');
+    }
+
+    function syncCustomFields() {
+      const custom = filterType.value === 'custom';
+      fromDate.disabled = !custom;
+      toDate.disabled = !custom;
+      if (!custom) {
+        fromDate.value = '';
+        toDate.value = '';
+      }
+    }
+
+    function queryParams(page) {
+      const params = new URLSearchParams({
+        page,
+        limit: 20,
+        filter: filterType.value,
+      });
+      if (filterType.value === 'custom') {
+        if (fromDate.value) params.set('fromDate', fromDate.value);
+        if (toDate.value) params.set('toDate', toDate.value);
+      }
+      return params;
+    }
+
+    async function loadTransactions(page = 1) {
+      transactionRows.innerHTML = '<tr><td colspan="7">Loading transactions...</td></tr>';
+      const response = await fetch(`/api/admin-wallet-transactions?${queryParams(page).toString()}`, {
+        headers: { Accept: 'application/json' },
+      });
+      const data = await response.json();
+      if (!data.success) {
+        transactionRows.innerHTML = `<tr><td colspan="7">${escapeHtml(data.message || 'Unable to load transactions')}</td></tr>`;
+        return;
+      }
+
+      document.getElementById('totalWalletBalance').textContent = money(data.summary.total_wallet_balance);
+      document.getElementById('totalCreditAmount').textContent = money(data.summary.total_credit_amount);
+      document.getElementById('totalDebitAmount').textContent = money(data.summary.total_debit_amount);
+      renderTransactions(data.transactions || []);
+      chartRows = data.graph || [];
+      drawChart();
+      currentPage = data.pagination.page;
+      totalPages = data.pagination.totalPages;
+      updatePagination();
+    }
+
+    function renderTransactions(items) {
+      transactionRows.innerHTML = items.length
+        ? items.map((item) => `
+          <tr>
+            <td>#${escapeHtml(item.transaction_id || item.id)}</td>
+            <td>${item.order_id ? `#${escapeHtml(item.order_id)}` : '-'}</td>
+            <td><strong>${money(item.amount)}</strong></td>
+            <td><span class="wallet-transaction-type ${escapeHtml(item.type)}">${escapeHtml(item.type)}</span></td>
+            <td>${escapeHtml(item.description || item.note || item.reference || item.component || 'Admin wallet transaction')}</td>
+            <td>${formatDateTime(item.date_time || item.transaction_at || item.created_at)}</td>
+            <td><strong>${money(item.current_wallet_balance ?? item.balance_after)}</strong></td>
+          </tr>
+        `).join('')
+        : '<tr><td colspan="7" class="admin-wallet-empty">No admin wallet transactions found for this filter.</td></tr>';
+    }
+
+    function updatePagination() {
+      pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+      prevPage.disabled = currentPage <= 1;
+      nextPage.disabled = currentPage >= totalPages;
+    }
+
+    function drawChart() {
+      const canvas = document.getElementById('walletTrendChart');
+      const context = canvas.getContext('2d');
+      const rect = canvas.getBoundingClientRect();
+      const scale = window.devicePixelRatio || 1;
+      canvas.width = Math.max(rect.width * scale, 1);
+      canvas.height = Math.max(rect.height * scale, 1);
+      context.setTransform(scale, 0, 0, scale, 0, 0);
+      const width = rect.width;
+      const height = rect.height;
+      context.clearRect(0, 0, width, height);
+
+      const padding = { top: 18, right: 18, bottom: 42, left: 54 };
+      const plotWidth = width - padding.left - padding.right;
+      const plotHeight = height - padding.top - padding.bottom;
+      const maxValue = Math.max(1, ...chartRows.flatMap((row) => [row.credit, row.debit, Math.abs(row.net)]));
+
+      context.strokeStyle = '#e5eadf';
+      context.lineWidth = 1;
+      context.fillStyle = '#687064';
+      context.font = '11px sans-serif';
+      for (let i = 0; i <= 4; i += 1) {
+        const y = padding.top + (plotHeight / 4) * i;
+        context.beginPath();
+        context.moveTo(padding.left, y);
+        context.lineTo(width - padding.right, y);
+        context.stroke();
+        const label = money(maxValue - (maxValue / 4) * i).replace('INR ', '');
+        context.fillText(label, 8, y + 4);
+      }
+
+      const slot = plotWidth / Math.max(chartRows.length, 1);
+      const barWidth = Math.min(14, slot / 4);
+      const netPoints = [];
+
+      chartRows.forEach((row, index) => {
+        const baseX = padding.left + slot * index + slot / 2;
+        const creditHeight = (Number(row.credit || 0) / maxValue) * plotHeight;
+        const debitHeight = (Number(row.debit || 0) / maxValue) * plotHeight;
+        const zeroY = padding.top + plotHeight;
+
+        context.fillStyle = '#168832';
+        context.fillRect(baseX - barWidth - 2, zeroY - creditHeight, barWidth, creditHeight);
+        context.fillStyle = '#ef4444';
+        context.fillRect(baseX + 2, zeroY - debitHeight, barWidth, debitHeight);
+
+        const netY = zeroY - (Math.max(Number(row.net || 0), 0) / maxValue) * plotHeight;
+        netPoints.push([baseX, netY]);
+
+        context.save();
+        context.translate(baseX, height - 16);
+        context.rotate(-0.55);
+        context.fillStyle = '#687064';
+        context.fillText(row.label || row.month, -20, 0);
+        context.restore();
+      });
+
+      context.strokeStyle = '#2563eb';
+      context.lineWidth = 2;
+      context.beginPath();
+      netPoints.forEach(([x, y], index) => {
+        if (index === 0) context.moveTo(x, y);
+        else context.lineTo(x, y);
+      });
+      context.stroke();
+      context.fillStyle = '#2563eb';
+      netPoints.forEach(([x, y]) => {
+        context.beginPath();
+        context.arc(x, y, 3, 0, Math.PI * 2);
+        context.fill();
+      });
+    }
+
+    document.getElementById('walletFilters').addEventListener('submit', (event) => {
+      event.preventDefault();
+      loadTransactions(1);
+    });
+    filterType.addEventListener('change', () => {
+      syncCustomFields();
+      if (filterType.value !== 'custom') loadTransactions(1);
+    });
+    prevPage.addEventListener('click', () => loadTransactions(currentPage - 1));
+    nextPage.addEventListener('click', () => loadTransactions(currentPage + 1));
+    window.addEventListener('resize', drawChart);
+
+    syncCustomFields();
+    loadTransactions();
+  </script>
+</body>
+</html>

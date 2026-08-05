@@ -1,4 +1,4 @@
-const VendorProduct = require('../models/VendorProduct');
+﻿const VendorProduct = require('../models/VendorProduct');
 const Product = require('../models/Product');
 const ProductSearch = require('../models/ProductSearch');
 const Vendor = require('../models/Vendor');
@@ -67,6 +67,9 @@ async function requestPayload(req, existing = {}) {
     name: String(req.body.name || '').trim(),
     description: String(req.body.description || '').trim(),
     hsn_code: String(req.body.hsn_code || '').trim() || null,
+    barcode: String(req.body.barcode || '').trim() || null,
+    pack_size: String(req.body.pack_size || '').trim() || null,
+    request_reason: String(req.body.request_reason || req.body.reason || '').trim(),
     price: toNumber(req.body.price),
     quantity: toNumber(req.body.quantity || 0),
     weight_value: weightValue,
@@ -88,6 +91,8 @@ async function requestPayload(req, existing = {}) {
   if (!data.category_id) errors.push('Category is required');
   if (!data.sub_category_id) errors.push('Subcategory is required');
   if (!data.brand_id) errors.push('Brand is required');
+  if (!data.request_reason) errors.push('Reason for adding the product is required');
+  if (!data.image_url && !existing.image_url) errors.push('Product image is required');
   if (data.tax_percentage !== null && (!Number.isFinite(data.tax_percentage) || data.tax_percentage < 0 || data.tax_percentage > 100)) errors.push('Tax percentage must be between 0 and 100');
   return { data, errors };
 }
@@ -244,6 +249,9 @@ async function update(req, res) {
   }
 
   try {
+    if (isVendor(req.authUser) && Object.prototype.hasOwnProperty.call(req.body, 'price')) {
+      return res.status(403).json({ success: false, message: 'Selling price is read-only. Submit a price revision request.' });
+    }
     const updates = {};
     ['price', 'quantity', 'status'].forEach((field) => {
       if (Object.prototype.hasOwnProperty.call(req.body, field)) {
@@ -465,3 +473,5 @@ module.exports = {
   suggestions,
   trackActivity,
 };
+
+

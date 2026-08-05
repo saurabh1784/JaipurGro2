@@ -1,0 +1,480 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>User Management</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .users-toolbar { align-items: flex-end; gap: 16px; flex-wrap: wrap; }
+    .users-toolbar-actions { display: flex; gap: 10px; align-items: flex-end; flex-wrap: wrap; }
+    .users-filter-grid { display: grid; grid-template-columns: repeat(5, minmax(140px, 1fr)); gap: 12px; margin-top: 16px; }
+    .users-filter-grid label, .user-modal-grid label { display: grid; gap: 6px; }
+    .new-user-button { border: 0; border-radius: 8px; padding: 11px 16px; background: #111827; color: #fff; font-weight: 700; cursor: pointer; }
+    .user-modal-card.wide { max-width: 880px; }
+    .user-modal-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    .user-modal-grid .full-span { grid-column: 1 / -1; }
+    .user-detail-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 14px; }
+    .user-detail-grid div { border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px 12px; background: #fff; }
+    .user-detail-grid span { display: block; color: #6b7280; font-size: 12px; margin-bottom: 4px; }
+    .user-actions { flex-wrap: wrap; }
+    @media (max-width: 900px) { .users-filter-grid, .user-modal-grid, .user-detail-grid { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Users</p>
+        <h1>User Management</h1>
+      </div>
+      <div class="topbar-actions">
+        <label class="system-search" aria-label="Search users">
+          <input id="userSearch" type="search" placeholder="Search name, email, or phone" />
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>
+        </label>
+      </div>
+    </header>
+
+    <section class="user-management-shell">
+      <div class="users-toolbar">
+        <div>
+          <h2>All Users</h2>
+          <p>Manage accounts, roles, locations, status, and assigned Admin ownership.</p>
+        </div>
+        <div class="users-toolbar-actions">
+          <button type="button" class="new-user-button" id="newUserButton">New User</button>
+        </div>
+      </div>
+
+      <div class="users-filter-grid">
+        <label>Role<select id="roleFilter"><option value="">All Roles</option></select></label>
+        <label>Status<select id="statusFilter"><option value="">All Statuses</option><option value="active">active</option><option value="inactive">inactive</option></select></label>
+        <label>City<select id="cityFilter"><option value="">All Cities</option></select></label>
+        <label>Area<select id="areaFilter"><option value="">All Areas</option></select></label>
+        <label>Assigned Admin<select id="assignedAdminFilter"><option value="">All Admins</option></select></label>
+      </div>
+
+      <div class="users-table-card">
+        <table class="users-table">
+          <thead>
+            <tr>
+              <th>ID</th>
+              <th>Name</th>
+              <th>Email</th>
+              <th>Phone</th>
+              <th>Role</th>
+              <th>Location</th>
+              <th>Status</th>
+              <th>Assigned Admin</th>
+              <th>Actions</th>
+            </tr>
+          </thead>
+          <tbody id="usersTableBody"><tr><td colspan="9">Loading users...</td></tr></tbody>
+        </table>
+      </div>
+
+      <div class="users-pagination">
+        <button type="button" id="prevPage">Previous</button>
+        <span id="pageInfo">Page 1</span>
+        <button type="button" id="nextPage">Next</button>
+      </div>
+    </section>
+  </main>
+
+  <div class="user-modal" id="userFormModal" aria-hidden="true">
+    <div class="user-modal-card wide">
+      <div class="user-modal-header">
+        <h2 id="userFormTitle">New User</h2>
+        <button type="button" onclick="closeModal('userFormModal')">Close</button>
+      </div>
+      <form id="userForm" class="user-modal-grid">
+        <input type="hidden" id="formUserId" />
+        <label>Full name<input id="formName" type="text" required /></label>
+        <label>Email address<input id="formEmail" type="email" required /></label>
+        <label>Phone number<input id="formPhone" type="tel" /></label>
+        <label>Role<select id="formRole" required></select></label>
+        <label>Password<input id="formPassword" type="password" autocomplete="new-password" /></label>
+        <label>Confirm password<input id="formConfirmPassword" type="password" autocomplete="new-password" /></label>
+        <% if (locals.isSuperAdmin) { %>
+          <label>Country<select id="formCountry"></select></label>
+          <label>State<select id="formState"></select></label>
+          <label>City<select id="formCity"></select></label>
+          <label>Area<select id="formArea"></select></label>
+        <% } else { %>
+          <label>Country<input id="formCountry" type="text" readonly /></label>
+          <label>State<input id="formState" type="text" readonly /></label>
+          <label>City<input id="formCity" type="text" readonly /></label>
+          <label>Area<select id="formArea"></select></label>
+        <% } %>
+        <label>Status<select id="formStatus" required><option value="active">active</option><option value="inactive">inactive</option></select></label>
+        <label>Assigned Admin<select id="formAssignedAdmin"><option value="">None</option></select></label>
+        <p id="adminLocationNote" class="full-span" style="display:none;margin:0;color:#4b5563;"></p>
+        <button class="settings-save full-span" type="submit">Save User</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="user-modal" id="viewUserModal" aria-hidden="true">
+    <div class="user-modal-card wide">
+      <div class="user-modal-header">
+        <h2>User Details</h2>
+        <button type="button" onclick="closeModal('viewUserModal')">Close</button>
+      </div>
+      <div id="userDetails" class="user-detail-grid"></div>
+    </div>
+  </div>
+
+  <script>
+    const isSuperAdmin = <%= Boolean(locals.isSuperAdmin) %>;
+    const adminLocation = <%- JSON.stringify(locals.adminLocation || {}) %>;
+    let locationData = <%- JSON.stringify(locals.locationData || { tree: {}, countries: [], cityAreas: {} }) %>;
+    let currentPage = 1;
+    let totalPages = 1;
+    let users = [];
+    let roleOptions = <%- JSON.stringify(roleOptions || []) %>;
+    let filterOptions = <%- JSON.stringify(filterOptions || { cities: [], areas: [], admins: [] }) %>;
+    let formMode = 'create';
+
+    const tableBody = document.getElementById('usersTableBody');
+    const userSearch = document.getElementById('userSearch');
+    const roleFilter = document.getElementById('roleFilter');
+    const statusFilter = document.getElementById('statusFilter');
+    const cityFilter = document.getElementById('cityFilter');
+    const areaFilter = document.getElementById('areaFilter');
+    const assignedAdminFilter = document.getElementById('assignedAdminFilter');
+    const pageInfo = document.getElementById('pageInfo');
+    const prevPage = document.getElementById('prevPage');
+    const nextPage = document.getElementById('nextPage');
+
+    function debounce(fn, delay) { let timer; return (...args) => { clearTimeout(timer); timer = setTimeout(() => fn(...args), delay); }; }
+    function escapeHtml(value) { return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char])); }
+    function formatDate(value) { return value ? new Date(value).toLocaleDateString() : 'N/A'; }
+    function normalizeRole(value) { return String(value || '').toLowerCase().replace(/[\s_-]+/g, ''); }
+    function openModal(id) { document.getElementById(id).classList.add('active'); }
+    function closeModal(id) { document.getElementById(id).classList.remove('active'); }
+
+    function setOptions(select, values, firstLabel, valueKey, labelKey) {
+      const current = select.value;
+      const opts = [`<option value="">${escapeHtml(firstLabel)}</option>`].concat((values || []).map((item) => {
+        const value = valueKey ? item[valueKey] : item;
+        const label = labelKey ? item[labelKey] : item;
+        return `<option value="${escapeHtml(value)}">${escapeHtml(label)}</option>`;
+      }));
+      select.innerHTML = opts.join('');
+      select.value = Array.from(select.options).some((option) => option.value === current) ? current : '';
+    }
+
+    function populateCountryDropdown(selectedCountry = '') {
+      const select = document.getElementById('formCountry');
+      if (!select || select.tagName !== 'SELECT') return;
+      const countries = (locationData.countries || []).slice().sort((a, b) => a.localeCompare(b));
+      if (selectedCountry && !countries.includes(selectedCountry)) {
+        countries.unshift(selectedCountry);
+      }
+      const opts = ['<option value="">-- Select Country --</option>'].concat(
+        countries.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+      );
+      select.innerHTML = opts.join('');
+      select.value = countries.includes(selectedCountry) ? selectedCountry : '';
+    }
+
+    function populateStateDropdown(selectedState = '') {
+      const select = document.getElementById('formState');
+      if (!select || select.tagName !== 'SELECT') return;
+      const country = document.getElementById('formCountry').value;
+      const statesObj = (country && locationData.tree && locationData.tree[country]) ? locationData.tree[country] : {};
+      const states = Object.keys(statesObj).sort((a, b) => a.localeCompare(b));
+      if (selectedState && !states.includes(selectedState)) {
+        states.unshift(selectedState);
+      }
+      const opts = ['<option value="">-- Select State --</option>'].concat(
+        states.map((s) => `<option value="${escapeHtml(s)}">${escapeHtml(s)}</option>`)
+      );
+      select.innerHTML = opts.join('');
+      select.value = states.includes(selectedState) ? selectedState : '';
+    }
+
+    function populateCityDropdown(selectedCity = '') {
+      const select = document.getElementById('formCity');
+      if (!select || select.tagName !== 'SELECT') return;
+      const country = document.getElementById('formCountry').value;
+      const state = document.getElementById('formState').value;
+      let cities = [];
+      if (country && state && locationData.tree && locationData.tree[country] && locationData.tree[country][state]) {
+        cities = locationData.tree[country][state];
+      }
+      cities = [...cities].sort((a, b) => a.localeCompare(b));
+      if (selectedCity && !cities.includes(selectedCity)) {
+        cities.unshift(selectedCity);
+      }
+      const opts = ['<option value="">-- Select City --</option>'].concat(
+        cities.map((c) => `<option value="${escapeHtml(c)}">${escapeHtml(c)}</option>`)
+      );
+      select.innerHTML = opts.join('');
+      select.value = cities.includes(selectedCity) ? selectedCity : '';
+    }
+
+    function populateAreaDropdown(selectedArea = '') {
+      const select = document.getElementById('formArea');
+      if (!select || select.tagName !== 'SELECT') return;
+      const city = document.getElementById('formCity').value;
+      const isAdminRole = normalizeRole(document.getElementById('formRole').value) === 'admin';
+      let areas = (city && locationData.cityAreas && locationData.cityAreas[city]) ? locationData.cityAreas[city] : [];
+      areas = [...areas].sort((a, b) => a.localeCompare(b));
+      const normalizedSelection = (selectedArea === '*' || String(selectedArea).toLowerCase() === 'all areas') ? '*' : selectedArea;
+      if (normalizedSelection && normalizedSelection !== '*' && !areas.includes(normalizedSelection)) areas.unshift(normalizedSelection);
+      const opts = ['<option value="">-- Select Area --</option>'];
+      if (isAdminRole) opts.push('<option value="*">All Areas (whole city)</option>');
+      opts.push(...areas.map((a) => `<option value="${escapeHtml(a)}">${escapeHtml(a)}</option>`));
+      select.innerHTML = opts.join('');
+      select.value = isAdminRole && (!normalizedSelection || normalizedSelection === '*') ? '*' : normalizedSelection;
+    }
+
+    function initLocationDropdowns(country = '', state = '', city = '', area = '') {
+      if (!isSuperAdmin) return;
+      populateCountryDropdown(country);
+      populateStateDropdown(state);
+      populateCityDropdown(city);
+      populateAreaDropdown(area);
+    }
+
+    function renderOptions() {
+      const roles = [...new Set(roleOptions || [])].filter((role) => {
+        const normalized = normalizeRole(role);
+        return normalized && (isSuperAdmin || (normalized !== 'superadmin' && normalized !== 'admin'));
+      });
+      setOptions(roleFilter, roles, 'All Roles');
+      setOptions(cityFilter, filterOptions.cities || [], 'All Cities');
+      setOptions(areaFilter, filterOptions.areas || [], 'All Areas');
+      setOptions(assignedAdminFilter, filterOptions.admins || [], 'All Admins', 'id', 'name');
+
+      const roleSelect = document.getElementById('formRole');
+      const roleValue = roleSelect.value;
+      roleSelect.innerHTML = roles.map((role) => `<option value="${escapeHtml(role)}">${escapeHtml(role)}</option>`).join('');
+      roleSelect.value = roles.includes(roleValue) ? roleValue : (roles[0] || '');
+
+      setOptions(document.getElementById('formAssignedAdmin'), filterOptions.admins || [], 'None', 'id', 'name');
+    }
+
+    async function loadUsers(page = 1) {
+      const params = new URLSearchParams({
+        format: 'json', page, limit: 10,
+        search: userSearch.value.trim(), role: roleFilter.value,
+        status: statusFilter.value, city: cityFilter.value,
+        area: areaFilter.value, assigned_admin_id: assignedAdminFilter.value,
+      });
+      const response = await fetch(`/users?${params.toString()}`);
+      const data = await response.json();
+      if (!data.success) { tableBody.innerHTML = `<tr><td colspan="9">${escapeHtml(data.message || 'Unable to load users')}</td></tr>`; return; }
+      users = data.users || [];
+      roleOptions = data.roleOptions || roleOptions;
+      filterOptions = data.filterOptions || filterOptions;
+      locationData = data.locationData || locationData;
+      currentPage = data.pagination.page;
+      totalPages = data.pagination.totalPages;
+      renderOptions();
+      renderUsers();
+    }
+
+    function areaLabel(area) { return area === '*' ? 'All Areas' : (area || 'N/A'); }
+    function locationText(user) { return [areaLabel(user.area), user.city, user.state, user.country].filter((value) => value && value !== 'N/A').join(', ') || 'N/A'; }
+    function canManage(user) {
+      const role = normalizeRole(user.role);
+      return isSuperAdmin || (role !== 'superadmin' && role !== 'admin');
+    }
+
+    function renderUsers() {
+      if (!users.length) {
+        tableBody.innerHTML = '<tr><td colspan="9">No users found</td></tr>';
+      } else {
+        tableBody.innerHTML = users.map((user) => `
+          <tr>
+            <td>#${user.id}</td>
+            <td>${escapeHtml(user.name)}</td>
+            <td>${escapeHtml(user.email)}</td>
+            <td>${escapeHtml(user.phone || 'N/A')}</td>
+            <td><span class="user-role-pill">${escapeHtml(user.role)}</span></td>
+            <td>${escapeHtml(locationText(user))}</td>
+            <td><span class="user-status-pill ${user.status === 'active' ? 'active' : 'inactive'}">${escapeHtml(user.status)}</span></td>
+            <td>${escapeHtml(user.assigned_admin_name || 'N/A')}</td>
+            <td><div class="user-actions">
+              <button type="button" onclick="viewUser(${user.id})">View</button>
+              ${canManage(user) ? `<button type="button" onclick="openEditUser(${user.id})">Edit</button>` : ''}
+              ${canManage(user) ? `<button type="button" onclick="toggleStatus(${user.id})">${user.status === 'active' ? 'Deactivate' : 'Activate'}</button>` : ''}
+              ${canManage(user) ? `<button type="button" onclick="deleteUser(${user.id})">Delete</button>` : ''}
+            </div></td>
+          </tr>`).join('');
+      }
+      pageInfo.textContent = `Page ${currentPage} of ${totalPages}`;
+      prevPage.disabled = currentPage <= 1;
+      nextPage.disabled = currentPage >= totalPages;
+    }
+
+    function applyAdminLocationLock(selectedArea = '') {
+      const note = document.getElementById('adminLocationNote');
+      ['formCountry', 'formState', 'formCity'].forEach((id) => { document.getElementById(id).disabled = !isSuperAdmin; });
+      document.getElementById('formArea').disabled = !isSuperAdmin && adminLocation.area !== '*';
+      document.getElementById('formAssignedAdmin').disabled = !isSuperAdmin;
+      if (!isSuperAdmin) {
+        document.getElementById('formCountry').value = adminLocation.country || '';
+        document.getElementById('formState').value = adminLocation.state || '';
+        document.getElementById('formCity').value = adminLocation.city || '';
+        populateAreaDropdown(adminLocation.area === '*' ? selectedArea : (adminLocation.area || selectedArea));
+        document.getElementById('formAssignedAdmin').value = '';
+        note.textContent = adminLocation.area === '*' ? `All Areas access: you can assign users anywhere in ${adminLocation.city || 'your city'}.` : `Location is locked to ${adminLocation.area || 'your assigned area'}, ${adminLocation.city || 'city not assigned'}.`;
+        note.style.display = 'block';
+      } else {
+        note.style.display = 'none';
+      }
+    }
+
+    function resetForm() {
+      formMode = 'create';
+      document.getElementById('userFormTitle').textContent = 'New User';
+      document.getElementById('userForm').reset();
+      document.getElementById('formUserId').value = '';
+      document.getElementById('formPassword').required = true;
+      document.getElementById('formConfirmPassword').required = true;
+      renderOptions();
+      if (isSuperAdmin) {
+        initLocationDropdowns();
+      } else {
+        applyAdminLocationLock();
+      }
+    }
+
+    function openEditUser(id) {
+      const user = users.find((item) => Number(item.id) === Number(id));
+      if (!user) return;
+      formMode = 'edit';
+      document.getElementById('userFormTitle').textContent = 'Edit User';
+      renderOptions();
+      document.getElementById('formUserId').value = user.id;
+      document.getElementById('formName').value = user.name || '';
+      document.getElementById('formEmail').value = user.email || '';
+      document.getElementById('formPhone').value = user.phone || '';
+      document.getElementById('formRole').value = user.role || '';
+      document.getElementById('formStatus').value = user.status || 'active';
+      document.getElementById('formAssignedAdmin').value = user.assigned_admin_id || '';
+      document.getElementById('formPassword').value = '';
+      document.getElementById('formConfirmPassword').value = '';
+      document.getElementById('formPassword').required = false;
+      document.getElementById('formConfirmPassword').required = false;
+
+      if (isSuperAdmin) {
+        initLocationDropdowns(user.country || '', user.state || '', user.city || '', user.area || '');
+      } else {
+        document.getElementById('formCountry').value = user.country || '';
+        document.getElementById('formState').value = user.state || '';
+        document.getElementById('formCity').value = user.city || '';
+        document.getElementById('formArea').value = user.area || '';
+        applyAdminLocationLock(user.area || '');
+      }
+      openModal('userFormModal');
+    }
+
+    async function viewUser(id) {
+      const response = await fetch(`/users/${id}`);
+      const data = await response.json();
+      if (!data.success) { alert(data.message || 'Unable to load user'); return; }
+      const user = data.user;
+      const fields = [
+        ['Full name', user.name], ['Email', user.email], ['Phone', user.phone || 'N/A'], ['Role', user.role],
+        ['Status', user.status], ['Country', user.country || 'N/A'], ['State', user.state || 'N/A'], ['City', user.city || 'N/A'],
+        ['Area', areaLabel(user.area)], ['Assigned Admin', user.assigned_admin_name || 'N/A'], ['Created', formatDate(user.created_at)], ['Updated', formatDate(user.updated_at)],
+      ];
+      document.getElementById('userDetails').innerHTML = fields.map(([label, value]) => `<div><span>${escapeHtml(label)}</span>${escapeHtml(value)}</div>`).join('');
+      openModal('viewUserModal');
+    }
+
+    async function toggleStatus(id) {
+      const user = users.find((item) => Number(item.id) === Number(id));
+      if (!user) return;
+      const nextStatus = user.status === 'active' ? 'inactive' : 'active';
+      const payload = { ...user, status: nextStatus };
+      const response = await fetch(`/users/${id}`, { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
+      const data = await response.json();
+      if (!data.success) { alert(data.message || 'Unable to update status'); return; }
+      loadUsers(currentPage);
+    }
+
+    async function deleteUser(id) {
+      if (!confirm('Delete this user? This will deactivate and soft delete the account.')) return;
+      const response = await fetch(`/users/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) { alert(data.message || 'Unable to delete user'); return; }
+      loadUsers(currentPage);
+    }
+
+    if (isSuperAdmin) {
+      const countrySelect = document.getElementById('formCountry');
+      const stateSelect = document.getElementById('formState');
+      const citySelect = document.getElementById('formCity');
+
+      if (countrySelect) {
+        countrySelect.addEventListener('change', () => {
+          populateStateDropdown('');
+          populateCityDropdown('');
+          populateAreaDropdown('');
+        });
+      }
+      if (stateSelect) {
+        stateSelect.addEventListener('change', () => {
+          populateCityDropdown('');
+          populateAreaDropdown('');
+        });
+      }
+      if (citySelect) {
+        citySelect.addEventListener('change', () => {
+          populateAreaDropdown('');
+        });
+      }
+    }
+
+    document.getElementById('formRole').addEventListener('change', () => {
+      const currentArea = document.getElementById('formArea').value;
+      populateAreaDropdown(normalizeRole(document.getElementById('formRole').value) === 'admin' ? '*' : (currentArea === '*' ? '' : currentArea));
+    });
+
+    document.getElementById('newUserButton').addEventListener('click', () => { resetForm(); openModal('userFormModal'); });
+    document.getElementById('userForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const id = document.getElementById('formUserId').value;
+      const payload = {
+        name: document.getElementById('formName').value,
+        email: document.getElementById('formEmail').value,
+        phone: document.getElementById('formPhone').value,
+        role: document.getElementById('formRole').value,
+        status: document.getElementById('formStatus').value,
+        country: document.getElementById('formCountry').value,
+        state: document.getElementById('formState').value,
+        city: document.getElementById('formCity').value,
+        area: document.getElementById('formArea').value,
+        assigned_admin_id: document.getElementById('formAssignedAdmin').value,
+        password: document.getElementById('formPassword').value,
+        confirm_password: document.getElementById('formConfirmPassword').value,
+      };
+      const response = await fetch(formMode === 'edit' ? `/users/${id}` : '/users', {
+        method: formMode === 'edit' ? 'PUT' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (!data.success) { alert(data.errors ? data.errors.join('\n') : (data.message || 'Unable to save user')); return; }
+      closeModal('userFormModal');
+      loadUsers(formMode === 'edit' ? currentPage : 1);
+    });
+
+    userSearch.addEventListener('input', debounce(() => loadUsers(1), 300));
+    [roleFilter, statusFilter, cityFilter, areaFilter, assignedAdminFilter].forEach((filter) => filter.addEventListener('change', () => loadUsers(1)));
+    prevPage.addEventListener('click', () => loadUsers(currentPage - 1));
+    nextPage.addEventListener('click', () => loadUsers(currentPage + 1));
+
+    renderOptions();
+    loadUsers();
+  </script>
+</body>
+</html>

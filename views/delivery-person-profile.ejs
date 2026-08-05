@@ -270,7 +270,11 @@
       border: 1px solid #cbd5e1;
       font-size: 13px;
     }
-  </style>
+      .dp-kyc-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:12px; margin-top:12px; }
+    .dp-kyc-card { border:1px solid #dbe3ef; border-radius:10px; padding:10px; background:#f8fafc; min-width:0; }
+    .dp-kyc-card img { width:100%; height:140px; object-fit:cover; border-radius:8px; margin-top:8px; background:#e2e8f0; }
+    .dp-kyc-card a { color:#2563eb; word-break:break-all; font-size:12px; }
+    .delivery-avatar.large img { width:100%; height:100%; object-fit:cover; border-radius:50%; }  </style>
 </head>
 <body class="system-theme">
   <%- include('partials/system_sidebar', { shell }) %>
@@ -453,6 +457,11 @@
             <span class="dp-info-val" id="ovAvgRating" style="color:#eab308; font-weight:800;">â˜… 0.0</span>
           </div>
         </div>
+        <section class="dp-info-cell" style="margin-top:16px;">
+          <span class="dp-info-label">KYC Status & Documents</span>
+          <div id="ovKycSummary" class="dp-info-val">-</div>
+          <div id="ovKycDocuments" class="dp-kyc-grid"></div>
+        </section>
       </div>
 
       <!-- TAB 2: ALL DELIVERIES -->
@@ -810,6 +819,20 @@
       document.getElementById('ovAvgDeliveryTime').textContent = `${stats.avg_delivery_time_min} min`;
       document.getElementById('ovAvgRating').textContent = `â˜… ${stats.avg_rating}`;
 
+      const avatarUrl = profile.profile_image_path || profile.live_selfie_path;
+      if (avatarUrl) document.getElementById('dpAvatarHeader').innerHTML = `<img src="${esc(avatarUrl)}" alt="${esc(profile.name || 'Delivery partner')}" />`;
+      document.getElementById('ovKycSummary').textContent = `${profile.kyc_status || 'pending_documents'}${profile.kyc_submitted_at ? ` · Submitted ${dt(profile.kyc_submitted_at)}` : ''}${profile.kyc_rejection_reason ? ` · Reason: ${profile.kyc_rejection_reason}` : ''}`;
+      const deliveryDocs = [
+        ['Profile Photo', profile.profile_image_path], ['Bike RC', profile.bike_rc_path], ['PAN Card', profile.pan_card_path],
+        ['Aadhaar Card', profile.aadhaar_card_path], ['Driving License', profile.driving_license_path],
+        ['Cancelled Cheque', profile.cancelled_cheque_path], ['Live Selfie', profile.live_selfie_path],
+      ];
+      document.getElementById('ovKycDocuments').innerHTML = deliveryDocs.map(([label, url]) => {
+        if (!url) return `<div class="dp-kyc-card"><strong>${label}</strong><p>Not uploaded</p></div>`;
+        const safe = esc(url);
+        const preview = /\.(png|jpe?g|webp)(\?.*)?$/i.test(url) ? `<img src="${safe}" alt="${label}" />` : '';
+        return `<div class="dp-kyc-card"><strong>${label}</strong>${preview}<p><a href="${safe}" target="_blank" rel="noopener">Open document</a></p></div>`;
+      }).join('');
       // Tab Renders
       renderDpAllDeliveriesTab();
       renderDpCompletedDeliveriesTab();

@@ -61,10 +61,12 @@ async function signup(req, res) {
   const city = String(req.body.city || '').trim().slice(0, 100);
   const area = String(req.body.area || '').trim().slice(0, 120);
 
-  const existingUser = await User.findByEmailOrPhone(email, phone);
-  if (existingUser) {
-    const field = existingUser.email === email ? 'email' : 'phone';
-    return res.status(409).json({ success: false, message: `A user with this ${field} already exists` });
+  const accountApp = role === 'Vendor' ? 'vendor' : (role === 'deliveryPerson' ? 'delivery' : 'customer');
+  const existingEmail = await User.findByEmail(email);
+  const existingPhoneForRole = await User.findByEmailOrPhoneIdentifierForApp(phone, accountApp);
+  if (existingEmail || existingPhoneForRole) {
+    const field = existingEmail ? 'email' : 'phone for this app';
+    return res.status(409).json({ success: false, message: `An account with this ${field} already exists` });
   }
 
   const gstNumber = String(req.body.gst_number || req.body.gstNumber || '').trim();
@@ -96,7 +98,7 @@ async function signup(req, res) {
     await connection.beginTransaction();
     const hashedPassword = await bcrypt.hash(password, 10);
     const isVendorOrDelivery = role === 'Vendor' || ['staff', 'deliveryperson', 'delivery_partner'].includes(String(role).toLowerCase());
-    const initialStatus = isVendorOrDelivery ? 'pending' : 'active';
+    const initialStatus = isVendorOrDelivery ? 'inactive' : 'active';
     const userId = await User.create({
       name,
       email,
@@ -204,13 +206,13 @@ async function login(req, res) {
   }
 
   const identifier = String(req.body.identifier || req.body.email || req.body.phone || '').trim();
-  const user = await User.findByEmailOrPhoneIdentifier(identifier);
+  const appType = req.body.appType || req.body.app_type || req.body.login_portal || req.headers['x-app-type'] || 'customer';
+  const user = await User.findByEmailOrPhoneIdentifierForApp(identifier, appType);
 
   if (!user) {
     return res.status(401).json({ success: false, message: 'Invalid credentials' });
   }
 
-  const appType = req.body.appType || req.body.app_type || req.body.login_portal || req.headers['x-app-type'] || 'customer';
   const { validateAppRoleAccess } = require('../utils/roleAccessValidator');
   const accessCheck = validateAppRoleAccess(user.role, appType);
   if (!accessCheck.allowed) {
@@ -405,15 +407,20 @@ async function sendOtp(req, res) {
 
 async function verifyOtp(req, res) {
   try {
-    const { phone, countryCode, otp, appType, referralCode, referral_code } = req.body || {};
+    const { phone, countryCode, otp, accessToken, appType, referralCode, referral_code } = req.body || {};
     const otpAuthService = require('../services/otpAuthService');
-    const user = await otpAuthService.verifyOtp({
+    const common = {
       phoneInput: phone,
       countryCodeInput: countryCode,
-      otp,
       appType: appType || req.query.app || 'client',
-      referralCode: referralCode || referral_code,
-    });
+    };
+    const user = accessToken
+      ? await otpAuthService.verifyMsg91AccessToken({ ...common, accessToken })
+      : await otpAuthService.verifyOtp({
+          ...common,
+          otp,
+          referralCode: referralCode || referral_code,
+        });
     const token = sign(tokenPayload(user));
 
     return res.json({
@@ -432,6 +439,35 @@ async function verifyOtp(req, res) {
   }
 }
 
+async function startOtpRegistration(req,res){
+  try{
+    const otpAuthService=require('../services/otpAuthService');
+    const registrationService=require('../services/otpRegistrationService');
+    const settings=await otpAuthService.getOtpSettings();
+    const phone=otpAuthService.cleanPhoneNumber(req.body.phone,req.body.countryCode||settings.defaultCountryCode);
+    const result=await registrationService.start({phone,appType:req.body.appType,profile:req.body.profile||req.body});
+    if(result.existingUser){
+      const check=require('../utils/roleAccessValidator').validateAppRoleAccess(result.user.role,registrationService.normalize(req.body.appType).appType);
+      if(!check.allowed)return res.status(403).json({success:false,message:check.message});
+    }
+    if(req.body.otpProvider==='msg91-widget')return res.json({success:true,message:'Registration saved. Continue with MSG91 verification.',registrationSaved:!result.existingUser,existingUser:result.existingUser});
+    const otpResult=await otpAuthService.sendOtp({phoneInput:phone,countryCodeInput:'',appType:req.body.appType});
+    return res.json({...otpResult,registrationSaved:!result.existingUser,existingUser:result.existingUser});
+  }catch(error){return res.status(error.status||500).json({success:false,message:error.message||'Unable to save registration and send OTP'});}
+}
+
+async function registrationStatus(req,res){
+  try{
+    const otpAuthService=require('../services/otpAuthService'); const registrationService=require('../services/otpRegistrationService');
+    const settings=await otpAuthService.getOtpSettings(); const phone=otpAuthService.cleanPhoneNumber(req.body.phone,req.body.countryCode||settings.defaultCountryCode);
+    const expected=registrationService.normalize(req.body.appType); const existing=await User.findByEmailOrPhoneIdentifierForApp(phone,expected.appType);
+    if(existing){const check=require('../utils/roleAccessValidator').validateAppRoleAccess(existing.role,expected.appType);if(!check.allowed)return res.status(403).json({success:false,message:check.message});return res.json({success:true,state:'existing',mobileVerified:true,profileCompleted:true,approvalStatus:existing.status,isActive:existing.status==='active'});}
+    const pending=await registrationService.find(phone,expected.appType);
+    if(pending)return res.json({success:true,state:'otp_pending',mobileVerified:false,profileCompleted:Boolean(pending.profile_completed),approvalStatus:'otp_pending',isActive:false,profile:pending.profile||{},phone});
+    return res.json({success:true,state:'new',mobileVerified:false,profileCompleted:false,approvalStatus:'not_registered',isActive:false});
+  }catch(error){return res.status(500).json({success:false,message:error.message||'Unable to check registration'});}
+}
+
 async function forgotPassword(req, res) {
   try {
     const identifier = String(req.body.email || req.body.phone || req.body.identifier || '').trim();
@@ -439,7 +475,7 @@ async function forgotPassword(req, res) {
       return res.status(422).json({ success: false, message: 'Email or phone number is required' });
     }
 
-    const user = await User.findByEmailOrPhoneIdentifier(identifier);
+    const user = await User.findByEmailOrPhoneIdentifierForApp(identifier, req.body.appType || req.body.app_type || 'customer');
     if (!user) {
       return res.json({ success: true, message: 'If an account exists with this email/phone, a password reset code has been sent.' });
     }
@@ -492,7 +528,7 @@ async function resetPasswordWithOtp(req, res) {
       return res.status(422).json({ success: false, message: 'Password must be at least 6 characters long' });
     }
 
-    const user = await User.findByEmailOrPhoneIdentifier(identifier);
+    const user = await User.findByEmailOrPhoneIdentifierForApp(identifier, req.body.appType || req.body.app_type || 'customer');
     if (!user) {
       return res.status(400).json({ success: false, message: 'Invalid request or user not found' });
     }
@@ -537,6 +573,8 @@ module.exports = {
   socialPublicConfig,
   sendOtp,
   verifyOtp,
+  startOtpRegistration,
+  registrationStatus,
   forgotPassword,
   resetPasswordWithOtp,
 };

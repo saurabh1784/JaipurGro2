@@ -102,7 +102,7 @@ async function findById(id) {
 
 async function emailOrPhoneTaken({ id = 0, email, phone }) {
   const [rows] = await pool.query(
-    'SELECT id FROM users WHERE is_deleted = 0 AND id != ? AND (email = ? OR phone = ?) LIMIT 1',
+    `SELECT id FROM users WHERE is_deleted = 0 AND id != ? AND (email = ? OR (phone = ? AND LOWER(role) IN ('client', 'customer'))) LIMIT 1`,
     [id, email, phone]
   );
   return rows[0] || null;

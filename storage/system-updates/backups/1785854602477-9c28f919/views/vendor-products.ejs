@@ -1,0 +1,2019 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= shell.roleTitle %> - My Products</title>
+  <link rel="stylesheet" href="/styles.css" />
+  <script src="/product-image-fallback.js"></script>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / Products</p>
+        <h1>My Products</h1>
+      </div>
+      <div class="topbar-actions">
+        <button class="button" type="button" id="addProductBtn" style="width: auto; padding: 8px 16px;">
+          Add Product
+        </button>
+        <button class="button" type="button" id="requestProductBtn" style="width: auto; padding: 8px 16px;">
+          Request New Product
+        </button>
+      </div>
+    </header>
+
+    <% if (typeof error !== 'undefined' && error) { %>
+      <div class="system-alert"><%= error %></div>
+    <% } %>
+
+    <section class="products-section">
+      <div class="products-header">
+        <h2>Vendor Products</h2>
+        <div class="view-toggle-container">
+          <button type="button" class="view-toggle-btn active" id="toggleViewBtn" onclick="toggleView()" aria-label="Toggle view">
+            <svg id="listIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <line x1="8" y1="6" x2="21" y2="6"></line>
+              <line x1="8" y1="12" x2="21" y2="12"></line>
+              <line x1="8" y1="18" x2="21" y2="18"></line>
+              <line x1="3" y1="6" x2="3.01" y2="6"></line>
+              <line x1="3" y1="12" x2="3.01" y2="12"></line>
+              <line x1="3" y1="18" x2="3.01" y2="18"></line>
+            </svg>
+            <svg id="gridIcon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="display:none">
+              <rect x="3" y="3" width="7" height="7"></rect>
+              <rect x="14" y="3" width="7" height="7"></rect>
+              <rect x="14" y="14" width="7" height="7"></rect>
+              <rect x="3" y="14" width="7" height="7"></rect>
+            </svg>
+          </button>
+          <div class="search-box-container">
+            <input type="search" id="search-input" placeholder="Search products..." />
+          </div>
+        </div>
+      </div>
+      <div class="vendor-filter-bar">
+        <select id="category-filter" aria-label="Category filter">
+          <option value="">All Categories</option>
+          <% categories.forEach(function(category) { %>
+            <option value="<%= category.id %>"><%= category.name %></option>
+          <% }); %>
+        </select>
+        <select id="subcategory-filter" aria-label="Subcategory filter">
+          <option value="">All Subcategories</option>
+        </select>
+        <select id="brand-filter" aria-label="Brand filter">
+          <option value="">All Brands</option>
+        </select>
+      </div>
+
+      <div class="bulk-actions-bar" id="bulkActionsBar" style="display: none;">
+        <label class="bulk-select-all-label">
+          <input type="checkbox" id="selectAllCheckbox" onchange="toggleSelectAll(this.checked)" />
+          <span>Select All</span>
+        </label>
+        <span class="selected-count-text" id="selectedCountText">0 selected</span>
+        <button type="button" class="btn-bulk-delete" onclick="bulkDeleteSelected()">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+          Delete Selected (<span id="selectedCountNumber">0</span>)
+        </button>
+        <button type="button" class="btn-clear-selection" onclick="clearSelection()">Clear Selection</button>
+      </div>
+
+      <div id="products-container">
+        <% if (products.length === 0) { %>
+          <div class="empty-state">
+            <p>No products found. Add your first product to get started.</p>
+          </div>
+        <% } else { %>
+          <div class="products-grid" id="products-grid">
+            <% products.forEach(function(product) { %>
+              <div class="product-card" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>">
+                <div class="product-card-header">
+                  <div class="product-card-checkbox">
+                    <input type="checkbox" class="product-select-checkbox" data-id="<%= product.id %>" onchange="onProductSelectChange(event)" />
+                  </div>
+                  <span class="status-pill status-<%= product.status %>">
+                    <span class="status-dot"></span>
+                    <%= product.status %>
+                  </span>
+                  <div class="product-img-wrapper">
+                    <img class="product-thumb-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+                  </div>
+                </div>
+                <div class="product-card-body">
+                  <div class="product-tags">
+                    <span class="product-tag-cat"><%= product.category_name %></span>
+                    <% if (product.brand_name) { %>
+                      <span class="product-tag-brand"><%= product.brand_name %></span>
+                    <% } %>
+                  </div>
+                  <h3 class="product-title"><%= product.product_name %></h3>
+                  <% if (product.description) { %>
+                    <p class="product-desc"><%= product.description %></p>
+                  <% } %>
+                  <div class="product-price-stock-row">
+                    <div class="product-price-container">
+                      <span class="price-currency">₹</span>
+                      <span class="price-value"><%= product.price.toFixed(2) %></span>
+                    </div>
+                    <div class="stock-pill stock-<%= product.quantity > 10 ? 'in' : product.quantity > 0 ? 'low' : 'out' %>">
+                      <span class="stock-dot"></span>
+                      <%= product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock' %>
+                    </div>
+                  </div>
+                  <div class="product-quantity-row">
+                    <label class="qty-label">Stock Qty:</label>
+                    <div class="qty-input-group">
+                      <input type="number" min="0" step="0.01" value="<%= Number(product.quantity || 0) %>" class="qty-input" />
+                      <button type="button" class="qty-save-btn" onclick="saveProductQuantity(<%= product.id %>, this)">Save</button>
+                    </div>
+                  </div>
+                </div>
+                <div class="product-card-footer">
+                  <button type="button" class="action-btn btn-edit-modern" onclick="openEditModal(<%= product.id %>)">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+                    Edit
+                  </button>
+                  <button type="button" class="action-btn btn-toggle-modern" onclick="toggleVendorProductStatus(<%= product.id %>)">
+                    <%= product.status === 'active' ? 'Deactivate' : 'Activate' %>
+                  </button>
+                  <button type="button" class="action-btn btn-delete-modern" title="Delete product" onclick="deleteVendorProduct(<%= product.id %>)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </div>
+              </div>
+            <% }); %>
+          </div>
+
+          <!-- List View -->
+          <div class="products-list" id="products-list" style="display:none">
+            <% products.forEach(function(product) { %>
+              <div class="product-row" data-product-id="<%= product.id %>" data-product-name="<%= product.product_name.toLowerCase() %>">
+                <div class="product-row-checkbox">
+                  <input type="checkbox" class="product-select-checkbox" data-id="<%= product.id %>" onchange="onProductSelectChange(event)" />
+                </div>
+                <img class="product-row-image" data-product-placeholder data-product-name="<%= product.product_name %>" src="<%= product.image_url || '/default.png' %>" alt="<%= product.product_name %>" loading="lazy" />
+                <div class="product-row-info">
+                  <h3 class="product-row-name"><%= product.product_name %></h3>
+                  <% if (product.description) { %>
+                    <p class="product-row-description"><%= product.description %></p>
+                  <% } %>
+                  <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+                    <span class="product-tag-cat"><%= product.category_name %></span>
+                    <% if (product.brand_name) { %>
+                      <span class="product-tag-brand"><%= product.brand_name %></span>
+                    <% } %>
+                  </div>
+                </div>
+                <div class="product-row-price">
+                  ₹<%= product.price.toFixed(2) %>
+                </div>
+                <div class="product-row-stock">
+                  <span class="stock-pill stock-<%= product.quantity > 10 ? 'in' : product.quantity > 0 ? 'low' : 'out' %>">
+                    <span class="stock-dot"></span>
+                    <%= product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock' %>
+                  </span>
+                </div>
+                <div class="product-row-status">
+                  <span class="status-pill status-<%= product.status %>">
+                    <span class="status-dot"></span>
+                    <%= product.status %>
+                  </span>
+                </div>
+                <div class="product-row-actions">
+                  <button type="button" class="action-btn btn-edit-modern" onclick="openEditModal(<%= product.id %>)">Edit</button>
+                  <button type="button" class="action-btn btn-delete-modern" onclick="deleteVendorProduct(<%= product.id %>)">
+                    <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+                  </button>
+                </div>
+              </div>
+            <% }); %>
+          </div>
+        <% } %>
+      </div>
+    </section>
+  </main>
+
+  <div class="user-modal" id="productModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2 id="productModalTitle">Add Product</h2>
+        <button type="button" onclick="closeModal()">Close</button>
+      </div>
+      <form id="productForm" class="user-modal-grid">
+        <input type="hidden" id="vendorProductId" />
+
+        <div style="display: flex; gap: 12px; grid-column: 1 / -1;">
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
+            <label style="font-weight: 600; color: #334155;">Select Category</label>
+            <select id="modalCategoryFilter" onchange="onModalCategoryChange(this.value)" style="padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; background: #fff; width: 100%;">
+              <option value="">All Assigned Categories</option>
+              <% (typeof vendorCategories !== 'undefined' && vendorCategories.length ? vendorCategories : categories || []).forEach(function(cat) { %>
+                <option value="<%= cat.id %>"><%= cat.name %></option>
+              <% }); %>
+            </select>
+          </div>
+
+          <div style="flex: 1; display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem;">
+            <label style="font-weight: 600; color: #334155;">Select Subcategory</label>
+            <select id="modalSubcategoryFilter" onchange="onModalSubcategoryChange(this.value)" style="padding: 9px 12px; border: 1px solid #cbd5e1; border-radius: 8px; font-size: 0.9rem; background: #fff; width: 100%;">
+              <option value="">All Subcategories</option>
+              <% (subcategories || []).forEach(function(sub) { %>
+                <option value="<%= sub.id %>"><%= sub.name %></option>
+              <% }); %>
+            </select>
+          </div>
+        </div>
+
+        <div style="display: flex; flex-direction: column; gap: 6px; font-size: 0.85rem;">
+          <label style="font-weight: 700; color: #0f172a;">Select Master Product</label>
+          <input type="hidden" id="productId" required />
+          <div class="searchable-product-picker">
+            <div style="display:flex; gap:8px; margin-bottom:8px;">
+              <select id="modalCategoryFilter" class="picker-filter-select" onchange="onModalCategoryChange(this.value)" style="flex:1; padding:7px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; background:#f8fafc;">
+                <option value="">All Categories</option>
+                <% (categories || []).forEach(function(cat) { %>
+                  <option value="<%= cat.id %>"><%= cat.name %></option>
+                <% }); %>
+              </select>
+              <select id="modalSubcategoryFilter" class="picker-filter-select" onchange="onModalSubcategoryChange(this.value)" style="flex:1; padding:7px 10px; border:1px solid #cbd5e1; border-radius:8px; font-size:0.82rem; background:#f8fafc;">
+                <option value="">All Subcategories</option>
+              </select>
+            </div>
+            <div style="position:relative;">
+              <input
+                type="text"
+                id="productSearchInput"
+                class="product-picker-search-input"
+                placeholder="🔍 Type product name, category, or brand to search..."
+                oninput="filterApprovedProducts(this.value)"
+                onfocus="showApprovedProductsDropdown()"
+                autocomplete="off"
+              />
+            </div>
+            <div id="productSelectedBadge" class="product-selected-badge" style="display:none; margin-top:6px;">
+              <img id="productSelectedImg" class="product-selected-img" src="/default.png" alt="Selected Product" />
+              <div class="product-selected-info">
+                <span id="productSelectedName" class="product-selected-title"></span>
+                <span id="productSelectedMeta" class="product-selected-meta"></span>
+              </div>
+              <button type="button" class="btn-clear-product" onclick="clearSelectedProduct()">Change</button>
+            </div>
+            <div id="productPickerDropdown" class="product-picker-dropdown" style="display:none;"></div>
+          </div>
+        </div>
+        <label>
+          Price (₹)
+          <input type="number" id="price" step="0.01" min="0" required />
+        </label>
+        <label>
+          Quantity
+          <input type="number" id="quantity" step="0.01" min="0" required />
+        </label>
+        <label>
+          Status
+          <select id="status" required>
+            <option value="active">Active</option>
+            <option value="inactive">Inactive</option>
+            <option value="unavailable">Unavailable</option>
+          </select>
+        </label>
+        <button class="settings-save" type="submit">Save</button>
+      </form>
+    </div>
+  </div>
+
+  <div class="user-modal" id="productRequestModal" aria-hidden="true">
+    <div class="user-modal-card">
+      <div class="user-modal-header">
+        <h2>Request New Product</h2>
+        <button type="button" onclick="closeProductRequestModal()">Close</button>
+      </div>
+      <form id="productRequestForm" class="user-modal-grid">
+        <label>
+          Product Images
+          <input id="requestImages" name="images" type="file" accept="image/png,image/jpeg,image/webp,image/gif" multiple />
+        </label>
+        <label>
+          Product Name
+          <input id="requestName" type="text" minlength="2" required />
+        </label>
+        <label>
+          Description
+          <textarea id="requestDescription" rows="3"></textarea>
+        </label>
+        <label>
+          Category
+          <select id="requestCategory" required>
+            <option value="">Select Category</option>
+            <% categories.forEach(function(category) { %>
+              <option value="<%= category.id %>"><%= category.name %></option>
+            <% }); %>
+          </select>
+        </label>
+        <label>
+          Subcategory
+          <select id="requestSubcategory" required></select>
+        </label>
+        <label>
+          Brand
+          <select id="requestBrand" required></select>
+        </label>
+        <label>
+          Price
+          <input id="requestPrice" type="number" min="0" step="0.01" required />
+        </label>
+        <label>
+          Quantity
+          <input id="requestQuantity" type="number" min="0" step="1" value="10" required />
+        </label>
+        <label>
+          Weight
+          <input id="requestWeight" type="number" min="0" step="0.001" required />
+        </label>
+        <label>
+          Weight Unit
+          <select id="requestWeightUnit">
+            <option value="g">g</option>
+            <option value="kg">kg</option>
+            <option value="L">L</option>
+            <option value="ml">ml</option>
+          </select>
+        </label>
+        <label>
+          Tax Name
+          <input id="requestTaxName" type="text" placeholder="Optional" />
+        </label>
+        <label>
+          Tax %
+          <input id="requestTaxPercentage" type="number" min="0" max="100" step="0.01" placeholder="Optional" />
+        </label>
+        <label>
+          HSN Code
+          <input id="requestHsnCode" type="text" placeholder="e.g. 1006 / 0401" />
+        </label>
+        <button class="settings-save" type="submit">Submit for Approval</button>
+      </form>
+    </div>
+  </div>
+
+  <style>
+    /* Searchable Product Picker & Option Thumbnails */
+    .searchable-product-picker {
+      position: relative;
+      width: 100%;
+    }
+    .product-picker-search-input {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1px solid #cbd5e1;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      outline: none;
+      background: #ffffff;
+      transition: border-color 0.2s, box-shadow 0.2s;
+    }
+    .product-picker-search-input:focus {
+      border-color: #0f766e;
+      box-shadow: 0 0 0 3px rgba(15, 118, 110, 0.15);
+    }
+    .product-picker-dropdown {
+      position: absolute;
+      top: calc(100% + 4px);
+      left: 0;
+      right: 0;
+      max-height: 250px;
+      overflow-y: auto;
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 10px;
+      box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.15);
+      z-index: 9999;
+    }
+    .product-picker-option {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 14px;
+      cursor: pointer;
+      border-bottom: 1px solid #f1f5f9;
+      transition: background 0.15s ease;
+    }
+    .product-picker-option:last-child {
+      border-bottom: none;
+    }
+    .product-picker-option:hover {
+      background: #f0fdf4;
+    }
+    .product-picker-option-thumb {
+      width: 44px;
+      height: 44px;
+      min-width: 44px;
+      min-height: 44px;
+      object-fit: cover;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background-color: #f8fafc;
+      display: block;
+    }
+    .product-picker-option-details {
+      flex: 1;
+      min-width: 0;
+    }
+    .product-picker-option-title {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #1e293b;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .product-picker-option-meta {
+      font-size: 0.76rem;
+      color: #64748b;
+      margin-top: 2px;
+    }
+    .product-picker-option-price {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #059669;
+      white-space: nowrap;
+    }
+    .product-selected-badge {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #ecfdf5;
+      border: 1px solid #a7f3d0;
+      border-radius: 8px;
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #065f46;
+    }
+    .btn-clear-product {
+      background: #059669;
+      color: white;
+      border: none;
+      padding: 4px 10px;
+      border-radius: 6px;
+      font-size: 0.78rem;
+      cursor: pointer;
+      font-weight: 600;
+    }
+
+    /* Bulk Actions Bar */
+    .bulk-actions-bar {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 10px 16px;
+      margin-bottom: 16px;
+      background: #eff6ff;
+      border: 1px solid #bfdbfe;
+      border-radius: 8px;
+      box-shadow: 0 1px 3px rgba(37, 99, 235, 0.08);
+      flex-wrap: wrap;
+    }
+    .bulk-select-all-label {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      font-size: 0.9rem;
+      font-weight: 700;
+      color: #1e40af;
+      cursor: pointer;
+      user-select: none;
+    }
+    .bulk-select-all-label input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #2563eb;
+    }
+    .selected-count-text {
+      font-size: 0.88rem;
+      font-weight: 600;
+      color: #1d4ed8;
+      background: #dbeafe;
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+    .btn-bulk-delete {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      padding: 7px 14px;
+      background: #dc2626;
+      color: #ffffff;
+      border: none;
+      border-radius: 6px;
+      font-size: 0.85rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .btn-bulk-delete:hover {
+      background: #b91c1c;
+    }
+    .btn-clear-selection {
+      padding: 6px 12px;
+      background: transparent;
+      color: #4b5563;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.82rem;
+      font-weight: 600;
+      cursor: pointer;
+    }
+    .btn-clear-selection:hover {
+      background: #f3f4f6;
+    }
+
+    /* Product Card & Row Checkboxes */
+    .product-card {
+      position: relative;
+    }
+    .product-card-checkbox {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 5;
+    }
+    .product-card-checkbox input[type="checkbox"],
+    .product-row-checkbox input[type="checkbox"] {
+      width: 20px;
+      height: 20px;
+      cursor: pointer;
+      accent-color: #2563eb;
+    }
+    .product-row {
+      grid-template-columns: 32px 64px 3fr 2fr 1fr 1fr 100px;
+    }
+
+    /* Searchable Product Picker */
+    .searchable-product-picker {
+      position: relative;
+      width: 100%;
+    }
+    .product-picker-search-input {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      background: #fff;
+    }
+    .product-picker-search-input:focus {
+      outline: none;
+      border-color: #2563eb;
+      box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.15);
+    }
+    .product-selected-badge {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 8px 12px;
+      background: #f0fdf4;
+      border: 1px solid #bbf7d0;
+      border-radius: 6px;
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #166534;
+    }
+    .btn-clear-product {
+      padding: 4px 8px;
+      background: #dcfce7;
+      color: #15803d;
+      border: 1px solid #86efac;
+      border-radius: 4px;
+      font-size: 0.75rem;
+      font-weight: 700;
+      cursor: pointer;
+    }
+    .product-picker-dropdown {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      right: 0;
+      max-height: 250px;
+      overflow-y: auto;
+      background: #ffffff;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      box-shadow: 0 10px 25px rgba(0, 0, 0, 0.15);
+      z-index: 100;
+      margin-top: 4px;
+    }
+    .product-picker-option {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 10px 12px;
+      border-bottom: 1px solid #f1f5f9;
+      cursor: pointer;
+      transition: background 0.12s ease;
+    }
+    .product-picker-option:last-child {
+      border-bottom: none;
+    }
+    .product-picker-option:hover {
+      background: #f8fafc;
+    }
+    .product-picker-option-thumb {
+      width: 40px;
+      height: 40px;
+      object-fit: contain;
+      border-radius: 4px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+    }
+    .product-picker-option-details {
+      flex: 1;
+      min-width: 0;
+    }
+    .product-picker-option-title {
+      font-size: 0.88rem;
+      font-weight: 700;
+      color: #1e293b;
+      margin-bottom: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .product-picker-option-meta {
+      font-size: 0.76rem;
+      color: #64748b;
+    }
+    .product-picker-option-price {
+      font-size: 0.9rem;
+      font-weight: 800;
+      color: #059669;
+    }
+
+    .products-section { padding: 0; }
+    .products-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 20px; }
+    .products-header h2 { margin: 0; color: #4f5963; }
+    .search-box-container { width: 250px; }
+    .search-box-container input { width: 100%; padding: 8px 12px; border: 1px solid #dfe4e8; border-radius: 4px; font-size: 0.9rem; }
+    /* View toggle button */
+    .view-toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .vendor-filter-bar {
+      display: flex;
+      gap: 10px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+    }
+
+    .vendor-filter-bar select {
+      min-width: 160px;
+      padding: 8px 10px;
+      border: 1px solid #dfe4e8;
+      border-radius: 4px;
+      background: #fff;
+    }
+
+    .view-toggle-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      width: 42px;
+      height: 34px;
+      padding: 0;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      background: #fff;
+      color: #64748b;
+      cursor: pointer;
+      transition: all 0.15s ease;
+      flex-shrink: 0;
+    }
+
+    .view-toggle-btn:hover {
+      background: #f8fafc;
+      border-color: #94a3b8;
+      color: #475569;
+    }
+
+    .view-toggle-btn.active {
+      background: #26bcd4;
+      border-color: #26bcd4;
+      color: #fff;
+    }
+
+    .view-toggle-btn:active {
+      transform: scale(0.96);
+    }
+
+    .view-toggle-btn svg {
+      width: 18px;
+      height: 18px;
+      stroke-width: 2;
+      pointer-events: none;
+    }
+
+    /* Modern Product Grid & Card */
+    .products-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(310px, 1fr));
+      gap: 22px;
+    }
+
+    .product-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      background: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 16px;
+      overflow: hidden;
+      box-shadow: 0 4px 14px -2px rgba(15, 23, 42, 0.06), 0 2px 6px -1px rgba(15, 23, 42, 0.03);
+      transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .product-card::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 3.5px;
+      background: linear-gradient(90deg, #0f766e 0%, #14b8a6 50%, #0d9488 100%);
+      z-index: 12;
+      opacity: 0.85;
+      transition: opacity 0.2s ease;
+    }
+
+    .product-card:hover {
+      transform: translateY(-5px);
+      border-color: #0d9488;
+      box-shadow: 0 20px 32px -8px rgba(13, 148, 136, 0.18), 0 8px 16px -4px rgba(15, 23, 42, 0.08);
+    }
+
+    .product-card:hover::before {
+      opacity: 1;
+    }
+
+    .product-card-header {
+      position: relative;
+      height: 170px;
+      width: 100%;
+      background: linear-gradient(135deg, #f8fafc 0%, #f1f5f9 100%);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      overflow: hidden;
+      border-bottom: 1px solid #f1f5f9;
+    }
+
+    .product-card-checkbox {
+      position: absolute;
+      top: 12px;
+      left: 12px;
+      z-index: 10;
+      background: rgba(255, 255, 255, 0.95);
+      backdrop-filter: blur(4px);
+      padding: 4px;
+      border-radius: 8px;
+      box-shadow: 0 2px 5px rgba(0, 0, 0, 0.08);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .product-card-checkbox input[type="checkbox"] {
+      width: 18px;
+      height: 18px;
+      cursor: pointer;
+      accent-color: #2563eb;
+    }
+
+    .status-pill {
+      position: absolute;
+      top: 12px;
+      right: 12px;
+      z-index: 10;
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 20px;
+      font-size: 0.72rem;
+      font-weight: 700;
+      text-transform: capitalize;
+      backdrop-filter: blur(4px);
+      box-shadow: 0 2px 6px rgba(0, 0, 0, 0.06);
+    }
+
+    .status-pill.status-active {
+      background: rgba(220, 252, 231, 0.95);
+      color: #15803d;
+      border: 1px solid #bbf7d0;
+    }
+    .status-pill.status-active .status-dot {
+      background: #22c55e;
+      box-shadow: 0 0 6px #22c55e;
+    }
+
+    .status-pill.status-inactive {
+      background: rgba(254, 226, 226, 0.95);
+      color: #b91c1c;
+      border: 1px solid #fca5a5;
+    }
+    .status-pill.status-inactive .status-dot {
+      background: #ef4444;
+    }
+
+    .status-pill.status-unavailable {
+      background: rgba(254, 243, 199, 0.95);
+      color: #b45309;
+      border: 1px solid #fde68a;
+    }
+    .status-pill.status-unavailable .status-dot {
+      background: #f59e0b;
+    }
+
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+    }
+
+    .product-img-wrapper {
+      width: 100%;
+      height: 100%;
+      padding: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .product-thumb-image {
+      max-width: 100%;
+      max-height: 100%;
+      object-fit: contain;
+      transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1);
+    }
+
+    .product-card:hover .product-thumb-image {
+      transform: scale(1.06);
+    }
+
+    .product-card-body {
+      padding: 16px;
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .product-tags {
+      display: flex;
+      gap: 6px;
+      flex-wrap: wrap;
+    }
+
+    .product-tag-cat, .product-tag-brand {
+      padding: 3px 10px;
+      background: #f1f5f9;
+      color: #475569;
+      border: 1px solid #e2e8f0;
+      font-size: 0.72rem;
+      font-weight: 600;
+      border-radius: 20px;
+    }
+
+    .product-tag-brand {
+      background: #eff6ff;
+      color: #1d4ed8;
+      border-color: #dbeafe;
+    }
+
+    .product-title {
+      margin: 0;
+      font-size: 1.05rem;
+      font-weight: 700;
+      color: #0f172a;
+      line-height: 1.35;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .product-desc {
+      margin: 0;
+      font-size: 0.82rem;
+      color: #64748b;
+      line-height: 1.4;
+      display: -webkit-box;
+      -webkit-line-clamp: 2;
+      -webkit-box-orient: vertical;
+      overflow: hidden;
+    }
+
+    .product-price-stock-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-top: 4px;
+      padding-top: 10px;
+      border-top: 1px dashed #e2e8f0;
+    }
+
+    .product-price-container {
+      display: flex;
+      align-items: baseline;
+      gap: 2px;
+    }
+
+    .price-currency {
+      font-size: 0.95rem;
+      font-weight: 700;
+      color: #059669;
+    }
+
+    .price-value {
+      font-size: 1.35rem;
+      font-weight: 800;
+      color: #059669;
+      letter-spacing: -0.02em;
+    }
+
+    .stock-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-size: 0.74rem;
+      font-weight: 700;
+    }
+
+    .stock-pill.stock-in {
+      background: #f0fdf4;
+      color: #166534;
+      border: 1px solid #bbf7d0;
+    }
+    .stock-pill.stock-in .stock-dot { background: #22c55e; }
+
+    .stock-pill.stock-low {
+      background: #fffbeb;
+      color: #92400e;
+      border: 1px solid #fde68a;
+    }
+    .stock-pill.stock-low .stock-dot { background: #f59e0b; }
+
+    .stock-pill.stock-out {
+      background: #fef2f2;
+      color: #991b1b;
+      border: 1px solid #fca5a5;
+    }
+    .stock-pill.stock-out .stock-dot { background: #ef4444; }
+
+    .product-quantity-row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      background: #f8fafc;
+      padding: 6px 10px;
+      border-radius: 10px;
+      border: 1px solid #f1f5f9;
+    }
+
+    .qty-label {
+      font-size: 0.78rem;
+      font-weight: 600;
+      color: #475569;
+    }
+
+    .qty-input-group {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+    }
+
+    .qty-input {
+      width: 72px;
+      padding: 4px 8px;
+      border: 1px solid #cbd5e1;
+      border-radius: 6px;
+      font-size: 0.84rem;
+      font-weight: 700;
+      color: #0f172a;
+      background: #fff;
+    }
+    .qty-input:focus {
+      outline: none;
+      border-color: #2563eb;
+    }
+
+    .qty-save-btn {
+      padding: 4px 10px;
+      border: none;
+      border-radius: 6px;
+      background: #2563eb;
+      color: #ffffff;
+      font-size: 0.76rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.15s ease;
+    }
+    .qty-save-btn:hover { background: #1d4ed8; }
+
+    .product-card-footer {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 12px 16px;
+      background: #f8fafc;
+      border-top: 1px solid #f1f5f9;
+    }
+
+    .action-btn {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 5px;
+      padding: 8px 12px;
+      border-radius: 8px;
+      font-size: 0.82rem;
+      font-weight: 700;
+      cursor: pointer;
+      transition: all 0.15s ease;
+    }
+
+    .btn-edit-modern {
+      flex: 1;
+      background: #0284c7;
+      color: #ffffff;
+      border: none;
+    }
+    .btn-edit-modern:hover { background: #0369a1; }
+
+    .btn-toggle-modern {
+      padding: 8px 10px;
+      background: #ffffff;
+      color: #475569;
+      border: 1px solid #cbd5e1;
+    }
+    .btn-toggle-modern:hover {
+      background: #f1f5f9;
+      color: #0f172a;
+    }
+
+    .btn-delete-modern {
+      width: 36px;
+      height: 34px;
+      padding: 0;
+      background: #ffffff;
+      color: #dc2626;
+      border: 1px solid #fca5a5;
+      flex-shrink: 0;
+    }
+    .btn-delete-modern:hover {
+      background: #fef2f2;
+      border-color: #ef4444;
+    }
+
+    .empty-state { text-align: center; padding: 40px; background: #fff; border-radius: 8px; }
+    .empty-state p { color: #64748b; margin-bottom: 16px; }
+    .user-modal-grid { display: grid; gap: 12px; }
+    .user-modal-grid label { display: flex; flex-direction: column; gap: 4px; font-size: 0.85rem; }
+    .user-modal-grid input, .user-modal-grid select { padding: 8px; border: 1px solid #cbd5e1; border-radius: 4px; }
+
+    /* List view styles */
+    .products-list {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .product-row {
+      display: grid;
+      grid-template-columns: 32px 72px 2.5fr 1.2fr 1.5fr 1fr 120px;
+      align-items: center;
+      gap: 16px;
+      padding: 14px 18px;
+      background: #ffffff;
+      border: 1.5px solid #cbd5e1;
+      border-radius: 14px;
+      box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
+      transition: all 0.2s ease;
+    }
+
+    .product-row:hover {
+      transform: translateY(-2px);
+      border-color: #0d9488;
+      box-shadow: 0 10px 22px rgba(13, 148, 136, 0.12);
+    }
+
+    .product-row-info {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+      min-width: 0;
+    }
+
+    .product-row-image {
+      width: 56px;
+      height: 56px;
+      object-fit: contain;
+      border-radius: 8px;
+      border: 1px solid #e2e8f0;
+      background: #fff;
+    }
+
+    .product-row-name {
+      margin: 0;
+      color: #0f172a;
+      font-size: 1rem;
+      font-weight: 700;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .product-row-description {
+      margin: 0;
+      color: #64748b;
+      font-size: 0.82rem;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .product-row-price {
+      font-size: 1.15rem;
+      font-weight: 800;
+      color: #059669;
+    }
+
+    .product-row-stock,
+    .product-row-status {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+    }
+
+    .product-row-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    /* Responsive */
+    @media (max-width: 760px) {
+      .products-list {
+        gap: 8px;
+      }
+
+      .product-row {
+        grid-template-columns: 1fr;
+        gap: 10px;
+        padding: 12px;
+      }
+
+      .product-row-price,
+      .product-row-stock,
+      .product-row-status {
+        justify-content: flex-start;
+        align-items: flex-start;
+      }
+
+      .product-row-actions {
+        flex-direction: row;
+        justify-content: flex-start;
+      }
+    }
+  </style>
+
+  <script>
+    let vendorProducts = <%- JSON.stringify(products || []) %>;
+    let allVendorProducts = <%- JSON.stringify(products || []) %>;
+    let selectedProductIds = new Set();
+    let approvedProductsList = <%- JSON.stringify(approvedProducts || []) %>;
+    let approvedCatalogLoading = false;
+    let approvedCatalogError = false;
+
+    async function loadApprovedCatalogFast() {
+      if (approvedProductsList.length > 0 && !approvedCatalogError) return;
+      approvedCatalogLoading = true;
+      approvedCatalogError = false;
+      renderApprovedProductsPicker(document.getElementById('productSearchInput')?.value || '');
+      try {
+        const res = await fetch('/api/vendor-products/approved-catalog');
+        const data = await res.json();
+        if (data.success && Array.isArray(data.products)) {
+          approvedProductsList = data.products;
+        } else {
+          approvedCatalogError = true;
+        }
+      } catch (err) {
+        console.error('Failed to fetch catalog:', err);
+        if (!approvedProductsList.length) {
+          approvedCatalogError = true;
+        }
+      } finally {
+        approvedCatalogLoading = false;
+        renderApprovedProductsPicker(document.getElementById('productSearchInput')?.value || '');
+      }
+    }
+
+    const catalog = {
+      subcategories: <%- JSON.stringify(subcategories || []) %>,
+      brands: <%- JSON.stringify(brands || []) %>,
+    };
+    const categoryFilter = document.getElementById('category-filter');
+    const subcategoryFilter = document.getElementById('subcategory-filter');
+    const brandFilter = document.getElementById('brand-filter');
+    const searchInput = document.getElementById('search-input');
+
+    function escapeHtml(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({
+        '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;'
+      }[char]));
+    }
+
+    function debounce(fn, delay) {
+      let timer;
+      return (...args) => {
+        clearTimeout(timer);
+        timer = setTimeout(() => fn(...args), delay);
+      };
+    }
+
+    function optionList(items, emptyLabel) {
+      return `<option value="">${emptyLabel}</option>` + items
+        .slice()
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+        .map((item) => `<option value="${item.id}">${escapeHtml(item.name)}</option>`)
+        .join('');
+    }
+
+    function subcategoryKey(item) {
+      return item.sub_category_id || item.subcategory_id;
+    }
+
+    function uniqueBrands(items) {
+      const seen = new Set();
+      return items.filter((item) => {
+        const key = String(item.name || '').trim().toLowerCase();
+        if (seen.has(key)) return false;
+        seen.add(key);
+        return true;
+      });
+    }
+
+    function brandOptionList(items) {
+      return '<option value="">All Brands</option>' + items
+        .slice()
+        .sort((a, b) => String(a.name || '').localeCompare(String(b.name || '')))
+        .map((item) => `<option value="${escapeHtml(item.name)}">${escapeHtml(item.name)}</option>`)
+        .join('');
+    }
+
+    function getVendorSubcategories() {
+      const vendorSubcategoryIds = new Set();
+      (allVendorProducts || []).forEach((product) => {
+        const subId = Number(product.sub_category_id || product.subcategory_id || product.subcategoryId || 0);
+        if (subId > 0) {
+          vendorSubcategoryIds.add(subId);
+        }
+      });
+      return (catalog.subcategories || []).filter((sub) => vendorSubcategoryIds.has(Number(sub.id)));
+    }
+
+    function updateSubcategoryFilter() {
+      const categoryId = categoryFilter.value;
+      const currentSelectedSubcategory = subcategoryFilter.value;
+      const vendorSubs = getVendorSubcategories();
+      const items = categoryId
+        ? vendorSubs.filter((item) => String(item.category_id) === String(categoryId))
+        : vendorSubs;
+      subcategoryFilter.innerHTML = optionList(items, 'All Subcategories');
+      if (items.some((item) => String(item.id) === String(currentSelectedSubcategory))) {
+        subcategoryFilter.value = currentSelectedSubcategory;
+      } else {
+        subcategoryFilter.value = '';
+      }
+    }
+
+    function updateBrandFilter() {
+      const categoryId = categoryFilter.value;
+      const subcategoryId = subcategoryFilter.value;
+      const items = uniqueBrands(catalog.brands
+        .filter((item) => !categoryId || String(item.category_id) === String(categoryId))
+        .filter((item) => !subcategoryId || String(subcategoryKey(item)) === String(subcategoryId)));
+      brandFilter.innerHTML = brandOptionList(items);
+    }
+
+    function money(value) {
+      return `INR ${Number(value || 0).toFixed(2)}`;
+    }
+
+    function unitPrice(product) {
+      return Number(product.price || 0);
+    }
+
+    function stockBadgeMarkup(product) {
+      const stockClass = product.quantity > 10 ? 'in-stock' : product.quantity > 0 ? 'low-stock' : 'out-stock';
+      const stockText = product.quantity > 0 ? `${product.quantity} in stock` : 'Out of stock';
+      return `<span class="stock-badge ${stockClass}">${stockText}</span>`;
+    }
+
+    function quantityEditorMarkup(product) {
+      return `
+        <div class="vendor-quantity-editor">
+          ${stockBadgeMarkup(product)}
+          <div class="vendor-quantity-controls">
+            <input type="number" min="0" step="0.01" value="${Number(product.quantity || 0)}" aria-label="Product quantity" />
+            <button type="button" class="quantity-save-btn" onclick="saveProductQuantity(${product.id}, this)">Save</button>
+          </div>
+        </div>
+      `;
+    }
+
+    function statusMarkup(product) {
+      const statusClass = product.status === 'active' ? 'status-active' : product.status === 'unavailable' ? 'status-unavailable' : 'status-inactive';
+      return `
+        <span class="status-badge ${statusClass}">${escapeHtml(product.status)}</span>
+        <button
+          type="button"
+          class="status-toggle-btn ${product.status === 'active' ? 'status-toggle-active' : 'status-toggle-inactive'}"
+          onclick="toggleVendorProductStatus(${product.id})">
+          Set ${product.status === 'active' ? 'Inactive' : 'Active'}
+        </button>
+        <button
+          type="button"
+          class="status-toggle-btn ${product.status === 'unavailable' ? 'status-toggle-inactive' : 'status-toggle-unavailable'}"
+          onclick="setVendorProductAvailability(${product.id})">
+          ${product.status === 'unavailable' ? 'Make Available' : 'Unavailable'}
+        </button>
+      `;
+    }
+
+    /* Multi-select and Bulk Delete Functions */
+    function onProductSelectChange(e) {
+      const id = Number(e.target.dataset.id);
+      if (e.target.checked) {
+        selectedProductIds.add(id);
+      } else {
+        selectedProductIds.delete(id);
+      }
+      document.querySelectorAll(`.product-select-checkbox[data-id="${id}"]`).forEach((cb) => {
+        cb.checked = e.target.checked;
+      });
+      updateBulkActionsBar();
+    }
+
+    function toggleSelectAll(checked) {
+      document.querySelectorAll('.product-select-checkbox').forEach((cb) => {
+        const id = Number(cb.dataset.id);
+        cb.checked = checked;
+        if (checked) {
+          selectedProductIds.add(id);
+        } else {
+          selectedProductIds.delete(id);
+        }
+      });
+      updateBulkActionsBar();
+    }
+
+    function clearSelection() {
+      selectedProductIds.clear();
+      document.querySelectorAll('.product-select-checkbox').forEach((cb) => cb.checked = false);
+      const selectAll = document.getElementById('selectAllCheckbox');
+      if (selectAll) selectAll.checked = false;
+      updateBulkActionsBar();
+    }
+
+    function updateBulkActionsBar() {
+      const bar = document.getElementById('bulkActionsBar');
+      const countNum = document.getElementById('selectedCountNumber');
+      const countText = document.getElementById('selectedCountText');
+      const selectAll = document.getElementById('selectAllCheckbox');
+      const count = selectedProductIds.size;
+
+      if (count > 0) {
+        bar.style.display = 'flex';
+        if (countNum) countNum.textContent = count;
+        if (countText) countText.textContent = `${count} selected`;
+      } else {
+        bar.style.display = 'none';
+      }
+
+      const visibleCheckboxes = document.querySelectorAll('.product-select-checkbox');
+      if (visibleCheckboxes.length > 0 && selectAll) {
+        selectAll.checked = Array.from(visibleCheckboxes).every((cb) => cb.checked);
+      }
+    }
+
+    async function bulkDeleteSelected() {
+      const count = selectedProductIds.size;
+      if (count === 0) return;
+      const confirmed = window.confirm(`Delete ${count} selected product(s) from your vendor products list?`);
+      if (!confirmed) return;
+
+      const ids = Array.from(selectedProductIds);
+      const response = await fetch('/vendor-products/bulk-delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ ids }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to delete selected products');
+        return;
+      }
+      alert(data.message || `${data.deleted_count || count} product(s) deleted successfully`);
+      selectedProductIds.clear();
+      await loadProducts();
+    }
+
+    /* Searchable Approved Product Picker with Category & Subcategory Filters */
+    function renderApprovedProductsPicker(query = '') {
+      const dropdown = document.getElementById('productPickerDropdown');
+      if (!dropdown) return;
+      const q = String(query || '').trim().toLowerCase();
+      const catSelect = document.getElementById('modalCategoryFilter');
+      const subSelect = document.getElementById('modalSubcategoryFilter');
+      const selectedCat = catSelect ? String(catSelect.value || '').trim() : '';
+      const selectedSub = subSelect ? String(subSelect.value || '').trim() : '';
+
+      if (approvedCatalogLoading) {
+        dropdown.innerHTML = '<div style="padding:16px; color:#0d9488; font-size:0.85rem; text-align:center; font-weight:600;">⏳ Loading master products catalog...</div>';
+        dropdown.style.display = 'block';
+        return;
+      }
+
+      if (approvedCatalogError) {
+        dropdown.innerHTML = `
+          <div style="padding:16px; color:#ef4444; font-size:0.85rem; text-align:center;">
+            ⚠️ Unable to load products catalog.<br/>
+            <button type="button" onclick="loadApprovedCatalogFast()" style="margin-top:8px; padding:5px 14px; border-radius:8px; background:#0f766e; color:#fff; border:none; font-weight:700; cursor:pointer;">Retry Loading</button>
+          </div>`;
+        dropdown.style.display = 'block';
+        return;
+      }
+
+      const filtered = approvedProductsList.filter((p) => {
+        if (selectedCat && String(p.category_id || '') !== selectedCat) {
+          return false;
+        }
+        if (selectedSub && String(p.sub_category_id || p.subcategory_id || '') !== selectedSub) {
+          return false;
+        }
+        if (!q) return true;
+
+        const idStr = String(p.id || p.product_id || '').toLowerCase();
+        const nameStr = String(p.name || p.product_name || '').toLowerCase();
+        const categoryStr = String(p.category_name || '').toLowerCase();
+        const subcategoryStr = String(p.sub_category_name || p.subcategory_name || '').toLowerCase();
+        const brandStr = String(p.brand_name || '').toLowerCase();
+
+        return idStr.includes(q) || nameStr.includes(q) || categoryStr.includes(q) || subcategoryStr.includes(q) || brandStr.includes(q);
+      });
+
+      if (!filtered.length) {
+        dropdown.innerHTML = '<div style="padding:16px; color:#64748b; font-size:0.85rem; text-align:center;">📦 No matching approved products found. Try changing filters or search terms.</div>';
+        dropdown.style.display = 'block';
+        return;
+      }
+
+      const countHeader = `<div style="padding:8px 12px; background:#f8fafc; font-size:0.75rem; font-weight:700; color:#0f766e; border-bottom:1px solid #e2e8f0; position:sticky; top:0; z-index:2;">Showing ${filtered.length} master products</div>`;
+
+      dropdown.innerHTML = countHeader + filtered.map((p) => `
+        <div class="product-picker-option" onclick="onSelectApprovedProduct(${p.id})">
+          <img
+            class="product-picker-option-thumb"
+            data-product-placeholder
+            data-product-name="${escapeHtml(p.name)}"
+            src="${escapeHtml(p.image_url || '/default.png')}"
+            alt="${escapeHtml(p.name)}"
+            onerror="this.onerror=null;this.src='/default.png';"
+            loading="lazy"
+          />
+          <div class="product-picker-option-details">
+            <div class="product-picker-option-title">${escapeHtml(p.name)} <span style="font-size:0.75rem; color:#64748b; font-weight:400;">(#${p.id})</span></div>
+            <div class="product-picker-option-meta">
+              <span style="font-weight:700; color:#0f766e;">${escapeHtml(p.category_name || 'General')}</span>
+              ${p.sub_category_name ? ` &bull; ${escapeHtml(p.sub_category_name)}` : ''}
+              ${p.brand_name ? ` &bull; ${escapeHtml(p.brand_name)}` : ''}
+              ${p.weight_value ? ` &bull; ${p.weight_value} ${p.weight_unit || ''}` : ''}
+            </div>
+          </div>
+          <div class="product-picker-option-price">₹${Number(p.price || 0).toFixed(2)}</div>
+        </div>
+      `).join('');
+
+      dropdown.style.display = 'block';
+    }
+
+    function updateModalSubcategoryOptions(selectedCatId) {
+      const subSelect = document.getElementById('modalSubcategoryFilter');
+      if (!subSelect) return;
+      const catIdStr = String(selectedCatId || '').trim();
+      const filteredSubs = (catalog.subcategories || []).filter((sub) => (
+        !catIdStr || String(sub.category_id) === catIdStr
+      ));
+      subSelect.innerHTML = '<option value="">All Subcategories</option>' + filteredSubs.map((sub) => (
+        `<option value="${sub.id}">${escapeHtml(sub.name)}</option>`
+      )).join('');
+    }
+
+    function onModalCategoryChange(catId) {
+      updateModalSubcategoryOptions(catId);
+      clearSelectedProduct();
+      showApprovedProductsDropdown();
+    }
+
+    function onModalSubcategoryChange(subId) {
+      clearSelectedProduct();
+      showApprovedProductsDropdown();
+    }
+
+    function showApprovedProductsDropdown() {
+      const dropdown = document.getElementById('productPickerDropdown');
+      const input = document.getElementById('productSearchInput');
+      if (dropdown) dropdown.style.display = 'block';
+      renderApprovedProductsPicker(input ? input.value : '');
+    }
+
+    function filterApprovedProducts(val) {
+      const dropdown = document.getElementById('productPickerDropdown');
+      if (dropdown) dropdown.style.display = 'block';
+      renderApprovedProductsPicker(val);
+    }
+
+    function onSelectApprovedProduct(id) {
+      const p = approvedProductsList.find((item) => Number(item.id) === Number(id));
+      if (!p) return;
+      document.getElementById('productId').value = p.id;
+      document.getElementById('productSelectedName').textContent = p.name;
+      const meta = [p.category_name, p.sub_category_name, p.brand_name, p.weight_value ? `${p.weight_value} ${p.weight_unit || ''}` : ''].filter(Boolean).join(' • ');
+      document.getElementById('productSelectedMeta').textContent = meta;
+      const selectedImg = document.getElementById('productSelectedImg');
+      if (selectedImg) selectedImg.src = p.image_url || '/default.png';
+      document.getElementById('productSelectedBadge').style.display = 'flex';
+      document.getElementById('productSearchInput').style.display = 'none';
+      document.getElementById('productPickerDropdown').style.display = 'none';
+
+      const priceInput = document.getElementById('price');
+      if (priceInput && (!priceInput.value || Number(priceInput.value) === 0)) {
+        priceInput.value = Number(p.price || 0).toFixed(2);
+      }
+    }
+
+    function clearSelectedProduct() {
+      document.getElementById('productId').value = '';
+      document.getElementById('productSelectedBadge').style.display = 'none';
+      const input = document.getElementById('productSearchInput');
+      if (input) {
+        input.style.display = 'block';
+        input.value = '';
+      }
+    }
+
+    function renderProducts() {
+      const container = document.getElementById('products-container');
+      if (!document.getElementById('products-grid') || !document.getElementById('products-list')) {
+        container.innerHTML = '<div class="products-grid" id="products-grid"></div><div class="products-list" id="products-list" style="display:none"></div>';
+      }
+      const grid = document.getElementById('products-grid');
+      const list = document.getElementById('products-list');
+
+      grid.innerHTML = vendorProducts.map((product) => `
+        <div class="product-card" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}">
+          <div class="product-card-header">
+            <div class="product-card-checkbox">
+              <input type="checkbox" class="product-select-checkbox" data-id="${product.id}" ${selectedProductIds.has(Number(product.id)) ? 'checked' : ''} onchange="onProductSelectChange(event)" />
+            </div>
+            <span class="status-pill status-${product.status}">
+              <span class="status-dot"></span>
+              ${escapeHtml(product.status)}
+            </span>
+            <div class="product-img-wrapper">
+              <img class="product-thumb-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+            </div>
+          </div>
+          <div class="product-card-body">
+            <div class="product-tags">
+              <span class="product-tag-cat">${escapeHtml(product.category_name || '')}</span>
+              ${product.brand_name ? `<span class="product-tag-brand">${escapeHtml(product.brand_name)}</span>` : ''}
+            </div>
+            <h3 class="product-title">${escapeHtml(product.product_name)}</h3>
+            ${product.description ? `<p class="product-desc">${escapeHtml(product.description)}</p>` : ''}
+            <div class="product-price-stock-row">
+              <div class="product-price-container">
+                <span class="price-currency">₹</span>
+                <span class="price-value">${Number(unitPrice(product)).toFixed(2)}</span>
+              </div>
+              <div class="stock-pill stock-${product.quantity > 10 ? 'in' : product.quantity > 0 ? 'low' : 'out'}">
+                <span class="stock-dot"></span>
+                ${product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock'}
+              </div>
+            </div>
+            <div class="product-quantity-row">
+              <label class="qty-label">Stock Qty:</label>
+              <div class="qty-input-group">
+                <input type="number" min="0" step="0.01" value="${Number(product.quantity || 0)}" class="qty-input" />
+                <button type="button" class="qty-save-btn" onclick="saveProductQuantity(${product.id}, this)">Save</button>
+              </div>
+            </div>
+          </div>
+          <div class="product-card-footer">
+            <button type="button" class="action-btn btn-edit-modern" onclick="openEditModal(${product.id})">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"></path><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"></path></svg>
+              Edit
+            </button>
+            <button type="button" class="action-btn btn-toggle-modern" onclick="toggleVendorProductStatus(${product.id})">
+              ${product.status === 'active' ? 'Deactivate' : 'Activate'}
+            </button>
+            <button type="button" class="action-btn btn-delete-modern" title="Delete product" onclick="deleteVendorProduct(${product.id})">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+        </div>
+      `).join('');
+
+      list.innerHTML = vendorProducts.map((product) => `
+        <div class="product-row" data-product-id="${product.id}" data-product-name="${escapeHtml(product.product_name || '').toLowerCase()}">
+          <div class="product-row-checkbox">
+            <input type="checkbox" class="product-select-checkbox" data-id="${product.id}" ${selectedProductIds.has(Number(product.id)) ? 'checked' : ''} onchange="onProductSelectChange(event)" />
+          </div>
+          <img class="product-row-image" data-product-placeholder data-product-name="${escapeHtml(product.product_name)}" src="${escapeHtml(product.image_url || '/default.png')}" alt="${escapeHtml(product.product_name)}" loading="lazy" />
+          <div class="product-row-info">
+            <h3 class="product-row-name">${escapeHtml(product.product_name)}</h3>
+            ${product.description ? `<p class="product-row-description">${escapeHtml(product.description)}</p>` : ''}
+            <div style="display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px;">
+              <span class="product-tag-cat">${escapeHtml(product.category_name || '')}</span>
+              ${product.brand_name ? `<span class="product-tag-brand">${escapeHtml(product.brand_name)}</span>` : ''}
+            </div>
+          </div>
+          <div class="product-row-price">₹${Number(unitPrice(product)).toFixed(2)}</div>
+          <div class="product-row-stock">
+            <span class="stock-pill stock-${product.quantity > 10 ? 'in' : product.quantity > 0 ? 'low' : 'out'}">
+              <span class="stock-dot"></span>
+              ${product.quantity > 0 ? product.quantity + ' in stock' : 'Out of stock'}
+            </span>
+          </div>
+          <div class="product-row-status">
+            <span class="status-pill status-${product.status}">
+              <span class="status-dot"></span>
+              ${escapeHtml(product.status)}
+            </span>
+          </div>
+          <div class="product-row-actions">
+            <button type="button" class="action-btn btn-edit-modern" onclick="openEditModal(${product.id})">Edit</button>
+            <button type="button" class="action-btn btn-delete-modern" onclick="deleteVendorProduct(${product.id})">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M3 6h18M19 6v14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2V6m3 0V4a2 2 0 0 1 2-2h4a2 2 0 0 1 2 2v2"></path></svg>
+            </button>
+          </div>
+        </div>
+      `).join('');
+      if (!vendorProducts.length) {
+        grid.innerHTML = '<div class="empty-state"><p>No products found.</p></div>';
+        list.innerHTML = '<div class="empty-state"><p>No products found.</p></div>';
+      }
+      updateBulkActionsBar();
+    }
+
+    async function loadProducts() {
+      const params = new URLSearchParams({
+        format: 'json',
+        category_id: categoryFilter.value,
+        sub_category_id: subcategoryFilter.value,
+        brand_name: brandFilter.value,
+        search: searchInput.value.trim(),
+      });
+      const response = await fetch(`/api/vendor-products?${params.toString()}`, { headers: { Accept: 'application/json' } });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to load products');
+        return;
+      }
+      vendorProducts = data.vendor_products || [];
+      renderProducts();
+    }
+
+    function openModal(reset = true) {
+      document.getElementById('productModal').classList.add('active');
+      if (reset) {
+        document.getElementById('productForm').reset();
+        document.getElementById('vendorProductId').value = '';
+        document.getElementById('productId').value = '';
+        document.getElementById('productSelectedBadge').style.display = 'none';
+        updateModalSubcategoryOptions('');
+        const searchInput = document.getElementById('productSearchInput');
+        if (searchInput) {
+          searchInput.style.display = 'block';
+          searchInput.value = '';
+        }
+        document.getElementById('productModalTitle').textContent = 'Add Product';
+      }
+      showApprovedProductsDropdown();
+      if (!approvedProductsList || !approvedProductsList.length) {
+        loadApprovedCatalogFast();
+      }
+    }
+
+    function closeModal() {
+      document.getElementById('productModal').classList.remove('active');
+    }
+
+    async function deleteVendorProduct(id) {
+      const product = vendorProducts.find((item) => Number(item.id) === Number(id));
+      const productName = product && product.product_name;
+      const confirmed = window.confirm(`Delete ${productName || 'this product'} from your vendor products?`);
+      if (!confirmed) return;
+
+      const response = await fetch(`/vendor-products/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to delete product');
+        return;
+      }
+
+      vendorProducts = vendorProducts.filter((product) => Number(product.id) !== Number(id));
+      selectedProductIds.delete(Number(id));
+      renderProducts();
+    }
+
+    async function toggleVendorProductStatus(id) {
+      const product = vendorProducts.find((item) => Number(item.id) === Number(id));
+      if (!product) return;
+
+      const nextStatus = product.status === 'active' ? 'inactive' : 'active';
+      updateVendorProductStatus(id, nextStatus);
+    }
+
+    async function updateVendorProductStatus(id, nextStatus) {
+      const product = vendorProducts.find((item) => Number(item.id) === Number(id));
+      if (!product) return;
+
+      const response = await fetch(`/vendor-products/${id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: nextStatus }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to update status');
+        return;
+      }
+
+      product.status = data.vendor_product && data.vendor_product.status ? data.vendor_product.status : nextStatus;
+      product.quantity = data.vendor_product && data.vendor_product.quantity !== undefined ? data.vendor_product.quantity : product.quantity;
+      if (product.status !== 'active') {
+        vendorProducts = vendorProducts.filter((item) => Number(item.id) !== Number(id));
+        selectedProductIds.delete(Number(id));
+      }
+      renderProducts();
+    }
+
+    async function saveProductQuantity(id, button) {
+      const product = vendorProducts.find((item) => Number(item.id) === Number(id));
+      if (!product) return;
+
+      const editor = button.closest('.vendor-quantity-editor');
+      const input = editor && editor.querySelector('input[type="number"]');
+      const quantity = Number(input ? input.value : NaN);
+      if (!Number.isFinite(quantity) || quantity < 0) {
+        alert('Please enter a valid quantity');
+        input?.focus();
+        return;
+      }
+
+      button.disabled = true;
+      const previousText = button.textContent;
+      button.textContent = 'Saving...';
+      try {
+        const response = await fetch(`/vendor-products/${id}`, {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ quantity }),
+        });
+        const data = await response.json();
+        if (!data.success) {
+          alert(data.message || 'Unable to update quantity');
+          return;
+        }
+
+        product.quantity = data.vendor_product && data.vendor_product.quantity !== undefined
+          ? data.vendor_product.quantity
+          : quantity;
+        if (data.vendor_product && data.vendor_product.status) {
+          product.status = data.vendor_product.status;
+        }
+        renderProducts();
+      } catch (error) {
+        alert('Unable to update quantity');
+      } finally {
+        button.disabled = false;
+        button.textContent = previousText;
+      }
+    }
+
+    function setVendorProductAvailability(id) {
+      const product = vendorProducts.find((item) => Number(item.id) === Number(id));
+      if (!product) return;
+      updateVendorProductStatus(id, product.status === 'unavailable' ? 'active' : 'unavailable');
+    }
+
+    function openEditModal(id) {
+      const product = vendorProducts.find(p => Number(p.id) === Number(id));
+      if (!product) return;
+      document.getElementById('vendorProductId').value = product.id;
+      document.getElementById('productId').value = product.product_id;
+      document.getElementById('price').value = unitPrice(product);
+      document.getElementById('quantity').value = product.quantity;
+      document.getElementById('status').value = product.status;
+      document.getElementById('productModalTitle').textContent = 'Edit Product';
+
+      document.getElementById('productSelectedName').textContent = `${product.product_name} (${product.category_name || ''} - ${product.brand_name || ''})`;
+      document.getElementById('productSelectedBadge').style.display = 'flex';
+      document.getElementById('productSearchInput').style.display = 'none';
+      document.getElementById('productPickerDropdown').style.display = 'none';
+
+      openModal(false);
+    }
+
+    function toggleView() {
+      const grid = document.getElementById('products-grid');
+      const list = document.getElementById('products-list');
+      const toggleBtn = document.getElementById('toggleViewBtn');
+      const listIcon = document.getElementById('listIcon');
+      const gridIcon = document.getElementById('gridIcon');
+
+      if (grid.style.display === 'none') {
+        grid.style.display = 'grid';
+        list.style.display = 'none';
+        toggleBtn.classList.add('active');
+        listIcon.style.display = 'none';
+        gridIcon.style.display = 'block';
+      } else {
+        grid.style.display = 'none';
+        list.style.display = 'flex';
+        toggleBtn.classList.remove('active');
+        listIcon.style.display = 'block';
+        gridIcon.style.display = 'none';
+      }
+    }
+
+    document.getElementById('addProductBtn').addEventListener('click', openModal);
+    document.getElementById('requestProductBtn').addEventListener('click', openProductRequestModal);
+
+    function openProductRequestModal() {
+      document.getElementById('productRequestForm').reset();
+      updateRequestSubcategories();
+      updateRequestBrands();
+      document.getElementById('productRequestModal').classList.add('active');
+    }
+
+    function closeProductRequestModal() {
+      document.getElementById('productRequestModal').classList.remove('active');
+    }
+
+    function updateRequestSubcategories() {
+      const categoryId = document.getElementById('requestCategory').value;
+      const items = catalog.subcategories.filter((item) => String(item.category_id) === String(categoryId));
+      document.getElementById('requestSubcategory').innerHTML = optionList(items, 'Select Subcategory');
+    }
+
+    function updateRequestBrands() {
+      const categoryId = document.getElementById('requestCategory').value;
+      const subcategoryId = document.getElementById('requestSubcategory').value;
+      const items = catalog.brands
+        .filter((item) => String(item.category_id) === String(categoryId))
+        .filter((item) => String(subcategoryKey(item)) === String(subcategoryId));
+      document.getElementById('requestBrand').innerHTML = optionList(items, 'Select Brand');
+    }
+
+    document.getElementById('requestCategory').addEventListener('change', () => {
+      updateRequestSubcategories();
+      updateRequestBrands();
+    });
+    document.getElementById('requestSubcategory').addEventListener('change', updateRequestBrands);
+
+    document.getElementById('productRequestForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const payload = new FormData();
+      for (const file of document.getElementById('requestImages').files) {
+        payload.append('images', file);
+      }
+      payload.append('name', document.getElementById('requestName').value);
+      payload.append('description', document.getElementById('requestDescription').value);
+      payload.append('category_id', document.getElementById('requestCategory').value);
+      payload.append('sub_category_id', document.getElementById('requestSubcategory').value);
+      payload.append('brand_id', document.getElementById('requestBrand').value);
+      payload.append('price', document.getElementById('requestPrice').value);
+      payload.append('quantity', document.getElementById('requestQuantity').value);
+      payload.append('weight_value', document.getElementById('requestWeight').value);
+      payload.append('weight_unit', document.getElementById('requestWeightUnit').value);
+      payload.append('tax_name', document.getElementById('requestTaxName').value);
+      payload.append('tax_percentage', document.getElementById('requestTaxPercentage').value);
+      payload.append('hsn_code', document.getElementById('requestHsnCode').value.trim());
+      const response = await fetch('/api/vendor-products/product-requests', {
+        method: 'POST',
+        headers: { Accept: 'application/json' },
+        body: payload,
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to submit product request');
+        return;
+      }
+      closeProductRequestModal();
+      alert('Product request sent for approval');
+      loadProducts();
+    });
+
+    document.getElementById('productForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      const id = document.getElementById('vendorProductId').value;
+      const productIdVal = document.getElementById('productId').value;
+      if (!productIdVal) {
+        alert('Please search and select a master product from the list');
+        return;
+      }
+      const payload = {
+        product_id: productIdVal,
+        price: document.getElementById('price').value,
+        status: document.getElementById('status').value,
+      };
+      payload.quantity = payload.status === 'unavailable' ? 0 : document.getElementById('quantity').value;
+      const method = id ? 'PUT' : 'POST';
+      const url = id ? `/vendor-products/${id}` : '/vendor-products';
+      const response = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      const data = await response.json();
+      if (data.success) {
+        closeModal();
+        loadProducts();
+      } else {
+        alert(data.message || 'Failed to save product');
+      }
+    });
+
+    document.addEventListener('click', (e) => {
+      const picker = document.querySelector('.searchable-product-picker');
+      if (picker && !picker.contains(e.target)) {
+        const dropdown = document.getElementById('productPickerDropdown');
+        if (dropdown) dropdown.style.display = 'none';
+      }
+    });
+
+    window.openEditModal = openEditModal;
+    window.deleteVendorProduct = deleteVendorProduct;
+    window.toggleVendorProductStatus = toggleVendorProductStatus;
+    window.setVendorProductAvailability = setVendorProductAvailability;
+    window.saveProductQuantity = saveProductQuantity;
+    window.closeProductRequestModal = closeProductRequestModal;
+    window.onProductSelectChange = onProductSelectChange;
+    window.toggleSelectAll = toggleSelectAll;
+    window.clearSelection = clearSelection;
+    window.bulkDeleteSelected = bulkDeleteSelected;
+    window.showApprovedProductsDropdown = showApprovedProductsDropdown;
+    window.filterApprovedProducts = filterApprovedProducts;
+    window.onSelectApprovedProduct = onSelectApprovedProduct;
+    window.clearSelectedProduct = clearSelectedProduct;
+
+    renderProducts();
+    updateSubcategoryFilter();
+    updateBrandFilter();
+    categoryFilter.addEventListener('change', () => {
+      updateSubcategoryFilter();
+      subcategoryFilter.value = '';
+      updateBrandFilter();
+      loadProducts();
+    });
+    subcategoryFilter.addEventListener('change', () => {
+      updateBrandFilter();
+      loadProducts();
+    });
+    brandFilter.addEventListener('change', loadProducts);
+    searchInput.addEventListener('input', debounce(loadProducts, 300));
+    document.getElementById('status').addEventListener('change', (event) => {
+      if (event.target.value === 'unavailable') {
+        document.getElementById('quantity').value = 0;
+      }
+    });
+  </script>
+</body>
+</html>

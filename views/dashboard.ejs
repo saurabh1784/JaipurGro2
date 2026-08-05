@@ -570,7 +570,7 @@
       </section>
     <% } %>
 
-    <% if (user.role === 'Vendor') { %>
+    <% if (String(user.role || '').toLowerCase() === 'vendor') { %>
       <section class="vendor-new-order-card" id="vendorNewOrderCard" aria-live="polite" hidden>
         <div class="vendor-new-order-icon" aria-hidden="true">
           <svg viewBox="0 0 24 24"><path d="M6 7h12l-1 14H7z"/><path d="M9 7a3 3 0 0 1 6 0"/></svg>
@@ -1581,7 +1581,7 @@
 
     }
   </style>
-  <% if (user.role === 'Vendor') { %>
+  <% if (String(user.role || '').toLowerCase() === 'vendor') { %>
     <script>
       let vendorNewOrders = <%- JSON.stringify(vendorNewOrders).replace(/</g, '\\u003c') %>;
       let vendorNewOrderIndex = 0;

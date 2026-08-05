@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css" />
+  <style>
+    .ref-card {
+      background: #ffffff;
+      border: 1px solid #e2e8f0;
+      border-radius: 16px;
+      padding: 24px;
+      margin-bottom: 24px;
+      box-shadow: 0 4px 20px rgba(0, 0, 0, 0.04);
+    }
+    .ref-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 18px;
+    }
+    .table-custom {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 10px;
+    }
+    .table-custom th, .table-custom td {
+      padding: 12px 14px;
+      border-bottom: 1px solid #e2e8f0;
+      text-align: left;
+      font-size: 13.5px;
+    }
+    .table-custom th {
+      background: #f8fafc;
+      color: #64748b;
+      font-weight: 700;
+      text-transform: uppercase;
+      font-size: 12px;
+    }
+    .status-rewarded { background: #dcfce7; color: #166534; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .status-pending { background: #fef3c7; color: #92400e; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+    .status-reversed { background: #fee2e2; color: #991b1b; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; }
+  </style>
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Users / Referral Report</p>
+        <h1>Referral Analytics & Reward Reversal</h1>
+      </div>
+    </header>
+
+    <% if (typeof message !== 'undefined' && message) { %>
+      <div style="background:#dcfce7; color:#166534; padding:14px; border-radius:10px; margin-bottom:20px; font-weight:600;">✓ <%= message %></div>
+    <% } %>
+    <% if (typeof error !== 'undefined' && error) { %>
+      <div style="background:#fee2e2; color:#991b1b; padding:14px; border-radius:10px; margin-bottom:20px; font-weight:600;">⚠ <%= error %></div>
+    <% } %>
+
+    <!-- USER REFERRAL STATS OVERVIEW -->
+    <div class="ref-card">
+      <div class="ref-header">
+        <h3 style="margin:0; font-size:17px; font-weight:700;">Top Referrers Summary</h3>
+      </div>
+      <table class="table-custom">
+        <thead>
+          <tr>
+            <th>User</th>
+            <th>Role</th>
+            <th>City</th>
+            <th>Referral Code</th>
+            <th>Total Invites</th>
+            <th>Successful</th>
+            <th>Total Earnings</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!userStats || !userStats.length) { %>
+            <tr><td colspan="7" style="text-align:center; color:#94a3b8; padding:20px;">No user referral stats yet.</td></tr>
+          <% } else { %>
+            <% userStats.forEach(u => { %>
+              <tr>
+                <td>
+                  <strong><%= u.name %></strong><br/>
+                  <small style="color:#64748b;"><%= u.email %></small>
+                </td>
+                <td><span style="background:#e0e7ff; color:#3730a3; padding:2px 8px; border-radius:6px; font-size:12px;"><%= u.role %></span></td>
+                <td><%= u.city || '-' %></td>
+                <td><code style="background:#f1f5f9; padding:3px 8px; border-radius:6px; font-weight:700;"><%= u.referral_code %></code></td>
+                <td><strong><%= u.total_referrals %></strong></td>
+                <td><span style="color:#166534; font-weight:700;"><%= u.successful_referrals %></span></td>
+                <td><strong style="color:#059669;">₹<%= Number(u.total_earnings || 0).toFixed(2) %></strong></td>
+              </tr>
+            <% }) %>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- DETAILED REFERRAL LOGS & REVERSAL -->
+    <div class="ref-card">
+      <div class="ref-header">
+        <h3 style="margin:0; font-size:17px; font-weight:700;">All Referral Transactions & Rewards</h3>
+      </div>
+      <table class="table-custom">
+        <thead>
+          <tr>
+            <th>Date</th>
+            <th>Referrer</th>
+            <th>Referred New User</th>
+            <th>Code Used</th>
+            <th>Reward Amounts</th>
+            <th>Condition</th>
+            <th>Status</th>
+            <th>Action / Reverse</th>
+          </tr>
+        </thead>
+        <tbody>
+          <% if (!logs || !logs.length) { %>
+            <tr><td colspan="8" style="text-align:center; color:#94a3b8; padding:20px;">No referral records found.</td></tr>
+          <% } else { %>
+            <% logs.forEach(l => { %>
+              <tr>
+                <td><%= new Date(l.created_at).toLocaleString() %></td>
+                <td>
+                  <strong><%= l.referrer_name || ('User #' + l.referrer_user_id) %></strong><br/>
+                  <small style="color:#64748b;"><%= l.referrer_email %></small>
+                </td>
+                <td>
+                  <strong><%= l.referred_name || ('User #' + l.referred_user_id) %></strong><br/>
+                  <small style="color:#64748b;"><%= l.referred_email %></small>
+                </td>
+                <td><code><%= l.referral_code %></code></td>
+                <td>
+                  <span style="font-size:12px; color:#475569;">Referrer: <strong>₹<%= Number(l.referrer_reward_amount).toFixed(2) %></strong></span><br/>
+                  <span style="font-size:12px; color:#475569;">New User: <strong>₹<%= Number(l.new_user_reward_amount).toFixed(2) %></strong></span>
+                </td>
+                <td><span style="text-transform:capitalize; font-size:12px;"><%= l.reward_condition %></span></td>
+                <td>
+                  <% if (l.status === 'rewarded') { %>
+                    <span class="status-rewarded">REWARDED</span>
+                  <% } else if (l.status === 'pending') { %>
+                    <span class="status-pending">PENDING</span>
+                  <% } else { %>
+                    <span class="status-reversed">REVERSED</span>
+                  <% } %>
+                </td>
+                <td>
+                  <% if (l.status === 'rewarded') { %>
+                    <form action="/referral-report/reverse/<%= l.id %>" method="POST" onsubmit="return confirm('Reverse this referral reward? This will deduct credited funds from the user wallets.');">
+                      <input type="text" name="reason" placeholder="Reason for reversal" style="font-size:11px; padding:4px 6px; border:1px solid #cbd5e1; border-radius:4px; margin-bottom:4px; width:120px;" required /><br/>
+                      <button type="submit" style="background:#fee2e2; color:#991b1b; border:1px solid #fca5a5; padding:4px 8px; border-radius:6px; font-size:11px; font-weight:700; cursor:pointer;">
+                        Reverse Reward
+                      </button>
+                    </form>
+                  <% } else if (l.status === 'reversed') { %>
+                    <small style="color:#94a3b8;"><%= l.reversal_reason || 'Reversed' %></small>
+                  <% } else { %>
+                    <span style="color:#94a3b8; font-size:12px;">Waiting condition</span>
+                  <% } %>
+                </td>
+              </tr>
+            <% }) %>
+          <% } %>
+        </tbody>
+      </table>
+    </div>
+  </main>
+</body>
+</html>

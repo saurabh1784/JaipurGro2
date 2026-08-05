@@ -72,7 +72,20 @@ function publicVendor(row) {
     services: normalizeServices(row.services),
     is_premium_vendor: Boolean(Number(row.is_premium_vendor || 0)),
     premium_commission_percent: Number(row.premium_commission_percent || 0),
+    pan_card_path: row.pan_card_path || '',
+    aadhaar_card_path: row.aadhaar_card_path || '',
+    gst_certificate_path: row.gst_certificate_path || '',
+    food_license_path: row.food_license_path || '',
+    cancelled_cheque_path: row.cancelled_cheque_path || '',
+    shop_front_photo_path: row.shop_front_photo_path || '',
+    shop_inside_photo_1_path: row.shop_inside_photo_1_path || '',
+    shop_inside_photo_2_path: row.shop_inside_photo_2_path || '',
+    shop_inside_photo_3_path: row.shop_inside_photo_3_path || '',
+    kyc_status: row.kyc_status || 'pending_documents',
+    kyc_submitted_at: row.kyc_submitted_at || null,
+    kyc_rejection_reason: row.kyc_rejection_reason || '',
     account_health: health,
+    unique_product_count: Number(row.unique_product_count || 0),
     has_health_warning: hasWarning,
     health_warning_message: hasWarning
       ? `Account Health Warning: Your account health is low (${health}/500). Please fulfill orders and bid promptly to avoid account suspension.`
@@ -134,7 +147,11 @@ async function list({ page = 1, limit = 10, search = '', status = '', country = 
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
             vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services, vp.is_premium_vendor, vp.premium_commission_percent,
-            COALESCE(vp.account_health, 500) AS account_health
+            vp.pan_card_path, vp.aadhaar_card_path, vp.gst_certificate_path, vp.food_license_path, vp.cancelled_cheque_path,
+            vp.shop_front_photo_path, vp.shop_inside_photo_1_path, vp.shop_inside_photo_2_path, vp.shop_inside_photo_3_path,
+            COALESCE(vp.kyc_status, 'pending_documents') AS kyc_status, vp.kyc_submitted_at, vp.kyc_rejection_reason,
+            COALESCE(vp.account_health, 500) AS account_health,
+            (SELECT COUNT(DISTINCT inventory.product_id) FROM vendor_products inventory WHERE inventory.vendor_id = u.id AND inventory.product_id IS NOT NULL) AS unique_product_count
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE ${whereSql}
@@ -159,7 +176,11 @@ async function findById(id) {
   const [rows] = await pool.query(
     `SELECT u.id, u.id AS user_id, u.name, u.email, u.phone, u.status, u.created_at, u.updated_at,
             vp.business_name, vp.address, vp.country, vp.state, vp.city, vp.area, vp.gst_number, vp.services, vp.is_premium_vendor, vp.premium_commission_percent,
-            COALESCE(vp.account_health, 500) AS account_health
+            vp.pan_card_path, vp.aadhaar_card_path, vp.gst_certificate_path, vp.food_license_path, vp.cancelled_cheque_path,
+            vp.shop_front_photo_path, vp.shop_inside_photo_1_path, vp.shop_inside_photo_2_path, vp.shop_inside_photo_3_path,
+            COALESCE(vp.kyc_status, 'pending_documents') AS kyc_status, vp.kyc_submitted_at, vp.kyc_rejection_reason,
+            COALESCE(vp.account_health, 500) AS account_health,
+            (SELECT COUNT(DISTINCT inventory.product_id) FROM vendor_products inventory WHERE inventory.vendor_id = u.id AND inventory.product_id IS NOT NULL) AS unique_product_count
      FROM users u
      LEFT JOIN vendor_profiles vp ON vp.user_id = u.id
      WHERE u.id = ? AND u.role = 'Vendor' AND u.is_deleted = 0
@@ -173,7 +194,7 @@ async function findById(id) {
 
 async function emailOrPhoneTaken({ id = 0, email, phone }) {
   const [rows] = await pool.query(
-    'SELECT id FROM users WHERE is_deleted = 0 AND id != ? AND (email = ? OR phone = ?) LIMIT 1',
+    `SELECT id FROM users WHERE is_deleted = 0 AND id != ? AND (email = ? OR (phone = ? AND LOWER(role) = 'vendor')) LIMIT 1`,
     [id, email, phone]
   );
   return rows[0] || null;
@@ -298,9 +319,11 @@ async function setCategories(vendorId, categoryIds, connection = pool) {
   }
 }
 
-async function updateStatus(id, status) {
+async function updateStatus(id, status, rejectionReason = null) {
   await pool.query("UPDATE users SET status = ? WHERE id = ? AND role = 'Vendor' AND is_deleted = 0", [status, id]);
-  if (['active', 'approved'].includes(String(status).toLowerCase())) {
+  const isApp = ['active', 'approved'].includes(String(status).toLowerCase());
+  if (isApp) {
+    await pool.query("UPDATE vendor_profiles SET kyc_status = 'approved' WHERE user_id = ?", [id]).catch(() => {});
     try {
       const { notifyVendorEvent } = require('../services/notificationDispatcher');
       const [vRows] = await pool.query('SELECT name, email, phone FROM users WHERE id = ? LIMIT 1', [id]);
@@ -318,6 +341,10 @@ async function updateStatus(id, status) {
       }
     } catch (err) {
       console.error('[Vendor Model] Error triggering Vendor approval notification:', err);
+    }
+  } else if (status === 'rejected' || status === 'inactive') {
+    if (rejectionReason) {
+      await pool.query("UPDATE vendor_profiles SET kyc_status = 'rejected', kyc_rejection_reason = ? WHERE user_id = ?", [rejectionReason, id]).catch(() => {});
     }
   }
 }

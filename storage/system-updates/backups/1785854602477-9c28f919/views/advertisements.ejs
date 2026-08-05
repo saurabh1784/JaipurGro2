@@ -1,0 +1,677 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title><%= title %></title>
+  <link rel="stylesheet" href="/styles.css" />
+</head>
+<body class="system-theme">
+  <%- include('partials/system_sidebar', { shell }) %>
+  <main class="system-main">
+    <header class="topbar">
+      <div>
+        <p class="crumb">Dashboard / <%= title %></p>
+        <h1><%= title %></h1>
+      </div>
+      <% if (canCreate) { %>
+        <button class="settings-save" type="button" onclick="openForm(null, activeTypeFilter === 'top_text_ad' ? 'top_text_ad' : null)">Add Advertisement</button>
+      <% } %>
+    </header>
+
+
+    <section class="ad-tabs" aria-label="Advertisement type filters">
+      <button class="ad-tab active" type="button" data-ad-filter="all" onclick="setAdTab('all')">All Advertising</button>
+      <button class="ad-tab" type="button" data-ad-filter="top_text_ad" onclick="setAdTab('top_text_ad')">Top Text Advertising</button>
+    </section>
+    <% if (canCreate) { %>
+      <section class="top-text-ad-actions" id="topTextAdActions" hidden>
+        <button class="settings-save" type="button" onclick="openTopTextForm()">Add Top Text Advertisement</button>
+      </section>
+    <% } %>
+    <section class="users-table-card">
+      <table class="wallets-table">
+        <thead>
+          <tr>
+            <th>Campaign</th>
+            <th>Type</th>
+            <th>Target</th>
+            <th>Pages</th>
+            <th>Schedule</th>
+            <th>Analytics</th>
+            <th>Payment</th>
+            <th>Approval</th>
+            <th>Status</th>
+            <th>Preview</th>
+            <th>Actions</th>
+          </tr>
+        </thead>
+        <tbody id="advertisementBody"><tr><td colspan="11">Loading...</td></tr></tbody>
+      </table>
+    </section>
+  </main>
+
+  <div class="user-modal" id="advertisementModal" aria-hidden="true">
+    <div class="user-modal-card ad-modal-card">
+      <div class="user-modal-header">
+        <div>
+          <span class="ad-modal-kicker">Campaign manager</span>
+          <h2 id="modalTitle">Add Advertisement</h2>
+          <p>Configure creative, schedule, audience and payment details.</p>
+        </div>
+        <button class="ad-modal-close" type="button" onclick="closeForm()" aria-label="Close advertisement form">&times;</button>
+      </div>
+      <form class="user-modal-grid" id="advertisementForm">
+        <input type="hidden" id="advertisementId" />
+        <label>
+          Title
+          <input id="title" type="text" required />
+        </label>
+        <label>
+          Package / Plan
+          <input id="package_name" type="text" placeholder="Launch banner" />
+        </label>
+        <label>
+          Advertisement Type
+          <select id="ad_type">
+            <option value="page_banner">Page Banner</option>
+            <option value="launch_banner">Launch Banner</option>
+            <option value="in_app_card">In-App Card</option>
+            <option value="offer_banner">Offer Banner</option>
+            <option value="popup_banner">Popup Banner</option>
+            <option value="full_page_banner">Full Page Banner</option>
+            <option value="top_text_ad">Top Text Advertisement</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <label>
+          Start Date & Time
+          <input id="start_at" type="datetime-local" />
+        </label>
+        <label>
+          End Date & Time
+          <input id="end_at" type="datetime-local" />
+        </label>
+        <label>
+          Display Duration (Seconds)
+          <input id="countdown_seconds" type="number" min="1" max="120" value="5" />
+        </label>
+        <label>
+          Priority
+          <input id="priority" type="number" min="0" max="9999" value="0" />
+        </label>
+        <label>
+          Status
+          <select id="status">
+            <option value="draft">Draft</option>
+            <option value="active">Active</option>
+            <option value="paused">Inactive</option>
+            <option value="expired">Expired</option>
+            <option value="blocked">Blocked</option>
+          </select>
+        </label>
+        <label class="settings-wide">
+          Image / Banner / Small Icon
+          <input id="image" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+          <span class="wallet-muted" id="currentImageText"></span>
+          <div class="ad-current-image" id="currentImagePreview" hidden>
+            <img id="currentImage" alt="Advertisement preview" />
+          </div>
+        </label>
+        <label class="settings-wide">
+          Description
+          <textarea id="description"></textarea>
+        </label>
+
+        <label>
+          Advertiser Name
+          <input id="advertiser_name" type="text" />
+        </label>
+        <label>
+          Advertiser Email
+          <input id="advertiser_email" type="email" />
+        </label>
+        <label>
+          Advertiser Phone
+          <input id="advertiser_phone" type="text" />
+        </label>
+        <label>
+          Payment Amount
+          <input id="payment_amount" type="number" min="0" step="0.01" value="0" />
+        </label>
+        <label>
+          Payment Status
+          <select id="payment_status">
+            <option value="pending">Pending</option>
+            <option value="paid">Paid</option>
+            <option value="failed">Failed</option>
+            <option value="refunded">Refunded</option>
+          </select>
+        </label>
+        <label>
+          Approval Status
+          <select id="approval_status">
+            <option value="pending">Pending</option>
+            <option value="approved">Approved</option>
+            <option value="rejected">Rejected</option>
+          </select>
+        </label>
+        <label>
+          Invoice / Receipt No.
+          <input id="invoice_number" type="text" />
+        </label>
+        <label>
+          Receipt Path / URL
+          <input id="receipt_path" type="text" />
+        </label>
+
+        <fieldset class="settings-wide ad-fieldset">
+          <legend>Target Platform</legend>
+          <div class="ad-check-grid" id="targetPlatforms">
+            <% platforms.forEach((platform) => { %>
+              <label class="offer-city-option">
+                <input type="checkbox" value="<%= platform %>" />
+                <span><%= platform.replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase()) %></span>
+              </label>
+            <% }) %>
+          </div>
+        </fieldset>
+
+        <fieldset class="settings-wide ad-fieldset">
+          <legend>Target Pages</legend>
+          <div class="ad-check-grid" id="targetPages">
+            <label class="offer-city-option">
+              <input type="checkbox" value="app_start" />
+              <span>App Start</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="home" checked />
+              <span>Home</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="products" />
+              <span>Products</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="categories" />
+              <span>Categories</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="cart" />
+              <span>Cart</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="orders" />
+              <span>Orders</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="profile" />
+              <span>Profile</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="vendor_products" />
+              <span>Vendor Products</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="vendor_orders" />
+              <span>Vendor Orders</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="delivery_orders" />
+              <span>Delivery Orders</span>
+            </label>
+            <label class="offer-city-option">
+              <input type="checkbox" value="delivery_profile" />
+              <span>Delivery Profile</span>
+            </label>
+          </div>
+        </fieldset>
+
+        <label>
+          Target Category
+          <select id="target_category_id" onchange="syncTargetCategoryName()">
+            <option value="">Any Category</option>
+            <% (categories || []).forEach((category) => { %>
+              <option value="<%= category.id %>" data-name="<%= category.name %>"><%= category.name %></option>
+            <% }) %>
+          </select>
+          <input id="target_category_name" type="hidden" />
+        </label>
+        <label>
+          Click Action
+          <select id="click_action_type">
+            <option value="none">Do Nothing</option>
+            <option value="product">Open Product</option>
+            <option value="category">Open Category</option>
+            <option value="business">Open Business</option>
+            <option value="external_url">External URL</option>
+          </select>
+        </label>
+        <label>
+          Click Action Value
+          <input id="click_action_value" type="text" placeholder="Product/category id, business id, or URL" />
+        </label>
+        <label>
+          Target Location
+          <select id="city_scope" onchange="toggleLocationInputs()">
+            <option value="all">All Cities</option>
+            <option value="specific">Selected City / Area</option>
+          </select>
+        </label>
+        <label id="cityWrap">
+          City
+          <select id="city" onchange="renderAreaOptions()">
+            <option value="">Select City</option>
+            <% (cityOptions || []).forEach((city) => { %>
+              <option value="<%= city %>"><%= city %></option>
+            <% }) %>
+          </select>
+        </label>
+        <label class="settings-wide" id="areasWrap">
+          Areas
+          <div class="offer-city-list" id="areas"></div>
+          <span class="wallet-muted">Leave areas empty to target the whole selected city.</span>
+        </label>
+
+        <button class="settings-save ad-submit" type="submit">Save Advertisement</button>
+      </form>
+    </div>
+  </div>
+
+  <script>
+    const canEdit = <%= canEdit ? 'true' : 'false' %>;
+    const canDelete = <%= canDelete ? 'true' : 'false' %>;
+    const areaOptions = <%- JSON.stringify(areaOptions || []) %>;
+    let rows = [];
+    let activeTypeFilter = 'all';
+    let loadingRows = false;
+    let selectedAreas = new Set();
+
+    function esc(value) {
+      return String(value || '').replace(/[&<>"']/g, (char) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#039;' }[char]));
+    }
+    function money(value) { return 'INR ' + Number(value || 0).toFixed(2); }
+    function date(value) { return value ? new Date(value).toLocaleString() : 'Open'; }
+    function inputDate(value) {
+      if (!value) return '';
+      const date = new Date(value);
+      date.setMinutes(date.getMinutes() - date.getTimezoneOffset());
+      return date.toISOString().slice(0, 16);
+    }
+    function label(value) {
+      return String(value || '').replace(/_/g, ' ').replace(/\b\w/g, (letter) => letter.toUpperCase());
+    }
+
+    async function loadRows(force = false) {
+      if (loadingRows && !force) return;
+      loadingRows = true;
+      try {
+        const response = await fetch(`/api/advertisements?_t=${Date.now()}`, { cache: 'no-store' });
+        const data = await response.json();
+        if (data && Array.isArray(data.advertisements)) {
+          rows = data.advertisements;
+          renderRows();
+        }
+      } catch (err) {
+        console.error('Failed to load advertisements:', err);
+      } finally {
+        loadingRows = false;
+      }
+    }
+
+    function autoSyncRows() {
+      if (document.getElementById('advertisementModal').classList.contains('active')) return;
+      loadRows();
+    }
+
+
+    function setAdTab(type) {
+      activeTypeFilter = type || 'all';
+      document.querySelectorAll('.ad-tab').forEach((button) => {
+        button.classList.toggle('active', button.dataset.adFilter === activeTypeFilter);
+      });
+      const actions = document.getElementById('topTextAdActions');
+      if (actions) actions.hidden = activeTypeFilter !== 'top_text_ad';
+      renderRows();
+    }
+    function openTopTextForm() {
+      setAdTab('top_text_ad');
+      openForm(null, 'top_text_ad');
+    }
+    function renderRows() {
+      const body = document.getElementById('advertisementBody');
+      const visibleRows = activeTypeFilter === 'all'
+        ? rows
+        : rows.filter((row) => String(row.ad_type || '') === activeTypeFilter);
+      if (!visibleRows.length) {
+        body.innerHTML = '<tr><td colspan="11">No advertisements found</td></tr>';
+        return;
+      }
+      body.innerHTML = visibleRows.map((row) => `
+        <tr>
+          <td><strong>${esc(row.title)}</strong><span class="wallet-muted">${esc(row.advertiser_name || row.description)}</span></td>
+          <td>${esc(label(row.ad_type || 'page_banner'))}</td>
+          <td>${esc((row.target_platforms || []).map(label).join(', '))}<span class="wallet-muted">${row.city_scope === 'specific' ? `${esc(row.city)}${(row.areas || []).length ? ' / ' + esc(row.areas.join(', ')) : ''}` : 'All Cities'}</span></td>
+          <td>${esc((row.target_pages || []).join(', '))}<span class="wallet-muted">${row.target_category_name ? 'Category: ' + esc(row.target_category_name) : 'Any category'}</span></td>
+          <td>${date(row.start_at)}<br>${date(row.end_at)}<span class="wallet-muted">${Number(row.countdown_seconds || 0)}s display / Priority ${Number(row.priority || 0)}</span></td>
+          <td>${Number(row.impression_count || 0)} views<br><span class="wallet-muted">${Number(row.click_count || 0)} clicks</span></td>
+          <td>${money(row.payment_amount)}<span class="wallet-muted">${label(row.payment_status)}${row.invoice_number ? ' / ' + esc(row.invoice_number) : ''}</span></td>
+          <td><span class="user-status-pill ${row.approval_status === 'approved' ? 'active' : 'inactive'}">${label(row.approval_status)}</span></td>
+          <td><span class="user-status-pill ${row.status === 'active' ? 'active' : 'inactive'}">${label(row.status)}</span></td>
+          <td><div class="ad-preview">${row.image_path ? `<img src="${esc(row.image_path)}" alt="">` : ''}<span>${esc(row.description || row.title)}</span></div></td>
+          <td>
+            <div class="user-actions">
+              ${canEdit ? `<button type="button" data-action="edit" data-id="${esc(row.id)}">Edit</button>` : ''}
+              ${canEdit && row.status === 'active' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="paused">Deactivate</button>` : ''}
+              ${canEdit && (row.status === 'paused' || row.status === 'draft') ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="active">Activate</button>` : ''}
+              ${canEdit && row.status === 'blocked' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="active">Unblock</button>` : ''}
+              ${canEdit && row.status !== 'blocked' ? `<button type="button" data-action="status" data-id="${esc(row.id)}" data-status="blocked">Block</button>` : ''}
+              ${canDelete ? `<button type="button" data-action="delete" data-id="${esc(row.id)}">Delete</button>` : ''}
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    }
+
+    function openForm(id, forcedType = null) {
+      document.getElementById('advertisementForm').reset();
+      const row = rows.find((item) => Number(item.id) === Number(id)) || {};
+      document.getElementById('advertisementId').value = row.id || '';
+      document.getElementById('modalTitle').textContent = row.id
+        ? 'Edit Advertisement'
+        : forcedType === 'top_text_ad'
+          ? 'Add Top Text Advertisement'
+          : 'Add Advertisement';
+      ['title', 'description', 'package_name', 'ad_type', 'countdown_seconds', 'priority', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'target_category_id', 'target_category_name', 'click_action_type', 'click_action_value', 'city_scope', 'city'].forEach((key) => {
+        const input = document.getElementById(key);
+        if (input) input.value = row[key] ?? '';
+      });
+      if (!row.id) {
+        document.getElementById('ad_type').value = forcedType || 'page_banner';
+        document.getElementById('countdown_seconds').value = '5';
+        document.getElementById('priority').value = '0';
+        document.getElementById('click_action_type').value = 'none';
+        document.getElementById('click_action_value').value = '';
+        document.getElementById('target_category_id').value = '';
+        document.getElementById('target_category_name').value = '';
+        document.getElementById('status').value = 'draft';
+        document.getElementById('payment_status').value = 'pending';
+        document.getElementById('approval_status').value = 'pending';
+        document.getElementById('city_scope').value = 'all';
+        document.getElementById('city').value = '';
+        if (forcedType === 'top_text_ad') {
+          document.getElementById('status').value = 'active';
+          document.getElementById('countdown_seconds').value = '5';
+        }
+      }
+      document.getElementById('start_at').value = inputDate(row.start_at);
+      document.getElementById('end_at').value = inputDate(row.end_at);
+      document.getElementById('image').value = '';
+      document.getElementById('currentImageText').textContent = row.image_path ? `Current image: ${row.image_path}` : '';
+      renderImagePreview(row.image_path || '');
+      const selectedPlatforms = new Set((row.target_platforms || ['client_app']).map(String));
+      document.querySelectorAll('#targetPlatforms input').forEach((input) => {
+        input.checked = selectedPlatforms.has(input.value);
+      });
+      const selectedPages = new Set((row.target_pages || ['home']).map(String));
+      document.querySelectorAll('#targetPages input').forEach((input) => {
+        input.checked = selectedPages.has(input.value);
+      });
+      selectedAreas = new Set((row.areas || []).map((area) => String(area).toLowerCase()));
+      syncTargetCategoryName();
+      toggleLocationInputs();
+      document.getElementById('advertisementModal').classList.add('active');
+    }
+
+    function syncTargetCategoryName() {
+      const select = document.getElementById('target_category_id');
+      const selected = select.options[select.selectedIndex];
+      document.getElementById('target_category_name').value = selected ? selected.dataset.name || '' : '';
+    }
+
+    function toggleLocationInputs() {
+      const specific = document.getElementById('city_scope').value === 'specific';
+      document.getElementById('cityWrap').style.display = specific ? 'block' : 'none';
+      document.getElementById('areasWrap').style.display = specific ? 'block' : 'none';
+      renderAreaOptions();
+    }
+
+    function renderAreaOptions() {
+      const city = String(document.getElementById('city').value || '').toLowerCase();
+      const areas = areaOptions.filter((item) => String(item.city || '').toLowerCase() === city);
+      document.getElementById('areas').innerHTML = areas.length
+        ? areas.map((item) => `
+            <label class="offer-city-option">
+              <input type="checkbox" value="${esc(item.area)}" ${selectedAreas.has(String(item.area).toLowerCase()) ? 'checked' : ''} />
+              <span>${esc(item.area)}</span>
+            </label>
+          `).join('')
+        : '<span class="wallet-muted">No saved areas for this city yet.</span>';
+    }
+
+    function closeForm() {
+      document.getElementById('advertisementModal').classList.remove('active');
+    }
+
+    function renderImagePreview(src) {
+      const wrap = document.getElementById('currentImagePreview');
+      const image = document.getElementById('currentImage');
+      if (!src) {
+        wrap.hidden = true;
+        image.removeAttribute('src');
+        return;
+      }
+      image.src = src;
+      wrap.hidden = false;
+    }
+
+    document.getElementById('image').addEventListener('change', (event) => {
+      const file = event.target.files && event.target.files[0];
+      renderImagePreview(file ? URL.createObjectURL(file) : '');
+      document.getElementById('currentImageText').textContent = file ? `Selected image: ${file.name}` : '';
+    });
+
+    document.getElementById('advertisementForm').addEventListener('submit', async (event) => {
+      event.preventDefault();
+      const submitBtn = event.target.querySelector('button[type="submit"]');
+      if (submitBtn) submitBtn.disabled = true;
+      try {
+        const id = document.getElementById('advertisementId').value;
+        const payload = new FormData();
+        syncTargetCategoryName();
+        ['title', 'description', 'package_name', 'ad_type', 'start_at', 'end_at', 'countdown_seconds', 'priority', 'status', 'advertiser_name', 'advertiser_email', 'advertiser_phone', 'payment_amount', 'payment_status', 'approval_status', 'invoice_number', 'receipt_path', 'target_category_id', 'target_category_name', 'click_action_type', 'click_action_value', 'city_scope', 'city'].forEach((key) => {
+          payload.append(key, document.getElementById(key).value);
+        });
+        document.querySelectorAll('#targetPlatforms input:checked').forEach((input) => payload.append('target_platforms', input.value));
+        document.querySelectorAll('#targetPages input:checked').forEach((input) => payload.append('target_pages', input.value));
+        document.querySelectorAll('#areas input:checked').forEach((input) => payload.append('areas', input.value));
+        const image = document.getElementById('image').files[0];
+        if (image) payload.append('image', image);
+        const response = await fetch(`/api/advertisements${id ? `/${id}` : ''}`, { method: id ? 'PUT' : 'POST', body: payload });
+        const data = await response.json();
+        if (!data.success) {
+          alert(data.message || 'Unable to save advertisement');
+          return;
+        }
+        if (data.advertisement) {
+          const idx = rows.findIndex((row) => Number(row.id) === Number(data.advertisement.id));
+          if (idx >= 0) {
+            rows[idx] = data.advertisement;
+          } else {
+            rows.unshift(data.advertisement);
+          }
+          renderRows();
+        }
+        closeForm();
+        await loadRows(true);
+      } finally {
+        if (submitBtn) submitBtn.disabled = false;
+      }
+    });
+
+    document.getElementById('advertisementBody').addEventListener('click', (event) => {
+      const button = event.target.closest('button[data-action]');
+      if (!button) return;
+      const id = button.dataset.id;
+      if (button.dataset.action === 'edit') openForm(id);
+      if (button.dataset.action === 'status') quickStatus(id, button.dataset.status);
+      if (button.dataset.action === 'delete') deleteRow(id);
+    });
+
+    document.getElementById('areas').addEventListener('change', (event) => {
+      if (!event.target.matches('input[type="checkbox"]')) return;
+      const key = String(event.target.value || '').toLowerCase();
+      if (event.target.checked) selectedAreas.add(key);
+      else selectedAreas.delete(key);
+    });
+
+    async function quickStatus(id, status) {
+      const target = rows.find((row) => Number(row.id) === Number(id));
+      if (target) {
+        target.status = status;
+        renderRows();
+      }
+      const response = await fetch(`/api/advertisements/${id}/status`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to update status');
+      }
+      loadRows(true);
+    }
+
+    async function deleteRow(id) {
+      if (!confirm('Delete this advertisement?')) return;
+      rows = rows.filter((row) => Number(row.id) !== Number(id));
+      renderRows();
+      const response = await fetch(`/api/advertisements/${id}`, { method: 'DELETE' });
+      const data = await response.json();
+      if (!data.success) {
+        alert(data.message || 'Unable to delete');
+      }
+      loadRows(true);
+    }
+
+    loadRows();
+    setInterval(autoSyncRows, 10000);
+  </script>
+
+  <style>
+    .top-text-ad-actions {
+      display: flex;
+      justify-content: flex-end;
+      margin: -6px 0 14px;
+    }
+    .ad-tabs {
+      display: flex;
+      gap: 8px;
+      margin: 0 0 14px;
+      flex-wrap: wrap;
+    }
+    .ad-tab {
+      border: 1px solid #cbd5e1;
+      background: #ffffff;
+      color: #334155;
+      border-radius: 6px;
+      padding: 8px 12px;
+      font-weight: 900;
+      cursor: pointer;
+    }
+    .ad-tab.active {
+      background: #168832;
+      border-color: #168832;
+      color: #ffffff;
+    }
+    .ad-modal-card { max-width: 980px; }
+    .ad-fieldset {
+      border: 1px solid #d7dee8;
+      border-radius: 6px;
+      padding: 12px;
+      margin: 0;
+    }
+    .ad-fieldset legend {
+      padding: 0 6px;
+      font-weight: 900;
+      color: #334155;
+    }
+    .ad-check-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 8px;
+    }
+    .ad-preview {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      max-width: 260px;
+    }
+    .ad-preview img {
+      width: 54px;
+      height: 38px;
+      object-fit: cover;
+      border-radius: 4px;
+      flex: 0 0 auto;
+    }
+    .ad-preview span {
+      max-width: 190px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 800;
+    }
+    .ad-current-image {
+      margin-top: 10px;
+      width: min(100%, 420px);
+      border: 1px solid #d7dee8;
+      border-radius: 6px;
+      overflow: hidden;
+      background: #f8fafc;
+    }
+    .ad-current-image img {
+      display: block;
+      width: 100%;
+      max-height: 220px;
+      object-fit: contain;
+    }
+    /* Modern advertisement editor */
+    .user-modal#advertisementModal { padding: 24px; background: rgba(15, 23, 42, .62); backdrop-filter: blur(5px); }
+    .ad-modal-card { width: min(1040px, 100%); max-width: 1040px; max-height: calc(100vh - 48px); padding: 0; overflow: hidden; border: 1px solid rgba(226,232,240,.9); border-radius: 18px; background: #f8fafc; box-shadow: 0 28px 80px rgba(15,23,42,.28); }
+    .ad-modal-card .user-modal-header { position: sticky; top: 0; z-index: 4; display: flex; align-items: flex-start; justify-content: space-between; padding: 22px 26px 18px; border-bottom: 1px solid #e2e8f0; background: rgba(255,255,255,.96); }
+    .ad-modal-card .user-modal-header h2 { margin: 2px 0 4px; color: #0f172a; font-size: 22px; line-height: 1.2; }
+    .ad-modal-card .user-modal-header p { margin: 0; color: #64748b; font-size: 13px; }
+    .ad-modal-kicker { color: #15803d; font-size: 11px; font-weight: 900; letter-spacing: .12em; text-transform: uppercase; }
+    .ad-modal-close { display: grid; width: 34px; height: 34px; padding: 0; place-items: center; border: 1px solid #e2e8f0 !important; border-radius: 10px !important; background: #f8fafc !important; color: #475569 !important; font-size: 24px; line-height: 1; cursor: pointer; }
+    .ad-modal-close:hover { border-color: #cbd5e1 !important; background: #f1f5f9 !important; color: #0f172a !important; }
+    #advertisementForm { display: grid; grid-template-columns: repeat(2,minmax(0,1fr)); gap: 18px 20px; max-height: calc(100vh - 154px); padding: 24px 26px 28px; overflow-y: auto; }
+    #advertisementForm > label { display: flex; min-width: 0; margin: 0; gap: 7px; color: #334155; font-size: 12px; font-weight: 800; letter-spacing: .01em; flex-direction: column; }
+    #advertisementForm > label.settings-wide, #advertisementForm > .settings-wide { grid-column: 1 / -1; }
+    #advertisementForm input:not([type="checkbox"]):not([type="file"]), #advertisementForm select, #advertisementForm textarea { width: 100%; min-height: 44px; box-sizing: border-box; border: 1px solid #d8e1ea; border-radius: 10px; background: #fff; color: #0f172a; font: inherit; font-size: 14px; font-weight: 500; outline: none; transition: border-color .18s ease,box-shadow .18s ease; }
+    #advertisementForm input:not([type="checkbox"]):not([type="file"]):focus, #advertisementForm select:focus, #advertisementForm textarea:focus { border-color: #22a447; box-shadow: 0 0 0 3px rgba(34,164,71,.13); }
+    #advertisementForm textarea { min-height: 96px; resize: vertical; }
+    #advertisementForm input[type="file"] { width: 100%; box-sizing: border-box; padding: 8px; border: 1px dashed #b8c7d8; border-radius: 10px; background: #fff; color: #64748b; font-size: 13px; }
+    #advertisementForm input[type="file"]::file-selector-button { margin-right: 10px; padding: 7px 12px; border: 0; border-radius: 7px; background: #eaf7ee; color: #167336; font-weight: 800; cursor: pointer; }
+    #advertisementForm .ad-fieldset { border-color: #d7e0e9; border-radius: 12px; padding: 16px; background: #fff; }
+    #advertisementForm .ad-fieldset legend { padding: 0 8px; color: #1e293b; font-size: 13px; }
+    #advertisementForm .ad-check-grid { grid-template-columns: repeat(auto-fill,minmax(112px,max-content)); gap: 7px; }
+    #advertisementForm .offer-city-option { display: inline-flex; min-height: 30px; width: auto; margin: 0; padding: 4px 9px; align-items: center; gap: 7px; border: 1px solid #dbe4ed; border-radius: 8px; background: #f8fafc; color: #475569; font-size: 12px; font-weight: 700; cursor: pointer; }
+    #advertisementForm .offer-city-option:has(input:checked) { border-color: #86d69d; background: #edf9f0; color: #146c31; }
+    #advertisementForm input[type="checkbox"] { width: 14px; height: 14px; margin: 0; accent-color: #168832; }
+    #advertisementForm .ad-current-image { border-radius: 12px; }
+    #advertisementForm .wallet-muted { color: #7c8ca0; font-size: 11px; font-weight: 500; }
+    #advertisementForm .ad-submit { grid-column: 1 / -1; justify-self: end; min-width: 190px; min-height: 44px; margin-top: 4px; border-radius: 10px; box-shadow: 0 8px 20px rgba(22,136,50,.2); }
+    @media (max-width: 720px) { .user-modal#advertisementModal { padding: 0; } .ad-modal-card { width: 100%; max-height: 100vh; border-radius: 0; } .ad-modal-card .user-modal-header { padding: 18px; } #advertisementForm { grid-template-columns: 1fr; max-height: calc(100vh - 116px); padding: 18px; } #advertisementForm > label.settings-wide, #advertisementForm > .settings-wide, #advertisementForm .ad-submit { grid-column: 1; } #advertisementForm .ad-submit { width: 100%; justify-self: stretch; } }  </style>
+  <script src="/image-upload-editor.js"></script>
+</body>
+</html>
+
+
+
+
+
+
+
+
+
